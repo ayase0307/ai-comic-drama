@@ -12,6 +12,7 @@
 ![MiniMax H3](https://img.shields.io/badge/MiniMax-H3%20ready-f59e0b)
 ![Python](https://img.shields.io/badge/Python-3.8%2B-3776ab?logo=python&logoColor=white)
 ![Zero dependency](https://img.shields.io/badge/dependencies-zero-22c55e)
+![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 ![PRs welcome](https://img.shields.io/badge/PRs-welcome-ec4899)
 
 [特色](#-特色) · [快速開始](#-快速開始) · [七階段流程](#-七階段流程) · [角色一致性](#-角色一致性靠複用不靠重寫) · [專案結構](#-專案結構) · [文件索引](#-文件索引)
@@ -144,6 +145,10 @@ ai-comic-drama/
 
 生成能力每次呼叫都會產生費用。Skill 規定動工前必須告知：圖像約 5–10 credits／張，影片約 50–100 credits／5 秒，影片生成需 1–3 分鐘。實際數字依你使用的平台而異。
 
+## 📄 授權
+
+[MIT](LICENSE)
+
 ## 🤝 貢獻
 
 歡迎 Issue 與 PR：新增情境庫、其他模型的提示詞對照、更多範例都很有價值。
@@ -151,5 +156,5 @@ ai-comic-drama/
 ---
 
 <div align="center">
-<sub>README 頂圖與插圖由 Gemini（Nano Banana 2.1）生成。</sub>
+<sub>橫幅與角色設定圖由 Codex（imagegen）生成，流程圖與分鏡圖由 Gemini（Nano Banana 2.1）生成。</sub>
 </div>
