@@ -1,10 +1,16 @@
 # 搭配 FreeVideo：讓 Agent 直接在本機出片
 
-FreeVideo 是使用者本機的影片生成工具（預設 `http://127.0.0.1:8189`），內建 MiniMax H3 本地生成，並提供給 Agent 使用的接口與 MCP。建議本技能的階段 6（生成）一律先走 FreeVideo，不必再問「用哪個影片工具」。**FreeVideo 沒開或連不上時，才退回 `references/model-profiles.md` 的詢問流程。**
+[FreeVideo](https://github.com/FlashML-org/FreeVideo) 是使用者本機的 AI 影片生成工具，內建 MiniMax H3，並提供 Agent 專用的 HTTP 接口與 MCP。
+
+**能做什麼**：文字生影片（可帶首幀、首尾幀、人物／影片／音檔參考）；角色與場景卡片庫；多鏡影片（預覽劇本、逐鏡選片與重拍、自動拼接）；單段最長約 60 秒、更長自動接續；圖片生成與影格抽取。
+
+**為什麼搭配**：本技能把故事變成分鏡與提示詞，FreeVideo 把它們做成片，Agent 不必再靠使用者手動搬運。它吃官方 H3 格式，提示詞原樣可送；角色卡讓角色一致直接沿用角色圖，而不只是貼描述片段；全程在本機，素材不外流。
+
+階段 6 一律先走 FreeVideo；**FreeVideo 沒開或連不上時，才退回 `references/model-profiles.md` 的詢問流程。**
 
 ## 連線（每個新 session 先做一次）
 
-1. `GET http://127.0.0.1:8189/freevideo/agent`：回 `enabled: true` 才代表可用。
+1. （預設位址）`GET http://127.0.0.1:8189/freevideo/agent`：回 `enabled: true` 才代表可用。
 2. `GET http://127.0.0.1:8189/freevideo/agent/v1/connect?lang=zh`：讀純文字接入說明，**以該說明為準**（令牌檔位置、MCP 指令都寫在裡面，版本更新會變）。
 3. 令牌讀取：從說明指定的令牌檔讀，放進 `Authorization: Bearer` 標頭。**不要印出令牌、不要展示給使用者、不要寫進任何檔案**（包含本 repo）。
 4. `POST /connect/hello` 打招呼，再 `GET /` 看 `ready`、可用功能與未完成的影片。
