@@ -27,7 +27,7 @@ agent_created: true
 4. **生成前先問清楚，再動手。** 圖像與影片**都要**先問使用者：用哪個模型／工具、參數怎麼設、提示詞用中文還英文、先做幾鏡。**提示詞會隨模型不同而變**，確認後才依該模型改寫。詳見 `references/model-profiles.md`。
 5. **成本要事先講。** 動用生成能力前**必須**告知使用者：圖像約 5–10 credits／張，影片約 50–100 credits／5 秒。未告知不要開始生成。
 6. **不假裝生成。** 沒有實際呼叫生成工具，就不得聲稱已產出圖片或影片。
-7. **H3 走守富定版骨架。** 用 MiniMax H3 時，影片提示詞一律 `【鏡頭——賣點】` → `【光線——色調】` → `【皮膚——通透白皙有真實肌理】` 三段，**皮膚段整段照抄**，只微調光色字眼。原文見 `references/h3/skin-block.md`。
+7. **H3 走守富定版骨架。** 用 MiniMax H3 時，影片提示詞一律 `【鏡頭——賣點】` → `【光線——色調】` → `【皮膚——通透白皙有真實肌理】` 三段，**皮膚段整段照抄**，只微調光色字眼。原文見 `references/h3/skin-realism-block.md`。
 
 ---
 
@@ -96,19 +96,23 @@ agent_created: true
 - `references/pipeline.md` — 七階段詳細流程、提問清單與各階段模板。
 - `references/model-profiles.md` — **生成前必問清單**，以及各圖像／影片模型的提示詞風格對照與改寫流程。
 - `references/minimax-h3.md` — **MiniMax H3 專章（入口）**：規格、五種模式、預算表、十條速查、Red Flags。用 H3 前必讀。
-- `references/h3/` — H3 細部參考：
-  - `official-format.md` — 官方格式（欄位名、對齊指令、運鏡詞表、`<d>`／`<scenetrans>`／`<cutoff>`、Ref2VA 六段式）。
-  - `skin-block.md` — **守富定版**三段式骨架與皮膚段原文（整段照抄）。
-  - `motion-and-rhythm.md` — 動作弧線、重量動量、材質回應、表情口型、節奏卡點、多段拼接。
+- `references/h3/` — H3 細部參考（與上游 [h3-video-prompting](https://github.com/ayase0307/h3-video-prompting) 的 `references/` 同名同步；詳見 `memory.md`）：
+  - `prompt-formats.md` — 四種 prompt 格式決策（官方三欄／六段式／中文三段／社群區塊）、對齊句、參考檔上限。
+  - `skin-realism-block.md` — **守富定版**三段式骨架與皮膚段原文（整段照抄）。
+  - `motion-quality.md`、`action-choreography.md`、`rhythm-and-pacing.md` — 動作品質、動作拆解與打鬥一拍、節奏卡點與時間軸。
+  - `shot-variety-and-staging.md` — 跨 shot 變化四軸、spec 卡、送出前自檢（寫完 prompt 必跑 §10）。
   - `failure-triage.md` — 症狀→原因→最小修正對照表、送出前 8 問、成本策略。
-  - `scenarios-people.md` — 情境庫 A：對白短劇、UGC、唱歌、舞蹈、打鬥、跑酷、喜劇、情感、懸疑、vlog、POV、旁白數位人、真人照片。
-  - `scenarios-visual.md` — 情境庫 C：空鏡、自然、動物、車輛、2D anime、3D 卡通、黏土紙藝、手繪融合、動態圖形、VFX、循環、設定板、綠幕、混剪。
+  - `scenarios-people.md` — 情境庫 A：對白短劇★、UGC、唱歌、舞蹈、打鬥★、跑酷、喜劇、情感、懸疑、vlog、POV、旁白數位人★、真人照片（★＝漫劇常用）。
+  - `scenarios-world-and-styles.md` — 情境庫 C：空鏡、自然、動物、車輛、2D anime、3D 卡通、黏土紙藝、手繪融合、動態圖形、VFX、循環、設定板、綠幕、混剪。
   - `scenarios-commercial.md` — 情境庫 B：產品 hero、開箱、液體食物、品牌片、時尚美妝、logo 片頭、UI、電商、工業、建築。
-  - `camera-and-transitions.md` — 運鏡詞表、景別鏡頭角度、各類型預設鏡頭、切鏡、轉場寫成事件、手持感。
-  - `audio-and-dialogue.md` — 三層音軌、對白預算、speaker 格式、表演方向、聲音參考、字幕、音效同步、配樂。
-  - `references-and-longform.md` — 素材分工、動作／運鏡／表演遷移、影片編輯、續接、長片分段規劃、首尾幀與循環、真人照片。
-  - `example-fight-10s.md` — 完整 10 秒打鬥範例與決策說明。
+  - `camera-and-transitions.md` — 運鏡詞表、景別鏡頭角度、各類型預設鏡頭、切鏡、轉場寫成事件、手持感、運鏡動機、rack focus。
+  - `audio-and-dialogue.md`、`audio-pipeline.md` — 三層音軌、對白預算、speaker 格式；聲音一次到位、跨片段鎖音色、外部 TTS、Openverse 後製。
+  - `lighting-and-color.md` — 光影配色與跨鏡頭色彩一致；腳本 `scripts/color_qa.py`。
+  - `references-and-editing.md`、`long-form-planning.md` — 素材分工、遷移、影片編輯、續接；長片分段規劃。
+  - `example-fight-10s.md`、`example-spec-to-prompt-10s.md`、`example-seedance-to-h3.md` — 完整改寫範例。
+  - `community-sources.md` — 規則來源與可信度。
 - `references/prompt-playbook.md` — 圖像／影片提示詞撰寫手冊（景別、運鏡、光線、風格鎖、負面提示詞）。
 - `references/storyboard-format.md` — 分鏡表欄位定義、JSON schema、一致性機制。
 - `scripts/init_project.py` — 建立專案骨架與模板檔。
 - `scripts/storyboard_to_table.py` — 分鏡 JSON → Markdown／CSV 表格與時間線。
+- `scripts/color_qa.py` — 跨鏡頭色彩一致性檢查（同步自上游，用法見 `references/h3/lighting-and-color.md`）。

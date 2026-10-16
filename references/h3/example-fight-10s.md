@@ -1,14 +1,14 @@
-# 完整範例：10 秒屋頂打鬥（T2VA，無配樂，卡點靠音效）
+# 範例：10 秒屋頂打鬥（T2VA，無配樂，卡點靠音效）
 
-**Brief**：10 s、16:9、實拍電影感。女劍客在雨夜屋頂對兩名蒙面刺客。要有節奏、切點落在拍子上、一個慢動作格擋、快速收尾踢人下樓。無配樂，角色不說話。
+Brief：10 s、16:9、實拍電影感。女劍客在雨夜屋頂對兩名蒙面刺客。要有節奏、切點落在拍子上、一個慢動作格擋、快速收尾踢人下樓。無配樂，角色不說話。
 
 ## 預算決定
 
-- 10 s → **4 個 shot**（各約 2.5 s，依資訊量微調），每個 shot 一拍。
-- 沒有音樂，「拍子」＝ **每次金屬接觸聲**；在 Shot 1 就宣告規則。
-- **慢動作獨立成 Shot 3**，該 shot 把大雨降成細雨、拿掉背景霓虹閃爍。
-- 三個角色：**一次只讓一個刺客行動**。
-- 不說話：開頭正向宣告，全片給她持續動作，**不寫「看鏡頭」**。
+- 10 s → 4 個 shot（2.5 / 2.5 / 2.5 / 2.5 左右，依資訊量微調），每個 shot 一拍。
+- 沒有音樂，「拍子」= 每次金屬接觸聲；在 Shot 1 就宣告規則。
+- 慢動作獨立成 Shot 3，該 shot 把大雨降成細雨、拿掉背景霓虹閃爍。
+- 三個角色：一次只讓一個刺客行動。
+- 不說話：開頭正向宣告，全片給她持續動作，不寫「看鏡頭」。
 
 ## Prompt
 
@@ -31,10 +31,10 @@ non_diegetic_music: N/A
 | 決定 | 對應規則 |
 |---|---|
 | 4 個 shot、最短 2.5 s | shot ≥ 2 s；10 s 內 3–4 個 |
-| 每個 shot 只有一個刺客動作 | 一拍 ＝ 建立→攻擊→接觸→反應 |
-| `Every cut in this video lands exactly on a blade-contact sound` | **卡點寫觸發物** |
-| Shot 3 用細雨 + 平牆 | **慢動作降熵** |
-| `on that ring / on that contact the shot cuts` | **cut 綁事件**，不綁「energetic」 |
-| 開頭 `stays silent … mouth naturally closed` + 全片都在動 | 官方不說話寫法 |
+| 每個 shot 只有一個刺客動作 | 一拍 = 建立→攻擊→接觸→反應 |
+| 「Every cut lands on a blade-contact sound」 | 卡點寫觸發物 |
+| Shot 3 drizzle + flat wall | 慢動作降熵 |
+| 「on that ring / on that contact the shot cuts」 | cut 綁事件，不綁「energetic」 |
+| 開頭「stays silent … mouth naturally closed」+ 全片都在動 | 官方不說話寫法 |
 | 音效在動作旁寫一次、soundscape 依序再述 | 官方音效建議 |
-| `N/A` 且全文無音樂情緒詞 | 防漏音樂 |
+| N/A 且全文無音樂情緒詞 | 防漏音樂 |

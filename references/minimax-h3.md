@@ -32,7 +32,7 @@ MiniMax H3（即 Hailuo 3）是**全模態影視生成模型**，有官方規定
 - **基礎模式（T2VA / I2VA / FL2VA / L2VA）**：對齊指令（圖生類才有）＋ **三欄** `integrated_multimodal_description` / `overall_soundscape` / `non_diegetic_music`。
 - **全能參考（Ref2VA）**：**六段式** `subject_definitions` / `summary` / `retention_analysis` / `detailed_description` / `overall_soundscape` / `non_diegetic_music`。
 
-**完整格式（欄位原文、運鏡詞表、`<d>`／`<scenetrans>`／`<cutoff>` 標籤、畫內文字寫法）見 `h3/official-format.md`。**
+**完整格式（欄位原文、運鏡詞表、`<d>`／`<scenetrans>`／`<cutoff>` 標籤、畫內文字寫法）見 `h3/prompt-formats.md`（四種格式決策表）；欄位原文以官方 repo 為準。**
 
 ## 預算表（社群實測上限）
 
@@ -45,7 +45,7 @@ MiniMax H3（即 Hailuo 3）是**全模態影視生成模型**，有官方規定
 | 對白 | 15 s 約 20 英文字；每句約 10 字；**一個 `<d>` 一句** | 語速趕、口型壞、亂語 |
 | 重要角色 | ≤ 3 | 身份漂移、錯人說話 |
 | 慢動作 | 獨立 shot，背景動態元素減到最少 | 抖動、閃爍 |
-| 純文字 prompt | 300–700 英文字 | 太短＝沒東西可參考 |
+| 純文字 prompt | 300–700 英文字（社群經驗值，官方無此數字） | 太短＝沒東西可參考 |
 | 有參考素材時 | 字數要縮，**只寫新變化** | 文字與圖片互搶，臉會變 |
 
 ## 十條速查
@@ -77,7 +77,7 @@ MiniMax H3（即 Hailuo 3）是**全模態影視生成模型**，有官方規定
 
 **守富定版三段式骨架**：`【鏡頭——賣點】` → `【光線——色調】` → `【皮膚——通透白皙有真實肌理】`（**皮膚段整段照抄**）。
 
-- 完整原文（含 H3 散文版）見 **`h3/skin-block.md`**。
+- 完整原文（含 H3 散文版）見 **`h3/skin-realism-block.md`**。
 - 前兩段依場景改寫；皮膚段只微調光色字眼。
 - 搭 fal `MiniMax-H3-Realism-People-LoRA` 時，`r34l1sm` 放 prompt 最開頭。
 
@@ -87,27 +87,34 @@ MiniMax H3（即 Hailuo 3）是**全模態影視生成模型**，有官方規定
 
 | 你要做的 | 讀 |
 |---|---|
-| 查官方欄位、對齊指令、運鏡詞、`<d>` 標籤、Ref2VA 六段式 | `h3/official-format.md` |
-| 套用**守富定版**皮膚段骨架 | `h3/skin-block.md` |
-| 讓動作有重量、材質有回應、表情有意圖；排節奏、卡點、時間軸、速度詞 | `h3/motion-and-rhythm.md` |
+| 選格式：官方三欄／六段式／中文三段／社群區塊式；對齊句、參考檔上限 | `h3/prompt-formats.md` |
+| 套用**守富定版**皮膚段骨架 | `h3/skin-realism-block.md` |
+| 讓動作有重量、材質有回應、表情有意圖（含慢動作、動畫風格規律） | `h3/motion-quality.md` |
+| 排節奏、卡點、時間軸、速度詞 | `h3/rhythm-and-pacing.md` |
+| 人物動作拆解、打鬥一拍公式、多對一 | `h3/action-choreography.md` |
 | 生成結果不對，查症狀與修法；送出前 8 問、成本策略 | `h3/failure-triage.md` |
+| **寫完 prompt 必跑**：跨 shot 變化四軸、spec 卡、能量曲線、送出前自檢（每個 shot 都對卻整支單調） | `h3/shot-variety-and-staging.md` §10 |
 
 ### 情境庫（挑最接近的一到兩個來讀）
 
 | 你要做的 | 讀 |
 |---|---|
-| 對白短劇、UGC 口播、唱歌 MV、舞蹈、**打鬥**、跑酷追逐、喜劇、情感特寫、懸疑偽紀實、vlog、POV/FPS、**旁白數位人**、真人照片動畫 | `h3/scenarios-people.md` |
-| 空鏡 B-roll、自然天氣、動物、車輛追逐空拍、手機偽紀實、**2D anime**、3D 卡通、黏土紙藝、手繪實拍融合、動態圖形、變身 VFX、無縫循環、角色設定板、綠幕重打光、多素材混剪 | `h3/scenarios-visual.md` |
+| 對白短劇★、UGC 口播、唱歌 MV、舞蹈、**打鬥**★、跑酷追逐、喜劇、情感特寫、懸疑偽紀實、vlog、POV/FPS、**旁白數位人**★、真人照片動畫（★＝漫劇常用） | `h3/scenarios-people.md` |
+| 空鏡 B-roll、自然天氣、動物、車輛追逐空拍、手機偽紀實、**2D anime**、3D 卡通、黏土紙藝、手繪實拍融合、動態圖形、變身 VFX、無縫循環、角色設定板、綠幕重打光、多素材混剪 | `h3/scenarios-world-and-styles.md` |
 | 產品 hero、開箱示範、液體食物、品牌片、時尚美妝、logo 片頭字卡、UI/遊戲選單、電商帶貨、工業機器人、建築旅遊 | `h3/scenarios-commercial.md` |
 
 ### 進階
 
 | 你要做的 | 讀 |
 |---|---|
-| 鏡頭語言：運鏡詞表、景別鏡頭角度、各類型預設鏡頭、切鏡、轉場寫成事件、手持感 | `h3/camera-and-transitions.md` |
-| 聲音：三層音軌、對白預算、speaker 格式、表演方向、聲音參考、字幕、音效同步、配樂 | `h3/audio-and-dialogue.md` |
-| 素材分工、動作／運鏡／表演遷移、影片編輯、續接、**長片分段規劃**、首尾幀與循環、真人照片 | `h3/references-and-longform.md` |
-| 看一段完整的 10 秒打鬥改寫與決策說明 | `h3/example-fight-10s.md` |
+| 鏡頭語言：運鏡詞表、景別鏡頭角度、各類型預設鏡頭、切鏡、轉場寫成事件、手持感、運鏡動機、rack focus | `h3/camera-and-transitions.md` |
+| 聲音：三層音軌、對白預算、speaker 格式、表演方向、聲音參考、字幕、音效同步、配樂（含音訊規則索引） | `h3/audio-and-dialogue.md` |
+| 聲音一次到位、跨片段鎖音色、情緒表演 vs 外部 TTS、必須配音時避開口型、Openverse 後製音效與 ffmpeg 混音 | `h3/audio-pipeline.md` |
+| 光影配色、跨鏡頭色彩一致、角色重打光防貼紙；色彩 QA 腳本 `scripts/color_qa.py` | `h3/lighting-and-color.md` |
+| 素材分工、動作／運鏡／表演遷移、影片編輯、續接、首尾幀與循環、真人照片 | `h3/references-and-editing.md` |
+| **長片分段規劃**（30–60 秒以上、路線選擇、幀數網格、接點載體、分鏡表模板） | `h3/long-form-planning.md` |
+| 完整改寫範例：10 秒打鬥、spec 卡→三欄 prompt、Seedance 時間碼→H3 Ref2VA | `h3/example-fight-10s.md`、`h3/example-spec-to-prompt-10s.md`、`h3/example-seedance-to-h3.md` |
+| 各條規則的來源與可信度（官方／社群實測／方法主張） | `h3/community-sources.md` |
 
 ## 放進漫劇流程
 
@@ -118,7 +125,7 @@ MiniMax H3（即 Hailuo 3）是**全模態影視生成模型**，有官方規定
    - 有角色參考圖 + 運鏡參考片 → `Ref2VA`，逐一交代素材分工。
 3. **聲音**：`sfx` → `overall_soundscape`；BGM → `non_diegetic_music`；旁白／對白用 `<d>` 寫進 `integrated_multimodal_description`。
 4. **時長**：H3 支援 4–15 秒，比分鏡表預設的 2–6 秒寬鬆——可把相鄰短鏡合併成一段生成，再剪開。
-5. **生成後不對 → 先查 `h3/failure-triage.md` 再改**，不要盲目重抽。
+5. **生成後不對 → 先查 `h3/failure-triage.md` 再改**，不要盲目重抽；寫完整集 prompt 後跑 `h3/shot-variety-and-staging.md` §10 自檢。
 
 ## 回寫欄位
 
@@ -133,5 +140,5 @@ MiniMax H3（即 Hailuo 3）是**全模態影視生成模型**，有官方規定
 ## 來源與致謝
 
 - **官方**：`MiniMax-AI/MiniMax-H3` → `skills/h3-prompt-writing`（欄位名、對齊指令、`<d>` 標籤、Ref2VA 六段式）。**格式以官方為準。**
-- **實戰整理**：`ayase0307/h3-video-prompting`（MIT）— 動作品質、節奏卡點、失敗分診、情境 playbook、社群來源彙整。
+- **實戰整理（以此為準）**：[`ayase0307/h3-video-prompting`](https://github.com/ayase0307/h3-video-prompting)（MIT）— `references/h3/` 即其 `references/` 的同步版，檔名一致；兩邊有出入以該 repo 為準。同步紀錄見根目錄 `memory.md`。
 - 本專案僅整理規則與寫法，範例為重寫；第三方 prompt 與文章版權屬原作者。
