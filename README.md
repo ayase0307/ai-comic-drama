@@ -28,7 +28,7 @@
 | 🧩 **零外部依賴** | 不需要自託管平台、MCP、資料庫。寫作與分鏡由 Agent 完成，出圖出片用內建生成能力。 |
 | 🎭 **角色一致** | 角色／場景／道具各有一份固定描述片段，每次原樣貼上，不臨場改寫。 |
 | 🗂️ **全程落檔** | 每個階段的產物都是檔案，隨時續做、改稿、交接。 |
-| 🛑 **生成前先問** | 模型、參數、提示詞語言與鏡數，確認後才動工；絕不假裝生成。 |
+| 🛑 **生成前先確認** | 工具、參數、提示詞語言與鏡數，確認後才動工；絕不假裝生成。 |
 | 🎞️ **MiniMax H3 專章** | 官方三段式骨架、情境庫、失敗診斷表，附完整 10 秒打鬥範例。 |
 | 🔧 **小工具** | 一鍵建立專案骨架、分鏡 JSON 轉表格與剪輯時間線。 |
 
@@ -138,9 +138,14 @@ ai-comic-drama/
 | [`references/model-profiles.md`](references/model-profiles.md) | 生成前必問清單、各模型提示詞風格對照 |
 | [`references/prompt-playbook.md`](references/prompt-playbook.md) | 景別、運鏡、光線、風格鎖、負面提示詞 |
 | [`references/storyboard-format.md`](references/storyboard-format.md) | 分鏡欄位、JSON schema、一致性機制 |
+| [`references/freevideo.md`](references/freevideo.md) | 搭配 FreeVideo 出片：連線、規則、階段對應 |
 | [`agent.md`](agent.md) / [`memory.md`](memory.md) | 給維護本技能的 Agent：進場規範與跨 agent 交接記憶 |
 | [`references/minimax-h3.md`](references/minimax-h3.md) | MiniMax H3 專章入口 |
 | [`references/h3/`](references/h3/) | 官方格式、皮膚段骨架、動作節奏、失敗診斷、情境庫（人物／視覺／商業）、運鏡轉場、音訊對白、長片分段、10 秒打鬥範例 |
+
+## 🎥 建議搭配 FreeVideo
+
+本技能在本機運行，建議搭配 **FreeVideo**（本機影片生成工具，預設 `http://127.0.0.1:8189`）：Agent 可直接選角、拍攝、選片與拼接，階段 6 不必再手動搬提示詞。連線步驟、規則與七階段對應見 [`references/freevideo.md`](references/freevideo.md)；FreeVideo 沒開時會退回「先問模型再生成」的流程。
 
 ## 🔗 搭配的專案
 

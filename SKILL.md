@@ -25,7 +25,7 @@ agent_created: true
 2. **一致性靠複用，不靠重寫。** 角色、場景、道具各有一份固定的描述片段，每次生成原樣貼上，不臨場改寫。詳見 `references/storyboard-format.md`。
 3. **先分鏡，後生成。** 分鏡表未定稿不出圖；出圖後先確認角色長相，再拿去生成影片。
 4. **生成前先問清楚，再動手。** 圖像與影片**都要**先問使用者：用哪個模型／工具、參數怎麼設、提示詞用中文還英文、先做幾鏡。**提示詞會隨模型不同而變**，確認後才依該模型改寫。詳見 `references/model-profiles.md`。
-5. **成本要事先講。** 動用生成能力前**必須**告知使用者：圖像約 5–10 credits／張，影片約 50–100 credits／5 秒。未告知不要開始生成。
+5. **影片生成優先走 FreeVideo。** 本技能在使用者本機運行，建議搭配 FreeVideo（`http://127.0.0.1:8189`）讓 Agent 直接出片；連線與用法見 `references/freevideo.md`。FreeVideo 連不上才退回問模型的流程。
 6. **不假裝生成。** 沒有實際呼叫生成工具，就不得聲稱已產出圖片或影片。
 7. **H3 走守富定版骨架。** 用 MiniMax H3 時，影片提示詞一律 `【鏡頭——賣點】` → `【光線——色調】` → `【皮膚——通透白皙有真實肌理】` 三段，**皮膚段整段照抄**，只微調光色字眼。原文見 `references/h3/skin-realism-block.md`。
 
@@ -68,9 +68,9 @@ agent_created: true
 
 ## 階段 6 生成：怎麼做才穩
 
-**6.0 先問清楚（圖像、影片各一次，不可跳過）**
+**6.0 先確認工具（不可跳過）**
 
-用一張表問完：模型／工具、關鍵參數（比例、時長、解析度、音訊）、提示詞語言、生成範圍。問完才動工。
+先試連 FreeVideo（`references/freevideo.md`）；連得上，影片就走它，只需確認比例、時長、鏡數與提示詞語言。連不上或使用者指定別的工具，才用一張表問完：模型／工具、關鍵參數（比例、時長、解析度、音訊）、提示詞語言、生成範圍。問完才動工。
 
 > **提示詞依模型而異**——自然語言型、標籤堆疊型、中文原生型寫法完全不同。先寫一版模型無關的主提示詞，再依目標模型改寫。對照表見 `references/model-profiles.md`；**若用 MiniMax H3，改用 `references/minimax-h3.md` 的官方三段式結構**（通用公式套不上去）。
 
@@ -82,18 +82,19 @@ agent_created: true
 
 **6.4 逐鏡生成、逐鏡檢查**。不要一次丟十幾鏡；出問題先修提示詞再重試。
 
-> 圖像與影片生成每次呼叫都會產生額外費用，且影片生成需 1–3 分鐘。批次生成前先跟使用者對齊數量與模型選擇。
+> 影片生成需 1–3 分鐘。批次生成前先跟使用者對齊數量與模型選擇。
 
 ## 階段 7 交付
 
 - 影片片段之間的**拼接與轉場**、字幕燒錄、配音混音屬於後期；可用 ffmpeg 完成，或匯出時間線 CSV 讓使用者進剪映等工具處理。
-- 交付時附**清單**：生成了哪些檔、哪些鏡尚未生成、每鏡的 credits 估算。
+- 交付時附**清單**：生成了哪些檔、哪些鏡尚未生成。
 
 ---
 
 ## 資源
 
 - `references/pipeline.md` — 七階段詳細流程、提問清單與各階段模板。
+- `references/freevideo.md` — **建議搭配 FreeVideo**：連線步驟、規則、與七階段的對應。階段 6 先讀這份。
 - `references/model-profiles.md` — **生成前必問清單**，以及各圖像／影片模型的提示詞風格對照與改寫流程。
 - `references/minimax-h3.md` — **MiniMax H3 專章（入口）**：規格、五種模式、預算表、十條速查、Red Flags。用 H3 前必讀。
 - `references/h3/` — H3 細部參考（與上游 [h3-video-prompting](https://github.com/ayase0307/h3-video-prompting) 的 `references/` 同名同步；詳見 `memory.md`）：
@@ -101,7 +102,7 @@ agent_created: true
   - `skin-realism-block.md` — **守富定版**三段式骨架與皮膚段原文（整段照抄）。
   - `motion-quality.md`、`action-choreography.md`、`rhythm-and-pacing.md` — 動作品質、動作拆解與打鬥一拍、節奏卡點與時間軸。
   - `shot-variety-and-staging.md` — 跨 shot 變化四軸、spec 卡、送出前自檢（寫完 prompt 必跑 §10）。
-  - `failure-triage.md` — 症狀→原因→最小修正對照表、送出前 8 問、成本策略。
+  - `failure-triage.md` — 症狀→原因→最小修正對照表、送出前 8 問、迭代策略。
   - `scenarios-people.md` — 情境庫 A：對白短劇★、UGC、唱歌、舞蹈、打鬥★、跑酷、喜劇、情感、懸疑、vlog、POV、旁白數位人★、真人照片（★＝漫劇常用）。
   - `scenarios-world-and-styles.md` — 情境庫 C：空鏡、自然、動物、車輛、2D anime、3D 卡通、黏土紙藝、手繪融合、動態圖形、VFX、循環、設定板、綠幕、混剪。
   - `scenarios-commercial.md` — 情境庫 B：產品 hero、開箱、液體食物、品牌片、時尚美妝、logo 片頭、UI、電商、工業、建築。

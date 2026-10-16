@@ -92,7 +92,7 @@ MiniMax H3（即 Hailuo 3）是**全模態影視生成模型**，有官方規定
 | 讓動作有重量、材質有回應、表情有意圖（含慢動作、動畫風格規律） | `h3/motion-quality.md` |
 | 排節奏、卡點、時間軸、速度詞 | `h3/rhythm-and-pacing.md` |
 | 人物動作拆解、打鬥一拍公式、多對一 | `h3/action-choreography.md` |
-| 生成結果不對，查症狀與修法；送出前 8 問、成本策略 | `h3/failure-triage.md` |
+| 生成結果不對，查症狀與修法；送出前 8 問、迭代策略 | `h3/failure-triage.md` |
 | **寫完 prompt 必跑**：跨 shot 變化四軸、spec 卡、能量曲線、送出前自檢（每個 shot 都對卻整支單調） | `h3/shot-variety-and-staging.md` §10 |
 
 ### 情境庫（挑最接近的一到兩個來讀）
