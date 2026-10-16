@@ -5,6 +5,7 @@
 - repo：https://github.com/ayase0307/ai-comic-drama（public，MIT）
 - 本機：`E:\MinimaxH3\ai-comic-drama`
 - 上游：https://github.com/ayase0307/h3-video-prompting（本機 `E:\MinimaxH3\h3-video-prompting`）
+- 建議搭配：FreeVideo（本機 `http://127.0.0.1:8189/freevideo/agent`，見 `references/freevideo.md`；令牌不得印出或寫入任何檔案）
 
 ## 1. 開工前（依序，每次都做）
 

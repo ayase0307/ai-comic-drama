@@ -29,9 +29,10 @@
 ## 待辦
 
 - [x] 整合上游 `2bddf6b`（2026-10-17）
-- [ ] `SKILL.md` 核心原則 5 與階段 6 仍寫「生成前必須告知 credits 成本」；使用者說本技能本機運行不需成本提醒，待確認是否也要從 SKILL.md 移除
-- [ ] `assets/storyboard.jpg` 改用 Codex 重生，統一 3D 國漫風
-- [ ] 若要讓 Claude Code 自動讀到 `agent.md`，可加 `CLAUDE.md`（內容 `@agent.md`、`@memory.md`），使用者尚未要求
+- [x] SKILL.md／pipeline.md／model-profiles.md 的成本提醒已移除（2026-10-17，使用者同意）
+- [x] `assets/storyboard.jpg` 已用 Codex 重生為 3D 國漫風（2026-10-17）
+- [x] 已加 `CLAUDE.md`（`@agent.md`、`@memory.md`），Claude Code 進場自動讀取
+- [ ] FreeVideo 只實測了握手與狀態查詢，**尚未實際提交過生成任務**；第一次真的出片時驗證 `references/freevideo.md` 的流程並回寫
 
 ## 使用者偏好
 
@@ -39,8 +40,11 @@
 - README 要用高星數 repo 常見格式，頂部有設計圖，圖文並茂（2026-10-17）
 - 圖片：橫幅與角色圖用 Codex 生成；風格 3D 國漫，女性角色身形姣好但穿著得體（2026-10-17）
 - 授權 MIT；不需要成本提醒（2026-10-17）
+- 技能建議搭配 FreeVideo 讓 Agent 無障礙協助影片生成（2026-10-17）
 
 ## 決策紀錄
+
+- 2026-10-17：建議搭配 FreeVideo（本機 `http://127.0.0.1:8189`，安裝在 `E:FreeVideo`）；寫成 `references/freevideo.md`，階段 6 先試連它。令牌檔不得印出或寫進任何檔案。測試時機上有一部使用者未完成的影片（待選片），沒有動它
 
 - 2026-10-17：整合上游採「以上游為準、整檔採用」而非逐句合併：抽查關鍵概念（對齊句、`<d>` 標籤、長片路線與幀數網格、808 卡點、一拍五件事等）上游都有，本機舊檔應是較早的快照；沒有逐句核對，若發現漏掉的本機內容可從 git 歷史（commit 7378828）取回；舊檔名（skin-block、official-format、motion-and-rhythm、references-and-longform、scenarios-visual）已刪除，改用上游檔名。官方格式細節（對齊句、`<d>`／`<scenetrans>`／`<cutoff>`、Ref2VA 六段）現由 `prompt-formats.md` 與 `audio-and-dialogue.md` 承接，欄位原文以官方 repo 為準
 
