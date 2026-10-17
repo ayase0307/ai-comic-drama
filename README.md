@@ -28,12 +28,14 @@
 | 🧩 **零外部依賴** | 不需要自託管平台、MCP、資料庫。寫作與分鏡由 Agent 完成，出圖出片用內建生成能力。 |
 | 📖 **小說先改編** | 小說不直接當劇本：保留分級、A/B/C 方案、分集因果、可拍劇本，附四道退稿閘門與腳本驗證。 |
 | 🎬 **導演級分鏡** | 三步法、焦距×物距、連戲握手、武戲 90° 無遮擋，輸出三層產物並靜態驗證。 |
+| 🖼️ **視覺化九宮格審核** | Qwen 黑白鉛筆草圖 3x3 九宮格預覽，人工審核直觀清晰，單鏡重繪零污染保護。 |
+| 🔒 **單鏡局部修改與審核鎖** | `sync_script.py` 劇本改動防覆蓋同步；`patch_shot.py` 單鏡景別秒數修改與自動時間軸重算。 |
 | 🎨 **11 種風格鎖定錨** | 主流漫劇風格蒸餾成可貼的錨定詞，每種附同角色樣圖。 |
 | 🎭 **資產一致** | 角色／服裝／場景／道具／音色有 ID、設定板規格、參考鏈、漂移清單與驗收門。 |
+| 🎞️ **MiniMax H3 專章** | 官方三段式骨架、情境庫、失敗診斷表，附完整 10 秒打鬥範例。 |
+| 🛡️ **自動審查門禁** | `verify_video_shot.py` 自動檢測時長、防灰階線稿滲透、防九宮格分屏線殘留、色彩連貫性。 |
 | 🗂️ **全程落檔** | 每個階段的產物都是檔案，隨時續做、改稿、交接。 |
 | 🛑 **生成前先確認** | 工具、參數、提示詞語言與鏡數，確認後才動工；絕不假裝生成。 |
-| 🎞️ **MiniMax H3 專章** | 官方三段式骨架、情境庫、失敗診斷表，附完整 10 秒打鬥範例。 |
-| 🔧 **小工具** | 建立專案骨架、劇本驗證四件套、交接 JSON→分鏡骨架、分鏡驗證與時間線。 |
 
 ## 🚀 快速開始
 
@@ -49,21 +51,33 @@ git clone https://github.com/ayase0307/ai-comic-drama.git ~/.claude/skills/ai-co
 
 Agent 會先一次問完定調項目（集數與時長、題材與載體、畫風錨、比例、語言、聲音形式、交付深度），小說會先走改編再寫劇本。
 
-也可單獨使用腳本：
+也可單獨使用全套命令列工具鏈：
 
 ```bash
-# 建立專案骨架
+# 1. 建立專案骨架
 python scripts/init_project.py my-drama --title "我的漫劇" --episodes 12
 
-# 劇本驗證（結構、時長、連戲、改編差異）
+# 2. 劇本驗證與人工審核鎖定（結構、時長、連戲、改編差異）
 python scripts/adapt/validate_structure.py --script script-ep01.md --handoff handoff-ep01.json
+python scripts/adapt/sync_script.py --handoff handoff-ep01.json --scene EP01-S01 --set-status approved
 
-# 交接 JSON → 分鏡 Layer 2 骨架，再轉表格與時間線
+# 3. 交接 JSON → 分鏡 Layer 2 骨架，再轉表格與時間線
 python scripts/storyboard/handoff_to_skeleton.py handoff-ep01.json --out-dir layer2/
-# 導演精修 layer2/ 內所有 TODO 後驗證（含台詞逐字核對）
 python scripts/storyboard/validate_storyboard.py --file layer2/layer2-EP01-*.json --handoff handoff-ep01.json
+python scripts/storyboard/layer2_to_table.py layer2/layer2-EP01-*.json --check --md storyboard-ep01.md --timeline timeline-ep01.csv
 
-python scripts/storyboard/layer2_to_table.py layer2/layer2-EP01-*.json --check   --md storyboard-ep01.md --timeline timeline-ep01.csv
+# 4. 生成 Qwen 黑白鉛筆分鏡 3x3 九宮格總覽圖（支援 --no-arrows 生成純淨底稿）
+python scripts/storyboard/qwen_storyboard_grid.py --layer2 layer2/layer2-EP01-S01-a.json --generate-all --assemble-grid
+
+# 5. 人工審核與單鏡局部修改（調整景別時長並由相鄰鏡頭吸收，零污染單格局部重抽）
+python scripts/storyboard/patch_shot.py --file layer2/layer2-EP01-S01-a.json --shot SH03 --shot-size CU --duration 3.5 --absorb-from SH04
+python scripts/storyboard/qwen_storyboard_grid.py --layer2 layer2/layer2-EP01-S01-a.json --redraw-shot SH03 --assemble-grid
+
+# 6. 轉繪全彩關鍵幀首幀（自動注入屬性解耦擦除指令，清除手繪黑箭頭與透視輔助線）
+python scripts/storyboard/qwen_storyboard_grid.py --layer2 layer2/layer2-EP01-S01-a.json --to-color-keyframe all
+
+# 7. AI 影片自動審查門禁（時長、彩度防黑白污染、九宮格分屏殘留、色彩連貫性檢驗並回寫 Layer 2）
+python scripts/storyboard/verify_video_shot.py --video videos/EP01-S01-SH01.mp4 --layer2 layer2/layer2-EP01-S01-a.json --shot SH01 --write-back
 ```
 
 ## 🧭 八階段流程
@@ -77,10 +91,10 @@ python scripts/storyboard/layer2_to_table.py layer2/layer2-EP01-*.json --check  
 | 0 定調 | 題材、載體、畫風錨、比例等設定 | `project.md` |
 | 1 改編 | 小說解析、保留分級、A/B/C 方案、分集架構 | 故事地圖、分集大綱 |
 | 2 資產與設定圖 | 故事聖經 → `assets.md`（ID、風格錨、色票、固定片段）、設定板 | `assets.md`、設定板 |
-| 3 漫劇劇本 | 場景化改寫、時長與可製作性審計、交接 JSON | `script-ep01.md`、`handoff-ep01.json` |
-| 4 導演分鏡 | 三步法、焦距物距、連戲握手、三層產物 | `layer2/*.json`、`storyboard-ep01.md` |
+| 3 漫劇劇本 | 場景化改寫、時長與可製作性審計、交接 JSON、人工審核鎖（`sync_script.py`） | `script-ep01.md`、`handoff-ep01.json` |
+| 4 導演分鏡 | 三步法、焦距物距、連戲握手、單鏡局部修改（`patch_shot.py`）、鉛筆九宮格（`qwen_storyboard_grid.py`） | `layer2/*.json`、`storyboard-ep01.md`、`grid-*.png` |
 | 5 提示詞包 | Layer 3 編譯成目標模型語法 | `prompts-ep01.md` |
-| 6 生成 | 先問模型與參數 → 設定圖 → 分鏡圖 → 影片 | `images/`、`videos/` |
+| 6 生成 | 兩段式轉換：鉛筆九宮格審核 → 轉全彩關鍵幀首幀（去黑箭頭） → H3 逐鏡生成 → 影片審查（`verify_video_shot.py`） | `keyframes/`、`images/`、`videos/`、審查報告 |
 | 7 組裝交付 | 旁白稿、字幕、剪輯時間線、交付清單 | `narration-ep01.md`、`timeline-ep01.csv` |
 
 詳細模板與每階段檢查點見 [`references/pipeline.md`](references/pipeline.md)。
@@ -144,8 +158,9 @@ ai-comic-drama/
 │   └── styles.md            # 風格鎖定錨
 └── scripts/
     ├── init_project.py      # 建立專案骨架
-    ├── adapt/               # 劇本結構／時長／連戲／改編差異驗證（附測試）
-    └── storyboard/          # 交接→Layer 2 骨架、表格與時間線、分鏡驗證、提示詞編譯
+    ├── color_qa.py          # 跨鏡頭色彩連貫性檢查
+    ├── adapt/               # 劇本驗證、時長估計、連戲與人工審核鎖定（sync_script.py）
+    └── storyboard/          # Layer 2 骨架、表格時間線、分鏡驗證、局部修改（patch_shot.py）、Qwen 九宮格與轉彩（qwen_storyboard_grid.py）、影片審查（verify_video_shot.py）
 ```
 
 用本技能產出的專案：
@@ -160,10 +175,12 @@ ai-comic-drama/
 ├── layer2/                 # 分鏡 Layer 2 JSON
 ├── storyboard-ep01.md      # 分鏡表（人可讀）
 ├── prompts-ep01.md         # 逐鏡圖像 / 影片提示詞
+├── panels/                 # Qwen 單格黑白鉛筆手繪草圖（panel-*.png）
+├── keyframes/              # Qwen 轉繪全彩關鍵幀首幀（keyframe-*.png，去黑箭頭）
 ├── narration-ep01.md       # 旁白與字幕稿
 ├── timeline-ep01.csv       # 剪輯時間線
-├── images/                 # 角色參考圖、分鏡圖
-└── videos/                 # 影片片段
+├── images/                 # 角色參考圖、分鏡圖、九宮格總覽（grid-*.png）
+└── videos/                 # 影片片段與自動審查報告
 ```
 
 ## 📚 文件索引
