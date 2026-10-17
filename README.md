@@ -193,11 +193,14 @@ ai-comic-drama/
 | [`references/prompt-playbook.md`](references/prompt-playbook.md) | 景別、運鏡、光線、負面提示詞 |
 | [`references/adapt/novel-to-manju.md`](references/adapt/novel-to-manju.md) | 小說改編總規範（10 階段、題材模式、退稿閘門）與 `adapt/` 各篇 |
 | [`references/storyboard/cinematic-director.md`](references/storyboard/cinematic-director.md) | 導演分鏡總規範與 `storyboard/` 各篇、Layer 2 JSON Schema |
-| [`references/consistency.md`](references/consistency.md) | 資產 ID、設定板、參考鏈、漂移修復、驗收門 |
+| [`references/storyboard/combat-and-vfx-library.md`](references/storyboard/combat-and-vfx-library.md) | 冷兵器武學連招、玄幻大招五段鏈與 11 大戰場拓撲庫 |
+| [`references/storyboard/acting-and-emotion-library.md`](references/storyboard/acting-and-emotion-library.md) | 邁斯納壓力行為表演法、潛台詞言行反差、10 大景別句型與 4D 配音詞庫 |
+| [`references/consistency.md`](references/consistency.md) | 資產 ID、設定板（洋子鎖臉規範）、多模態素材職責表、漂移修復、驗收門 |
 | [`references/styles.md`](references/styles.md) | 11 種風格鎖定錨與樣圖 |
 | [`references/freevideo.md`](references/freevideo.md) | 搭配 FreeVideo 出片：連線、規則、階段對應 |
 | [`agent.md`](agent.md) / [`memory.md`](memory.md) | 給維護本技能的 Agent：進場規範與跨 agent 交接記憶 |
 | [`references/minimax-h3.md`](references/minimax-h3.md) | MiniMax H3 專章入口 |
+| [`references/h3/lora-guide.md`](references/h3/lora-guide.md) | MiniMax H3 專用 LoRA 矩陣、正負權重滑塊、疊加預算與 FreeVideo API 自動掛載合約 |
 | [`references/h3/`](references/h3/) | 官方格式、皮膚段骨架、動作節奏、失敗診斷、情境庫（人物／視覺／商業）、運鏡轉場、音訊對白、長片分段、10 秒打鬥範例 |
 
 ## 🎥 建議搭配 FreeVideo
