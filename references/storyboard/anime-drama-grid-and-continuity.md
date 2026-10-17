@@ -10,34 +10,38 @@
 
 ```mermaid
 flowchart LR
-    subgraph StageA["Stage A：前置關鍵幀資產鎖臉階段 (T2I)"]
-        S1["1. 角色四視圖資產卡<br/>(正/側/背/面部特寫 + 特異性錨點)"] --> S2["2. 九宮格/四宮格同 Latent 空間出圖<br/>(共享 Self-Attention 鎖死五官與五層色卡)"]
-        S2 --> S3["3. 自動等分裁切 + 場景二度重打光<br/>(Relighting 消除白底貼紙感)"]
+    subgraph StageA["Stage A：前置資產與構圖審核階段 (T2I)"]
+        S1["1. 角色/生物純底三視圖資產卡<br/>(純灰/純白背景，嚴禁帶場景背景)"] --> S2["2. Qwen 鉛筆草圖九宮格構圖審核<br/>(確認焦距透視、走位與動勢箭頭)"]
+        S2 --> S3["3. 單格零污染局部重繪與審核鎖定<br/>(patch_shot.py + --redraw-shot)"]
     end
 
-    subgraph StageB["Stage B：最終影片動態渲染階段 (I2V / FL2VA)"]
-        S3 --> S4["4. 首尾幀接龍 (First-to-Last Frame Chaining)<br/>(Shot N 尾幀 = Shot N+1 首幀)"]
-        S4 --> S5["5. 單鏡獨立影片生成<br/>(此時嚴格注入：禁止四宮格分屏/無文字浮水印)"]
+    subgraph StageB["Stage B：最終影片動態生成階段 (Ref2VA / 實戰定案)"]
+        S3 --> S4["4. 分段級獨立 Ref2VA 提示詞編譯<br/>(一段一張角色圖，P0 程式稽核)"]
+        S4 --> S5["5. 跨段四大連戲錨點與收尾交接格<br/>(光線、軸線、站位、材質，不走尾幀續接)"]
+        S5 --> S6["6. verify_video_shot.py 自動審查門禁<br/>(檢驗時長、彩度、分屏線殘留與色盤連貫性)"]
     end
 ```
 
-> **本技能裁定**（`../consistency.md` §0）：九宮格只用於階段 2 的關鍵幀鎖臉；階段 6 的分鏡圖與影片一律逐鏡生成，不把九宮格裁切格直接當影片首幀。下文「共享 Self-Attention 鎖死五官」為原作者的推測，未經本 repo 實測；色卡 HEX 僅適用圖像模型，餵 H3 影片時改寫成「色名＋物體」。
+> **本技能實戰定案**：
+> 1. **主力定案為每段獨立 `Ref2VA`**：不走首尾幀接龍 `continue_from`（FreeVideo API 中 `references` 與 `first/last` 互斥報 422，且續接段無角色圖會退化為通用塑膠臉）。跨段連戲靠**四大錨點（光線、軸線、站位、材質）**與**收尾交接格**。
+> 2. **一段一張角色圖防平均化**：多位體型相近角色同框會被 H3 融合平均化，反應戲拆單人特寫；P0 程式稽核對齊說話者與素材 ID。
+> 3. **生物純色三視圖（Creature Sheet）**：純灰/純白底，嚴禁帶背景劇照；演員表按主角重要性排序。
 
-### 1. Stage A：九宮格 / 四宮格同空間分鏡鎖定法 (Grid Storyboard Locking)
-- **適用場景**：AI 漫劇、動態漫、缺乏獨立角色 LoRA 的多鏡頭連續敘事。
-- **物理原理**：逐鏡單獨文生圖時，每次抽卡的初始高斯噪聲獨立，角色五官與衣服褶皺必漂移；而要求生圖模型（Midjourney / 即夢 / Nano Banana / GPT-Image）在**單張大圖中一次性渲染 `2x2 四宮格`（適合強衝突正反打）或 `3x3 九宮格`（適合連續動作推進）**，能強迫模型在同一個 Latent Space 與 Self-Attention 矩陣中共享角色特徵與 `lighting-color-palette-card` 的五層色階。
-- **角色特異性視覺錨點（Unique Visual Anchors）**：
+### 1. Stage A：九宮格構圖審核與資產鎖定法
+- **適用場景**：分鏡走位視覺化、焦距透視驗收、防止直接生影片盲抽翻車。
+- **角色與生物特異性視覺錨點（Unique Visual Anchors）**：
   - 禁用泛化詞（如「英俊青年、漂亮女孩」）。
   - 強制綁定 3 個高抗噪幾何/色彩特徵：例如 `銀白高馬尾配暗紅髮帶 + 左眼角下緋紅淚痣 + 玄黑窄袖勁裝鑲嵌青銅雲紋護腕`。
-- **標準九宮格生圖 Prompt 結構**：
-  > `3x3 grid cinematic storyboard sheet, 9 distinct sequential panels (Panel 1 to Panel 9, reading left-to-right, top-to-bottom), 16:9 panel ratio, thin black borders. Strictly consistent character identity across all 9 panels: [角色特異性視覺錨點]. Global color palette locked to [色卡五層 HEX 錨定]. Panel 1 (Wide, 24mm): ... Panel 2 (Medium, 50mm): ... [至 Panel 9]. No speech bubbles, no text, no watermarks.`
+- **生物純底三視圖鐵律**：巨蟒、妖獸等生物必須生成純灰/白底三視圖，嚴禁帶有巷子或自然背景，否則場景會殘留染色到成片各處。
 
-### 2. Stage B：首尾幀接龍與微位移控制 (First-to-Last Frame Chaining)
-- **核心操作**：將九宮格裁切出的相鄰兩格（如 Panel 1 與 Panel 2）分別作為 `FL2VA`（首尾幀生影片）的 `first_frame` 與 `last_frame`；或在連續鏡頭中，截取 Shot $N$ **實際生成影片的最後一幀**作為 Shot $N+1$ 的首幀。
-- **三大防撕裂鐵律**：
-  1. **姿態微位移原則**：首尾兩幀的人物骨架位移不可跨越超過 1 個身位或發生 180° 瞬移翻轉（例如：不可首幀躺在地上、尾幀直接飛在半空），否則中間插幀必出現肢體融化。
-  2. **手持道具守恆鎖**：若首幀角色右手持信封或長劍，尾幀必須明確交代該道具的去向（仍在手中或落在地面），否則道具會在第 2 秒半空蒸發。
-  3. **單鏡生成禁分屏鎖**：進入 Stage B 生影片時，提示詞必須帶入 `single continuous camera shot, no split screen, no multi-panel grid`，防止影片模型在單鏡內又畫出多宮格。
+### 2. Stage B：分段級獨立 Ref2VA 與連戲四大錨點（實戰主力定案）
+- **核心操作**：每段 7–10 秒獨立生成，攜帶「1 場景圖 ＋ 對應角色設定圖」，不依賴上一鏡尾幀。
+- **四大連戲錨點**：
+  1. **光線錨點**：整場共用同一句全域光色句（主光向、色溫、反差）。
+  2. **軸線錨點**：遵循 180° 軸線，越軸前必有騎軸過渡鏡。
+  3. **站位錨點**：錨定在實體家具/幾何標誌（如「站在紅木桌右角」）。
+  4. **材質錨點**：地面與牆面紋理名詞逐字保持一致。
+- **收尾交接格**：每段最後 1–2 秒設計「靜止、夠寬、留白」的動作收勢，方便下段自然無縫銜接。
 
 ---
 
@@ -57,32 +61,22 @@ flowchart LR
 
 ---
 
-## 三、ViMax 連戲相依狀態圖與雙模式跨切片握手 (Continuity State Machine)
+## 三、連戲相依狀態圖與跨分段握手 (Continuity State Machine)
 
-為解決超過 15 秒的多切片（Multi-Clip）長篇劇本連戲崩潰，本體系整合 `HKUDS/ViMax` 的狀態相依圖與 Lyra 雙模式握手協議：
+為解決多切片長篇劇本連戲崩潰，確立以下規則：
 
-### 1. 台詞 100% 保真與「四維配音氣口順延法則」
-- **台詞零篡改鐵律**：劇本有台詞則 100% 一字不差保留；無台詞則嚴禁捏造，並為畫面內所有角色加上閉唇鎖（`lips remain completely closed`）。
+### 1. 台詞政策與四維配音氣口順延
+- **台詞政策核准制**：階段 0 依使用者選定政策（①原文逐字 / ②只留重點句 / ③影視改寫 / ④無台詞純旁白）執行。
 - **氣口順延計算公式**：
-  - 常規對話語速上限：$\le 3.8$ 字/秒；壓抑/懸疑慢速（聯動 `four-dimensional-voice-acting`）：$\le 2.5$ 字/秒。
-  - 當單切片台詞總字數超出當前秒數容量時，**嚴禁倍速播放或刪減台詞**！系統自動在《四維配音法》定義的**「關鍵詞前窒息停頓點（500ms 氣口）」或標點符號處切斷**，將後半句寫入 `overflow_dialogue_out`，由下一切片首鏡透過 `J-Cut`（聲音先入）無縫接續。
+  - 常規對話語速上限：$\le 3.8$ 字/秒；極限安全值 $\le 4.0$ 字/秒。
+  - 當單段台詞超出容量時，在標點符號或氣口處切斷，將後半句寫入 `overflow_dialogue_out`，由下段首鏡無縫接續。
 
-### 2. 雙模式跨組握手協議 (Dual-Mode Handshake)
-在每個 10–15 秒切片開頭，系統自動檢測是否存在「時間跳躍（如：三天後）」或「空間跳躍（如：與此同時，另一座城市）」：
-- **模式 A：同場無縫續接 (`SEAMLESS_CONTINUATION`)**：
-  - **空間錨定**：使用**「實體家具/道具參照物」**（如：`B 停在【紅木辦公桌】右側邊角`）取代抽象的 XYZ 座標。
-  - **視覺順接**：首鏡動作、身體朝向、手持道具狀態必須 100% 承接上一切片尾幀。
-  - **聽覺橋接**：強制標註 `J-Cut`（下段台詞/音效提前 0.5s 切入上段尾幀）或 `L-Cut`（上段尾音延續至下段首鏡）。
-- **模式 B：時空跳躍硬切 (`HARD_CUT_ESTABLISH`)**：
-  - **自動解除順接死鎖**：不再順接上一段的肢體動作！
-  - **視覺重錨**：首鏡強制使用廣角/遠景建立鏡頭（Establishing Shot）交代新空間的左/中/右與前/中/後景關係。
-  - **資產繼承**：重置人物空間座標，但強制繼承角色外觀錨點（`@角色` / `<Subject N>`）與新的場景色卡。
+### 2. 獨立 Ref2VA 跨段握手協議
+- **同場續接**：以「四大連戲錨點」與「收尾交接格」承接，首鏡動作不發生 180° 瞬移。
+- **時空跳躍**：首鏡強制使用廣角/全景 Establishing Shot 交代新空間，重錨空間幾何。
 
-### 3. 連戲相依狀態圖與「實測尾態 > 規劃尾態」覆蓋鐵律 (`Observed > Planned`)
-- **不可逆狀態傳遞（Dependency Graph）**：一旦某鏡頭發生不可逆物理改變（如：`SH02 水杯被打翻碎裂`、`SH03 白色信封被捏出折痕`、`SH04 男主左臉受刀傷流血`），該狀態將寫入 `persistent_world_state`，後續同場景所有鏡頭自動繼承「地上有水杯碎片」、「信封帶折痕」，嚴禁道具自動復原！
-- **實測觀測覆蓋（Observed End State Override）**：
-  - 文字分鏡規劃的 `planned_final_state` 僅為預期值。
-  - 當使用者回傳 Clip $N$ 實際生成的影片或尾幀截圖時，必須先觀測實際畫面（例如：規劃寫「A 手距信封 10cm」，但實際生成的影片最後一幀「A 已經抓住信封了」），並以 **`observed_final_state`** 覆蓋原規劃，作為 Clip $N+1$ 的唯一真實起點！
+### 3. 不可逆狀態傳遞（`persistent_world_state`）
+- 一旦某鏡頭發生不可逆物理改變（如水杯被打翻碎裂、衣角燒焦、刀傷流血），寫入狀態機，後續同場景所有鏡頭自動繼承，嚴禁自動復原！
 
 ---
 
@@ -173,34 +167,48 @@ Artistic technique: Pure grayscale pencil cross-hatching, hatching line shading,
 
 ---
 
-### 3. 「分鏡 Layer 2 → Qwen 鉛筆草圖審核 → Qwen 彩色關鍵幀首幀 → H3 影片提示詞」四步無損轉換鐵律
+### 3. 分鏡至影片生成轉換管線：主力定案 Ref2VA vs 選用首幀 I2VA
 
-在 AI 動態漫與影視工業管線中，分鏡至影片的生成**嚴禁跨步跳躍**，必須嚴格執行以下四步確定性轉換：
+在 AI 動態漫與影視工業管線中，分鏡至影片的生成**嚴格區分主力定案與實驗功能**：
 
 ```mermaid
 flowchart TD
-    Step1["步驟 1：Layer 2 SSoT 分鏡規範<br/>(validate_storyboard.py 靜態驗證通過)"] --> Step2["步驟 2：Qwen 鉛筆草圖 3x3 九宮格審核<br/>(qwen_storyboard_grid.py 鎖死構圖與箭頭)"]
-    Step2 --> Step3["步驟 3：Qwen 轉繪彩色關鍵幀首幀<br/>(注入角色特異性錨點與五層色卡，消除鉛筆線條與箭頭)"]
-    Step3 --> Step4["步驟 4：MiniMax H3 影片動態生成<br/>(I2VA / FL2VA 注入單鏡禁分屏鎖渲染動態影片)"]
-    Step4 --> Step5["步驟 5：verify_video_shot.py 自動審查門禁<br/>(檢驗時長、彩度、九宮格殘留並回寫 Layer 2)"]
+    Step1["步驟 1：Layer 2 SSoT 分鏡規範<br/>(validate_storyboard.py 靜態驗證通過)"] --> Step2["步驟 2：Qwen 鉛筆草圖 3x3 九宮格構圖審核<br/>(qwen_storyboard_grid.py 鎖死構圖與箭頭)"]
+    
+    Step2 --> PathA["【✅ 主力定案】分段級獨立 Ref2VA<br/>(每段獨立 7~10s，各自帶場景+單角色純底圖)"]
+    Step2 -.-> PathB["【⚠️ 選用實驗】Qwen 轉繪全彩關鍵幀首幀<br/>(需全片統一生圖模型，並排對照畫風)"]
+    
+    PathA --> Step4A["步驟 4A：MiniMax H3 獨立 Ref2VA 生成<br/>(四大連戲錨點 + 收尾交接格)"]
+    PathB -.-> Step4B["步驟 4B：MiniMax H3 I2VA 生成<br/>(注入單鏡禁分屏鎖)"]
+    
+    Step4A & Step4B --> Step5["步驟 5：verify_video_shot.py 自動審查門禁<br/>(檢驗時長、彩度、九宮格殘留與相鄰色盤連貫性)"]
 ```
 
 1. **步驟 1：Layer 2 SSoT 規格鎖定**：
-   - 導演編寫並通過 `scripts/storyboard/validate_storyboard.py` 檢查，確認時長守恆、台詞零篡改、無醫學解剖黑名單、無遮擋衝突。
-2. **步驟 2：Qwen 鉛筆草圖逐格生成與九宮格審核**：
+   - 導演編寫並通過 `scripts/storyboard/validate_storyboard.py` 檢查，確認時長守恆、台詞預算（$\le 4$ 字/秒）、無醫學解剖黑名單、無遮擋衝突。
+2. **步驟 2：Qwen 鉛筆草圖逐格生成與九宮格審核（✅ 已驗證構圖工具）**：
    - 使用 `scripts/storyboard/qwen_storyboard_grid.py` 逐格生成 `panel-0{1..9}-{shot_id}.png`，拼合成 `grid-{segment_id}.png`。
-   - 導演/人工審查員（HITL）簽核走位、焦距透視滅點與動態粗黑箭頭。
-3. **步驟 3：Qwen 彩色關鍵幀首幀轉繪（消除黑白線條與動勢箭頭）**：
-   - 審核通過後，生圖引擎根據通過的草圖構圖，重新以「彩色正片風格」出圖。
-   - 注入角色特異性視覺錨點（`Unique Visual Anchors`）與 `lighting-color-palette-card` 的五層色卡。
-   - **關鍵操作**：移除草圖中的鉛筆排線、透視輔助線與黑色粗箭頭，輸出純淨、高解析度的單張彩色關鍵幀首幀（`first_frame.png`）。
-4. **步驟 4：MiniMax H3 影片動態生成（注入單鏡禁分屏鎖）**：
-   - 將彩色關鍵幀作為 `first_frame` 輸入 H3 `I2VA` 或首尾幀輸入 `FL2VA`。
-   - H3 提示詞中**必須強制加入禁分屏鎖定詞**：`single continuous shot, no split screen, no multi-panel grid, no watermark, no text overlay`。
-   - 輸出標準 MP4 動態影片。
-5. **步驟 5：影片自動審查門禁 (`verify_video_shot.py`)**：
-   - 自動檢驗影片時長（誤差 $\le 0.5\text{s}$）、平均彩度（$C^* \ge 10.0$）、九宮格邊界殘留（$1/3, 2/3$ 無暗黑格線）。
-   - 檢驗通過自動寫入 `shots[].review` 並鎖定；檢驗未通過自動退稿拒絕進入下階段！
+   - 導演/人工審查員（HITL）簽核走位、焦距透視滅點與動態粗黑箭頭；未通過者使用 `patch_shot.py` 搭配 `--redraw-shot` 單格局部重抽。
+3. **步驟 3A：【✅ 主力定案】獨立 Ref2VA 提示詞編譯與程式對帳**：
+   - 每段 7–10 秒獨立生成，帶場景主圖與單角色純色設定圖。
+   - 執行 `scripts/storyboard/audit_refs_and_segments.py` 完成 P0 程式稽核，確保素材 ID、主體定義與說話者代號完全對齊。
+4. **步驟 3B：【⚠️ 選用實驗】Qwen 轉繪全彩關鍵幀首幀（擦除黑箭頭）**：
+   - 若要採用首幀 I2VA 流程，執行 `qwen_storyboard_grid.py --to-color-keyframe` 輸出全彩首幀。
+   - **重大門禁限制**：必須整部片全部統一用同一生圖模型生成首幀，且產出影片後必須與既有片段**並排對照畫風**！
+5. **步驟 4：MiniMax H3 動態生成**：
+   - Ref2VA：注入六段式結構，嚴格鎖定四大連戲錨點與收尾交接格；
+   - I2VA：以全彩關鍵幀為 `first_frame`，提示詞強制加入禁分屏鎖：`single continuous shot, no split screen, no multi-panel grid, no watermark, no text overlay`。
+6. **步驟 5：影片自動審查門禁 (`verify_video_shot.py`)**：
+   - 自動檢驗影片時長（誤差 $\le 0.5\text{s}$）、平均彩度（$C^* \ge 10.0$）、九宮格邊界殘留（$1/3, 2/3$ 無暗黑格線）、相鄰鏡頭色盤連貫性（$dE_{76} \le 25.0$）。
+   - 檢驗通過自動寫入 `shots[].review` 並鎖定；未通過自動退稿。
+
+> [!WARNING]
+> #### ⚠️ 實戰慘痛教訓：第五輪首幀流程連續兩次誤判成功！
+> 在《噩盡島》實戰第五輪中，外部生圖模型（Qwen-Image / GPT-Image）轉繪出的全彩首幀靜態圖極其精美，導致 Agent 連續兩次誤判流程成功。
+> 但送進 H3 生成並混入既有 Ref2VA 成片時，**生圖模型渲染的人物材質與 H3 底層原生畫風產生巨大割裂，被使用者當場判定為失敗（「畫風跟其他片段差距過大」）**！
+> **鐵律**：
+> 1. **絕不可單看首幀漂亮就宣稱成功！驗證新流程必須與既有已過審的 H3 片段並排對照畫風！**
+> 2. 除非全片統一用同一個生圖模型產出所有鏡頭首幀，否則主力一律走**分段級獨立 `Ref2VA`**。
 
 > [!CAUTION]
 > #### ⛔ 工業管線絕對禁忌：嚴禁黑白鉛筆九宮格直餵 H3！

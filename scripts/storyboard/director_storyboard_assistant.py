@@ -251,9 +251,46 @@ def check_dialogue_pacing(dialogue: str, duration: float, is_slow_mood: bool = T
     }
 
 
-def auto_adapt_h3_loras(spec_or_shot: dict) -> dict:
+REWRITE_NEGATIVE_PHRASES = {
+    r"\bno blood\b": "the surface is smooth and dry / the skin remains intact",
+    r"\bwithout blood\b": "the surface is smooth and dry / the skin remains intact",
+    r"\bno visible text\b": "plain unmarked surface",
+    r"\bwithout text\b": "plain unmarked surface",
+    r"\bwithout injury\b": "unharmed, intact appearance",
+    r"\bno teeth\b": "lips sealed / closed mouth",
+    r"\bmust not\b": "remains calm and steady / avoid",
+}
+
+FORBIDDEN_CAMERA_MOTIONS = {
+    r"\borbit\b": "trucks left while panning right",
+    r"\barc\b": "trucks left while panning right",
+    r"\b360-degree\b": "trucks left while panning right",
+    r"\bcircles around\b": "trucks left while panning right",
+}
+
+
+def audit_h3_prompt_terms(text: str) -> list:
+    """檢查 H3 提示詞中的負面詞與禁用運鏡詞，回傳正面改寫建議清單。"""
+    suggestions = []
+    text_lower = text.lower()
+    for pattern, replacement in REWRITE_NEGATIVE_PHRASES.items():
+        if re.search(pattern, text_lower):
+            clean_term = pattern.replace(r"\b", "")
+            suggestions.append(f"負面詞攔截: '{clean_term}' -> 建議正面改寫為 '{replacement}'")
+    for pattern, replacement in FORBIDDEN_CAMERA_MOTIONS.items():
+        if re.search(pattern, text_lower):
+            clean_term = pattern.replace(r"\b", "")
+            suggestions.append(f"禁止運鏡詞攔截: '{clean_term}' -> 建議改為 '{replacement}'")
+    return suggestions
+
+
+def auto_adapt_h3_loras(spec_or_shot: dict, enable_camera_lora: bool = False) -> dict:
     """根據鏡頭的動作描述、景別、運鏡與戲劇節拍，自動推導最佳 LoRA 掛載組合、權重與觸發詞前綴。
     相容 Layer 2 shot 結構與自訂分鏡 spec 字典。
+    
+    根據《噩盡島》實測結論：H3 原生運鏡已達 92 分，camera_motion_h3_lora_v1_3000_pruned.safetensors 實測不必掛
+    （多掛反而佔用 8GB VRAM 與權重預算）。預設不掛載、也不在開頭加 camera motion；僅當顯式傳入
+    enable_camera_lora=True 時才掛載。
     
     回傳字典：
     {
@@ -264,6 +301,8 @@ def auto_adapt_h3_loras(spec_or_shot: dict) -> dict:
         "trigger_prefix": str
     }
     """
+    allow_cam_lora = enable_camera_lora or spec_or_shot.get("enable_camera_lora", False)
+
     if "camera_optics" in spec_or_shot or "action_and_performance" in spec_or_shot:
         # Layer 2 shot 字典結構
         optics = spec_or_shot.get("camera_optics", {})
@@ -302,15 +341,15 @@ def auto_adapt_h3_loras(spec_or_shot: dict) -> dict:
             "trigger": "360 orbit, frozen time",
             "reason": "360度環繞子彈時間"
         })
-    else:
-        # 判斷是否為動態運鏡 (非純 static/固定)
+    elif allow_cam_lora:
+        # 僅當使用者顯式啟用 enable_camera_lora 時才掛載 camera_motion LoRA
         movement_clean = movement_text.strip().lower()
         static_terms = ["static", "固定", "固定鏡頭", "靜態", "無", "none"]
         is_dynamic = False
         if movement_clean and not any(s == movement_clean for s in static_terms):
             is_dynamic = True
         dynamic_keywords = [
-            "handheld", "push", "pull", "track", "pan", "tilt", "orbit", "crane", "zoom",
+            "handheld", "push", "pull", "track", "pan", "tilt", "crane", "zoom",
             "手持", "推鏡", "拉鏡", "跟拍", "搖鏡", "俯仰", "環繞", "升降", "運鏡", "移動",
             "dirty_frame", "clear_impact_90deg", "defensive_ots", "reflection_delay"
         ]
@@ -320,9 +359,9 @@ def auto_adapt_h3_loras(spec_or_shot: dict) -> dict:
         if is_dynamic:
             loras.append({
                 "name": "camera_motion_h3_lora_v1_3000_pruned.safetensors",
-                "strength": 0.85,  # 若後續多掛動作 LoRA 則降為 0.7
+                "strength": 0.85,
                 "trigger": "camera motion",
-                "reason": "動態運鏡與手持穩定控制"
+                "reason": "動態運鏡與手持穩定控制 (依需求顯式掛載)"
             })
 
     # 2. 兵器打鬥偵測
@@ -428,7 +467,7 @@ def auto_adapt_h3_loras(spec_or_shot: dict) -> dict:
     }
 
 
-def compile_to_models(spec: dict, warn_video: bool = False) -> dict:
+def compile_to_models(spec: dict, warn_video: bool = False, enable_camera_lora: bool = False) -> dict:
     """將結構化分鏡規格編譯為 Layer 1 導演卡與 Layer 3 各大模型原生 Prompt。
     影片模型的欄位先去掉 HEX（換成「色票指定」）；warn_video 為 True 時把替換次數印到 stderr。"""
     lens = LENS_OPTICS_PRESETS.get(spec["focal"], LENS_OPTICS_PRESETS["35mm"])
@@ -498,7 +537,7 @@ def compile_to_models(spec: dict, warn_video: bool = False) -> dict:
     else:
         h3_speech = "while their lips remain completely closed"
 
-    lora_adapt = auto_adapt_h3_loras(spec)
+    lora_adapt = auto_adapt_h3_loras(spec, enable_camera_lora=enable_camera_lora)
     trigger_prefix_line = f"{lora_adapt['trigger_prefix']},\n" if lora_adapt["trigger_prefix"] else ""
     freevideo_loras_json = json.dumps({"loras": lora_adapt["loras"]}, ensure_ascii=False, indent=2)
 
@@ -517,6 +556,14 @@ def compile_to_models(spec: dict, warn_video: bool = False) -> dict:
         f"[AUTO-ADAPTED H3 LORAS (FreeVideo JSON)]\n"
         f"{freevideo_loras_json}"
     )
+
+    # 負面詞與禁用運鏡詞自動檢查與正面改寫建議
+    audit_notes = audit_h3_prompt_terms(
+        f"{lens['spatial_en']} {view['desc_en']} {vspec['action']} {vspec['expression']} {vspec['micro_tail']}"
+    )
+    if audit_notes:
+        note_str = "\n\n[⚠️ H3 負面詞攔截與正面改寫建議]\n" + "\n".join(f"- {n}" for n in audit_notes)
+        minimax_h3 += note_str
 
     # 4. Layer 3 (C): Kling / 通用首尾幀接龍模式 (FL2VA)
     kling_fl2va = (
@@ -542,6 +589,7 @@ def compile_to_models(spec: dict, warn_video: bool = False) -> dict:
     return {
         "spec": spec,
         "dialogue_audit": dlg_info,
+        "h3_audit_notes": audit_notes,
         "outputs": {
             "layer1-card": layer1_card,
             "seedance-v8": seedance_v8,
@@ -579,6 +627,7 @@ def main():
         help="目標編譯模型格式"
     )
     parser.add_argument("--format", default="text", choices=["text", "json", "prompt", "all"], help="輸出格式 (向下相容 v1.0)")
+    parser.add_argument("--enable-camera-lora", action="store_true", help="顯式啟用 camera_motion_h3_lora_v1_3000_pruned.safetensors（預設不啟用）")
     parser.add_argument(
         "--layer2-auto-lora",
         metavar="LAYER2_JSON",
@@ -601,7 +650,7 @@ def main():
         adapted_count = 0
         for idx, shot in enumerate(shots, 1):
             shot_id = shot.get("shot_id", f"Shot-{idx}")
-            res = auto_adapt_h3_loras(shot)
+            res = auto_adapt_h3_loras(shot, enable_camera_lora=args.enable_camera_lora)
             shot["h3_loras"] = res["loras"]
             adapted_count += 1
             lora_desc = [f"{l['name']}(權重:{l['strength']})" for l in res["loras"]]
@@ -650,7 +699,7 @@ def main():
         }
 
     warn_video = args.format == "all" or args.target_model in VIDEO_MODELS
-    compiled = compile_to_models(spec, warn_video=warn_video)
+    compiled = compile_to_models(spec, warn_video=warn_video, enable_camera_lora=args.enable_camera_lora)
 
     if args.format == "json":
         print(json.dumps(compiled, ensure_ascii=False, indent=2))

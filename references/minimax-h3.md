@@ -83,6 +83,58 @@ MiniMax H3（即 Hailuo 3）是**全模態影視生成模型**，有官方規定
 - 前兩段依場景改寫；皮膚段只微調光色字眼。
 - 搭 fal `MiniMax-H3-Realism-People-LoRA` 時，`r34l1sm` 放 prompt 最開頭。
 
+---
+
+## 負面詞 → 正面描述轉換表（H3 物理消除法）
+
+MiniMax H3 的文字理解器為 **Qwen3-VL-32B**，不支援 Negative Prompt。若在 Prompt 中寫入否定詞（`no / without / avoid / non-`），會觸發大模型的先驗白熊效應（越說沒有越會畫出來）。所有禁止事項必須**改寫為對立的正面物理狀態**：
+
+| 想要避免的事項 | ❌ 錯誤寫法（必激發噪點） | ✅ 正確改寫（正面描述物理狀態） | 物理原理解釋 |
+|---|---|---|---|
+| 不要流血、無傷 | `no blood, without injury, uninjured` | `the skin remains intact and clean, pristine complexion` | 描述完整、無瑕疵的皮膚肌理 |
+| 武器不穿模、無形變 | `no clipping, weapon does not bend` | `the blade maintains a rigid straight steel line, solid metallic form` | 描述剛性、筆直的金屬實體幾何 |
+| 衣服無破損 | `without tear, no ripped clothes` | `the fabric remains neat, smooth and perfectly intact` | 描述平整、連續的布料紋理 |
+| 畫面無文字、無浮水印 | `no text, no visible text, no watermark` | `plain unmarked background, clean visual frame, empty pristine surface` | 描述純淨無標記的畫面材質 |
+| 不要背景路人 | `no pedestrians, without background crowd` | `completely deserted empty alley, isolated solitary space` | 描述空曠荒蕪的場景環境屬性 |
+| 嘴巴不要張開、閉嘴 | `no speaking, don't open mouth` | `lips remaining completely closed, jaw relaxed in silence` | 描述唇部緊閉與下顎閉合姿態 |
+| 不要多餘手指 | `no extra fingers, normal hands` | `five distinct articulated fingers gripping firmly` | 具體描述五指分明的握持幾何 |
+
+---
+
+## 8GB VRAM OOM 拆段公式與 `17n+5` 幀格取整
+
+在消費級顯卡（如 RTX 4060 Ti 8GB）本機運行 FreeVideo 時，顯存容量是物理硬邊界：
+
+1. **OOM 處置鐵則**：**嚴禁降解析度**（降解析度會造成線條模糊與畫風坍塌退化）！唯一正確解法是**「在既有硬切點（Hard Cut）處拆成兩個獨立 Job」**。
+2. **幀格整數約束（`17n + 5`）**：
+   H3 的時空卷積層要求影格數嚴格符合 $F = 17n + 5$（24fps 下，4 秒 = 107 幀、8 秒 = 192 幀、15 秒 = 362 幀）。
+   拆段秒數計算公式：
+   $$F = \text{round\_to\_17n\_plus\_5}(s \times 24)$$
+   $$s_{\text{actual}} = \frac{F}{24}$$
+3. **拆段末切點安全公式**：
+   若一段規劃總長度為 $D$ 秒，在第 $T_{\text{cut}}$ 秒處切開，**第二段長度必須滿足**：
+   $$D - T_{\text{cut}} \ge 2.0\text{ 秒} \quad (\text{且取整後 } s_{\text{part2}} \ge 4.0\text{s})$$
+   若 $D - T_{\text{cut}} < 2.0$s，該切點無效，必須往前一個鏡頭交接點切！
+4. **拆段光照繼承鐵律**：
+   拆成兩個獨立 Job 後，第二個 Job 開頭若缺失場景光源描述，H3 會重新隨機打光導致色溫突變！
+   **拆段後第二段若缺光源名詞，必須強制補齊場次全域光源句（如 `Global lighting: cool moonlight from top-left`）**。
+
+---
+
+## Windows + FreeVideo 七大工程坑速查表
+
+| # | 陷阱名稱 | 症狀與報錯 | 根本原因 | 根治解法 |
+|---|---|---|---|---|
+| 1 | **References 與 First/Last 互斥坑** | HTTP 422 `Unprocessable Entity` | FreeVideo 後端不允許同時傳入 `references` 陣列與 `first_frame` 或 `continue_from` | **主力定案獨立 Ref2VA**：嚴禁傳入首尾幀；若走 I2VA 則 references 必須為空，二者絕不可共存！ |
+| 2 | **Windows 路徑反斜線轉義坑** | 找不到檔案、路徑被截斷 | JSON payload 中包含 `E:\MinimaxH3\...`，`\` 遭 JSON 解析器轉義成無效字符 | 所有本地素材路徑一律使用正斜線 `/`（如 `E:/MinimaxH3/ai-comic-drama/...`），或以代碼規範化轉義 |
+| 3 | **8GB VRAM OOM 崩潰** | `CUDA out of memory` / 進程瞬間退出 | 單次生成秒數過長（>10s 且帶多素材），或後台殘留顯存 | 嚴守「每段 7–10 秒」分段鐵律；OOM 時依上述公式在硬切點拆成兩個 Job，重啟後端釋放殘留 VRAM |
+| 4 | **ASR 中文發音模糊吞字** | 人聲含糊不清、ASR 置信度僅 0.43–0.54、偶發 -40dB 靜音 | H3 原生中文語音模型權重較低 | 階段 7 啟動**配音分層方案 A**：保留 `<d>` 當口型時間錨，成片抽離 H3 人聲，改用外部 TTS 重配後混入 |
+| 5 | **多角色平均化「撞臉」坑** | 三個角色同框全部長成同一張大眾臉 | 同時餵入多張體型相近的角色設定圖，模型自注意力特徵混淆 | 保守預設「一段一張角色圖」，拍反應拆成單人特寫；群戲時確保角色特異性視覺錨點極度鮮明 |
+| 6 | **正面特寫「背後出怪」景深陷阱** | 角色大特寫時，肩膀後面突然長出怪物頭部 | 特寫鏡頭 Prompt 描寫了「遠處的怪物」 | 正面特寫 Prompt **絕不描寫遠處主體**！地理與空間由前導背影段建立，特寫純寫面部微表情 |
+| 7 | **首幀與 H3 畫風割裂坑** | 影片畫面跟前後片段風格完全不搭、強烈塑膠感 | 誤用 Qwen/GPT 生成的首幀與 H3 Ref2VA 混剪（未並排對照） | 嚴禁混用！主力定案一律走獨立 Ref2VA；若要用首幀必須全片統一模型並排比對過審 |
+
+---
+
 ## 檔案索引
 
 ### 核心（每次都會用到）

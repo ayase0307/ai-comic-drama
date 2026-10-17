@@ -317,9 +317,26 @@ def validate_storyboard_data(data: dict, original_script_dialogues: list = None)
                 f"必須切換為 clear_impact_90deg (90度垂直軸線無遮擋) 以免擋住打擊接觸點！"
             )
 
-        # Check 5: 遠景/全景零五官微表情檢查
-        if shot_size in ("ELS", "LS") and any(k in expr for k in ["瞳孔", "睫毛", "嘴角", "眼眶", "淚", "唇"]):
-            errors.append(f"[{sid} 景別粒度錯誤] 當前景別為遠/全景 ({shot_size})，臉部像素極小，嚴禁描寫五官細節 ({expr})！")
+        # Check 5: 遠景/全景零五官微表情檢查與遠景多人同框提醒
+        if shot_size in ("ELS", "LS"):
+            if any(k in expr for k in ["瞳孔", "睫毛", "嘴角", "眼眶", "淚", "唇"]):
+                errors.append(f"[{sid} 景別粒度錯誤] 當前景別為遠/全景 ({shot_size})，臉部像素極小，嚴禁描寫五官細節 ({expr})！")
+            
+            # 遠景人物崩壞警告：多名角色同框且未標註背影/剪影
+            shot_text = f"{' '.join(stages)} {expr} {s.get('spatial_blocking', {}).get('blocking_desc', '')}"
+            has_multiple_chars = (
+                len(s.get("characters", [])) > 1
+                or any(k in shot_text for k in ["兩人", "两人", "眾人", "众人", "群戲", "群戏", "雙方", "双方", "對峙", "对峙"])
+                or bool(re.search(r"(@[^\s,，。]+.*@[^\s,，。]+)", shot_text))
+            )
+            has_back_view = any(k in shot_text.lower() for k in [
+                "背影", "back view", "from behind", "silhouette", "剪影", "不露臉", "不露脸"
+            ])
+            if has_multiple_chars and not has_back_view:
+                warnings.append(
+                    f"[{sid}] 💡 H3 遠景人物提醒：H3 遠景多人同框容易不照參考圖（臉崩），"
+                    f"建議改用「一鏡一臉特寫」演反應，或用「背影（不露臉）」演群戲走位。"
+                )
 
         # Check 6: 偽精確度與醫學解剖學黑名單掃描
         raw_shot_str = json.dumps(s, ensure_ascii=False)
@@ -327,7 +344,7 @@ def validate_storyboard_data(data: dict, original_script_dialogues: list = None)
             if bad_word in raw_shot_str:
                 errors.append(f"[{sid} 偽精確/解剖詞污染] 檢測到禁用詞「{bad_word}」，請轉譯為可見外顯五官動作！")
 
-        # Check 7: 台詞語速與閉唇鎖檢查
+        # Check 7: 台詞語速與閉唇鎖檢查 (含 4 字/秒法則與單句長度警告)
         if dlg.get("has_dialogue"):
             line = (dlg.get("line_verbatim") or "").strip()
             if line:
@@ -338,9 +355,37 @@ def validate_storyboard_data(data: dict, original_script_dialogues: list = None)
                         f"[{sid} 語速超載] 台詞「{line}」({n_chars}字 / {dur}s = {cps:.1f}字/秒) 超出語速上限（閘門 4.2 字/秒，建議值 3.8）！"
                         f"請於氣口切斷並順延至 overflow_dialogue_out。"
                     )
+                elif cps > 4.0 or n_chars > 15:
+                    warnings.append(
+                        f"[{sid}] ⚠️ 台詞超速風險：本鏡 {n_chars} 字僅 {dur} 秒（建議 ≤ 4 字/秒、單句 ≤ 15 字、窗口 ≥ 2.5 秒，否則 H3 會加速念詞）"
+                    )
         else:
             if not dlg.get("lips_closed_lock", False):
                 warnings.append(f"[{sid} 閉唇鎖提醒] 鏡頭無台詞，建議將 lips_closed_lock 設為 true 防止角色亂動嘴。")
+
+    # 整段台詞密度與說話時長比例檢查
+    total_dialogue_chars = sum(
+        count_speech_chars((sh.get("dialogue_and_audio", {}).get("line_verbatim") or ""))
+        for sh in shots
+        if sh.get("dialogue_and_audio", {}).get("has_dialogue")
+    )
+    total_speech_sec = total_dialogue_chars / 4.0
+    if target_dur > 0 and (total_speech_sec / target_dur) > 0.60:
+        warnings.append(
+            f"⚠️ 台詞密度過高警告：整段總說話預估秒數 ({total_speech_sec:.1f}s / {target_dur:.1f}s = "
+            f"{total_speech_sec / target_dur:.1%}) 超過段落總長 60%，建議保留更多呼吸與反應空間。"
+        )
+
+    # 分段時長提醒
+    if target_dur > 10.0 or target_dur < 5.0:
+        warnings.append(
+            f"[分段時長提醒] 本段時長 {target_dur}s：每段建議 2–4 個節拍、7–10 秒（15 秒僅為 H3 單次上限而非硬規則），"
+            f"且每段應為自足開場並具備靜態留白的收尾交接格。"
+        )
+    checks_passed.append(
+        "[分段時長設計建議] 每段建議 2–4 個節拍、7–10 秒（15 秒僅為 H3 單次上限而非硬規則），"
+        "且每段應為自足開場並具備靜態留白的收尾交接格。"
+    )
 
     checks_passed.append("[PASS] 單鏡動作 <=5 階段、武戲 90° 防遮擋與遠景五官過濾核對完成")
     checks_passed.append("[PASS] 偽精確數值 (3mm/折射率) 與醫學解剖肌群詞零殘留")

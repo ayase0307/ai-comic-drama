@@ -348,12 +348,21 @@ def build_pencil_sketch_prompt(
     return " ".join(parts)
 
 
+STYLE_CONSISTENCY_WARNING = (
+    "[⚠️ 畫風一致性警告（噩盡島第五輪實測教訓）] "
+    "外部生圖模型生成的彩色首幀畫風 ≠ H3 原生 Ref2VA 畫風。"
+    "若本片採用「每段獨立 Ref2VA」為主力，請勿將單段首幀 I2VA 混入片中（畫風會跳出來）；"
+    "若要使用首幀 I2VA，請務必與既有 H3 片段並排對照畫風，或整部片統一皆由同一圖片模型生成首幀。"
+)
+
+
 def build_color_keyframe_prompt(shot: Dict[str, Any], segment_data: Optional[Dict[str, Any]] = None) -> str:
     """編譯黑白鉛筆分鏡草圖轉全彩關鍵幀首幀提示詞，強制注入屬性解耦擦除指令。
 
     將單格鉛筆草圖作為 <image1> 送入 FreeVideo Qwen-Image 2.1 Turbo，
     嚴格保留構圖幾何與人體姿態，同時完全去除方向箭頭與輔助線，轉為真實色彩與光影。
     """
+    print(STYLE_CONSISTENCY_WARNING)
     segment_data = segment_data or {}
     meta = segment_data.get("metadata", {})
     style_anchor = (
@@ -889,6 +898,7 @@ def main():
 
     # 3. 執行鉛筆草圖轉全彩關鍵幀首幀
     if args.to_color_keyframe:
+        print(f"\n{STYLE_CONSISTENCY_WARNING}\n")
         layer2_data = convert_to_color_keyframes(
             client=client,
             layer2_data=layer2_data,
