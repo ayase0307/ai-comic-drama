@@ -17,6 +17,45 @@
     "scene_id": { "type": "string" },
     "segment_id": { "type": "string" },
     "source_scene_id": { "type": "string", "description": "Optional. Scene ID from the upstream handoff JSON (e.g. EP01-S01)" },
+    "grid_preview_file": { "type": "string" },
+    "storyboard_panels": {
+      "type": "array",
+      "description": "Optional. 1:1 mapping manifest between 3x3 grid panels and shot IDs",
+      "items": {
+        "type": "object",
+        "properties": {
+          "index": { "type": "integer", "minimum": 1, "maximum": 9 },
+          "shot_id": { "type": "string" },
+          "panel_file": { "type": ["string", "null"] },
+          "sha256": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "review": {
+      "type": "object",
+      "properties": {
+        "review_status": {
+          "type": "string",
+          "enum": ["draft", "pending_review", "approved", "rejected"]
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "locked": {
+          "type": "boolean"
+        },
+        "reviewer_note": {
+          "type": ["string", "null"]
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "source_hash": {
+          "type": "string"
+        }
+      }
+    },
     "style_lock": {
       "type": "object",
       "description": "Optional. Locked style description reused by every shot",
@@ -107,6 +146,39 @@
           "status": { "type": "string", "enum": ["pending", "image_done", "video_done", "skipped"] },
           "image_file": { "type": "string" },
           "video_file": { "type": "string" },
+          "sketch_file": {
+            "type": "string",
+            "description": "Path to 1:1 pencil sketch panel image for this shot"
+          },
+          "sketch_sha256": {
+            "type": "string",
+            "description": "SHA256 hash of the pencil sketch panel file for zero-contamination verification"
+          },
+          "review": {
+            "type": "object",
+            "properties": {
+              "review_status": {
+                "type": "string",
+                "enum": ["draft", "pending_review", "approved", "rejected"]
+              },
+              "revision": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "locked": {
+                "type": "boolean"
+              },
+              "reviewer_note": {
+                "type": ["string", "null"]
+              },
+              "updated_at": {
+                "type": "string"
+              },
+              "shot_hash": {
+                "type": "string"
+              }
+            }
+          },
           "start_time": { "type": "number", "minimum": 0.0 },
           "end_time": { "type": "number", "minimum": 0.5 },
           "duration": { "type": "number", "minimum": 0.5 },

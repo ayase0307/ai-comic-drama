@@ -39,10 +39,10 @@ agent_created: true
 | 0 定調 | 鎖定題材、載體、畫風錨、比例等設定 | `project.md` |
 | 1 改編 | 小說解析、保留分級、A/B/C 方案、分集架構（原稿是小說必走） | 故事地圖、`series-outline`、併入 `project.md` |
 | 2 資產與設定圖 | 故事聖經→`assets.md`（ID、風格錨、色票、固定片段）、設定板 | `assets.md`、`images/` 設定板 |
-| 3 漫劇劇本 | 場景化改寫、時長與可製作性審計、交接 JSON | `script-ep01.md`、`handoff-ep01.json`、`adaptation-diff.md` |
-| 4 導演分鏡 | 三步法、焦距物距、連戲握手、三層產物 | `layer2/*.json`、`storyboard-ep01.md` |
+| 3 漫劇劇本 | 場景化改寫、時長與可製作性審計、交接 JSON、人工審核鎖（`sync_script.py`） | `script-ep01.md`、`handoff-ep01.json`、`adaptation-diff.md` |
+| 4 導演分鏡 | 三步法、焦距物距、連戲握手、單鏡局部修改（`patch_shot.py`）、Qwen 鉛筆九宮格（`qwen_storyboard_grid.py`） | `layer2/*.json`、`storyboard-ep01.md`、`grid-*.png` |
 | 5 提示詞包 | Layer 3 編譯成目標模型語法 | `prompts-ep01.md` |
-| 6 生成 | **先問模型與參數** → 設定圖 → 分鏡圖 → 影片 | `images/`、`videos/` |
+| 6 生成 | 兩段式轉換鏈：鉛筆九宮格審核 → 轉全彩關鍵幀首幀 → H3 逐鏡生成 → `verify_video_shot.py` 影片審查 | `keyframes/`、`images/`、`videos/`、審查報告 |
 | 7 組裝交付 | 旁白稿、字幕、剪輯時間線、交付清單 | `narration-ep01.md`、`timeline-ep01.csv` |
 
 **詳細做法、每階段模板與檢查點見 `references/pipeline.md`。** 階段 3、4 各有確定性驗證腳本（`scripts/adapt/`、`scripts/storyboard/`），**通過才進下一階段**。
@@ -61,10 +61,12 @@ agent_created: true
 ├── layer2/                 # 分鏡 Layer 2 JSON（機器可讀 SSoT）
 ├── storyboard-ep01.md      # 分鏡表（人可讀）
 ├── prompts-ep01.md         # 逐鏡圖像 / 影片提示詞
+├── panels/                 # Qwen 單格黑白鉛筆手繪草圖（panel-*.png）
+├── keyframes/              # Qwen 轉繪全彩關鍵幀首幀（keyframe-*.png，去黑箭頭）
 ├── narration-ep01.md       # 旁白與字幕稿
 ├── timeline-ep01.csv       # 剪輯時間線
-├── images/                 # 生成圖（設定板、場景主圖、分鏡圖）
-└── videos/                 # 生成影片片段
+├── images/                 # 生成圖（設定板、場景主圖、九宮格總覽 grid-*.png）
+└── videos/                 # 生成影片片段與審查報告
 ```
 
 用 `scripts/init_project.py` 一鍵建立骨架。
@@ -79,13 +81,20 @@ agent_created: true
 
 > **提示詞依模型而異**——自然語言型、標籤堆疊型、中文原生型寫法完全不同。先寫一版模型無關的主提示詞，再依目標模型改寫。對照表見 `references/model-profiles.md`；**若用 MiniMax H3，改用 `references/minimax-h3.md` 的官方三段式結構**（通用公式套不上去）。
 
-**6.1 先出資產設定圖**：角色設定板（面部特寫＋正／側／背、6 表情、色票、身高對照、每套服裝一張）、場景主圖、道具、音色母帶，規格與驗收門見 `references/consistency.md`。提示詞＝固定描述片段＋風格鎖定錨。給使用者確認長相與音色。
+**6.1 標準轉換鏈（實驗驗證標準實踐）**：
+1. **分鏡 Layer 2 鎖定**：完成焦距物距、走位遮擋與連戲狀態檢查。
+2. **Qwen 鉛筆草圖九宮格（人工審核與單格零污染重繪）**：執行 `qwen_storyboard_grid.py` 輸出 3x3 九宮格黑白構圖（支援 `--no-arrows` 純淨底稿）。導演人工審核；未過審鏡頭透過 `patch_shot.py` 微調參數，以 `--redraw-shot` 單格重抽，其餘通過之格子 100% 鎖定保護。
+3. **Qwen 轉繪全彩關鍵幀首幀（自動擦除黑箭頭）**：執行 `qwen_storyboard_grid.py --to-color-keyframe <shot_id_or_all>`，將單格草圖送入 Qwen-Image 2.1 Turbo 圖生圖，強制注入屬性解耦擦除指令，保留構圖透視與姿態，擦除粗黑動向箭頭與透視輔助線，輸出至 `keyframes/keyframe-{shot_id}.png`。
+4. **H3 逐鏡圖生視頻（I2VA）**：以全彩關鍵幀為首幀（image 1），影片提示詞只寫運動與物理連續感，輸出至 `videos/`。
+5. **`verify_video_shot.py` 影片自動審查**：審驗時長誤差（≤ 0.5s）、彩度（防灰階線稿滲透 C* ≥ 10.0）、九宮格分屏線殘留偵測與色彩連貫性（dE76 ≤ 25.0），產出審查報告並回寫 Layer 2。
 
-**6.2 確認後才出分鏡圖**。參考鏈：角色板＋場景主圖作圖生圖輸入；有參考圖時外觀只在首次出現寫一次，沒有時逐字貼固定片段。每鏡出完跑漂移清單。
+**6.2 先出資產設定圖**：角色設定板（面部特寫＋正／側／背、6 表情、色票、身高對照、每套服裝一張）、場景主圖、道具、音色母帶，規格與驗收門見 `references/consistency.md`。提示詞＝固定描述片段＋風格鎖定錨。給使用者確認長相與音色。
 
-**6.3 影片優先用圖生視頻**：拿已確認的分鏡圖當首幀，提示詞只寫**運動**（運鏡、主體動作、時序、物理連續感），不重複描述靜態外觀。
+**6.3 確認後才出分鏡圖與全彩關鍵幀**。參考鏈：角色板＋場景主圖作圖生圖輸入；有參考圖時外觀只在首次出現寫一次，沒有時逐字貼固定片段。每鏡出完跑漂移清單。
 
-**6.4 逐鏡生成、逐鏡檢查**。不要一次丟十幾鏡；出問題先修提示詞再重試。
+**6.4 影片優先用圖生視頻**：拿已確認的全彩關鍵幀當首幀，提示詞只寫**運動**（運鏡、主體動作、時序、物理連續感），不重複描述靜態外觀。
+
+**6.5 逐鏡生成、逐鏡檢查**。不要一次丟十幾鏡；出問題先修提示詞再重試。
 
 > 影片生成需 1–3 分鐘。批次生成前先跟使用者對齊數量與模型選擇。
 
@@ -124,5 +133,9 @@ agent_created: true
 - `references/prompt-playbook.md` — 圖像／影片提示詞撰寫手冊（景別、運鏡、光線、風格鎖、負面提示詞）。
 - `scripts/init_project.py` — 建立專案骨架與模板檔。
 - `scripts/adapt/*.py` — 劇本結構、時長、連戲、改編差異驗證。
+- `scripts/adapt/sync_script.py` — 人工審核鎖定與 Markdown 劇本修改同步回寫 `handoff-epNN.json` 工具。
 - `scripts/storyboard/handoff_to_skeleton.py` — 交接 JSON → Layer 2 骨架；`layer2_to_table.py` — Layer 2 → 表格／時間線；`validate_storyboard.py` — 分鏡靜態驗證；`director_storyboard_assistant.py` — 預設配置與多模型提示詞編譯。
+- `scripts/storyboard/patch_shot.py` — 單鏡局部修改與審核鎖定工具（支援秒數吸收、自動重算時間軸）。
+- `scripts/storyboard/qwen_storyboard_grid.py` — Qwen-Image 2.1 電影分鏡鉛筆草圖、單格局部重繪、九宮格拼版與去黑箭頭轉全彩首幀工具。
+- `scripts/storyboard/verify_video_shot.py` — AI 影片自動審查與分鏡規格差異檢驗門禁工具（時長、彩度防黑白污染、九宮格分屏殘留、色彩連貫性）。
 - `scripts/color_qa.py` — 跨鏡頭色彩一致性檢查（同步自上游，用法見 `references/h3/lighting-and-color.md`）。

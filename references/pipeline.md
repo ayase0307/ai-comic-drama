@@ -60,6 +60,18 @@
 - 對白單句 > 28 字警告、> 35 字阻斷（字幕可讀性）；整集時長在目標 ±15%。
 - 產出：`script-epNN.md`、`handoff-epNN.json`（符合 `adapt/templates/handoff.schema.json`）、`adaptation-diff.md`（改編差異對帳）。
 
+**人工審核鎖與劇本雙向同步（`sync_script.py`）**：
+- 劇本定稿後鎖定場景防誤改：
+  ```bash
+  python scripts/adapt/sync_script.py --handoff handoff-ep01.json --scene EP01-S01 --set-status approved --note "導演審核通過"
+  ```
+- 當在 Markdown 劇本（`script-ep01.md`）修改對白或動作時，一鍵同步至 handoff（未鎖定場景自動增版更新，已鎖定場景自動攔截防覆蓋）：
+  ```bash
+  python scripts/adapt/sync_script.py --handoff handoff-ep01.json --script script-ep01.md
+  # 若需強制解鎖再改：
+  python scripts/adapt/sync_script.py --handoff handoff-ep01.json --scene EP01-S01 --unlock
+  ```
+
 **必跑驗證**（任一閘門觸發即退稿重寫，≥ 80 分且 0 閘門才過）：
 
 ```bash
@@ -86,6 +98,24 @@ python scripts/adapt/compare_adaptation.py --source source.json --script script-
 python scripts/storyboard/validate_storyboard.py --file layer2/layer2-EP01-*.json --handoff handoff-ep01.json   # 或 --demo 看範例
 python scripts/storyboard/layer2_to_table.py layer2/layer2-EP01-*.json --check --md storyboard-ep01.md --timeline timeline-ep01.csv
 ```
+
+**視覺化鉛筆九宮格預覽與單鏡局部修改流程**：
+1. **生成 3x3 鉛筆九宮格草圖**（支援 `--no-arrows` 純淨底稿，避免後續轉彩黑箭頭殘留）：
+   ```bash
+   python scripts/storyboard/qwen_storyboard_grid.py --layer2 layer2/layer2-EP01-S01-a.json --generate-all --assemble-grid
+   ```
+2. **單鏡局部修改與審核鎖定（`patch_shot.py`）**：
+   ```bash
+   # 審核通過並鎖定鏡頭防誤改
+   python scripts/storyboard/patch_shot.py --file layer2/layer2-EP01-S01-a.json --shot SH01 --set-status approved
+   # 修改未鎖定鏡頭 SH03 景別、動作與時長，並由 SH04 吸收秒數以保持總時長不變
+   python scripts/storyboard/patch_shot.py --file layer2/layer2-EP01-S01-a.json --shot SH03 --shot-size CU --duration 3.5 --absorb-from SH04
+   ```
+3. **單格零污染局部重繪**：
+   ```bash
+   # 僅重新生成指定鏡頭，其餘已通過之單格 100% 保持不變
+   python scripts/storyboard/qwen_storyboard_grid.py --layer2 layer2/layer2-EP01-S01-a.json --redraw-shot SH03 --assemble-grid
+   ```
 
 **骨架不是成品**：`handoff_to_skeleton.py` 依「字數 ÷ 語速」估秒、單段 ≤ 8 鏡 ≤ 60 秒自動分段，鏡頭欄位與光色句、風格鎖留 `TODO`；驗證器與 `--check` 遇到 `TODO` 一律判失敗，導演精修完才過。
 
@@ -133,17 +163,38 @@ python scripts/storyboard/layer2_to_table.py layer2/layer2-EP01-*.json --check -
 
 依 `references/consistency.md` §3–§6 出：角色設定板（面部特寫＋正／側／背、6 表情、五色色票、身高對照、每套服裝一張）、場景主圖（母片＋三角度＋日夜變體）、道具（比例參照＋狀態表）、音色母帶。提示詞＝固定描述片段＋**風格鎖定錨**。每項過 §10 驗收門，**角色長相與音色交使用者確認後才繼續**。需要同圖鎖臉時可用九宮格出關鍵幀，但分鏡圖仍逐鏡生成。
 
-### 6.2 分鏡圖
+### 6.2 兩段式轉繪全彩關鍵幀首幀（自動去黑箭頭）
 
-逐鏡生成。參考鏈：角色板＋場景主圖（＋道具）→ 分鏡圖（`consistency.md` §7）；有參考圖時外觀只在首次出現寫一次。每鏡生成後跑 §8 漂移清單，fail 不得當下一鏡參考。結果寫回 Layer 2 的 `status`、`image_file`、`reference_refs`。
+逐鏡或整段將通過審核的鉛筆草圖轉繪為全彩首幀，作為影片生成的高保真輸入：
+```bash
+# 整段草圖批次轉全彩首幀
+python scripts/storyboard/qwen_storyboard_grid.py --layer2 layer2/layer2-EP01-S01-a.json --to-color-keyframe all
+# 或單鏡轉繪
+python scripts/storyboard/qwen_storyboard_grid.py --layer2 layer2/layer2-EP01-S01-a.json --to-color-keyframe SH01
+```
+轉繪指令強制注入屬性解耦擦除指令，保留構圖透視幾何與肢體姿態，擦除粗黑動向箭頭與透視輔助線，輸出至 `keyframes/keyframe-{shot_id}.png` 並自動回寫至 Layer 2。
 
-### 6.3 影片片段
+### 6.3 影片生成（MiniMax H3 圖生視頻 I2VA）
 
-優先**圖生視頻**：以分鏡圖為首幀，提示詞只寫運動。
-
-- 需要「同一個鏡頭內的轉折」時，可同時給首幀與末幀圖。
+以已核准的全彩關鍵幀（`keyframes/keyframe-{shot_id}.png`）為首幀，提示詞只寫**運動**（運鏡、主體動作、時序、物理連續感），輸出至 `videos/`。
 - 單段建議 4–8 秒；超過就拆鏡。
 - 生成需 1–3 分鐘，逐段做、逐段驗。
+
+### 6.4 影片自動審查門禁（`verify_video_shot.py`）
+
+生成影片後立即執行自動審查，進行確定性指標檢驗：
+```bash
+# 審查單鏡影片並回寫 Layer 2
+python scripts/storyboard/verify_video_shot.py --video videos/EP01-S01-SH01.mp4 --layer2 layer2/layer2-EP01-S01-a.json --shot SH01 --write-back
+
+# 批次審查整段影片並比對相鄰鏡頭色彩連貫性
+python scripts/storyboard/verify_video_shot.py --videos-dir videos/ --layer2 layer2/layer2-EP01-S01-a.json --write-back
+```
+四大自動攔截檢驗指標：
+1. **時長與規格**：實際秒數與 Layer 2 誤差 ≤ 0.5s，寬高比符合 16:9 / 9:16。
+2. **彩度防灰階線稿污染**：首中尾幀平均彩度 $C^* \ge 10.0$（排除黑白水墨風格），防止鉛筆草圖滲透成黑白影片。
+3. **九宮格分屏線殘留**：偵測抽樣影格 1/3、2/3 處之直線分割特徵，防止九宮格邊框混入。
+4. **跨鏡色彩連貫性**：計算相鄰鏡頭色盤 $dE_{76} \le 25.0$，防止光影嚴重跳戲。
 
 ### 範圍對齊
 

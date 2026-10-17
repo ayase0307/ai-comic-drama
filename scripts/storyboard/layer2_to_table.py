@@ -79,13 +79,36 @@ def _cell(value: Any) -> str:
     return str(value).replace("|", "\\|").replace("\n", " ")
 
 
+STATUS_BADGES = {
+    "draft": "📝 draft",
+    "pending_review": "⏳ pending_review",
+    "approved": "✅ approved",
+    "rejected": "❌ rejected",
+}
+
+
+def format_review_badge(review: dict | None) -> str:
+    if not review:
+        return "📝 draft"
+    st = review.get("review_status", "draft")
+    badge = STATUS_BADGES.get(st, f"📝 {st}")
+    rev = review.get("revision")
+    rev_str = f" (rev {rev})" if rev is not None else ""
+    return f"{badge}{rev_str}"
+
+
 def md_row(shot: dict) -> str:
     cam = shot["camera_optics"]
     act = shot["action_and_performance"]
     dia = shot["dialogue_and_audio"]
     dialogue = f"{dia.get('speaker')}：{dia.get('line_verbatim')}" if dia.get("has_dialogue") else "—"
+    review_str = format_review_badge(shot.get("review"))
+    sketch = shot.get("sketch_file")
+    sketch_cell = f"![草圖]({sketch})" if sketch else "—"
     cells = [
         shot["shot_id"],
+        review_str,
+        sketch_cell,
         f"{shot['start_time']:.2f}–{shot['end_time']:.2f}s",
         cam["shot_size"],
         f"{cam['focal_length']} / {cam['physical_distance']}",
@@ -108,6 +131,17 @@ def overflow_lines(data: dict) -> list[str]:
     return lines
 
 
+def review_summary_lines(data: dict) -> list[str]:
+    parts = []
+    if "review" in data and data["review"]:
+        parts.append(f"審核狀態：{format_review_badge(data['review'])}")
+    if data.get("grid_preview_file"):
+        parts.append(f"九宮格預覽：![九宮格預覽]({data['grid_preview_file']})")
+    if parts:
+        return [f"> {' | '.join(parts)}", ""]
+    return []
+
+
 def render_md(data: dict) -> str:
     meta = data["metadata"]
     style = data.get("style_lock") or {}
@@ -115,6 +149,7 @@ def render_md(data: dict) -> str:
     lines = [
         f"# {data['project_id']} · {data['scene_id']}",
         "",
+        *review_summary_lines(data),
         f"- 段落：`{data['segment_id']}`（來源場景 `{source}`）",
         *overflow_lines(data),
         f"- 比例：{meta['aspect_ratio']}　時長：{meta['target_duration_sec']} 秒　節奏：{meta['pacing_profile']}",
@@ -122,8 +157,8 @@ def render_md(data: dict) -> str:
         f"- 風格錨點：{style.get('anchor', '—')}",
         f"- 負向：{style.get('negative', '—')}",
         "",
-        "| 鏡 | 時間 | 景別 | 焦段 / 距離 | POV | 運鏡 | 動作階段 | 對白 |",
-        "|---|---|---|---|---|---|---|---|",
+        "| 鏡 | 審核 | 草圖 | 時間 | 景別 | 焦段 / 距離 | POV | 運鏡 | 動作階段 | 對白 |",
+        "|---|---|---|---|---|---|---|---|---|---|",
     ]
     lines += [md_row(shot) for shot in data["shots"]]
     return "\n".join(lines) + "\n"

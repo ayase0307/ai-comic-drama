@@ -81,6 +81,31 @@
         }
       }
     },
+    "review": {
+      "type": "object",
+      "properties": {
+        "review_status": {
+          "type": "string",
+          "enum": ["draft", "pending_review", "approved", "rejected"]
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "locked": {
+          "type": "boolean"
+        },
+        "reviewer_note": {
+          "type": ["string", "null"]
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "source_hash": {
+          "type": "string"
+        }
+      }
+    },
     "episodes": {
       "type": "array",
       "minItems": 1,
@@ -115,6 +140,31 @@
               "comic_topper",
               "meaningful_silence"
             ]
+          },
+          "review": {
+            "type": "object",
+            "properties": {
+              "review_status": {
+                "type": "string",
+                "enum": ["draft", "pending_review", "approved", "rejected"]
+              },
+              "revision": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "locked": {
+                "type": "boolean"
+              },
+              "reviewer_note": {
+                "type": ["string", "null"]
+              },
+              "updated_at": {
+                "type": "string"
+              },
+              "source_hash": {
+                "type": "string"
+              }
+            }
           },
           "scenes": {
             "type": "array",
@@ -276,6 +326,31 @@
                         "original_vision": { "type": "string" },
                         "simplified_alternative": { "type": "string" }
                       }
+                    }
+                  }
+                },
+                "review": {
+                  "type": "object",
+                  "properties": {
+                    "review_status": {
+                      "type": "string",
+                      "enum": ["draft", "pending_review", "approved", "rejected"]
+                    },
+                    "revision": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "locked": {
+                      "type": "boolean"
+                    },
+                    "reviewer_note": {
+                      "type": ["string", "null"]
+                    },
+                    "updated_at": {
+                      "type": "string"
+                    },
+                    "source_hash": {
+                      "type": "string"
                     }
                   }
                 }
