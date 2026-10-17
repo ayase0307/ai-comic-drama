@@ -8,7 +8,7 @@
 - 本機：`E:\MinimaxH3\ai-comic-drama`
 - 性質：AI 漫劇端到端製作 Agent Skill（八階段：0 定調→1 改編→2 資產設定圖→3 漫劇劇本→4 導演分鏡→5 提示詞→6 生成→7 交付），影片提示詞走 MiniMax H3
 - 2026-10-17 整併：`references/adapt/`＋`scripts/adapt/`（作者的 novel-to-manju v1.0.0，小說必須先改編，不得直接當劇本）；`references/storyboard/`＋`scripts/storyboard/`（作者的 cinematic-director-storyboard v2.0，取代舊分鏡格式）；新增 `references/consistency.md`、`references/styles.md`、`assets/styles/`（11 種風格樣圖）
-- README 圖片：`assets/` 四張皆 Codex 生成；**`pipeline.jpg` 仍是七階段舊圖，待重生為八階段**
+- README 圖片：`assets/` 四張皆 Codex 生成；`pipeline.jpg` 已是八階段；`assets/styles/` 是 11 張風格設定板（ChatGPT 網頁版）
 - 本技能只在本機使用，README 已拿掉成本提醒
 - `references/h3/` 已同步上游 `2bddf6b`（見「上游同步」）
 
@@ -29,9 +29,10 @@
 
 ## 待辦
 
-- [ ] 重生 `assets/pipeline.jpg` 為八階段（改編、資產設定圖兩格為新增）
+- [x] `assets/pipeline.jpg` 已重生為八階段（2026-10-17，ChatGPT 網頁版）
 - [x] 第一次 Opus 複審（2026-10-17）：3 個 CRITICAL 已確認修好
-- [ ] 第二輪腳本修正（J-Cut 跨段台詞不被判違規、分段 >26 不壞檔、>15 秒單鏡拆分、格式錯誤 JSON 不噴 traceback、`--palette` HEX 過濾、劇本↔handoff 台詞比對、init 提示）由 Haiku 完成但**最終報告未送達**；主 agent 只抽查：語法編譯、10/10 改編測試、TODO 閘門 rc=1、壞 JSON 可讀訊息、H3 輸出無 HEX、單段台詞核對通過。**跨段 J-Cut 切句的情境沒有親自驗證**，下一位請用 Opus 複審實跑
+- [x] 第二輪腳本修正（Opus 實跑驗證 6 項 PASS；其後再修 J-Cut overflow 規則，commit 已含）
+- [x] （歷史）第二輪腳本修正（J-Cut 跨段台詞不被判違規、分段 >26 不壞檔、>15 秒單鏡拆分、格式錯誤 JSON 不噴 traceback、`--palette` HEX 過濾、劇本↔handoff 台詞比對、init 提示）由 Haiku 完成但**最終報告未送達**；主 agent 只抽查：語法編譯、10/10 改編測試、TODO 閘門 rc=1、壞 JSON 可讀訊息、H3 輸出無 HEX、單段台詞核對通過。**跨段 J-Cut 切句的情境沒有親自驗證**，下一位請用 Opus 複審實跑
 - [ ] 已知低階問題：`estimate_duration.py` 計字法（含標點）與 `speech_utils.py`（去標點）不同；`references/h3/` 以外的 README 快速開始缺 validate_storyboard 一步
 - [ ] 風格錨定詞只在 Codex imagegen 驗證過；換即夢／可靈／Midjourney 要實測（styles.md 已標）
 - [ ] 小說改編與分鏡兩個子體系「沒有逐句比對」原作者版本，只做路徑與連結改寫；原作者更新時以 `E:\MinimaxH3\劇本改寫大師\novel-to-manju`、`E:\MinimaxH3\影片分鏡大師\cinematic-director-storyboard` 為準手動同步（本 repo 已改動：adapt/ 與 storyboard/ 檔內路徑、`validate_structure.py` 與 `run_all_tests.py` 的路徑、Layer 2 schema 新增選填欄位、`director_storyboard_assistant.py` 與 `validate_storyboard.py` 的 HEX／聲帶數值／--handoff 修改）
@@ -46,7 +47,8 @@
 ## 使用者偏好
 
 - 這個專案的大改版：由 Opus 當審查整併者、Haiku 當調查與執行子代理（2026-10-17）
-- 要有主流漫劇風格的「風格鎖定錨」，用 Codex 各自生圖、以表格放在 README（2026-10-17）
+- 要有主流漫劇風格的「風格鎖定錨」，各自生圖、以表格放在 README；**樣圖必須是角色設定板（面部特寫＋正／側／背），因為風格錨是用來鎖設定板的**（2026-10-17）
+- Codex 影像額度用完會卡住（log 停在 `Reading additional input from stdin`）；改用使用者授權的 ChatGPT 網頁版（Claude in Chrome），JS 單次 ≤45 秒要分段輪詢，下載檔會變成 GUID .tmp，用位元組大小對應
 
 - 每次修改本專案前，都要自動掃 `h3-video-prompting` 有沒有新 commit 並整合；衝突時以該 repo 為主（2026-10-17）
 - README 要用高星數 repo 常見格式，頂部有設計圖，圖文並茂（2026-10-17）

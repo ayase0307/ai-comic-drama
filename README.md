@@ -87,23 +87,23 @@ python scripts/storyboard/layer2_to_table.py layer2/layer2-EP01-*.json --check  
 
 ## 🎨 漫劇風格鎖定錨
 
-十一種主流風格各蒸餾成一組可貼在每個圖像提示詞結尾的**風格鎖定錨**（含負面錨、色盤、翻車點）。下表樣圖都是**同一位角色**（紅衣漢服女主）套用各自的錨生成，方便橫向比較。完整錨定詞見 [`references/styles.md`](references/styles.md)。
+十一種主流風格各蒸餾成一組可貼在每個圖像提示詞結尾的**風格鎖定錨**（含負面錨、色盤、翻車點）。風格錨的用途就是先鎖定**角色設定板**，所以下表樣圖都是**同一位角色**（紅衣漢服女主）套用各自的錨生成的設定板：左為面部特寫，右為正／側／背全身，單色平光背景，這樣差異只來自風格。完整錨定詞見 [`references/styles.md`](references/styles.md)。
 
 | # | 風格 | 樣圖 | 適合題材 | 錨定重點 |
 |---|---|---|---|---|
-| 1 | 3D 國漫 | <img src="assets/styles/style-01-3d-donghua.jpg" width="130"> | 玄幻、仙俠、霸總 | 平滑 3D 模型表面、光澤皮膚、髮絲絲綢高光 |
-| 2 | 2D 動態漫 | <img src="assets/styles/style-02-2d-motion-comic.jpg" width="130"> | 霸總、甜寵、逆襲 | 向量線稿、平塗色塊、背景極簡、單一動作 |
-| 3 | 日系賽璐璐 | <img src="assets/styles/style-03-cel-anime.jpg" width="130"> | 校園、熱血、日常 | 硬邊陰影、固定線寬、平塗 |
-| 4 | 日系電影感 | <img src="assets/styles/style-04-cinematic-anime.jpg" width="130"> | 治癒、青春、情感 | 黃金時刻逆光、細緻雲天與街景 |
-| 5 | 韓漫條漫 | <img src="assets/styles/style-05-webtoon.jpg" width="130"> | 都市、財閥、復仇 | 細線柔和賽璐璐、大眼、粉彩高光 |
-| 6 | 新國風水墨 | <img src="assets/styles/style-06-ink-wash.jpg" width="130"> | 古風、文化題材 | 宣紙肌理、墨色濃淡、留白、朱砂印 |
-| 7 | 仙俠古風厚塗 | <img src="assets/styles/style-07-xianxia-painterly.jpg" width="130"> | 仙俠、修真、穿越 | 厚重筆觸、飄帶、雲海山門 |
-| 8 | 都市霸總半寫實 | <img src="assets/styles/style-08-urban-semi-real.jpg" width="130"> | 霸總、豪門、甜寵 | 近真人比例、香檳金輪廓光、頂層公寓 |
-| 9 | Q 版喜劇 | <img src="assets/styles/style-09-chibi.jpg" width="130"> | 沙雕、搞笑 | 二頭身、粗描邊、高彩度色塊 |
-| 10 | 美漫硬派線稿 | <img src="assets/styles/style-10-american-comic.jpg" width="130"> | 動作、末世、懸疑 | 粗墨線、網點陰影、強對比 |
-| 11 | 賽博霓虹 | <img src="assets/styles/style-11-cyberpunk.jpg" width="130"> | 末世、科幻、機甲 | 平面霓虹色塊、硬邊陰影、雨夜招牌 |
+| 1 | 3D 國漫 | <img src="assets/styles/sheet-01-3d-donghua.jpg" width="260"> | 玄幻、仙俠、霸總 | 平滑 3D 模型表面、光澤皮膚、髮絲絲綢高光 |
+| 2 | 2D 動態漫 | <img src="assets/styles/sheet-02-2d-motion-comic.jpg" width="260"> | 霸總、甜寵、逆襲 | 向量線稿、平塗色塊、背景極簡、單一動作 |
+| 3 | 日系賽璐璐 | <img src="assets/styles/sheet-03-cel-anime.jpg" width="260"> | 校園、熱血、日常 | 硬邊陰影、固定線寬、平塗 |
+| 4 | 日系電影感 | <img src="assets/styles/sheet-04-cinematic-anime.jpg" width="260"> | 治癒、青春、情感 | 黃金時刻逆光、細緻雲天與街景 |
+| 5 | 韓漫條漫 | <img src="assets/styles/sheet-05-webtoon.jpg" width="260"> | 都市、財閥、復仇 | 細線柔和賽璐璐、大眼、粉彩高光 |
+| 6 | 新國風水墨 | <img src="assets/styles/sheet-06-ink-wash.jpg" width="260"> | 古風、文化題材 | 宣紙肌理、墨色濃淡、留白、朱砂印 |
+| 7 | 仙俠古風厚塗 | <img src="assets/styles/sheet-07-xianxia-painterly.jpg" width="260"> | 仙俠、修真、穿越 | 厚重筆觸、飄帶、雲海山門 |
+| 8 | 都市霸總半寫實 | <img src="assets/styles/sheet-08-urban-semi-real.jpg" width="260"> | 霸總、豪門、甜寵 | 近真人比例、香檳金輪廓光、頂層公寓 |
+| 9 | Q 版喜劇 | <img src="assets/styles/sheet-09-chibi.jpg" width="260"> | 沙雕、搞笑 | 二頭身、粗描邊、高彩度色塊 |
+| 10 | 美漫硬派線稿 | <img src="assets/styles/sheet-10-american-comic.jpg" width="260"> | 動作、末世、懸疑 | 粗墨線、網點陰影、強對比 |
+| 11 | 賽博霓虹 | <img src="assets/styles/sheet-11-cyberpunk.jpg" width="260"> | 末世、科幻、機甲 | 平面霓虹色塊、硬邊陰影、雨夜招牌 |
 
-> 誠實聲明：「主流」是依題材與工具選項歸納，沒有找到各平台公開占比；錨定詞與色盤為推斷，僅以上方樣圖在 Codex imagegen 校準過，換成即夢、可靈、Midjourney 等模型請先出 3–5 張測試圖。
+> 誠實聲明：「主流」是依題材與工具選項歸納，沒有找到各平台公開占比；錨定詞與色盤為推斷，僅以上方設定板在 ChatGPT 網頁版校準過，換成即夢、可靈、Midjourney 等模型請先出 3–5 張測試圖。
 
 ## 🧬 資產一致性：靠登記、參考鏈與驗收
 
@@ -216,5 +216,5 @@ ai-comic-drama/
 ---
 
 <div align="center">
-<sub>橫幅、角色設定圖、分鏡圖與風格樣圖由 Codex（imagegen）生成；風格樣圖中的 3D 國漫、韓漫、賽博三張由 ChatGPT 網頁版生成。</sub>
+<sub>橫幅、角色設定圖、分鏡圖由 Codex（imagegen）生成；八階段流程圖與 11 張風格設定板由 ChatGPT 網頁版生成。</sub>
 </div>
