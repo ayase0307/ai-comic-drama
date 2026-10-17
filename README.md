@@ -60,6 +60,9 @@ python scripts/adapt/validate_structure.py --script script-ep01.md --handoff han
 
 # 交接 JSON → 分鏡 Layer 2 骨架，再轉表格與時間線
 python scripts/storyboard/handoff_to_skeleton.py handoff-ep01.json --out-dir layer2/
+# 導演精修 layer2/ 內所有 TODO 後驗證（含台詞逐字核對）
+python scripts/storyboard/validate_storyboard.py --file layer2/layer2-EP01-*.json --handoff handoff-ep01.json
+
 python scripts/storyboard/layer2_to_table.py layer2/layer2-EP01-*.json --check   --md storyboard-ep01.md --timeline timeline-ep01.csv
 ```
 

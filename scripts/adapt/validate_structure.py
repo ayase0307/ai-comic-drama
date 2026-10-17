@@ -250,7 +250,7 @@ def check_script_handoff_dialogue(scenes: List[Dict[str, Any]], handoff_data: Di
     for script_scene, hs in zip(scenes, handoff_scenes):
         sid = hs.get("scene_id", script_scene["scene_num"])
         script_lines = [d["text"] for d in script_scene["dialogues"]]
-        hand_lines = [line["text"] for line in hs.get("dialogue", [])]
+        hand_lines = [line.get("text", "") if isinstance(line, dict) else "" for line in hs.get("dialogue", [])]
         if not hand_lines:
             if script_lines:
                 warnings.append(f"[HANDOFF_DIALOGUE_EMPTY] 場景 {sid}：劇本有 {len(script_lines)} 句對白，"

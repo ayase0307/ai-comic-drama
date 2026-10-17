@@ -185,23 +185,48 @@ def verbatim_check(expected: list, actual: list) -> list:
     return [head] + dialogue_verbatim_errors(expected, actual)
 
 
+def _first_dialogue(data: dict) -> str:
+    """段內第一句有台詞的鏡頭台詞（normalize 後）；沒有則回傳空字串。"""
+    for shot in data.get("shots", []):
+        dlg = _as_dict(shot.get("dialogue_and_audio"))
+        if dlg.get("has_dialogue") and (dlg.get("line_verbatim") or "").strip():
+            return normalize_speech(dlg["line_verbatim"])
+    return ""
+
+
+def _overflow(data: dict, key: str) -> str:
+    return (_as_dict(data.get("continuity_handshake")).get(key) or "").strip()
+
+
 def dialogue_stream(segments: list) -> list:
-    """依段序產生台詞片段：段首的 overflow_dialogue_in、各鏡台詞、段尾的 overflow_dialogue_out 依序接起來。"""
+    """依段序收集各鏡的 line_verbatim。overflow 欄位只是註記，不計入台詞串流：
+    跨段的句子必須已逐字寫在下一段首句（見 jcut_errors），否則串流會缺字。"""
     pieces = []
-    prev_out = None
     for data in segments:
-        handshake = _as_dict(data.get("continuity_handshake"))
-        overflow_in = (handshake.get("overflow_dialogue_in") or "").strip()
-        if overflow_in and overflow_in != prev_out:  # 與上一段 out 相同即為同一句的回聲，不重複計算
-            pieces.append(overflow_in)
         for shot in data.get("shots", []):
             dlg = _as_dict(shot.get("dialogue_and_audio"))
             if dlg.get("has_dialogue") and (dlg.get("line_verbatim") or "").strip():
                 pieces.append(dlg["line_verbatim"].strip())
-        prev_out = (handshake.get("overflow_dialogue_out") or "").strip() or None
-        if prev_out:
-            pieces.append(prev_out)
     return pieces
+
+
+def jcut_errors(segments: list) -> list:
+    """J-Cut 順延一致性（segments 依段序）：上一段 overflow_dialogue_out 必須逐字出現在下一段第一句台詞；
+    下一段 overflow_dialogue_in 必須等於上一段的 out；最後一段不得有 out。"""
+    errors = []
+    for prev, cur in zip(segments, segments[1:]):
+        cur_id = cur.get("segment_id", cur.get("scene_id", ""))
+        out_raw = _overflow(prev, "overflow_dialogue_out")
+        in_raw = _overflow(cur, "overflow_dialogue_in")
+        if in_raw and normalize_speech(in_raw) != normalize_speech(out_raw):
+            errors.append(f"[J-Cut 順延不一致] {cur_id}：overflow_dialogue_in「{in_raw}」與上一段 overflow_dialogue_out「{out_raw}」不同")
+        if out_raw and normalize_speech(out_raw) not in _first_dialogue(cur):
+            errors.append(f"[J-Cut 順延不一致] {cur_id}：上一段 overflow_dialogue_out「{out_raw}」未逐字出現在本段第一句台詞（須寫進 line_verbatim）")
+    if segments:
+        last = segments[-1]
+        if _overflow(last, "overflow_dialogue_out"):
+            errors.append(f"[J-Cut 順延不一致] {last.get('segment_id', last.get('scene_id', ''))}：最後一段不應有 overflow_dialogue_out")
+    return errors
 
 
 def scene_key(data: dict) -> str:
@@ -449,7 +474,7 @@ def check_dialogue_groups(datas: list, handoff: dict, only_scene: str = None) ->
         elif not segs:
             errors = [f"[台詞保真] 找不到場景 {scene_id} 的分鏡檔，無法核對台詞"]
         else:
-            errors = verbatim_check(expected_map[scene_id], dialogue_stream(segs))
+            errors = verbatim_check(expected_map[scene_id], dialogue_stream(segs)) + jcut_errors(segs)
         results[scene_id] = {
             "passed": not errors,
             "errors": errors,

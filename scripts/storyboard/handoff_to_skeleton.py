@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -396,25 +397,38 @@ def write_skeletons(results: list[tuple[str, dict]], out_dir: Path, force: bool)
     if duplicates:
         raise ValueError(f"段落檔名重複，未寫入任何檔案：{duplicates}")
 
-    out_dir.mkdir(parents=True, exist_ok=True)
     rows = []
-    for seg_id, layer2, path, content, errors in planned:
-        if path.exists() and not force:
-            status = "略過（已存在）"
-        else:
-            path.write_text(content, encoding="utf-8")
-            status = "寫入"
-        rows.append({
-            "segment_id": seg_id,
-            "scene_id": layer2["scene_id"],
-            "shots": len(layer2["shots"]),
-            "target": layer2["metadata"]["target_duration_sec"],
-            "mode": layer2["continuity_handshake"]["mode"],
-            "characters": len(layer2["asset_refs"]["characters"]),
-            "file": path.name,
-            "status": status,
-            "errors": errors,
-        })
+    pending: list[tuple[Path, Path]] = []  # (暫存檔, 正式檔)，全部寫成功後才改名
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        for seg_id, layer2, path, content, errors in planned:
+            if path.exists() and not force:
+                status = "略過（已存在）"
+            else:
+                tmp = path.with_name(path.name + ".tmp")
+                tmp.write_text(content, encoding="utf-8")
+                pending.append((tmp, path))
+                status = "寫入"
+            rows.append({
+                "segment_id": seg_id,
+                "scene_id": layer2["scene_id"],
+                "shots": len(layer2["shots"]),
+                "target": layer2["metadata"]["target_duration_sec"],
+                "mode": layer2["continuity_handshake"]["mode"],
+                "characters": len(layer2["asset_refs"]["characters"]),
+                "file": path.name,
+                "status": status,
+                "errors": errors,
+            })
+        for tmp, path in pending:
+            os.replace(tmp, path)
+    except OSError:
+        for tmp, _ in pending:
+            try:
+                tmp.unlink()
+            except OSError:
+                pass  # 已改名或本來就沒寫成，無殘留
+        raise
     return rows
 
 
@@ -461,7 +475,15 @@ def main() -> int:
         print(f"[錯誤] {exc}", file=sys.stderr)
         return 2
 
-    rows = write_skeletons(results, args.out_dir, args.force)
+    try:
+        rows = write_skeletons(results, args.out_dir, args.force)
+    except OSError as exc:
+        print(f"[錯誤] 寫入分鏡骨架失敗：{exc.filename or args.out_dir}（{exc.strerror or exc}）。"
+              f"暫存檔已清除；若部分 layer2 檔已寫入，請檢查輸出目錄。", file=sys.stderr)
+        return 2
+    except ValueError as exc:
+        print(f"[錯誤] {exc}", file=sys.stderr)
+        return 2
     print_summary(rows)
     return 1 if any(r["errors"] for r in rows) else 0
 

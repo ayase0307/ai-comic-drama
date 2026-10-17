@@ -97,6 +97,17 @@ def md_row(shot: dict) -> str:
     return "| " + " | ".join(_cell(c) for c in cells) + " |"
 
 
+def overflow_lines(data: dict) -> list[str]:
+    """J-Cut 順延註記（只是註記，台詞已逐字寫在鏡頭內）；沒有順延時回傳空清單。"""
+    handshake = data.get("continuity_handshake") or {}
+    lines = []
+    if handshake.get("overflow_dialogue_in"):
+        lines.append(f"- 順延入（上段台詞延續到本段）：{handshake['overflow_dialogue_in']}")
+    if handshake.get("overflow_dialogue_out"):
+        lines.append(f"- 順延出（本段台詞延續到下段）：{handshake['overflow_dialogue_out']}")
+    return lines
+
+
 def render_md(data: dict) -> str:
     meta = data["metadata"]
     style = data.get("style_lock") or {}
@@ -105,6 +116,7 @@ def render_md(data: dict) -> str:
         f"# {data['project_id']} · {data['scene_id']}",
         "",
         f"- 段落：`{data['segment_id']}`（來源場景 `{source}`）",
+        *overflow_lines(data),
         f"- 比例：{meta['aspect_ratio']}　時長：{meta['target_duration_sec']} 秒　節奏：{meta['pacing_profile']}",
         f"- 光線鎖：{meta['lighting_lock_line']}",
         f"- 風格錨點：{style.get('anchor', '—')}",

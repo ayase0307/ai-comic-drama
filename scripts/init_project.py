@@ -124,14 +124,23 @@ NARRATION_TEMPLATE = """# 第 {episode} 集 旁白與字幕稿
 
 ADAPT_README = "改編 stage 的產物（handoff JSON 與改編紀錄）放這裡。\n"
 
-FLOW_HINT = """下一步（新流程：改編 → 資產 → 劇本 → 分鏡）：
+SCRIPTS_DIR = Path(__file__).resolve().parent  # 技能的 scripts 目錄（絕對路徑，指令可在任何位置執行）
+
+
+def flow_hint(root: Path) -> str:
+    """下一步指引；指令中的專案檔案與腳本都用絕對路徑。"""
+    storyboard = SCRIPTS_DIR / "storyboard"
+    handoff = root / "handoff-ep01.json"
+    layer2 = root / "layer2"
+    return f"""下一步（新流程：改編 → 資產 → 劇本 → 分鏡）：
   1. 原稿是小說：讀 references/adapt/novel-to-manju.md，把原著放進 source/，完成故事地圖、保留分級、A/B/C 方案選定與分集表（寫入 adapt/ 與 project.md），不得直接把小說當劇本
   2. 資產與設定圖：填 assets.md（風格錨點、色盤、角色／場景／道具），設定圖流程見 references/consistency.md
   3. 劇本與 handoff：寫 script-epNN.md（只寫戲，不寫鏡頭術語）並產出 handoff-epNN.json；跑 scripts/adapt 驗證
-  4. 分鏡骨架：python scripts/storyboard/handoff_to_skeleton.py handoff-ep01.json --out-dir layer2
-     → 產出 layer2/layer2-EP01-S01-a.json、-b…（分段；單鏡超過 15 秒的對白自動切鏡）
-  5. 導演精修 layer2/ 內所有 TODO 後驗證（bash 會展開萬用字元）：
-     python scripts/storyboard/validate_storyboard.py --file layer2/layer2-EP01-*.json --handoff handoff-ep01.json
+  4. 分鏡骨架：
+     python "{storyboard / 'handoff_to_skeleton.py'}" "{handoff}" --out-dir "{layer2}"
+     → 單段場景的檔名沒有字尾，例如 layer2-EP01-S01.json；分段場景為 layer2-EP01-S01-a.json、-b…（單鏡超過 15 秒的對白自動切鏡）
+  5. 導演精修 layer2/ 內所有 TODO 後驗證（萬用字元 bash 會展開；PowerShell 請改成逐一列出檔名）：
+     python "{storyboard / 'validate_storyboard.py'}" --handoff "{handoff}" --file "{layer2}"/layer2-EP01-*.json
      同一場的 -a、-b… 段落要一起給；EP02 起照樣改集號（layer2/layer2-EP02-*.json、handoff-ep02.json）"""
 
 
@@ -231,7 +240,7 @@ def main() -> None:
     for n in skipped:
         print(f"  已存在，略過    {n}")
     print()
-    print(FLOW_HINT)
+    print(flow_hint(root))
 
 
 if __name__ == "__main__":
