@@ -1,0 +1,18 @@
+{
+  "case_id": "case05_emotional_no_combat",
+  "title": "無戰鬥的溫情傷感戲（孕婦丟失500元——對照原始滿血版提示詞示例）",
+  "novel_excerpt": "懷孕七個月那天，妻子從菜市場買菜回來，和丈夫通電話時不小心把兜裡的五百塊錢掉在了濕漉漉的水泥地上。回到臥室後，她翻遍了棕色皮包、黑色包包和卡其色外套口袋都找不到那五百塊錢，心裡十分自責，摸著肚子覺得自己很沒用。",
+  "genre_mode": "healing_literary",
+  "story_units": [
+    {
+      "unit_id": "ch05:u1_market",
+      "summary": "菜市場妻子邊走邊接丈夫關心電話，五百元從口袋滑落地面未察覺",
+      "expected_grade": "MUST_KEEP"
+    },
+    {
+      "unit_id": "ch05:u2_bedroom",
+      "summary": "回到臥室翻找外套與皮包無果，撫摸孕肚自責落淚",
+      "expected_grade": "MUST_KEEP"
+    }
+  ]
+}

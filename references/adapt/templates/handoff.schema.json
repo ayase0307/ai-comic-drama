@@ -1,0 +1,289 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentskills.io/schemas/novel-to-manju/handoff.schema.json",
+  "title": "NovelToManjuHandoffPackage",
+  "description": "Structured scene, continuity, adaptation diff, and storyboard handoff data for novel-to-manju.",
+  "type": "object",
+  "required": [
+    "project_id",
+    "rights_status",
+    "adaptation_mode",
+    "genre_mode",
+    "aspect_ratio",
+    "target_medium",
+    "episodes"
+  ],
+  "properties": {
+    "project_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+$",
+      "description": "Unique project identifier in kebab-case."
+    },
+    "rights_status": {
+      "type": "string",
+      "enum": [
+        "owned_original",
+        "licensed_adaptation",
+        "public_domain",
+        "personal_study_only",
+        "unconfirmed"
+      ]
+    },
+    "adaptation_mode": {
+      "type": "string",
+      "enum": ["canon_first", "balanced", "feasibility_first"]
+    },
+    "genre_mode": {
+      "type": "string",
+      "enum": [
+        "xuanhuan_revenge",
+        "romance_emotional",
+        "mystery_thriller",
+        "comedy_slice_of_life",
+        "wuxia_action",
+        "healing_literary"
+      ]
+    },
+    "aspect_ratio": {
+      "type": "string",
+      "enum": ["9:16", "16:9", "other"]
+    },
+    "target_medium": {
+      "type": "string",
+      "enum": ["motion_comic", "ai_animation", "live_action_short_drama"]
+    },
+    "source_gaps_or_contradictions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["issue_id", "type", "description", "resolution"],
+        "properties": {
+          "issue_id": { "type": "string" },
+          "type": { "type": "string", "enum": ["incomplete_source", "canon_contradiction"] },
+          "source_refs": { "type": "array", "items": { "type": "string" } },
+          "description": { "type": "string" },
+          "resolution": { "type": "string" }
+        }
+      }
+    },
+    "debt_ledger": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["debt_id", "origin_ep", "payoff_ep", "description", "status"],
+        "properties": {
+          "debt_id": { "type": "string" },
+          "origin_ep": { "type": "string" },
+          "payoff_ep": { "type": "string" },
+          "debtor": { "type": "string" },
+          "description": { "type": "string" },
+          "status": { "type": "string", "enum": ["open", "paid"] }
+        }
+      }
+    },
+    "episodes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "episode_id",
+          "title",
+          "target_duration_seconds",
+          "episode_goal",
+          "act_out_type",
+          "scenes"
+        ],
+        "properties": {
+          "episode_id": {
+            "type": "string",
+            "pattern": "^EP[0-9]{2,3}$"
+          },
+          "title": { "type": "string" },
+          "target_duration_seconds": { "type": "integer", "minimum": 15 },
+          "episode_goal": { "type": "string" },
+          "obstacle": { "type": "string" },
+          "choice_and_cost": { "type": "string" },
+          "act_out_type": {
+            "type": "string",
+            "enum": [
+              "jeopardy_cliffhanger",
+              "revelation_twist",
+              "character_decision",
+              "emotional_payoff",
+              "visual_spectacle",
+              "comic_topper",
+              "meaningful_silence"
+            ]
+          },
+          "scenes": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": [
+                "project_id",
+                "episode_id",
+                "scene_id",
+                "source_refs",
+                "adaptation_mode",
+                "setting",
+                "characters",
+                "scene_goal",
+                "dramatic_turn",
+                "dialogue",
+                "props",
+                "continuity_initial",
+                "continuity_final",
+                "estimated_duration_seconds",
+                "adaptation_changes",
+                "storyboard_handoff"
+              ],
+              "properties": {
+                "project_id": { "type": "string" },
+                "episode_id": { "type": "string" },
+                "scene_id": {
+                  "type": "string",
+                  "pattern": "^EP[0-9]{2,3}-S[0-9]{2}$"
+                },
+                "source_refs": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "adaptation_mode": {
+                  "type": "string",
+                  "enum": ["canon_first", "balanced", "feasibility_first"]
+                },
+                "setting": {
+                  "type": "object",
+                  "required": ["location", "time", "interior"],
+                  "properties": {
+                    "location": { "type": "string" },
+                    "location_name": { "type": "string" },
+                    "time": {
+                      "type": "string",
+                      "enum": ["day", "night", "dawn", "dusk", "unknown"]
+                    },
+                    "interior": { "type": "boolean" },
+                    "timeline_tag": {
+                      "type": "string",
+                      "enum": ["present", "flashback", "flashforward", "dream"]
+                    }
+                  }
+                },
+                "characters": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "scene_goal": { "type": "string" },
+                "entry_polarity": { "type": "string", "enum": ["+", "-", "neutral"] },
+                "dramatic_turn": { "type": "string" },
+                "exit_polarity": { "type": "string", "enum": ["+", "-", "mixed"] },
+                "action_beats": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "dialogue": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["speaker", "text", "audio_type"],
+                    "properties": {
+                      "speaker": { "type": "string" },
+                      "text": { "type": "string" },
+                      "audio_type": {
+                        "type": "string",
+                        "enum": ["onscreen", "offscreen", "voiceover", "phone"]
+                      },
+                      "delivery_note": { "type": "string" }
+                    }
+                  }
+                },
+                "props": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "continuity_initial": {
+                  "type": "object",
+                  "additionalProperties": { "type": "string" }
+                },
+                "continuity_final": {
+                  "type": "object",
+                  "additionalProperties": { "type": "string" }
+                },
+                "state_transition_note": { "type": "string" },
+                "estimated_duration_seconds": {
+                  "type": "object",
+                  "required": ["min", "max"],
+                  "properties": {
+                    "min": { "type": "number", "minimum": 1 },
+                    "max": { "type": "number", "minimum": 1 }
+                  }
+                },
+                "adaptation_changes": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["type", "description", "source_ref"],
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "must_keep",
+                          "keep_if_possible",
+                          "merge",
+                          "compress",
+                          "remove",
+                          "reorder",
+                          "addition"
+                        ]
+                      },
+                      "description": { "type": "string" },
+                      "source_ref": { "type": ["string", "null"] },
+                      "is_adaptation_addition": { "type": "boolean" }
+                    }
+                  }
+                },
+                "storyboard_handoff": {
+                  "type": "object",
+                  "required": [
+                    "required_visual_beats",
+                    "required_audio_beats",
+                    "must_preserve"
+                  ],
+                  "properties": {
+                    "recommended_generation_modes": {
+                      "type": "array",
+                      "items": { "type": "string", "enum": ["T2V", "I2V", "FL2V", "Ref2V"] }
+                    },
+                    "required_visual_beats": {
+                      "type": "array",
+                      "items": { "type": "string" }
+                    },
+                    "required_audio_beats": {
+                      "type": "array",
+                      "items": { "type": "string" }
+                    },
+                    "must_preserve": {
+                      "type": "array",
+                      "items": { "type": "string" }
+                    },
+                    "production_risk": {
+                      "type": "object",
+                      "properties": {
+                        "level": { "type": "string", "enum": ["low", "medium", "high"] },
+                        "reason": { "type": "string" },
+                        "original_vision": { "type": "string" },
+                        "simplified_alternative": { "type": "string" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

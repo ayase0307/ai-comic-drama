@@ -77,6 +77,8 @@ MiniMax H3（即 Hailuo 3）是**全模態影視生成模型**，有官方規定
 
 **守富定版三段式骨架**：`【鏡頭——賣點】` → `【光線——色調】` → `【皮膚——通透白皙有真實肌理】`（**皮膚段整段照抄**）。
 
+> 適用範圍：**寫實／半寫實風格**。2D、水墨、Q 版、美漫等非寫實風格不用皮膚段（見 `SKILL.md` 原則 7），改照 `h3/scenarios-world-and-styles.md`。
+
 - 完整原文（含 H3 散文版）見 **`h3/skin-realism-block.md`**。
 - 前兩段依場景改寫；皮膚段只微調光色字眼。
 - 搭 fal `MiniMax-H3-Realism-People-LoRA` 時，`r34l1sm` 放 prompt 最開頭。

@@ -1,0 +1,185 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CinematicDirectorStoryboardV2",
+  "description": "Layer 2 Canonical SSoT Schema for AI Film & Anime Storyboard Director Skill v2.0",
+  "type": "object",
+  "required": [
+    "project_id",
+    "scene_id",
+    "segment_id",
+    "metadata",
+    "continuity_handshake",
+    "shots",
+    "segment_end_state"
+  ],
+  "properties": {
+    "project_id": { "type": "string" },
+    "scene_id": { "type": "string" },
+    "segment_id": { "type": "string" },
+    "source_scene_id": { "type": "string", "description": "Optional. Scene ID from the upstream handoff JSON (e.g. EP01-S01)" },
+    "style_lock": {
+      "type": "object",
+      "description": "Optional. Locked style description reused by every shot",
+      "properties": {
+        "anchor": { "type": "string" },
+        "negative": { "type": "string" },
+        "lighting_lock_line": { "type": "string" }
+      }
+    },
+    "asset_refs": {
+      "type": "object",
+      "description": "Optional. Asset IDs this segment depends on (see assets.md)",
+      "properties": {
+        "characters": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string", "pattern": "^C-[a-z0-9-]+$" },
+              "costume_id": { "type": "string" },
+              "version": { "type": "string" }
+            }
+          }
+        },
+        "scene_id": { "type": "string" },
+        "props": { "type": "array", "items": { "type": "string" } },
+        "voices": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "character_id": { "type": "string" },
+              "voice_id": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["aspect_ratio", "target_duration_sec", "pacing_profile", "lighting_lock_line"],
+      "properties": {
+        "aspect_ratio": { "type": "string", "enum": ["16:9", "9:16", "2.39:1", "1:1"] },
+        "target_duration_sec": { "type": "number", "minimum": 1.0, "maximum": 60.0 },
+        "pacing_profile": { "type": "string", "enum": ["Slow_Cinematic", "Standard_Narrative", "Fast_ShortDrama"] },
+        "palette_preset": { "type": "string" },
+        "lighting_lock_line": { "type": "string" }
+      }
+    },
+    "continuity_handshake": {
+      "type": "object",
+      "required": ["mode"],
+      "properties": {
+        "mode": { "type": "string", "enum": ["SEAMLESS_CONTINUATION", "HARD_CUT_ESTABLISH"] },
+        "inherited_from_segment": { "type": ["string", "null"] },
+        "overflow_dialogue_in": { "type": ["string", "null"] },
+        "overflow_dialogue_out": { "type": ["string", "null"] },
+        "persistent_world_state": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "ViMax-style dependency graph tracking irreversible prop/character states (e.g., 'white envelope is creased', 'cup is shattered')"
+        }
+      }
+    },
+    "shots": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "shot_id",
+          "start_time",
+          "end_time",
+          "duration",
+          "camera_optics",
+          "spatial_blocking",
+          "action_and_performance",
+          "dialogue_and_audio"
+        ],
+        "properties": {
+          "shot_id": { "type": "string" },
+          "character_ids": { "type": "array", "items": { "type": "string" } },
+          "reference_refs": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Reference image file paths fed to this shot"
+          },
+          "status": { "type": "string", "enum": ["pending", "image_done", "video_done", "skipped"] },
+          "image_file": { "type": "string" },
+          "video_file": { "type": "string" },
+          "start_time": { "type": "number", "minimum": 0.0 },
+          "end_time": { "type": "number", "minimum": 0.5 },
+          "duration": { "type": "number", "minimum": 0.5 },
+          "dramatic_beat_type": {
+            "type": "string",
+            "enum": ["Expository_Fast", "Suspense_Delay", "Dramatic_Core", "Combat_Impact", "Reaction_OTS"]
+          },
+          "camera_optics": {
+            "type": "object",
+            "required": ["shot_size", "focal_length", "physical_distance", "pov_routing", "movement"],
+            "properties": {
+              "shot_size": { "type": "string", "enum": ["ELS", "LS", "MLS", "MS", "MCU", "CU", "ECU", "OTS_MS", "OTS_CU"] },
+              "focal_length": { "type": "string", "enum": ["14mm", "24mm", "35mm", "50mm", "85mm", "100mm", "135mm"] },
+              "physical_distance": { "type": "string", "description": "Physical camera-to-subject distance (e.g. '<0.5m extreme close' or '>6m telephoto compression')" },
+              "pov_routing": {
+                "type": "string",
+                "enum": ["dirty_frame_20_35", "clear_impact_90deg", "defensive_reaction_ots", "reflection_delay", "objective"]
+              },
+              "movement": { "type": "string" },
+              "axis_side": { "type": "string" }
+            }
+          },
+          "spatial_blocking": {
+            "type": "object",
+            "required": ["anchor_objects", "blocking_desc"],
+            "properties": {
+              "anchor_objects": { "type": "array", "items": { "type": "string" } },
+              "blocking_desc": { "type": "string" },
+              "safe_zone_9x16_passed": { "type": "boolean" }
+            }
+          },
+          "action_and_performance": {
+            "type": "object",
+            "required": ["action_stages", "observable_expression"],
+            "properties": {
+              "action_stages": {
+                "type": "array",
+                "maxItems": 5,
+                "items": { "type": "string" },
+                "description": "Max 5 stages per shot to prevent AI morphing"
+              },
+              "observable_expression": { "type": "string" },
+              "background_idle_life": { "type": ["string", "null"] },
+              "micro_physics_tail": { "type": "string" }
+            }
+          },
+          "dialogue_and_audio": {
+            "type": "object",
+            "required": ["has_dialogue", "lips_closed_lock"],
+            "properties": {
+              "has_dialogue": { "type": "boolean" },
+              "speaker": { "type": ["string", "null"] },
+              "line_verbatim": { "type": ["string", "null"] },
+              "voice_4d_spec": { "type": ["string", "null"] },
+              "delivery_timing_anchor": { "type": ["string", "null"] },
+              "lips_closed_lock": { "type": "boolean" },
+              "audio_bridge": { "type": "string", "enum": ["NONE", "J_CUT", "L_CUT", "HARD_CUT"] },
+              "foley_and_ambience": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "segment_end_state": {
+      "type": "object",
+      "required": ["planned_final_state"],
+      "properties": {
+        "planned_final_state": { "type": "object" },
+        "observed_final_state": {
+          "type": ["object", "null"],
+          "description": "Overrides planned_final_state when actual generated video frame is inspected"
+        }
+      }
+    }
+  }
+}

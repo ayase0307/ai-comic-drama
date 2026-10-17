@@ -1,0 +1,18 @@
+{
+  "case_id": "case01_high_density_low_event",
+  "title": "高資訊密度但事件少的小說片段（壓縮設定不亂加劇情）",
+  "novel_excerpt": "【自編測試文本】舊曆年間，北城連下七日暴雨，郵政局停擺。林澈獨自住在破敗的舊公寓裡，他心裡清楚這封從南岸寄來的信意味著三年前那場礦難的撫恤金帳目已經曝光，內心焦慮萬分，反覆思考著該把信燒掉還是交給巡捕房。就在這時，門外傳來沈寧的敲門聲。",
+  "genre_mode": "mystery_thriller",
+  "story_units": [
+    {
+      "unit_id": "ch01:u1",
+      "summary": "暴雨夜林澈面對浸濕的帳目信件陷入抉擇",
+      "expected_grade": "COMPRESS"
+    },
+    {
+      "unit_id": "ch01:u2",
+      "summary": "沈寧敲門指出林澈已看過信",
+      "expected_grade": "MUST_KEEP"
+    }
+  ]
+}

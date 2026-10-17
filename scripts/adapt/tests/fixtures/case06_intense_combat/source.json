@@ -1,0 +1,12 @@
+{
+  "case_id": "case06_intense_combat",
+  "title": "激烈戰鬥（戰術目標、代價與 AI 低碰撞拆解）",
+  "genre_mode": "wuxia_action",
+  "story_units": [
+    {
+      "unit_id": "ch06:u1_fight",
+      "summary": "林澈左臂帶傷在窄巷攔截趙坤，以折斷短刀為代價奪回帳冊",
+      "expected_grade": "MUST_KEEP"
+    }
+  ]
+}

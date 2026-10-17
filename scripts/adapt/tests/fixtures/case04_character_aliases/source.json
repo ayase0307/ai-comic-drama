@@ -1,0 +1,12 @@
+{
+  "case_id": "case04_character_aliases",
+  "title": "多角色同名或別名消歧（對白可用稱謂，發言人欄強制標準名）",
+  "genre_mode": "mystery_thriller",
+  "story_units": [
+    {
+      "unit_id": "ch04:u1",
+      "summary": "沈寧稱呼林澈為七師兄，趙坤稱呼林澈為林小友",
+      "expected_grade": "MUST_KEEP"
+    }
+  ]
+}

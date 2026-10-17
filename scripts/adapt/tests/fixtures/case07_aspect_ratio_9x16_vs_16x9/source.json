@@ -1,0 +1,17 @@
+{
+  "case_id": "case07_aspect_ratio_9x16_vs_16x9",
+  "title": "9:16 與 16:9 相同情節（因果不變，空間與分鏡要求適配）",
+  "genre_mode": "mystery_thriller",
+  "story_units": [
+    {
+      "unit_id": "ch01:u1",
+      "summary": "暴雨夜林澈面對浸濕的帳目信件陷入抉擇",
+      "expected_grade": "COMPRESS"
+    },
+    {
+      "unit_id": "ch01:u2",
+      "summary": "沈寧敲門指出林澈已看過信",
+      "expected_grade": "MUST_KEEP"
+    }
+  ]
+}

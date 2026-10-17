@@ -1,0 +1,54 @@
+{
+  "project_id": "test-manju-suite",
+  "irreversible_states": [
+    "destroyed",
+    "burned",
+    "dead"
+  ],
+  "characters": [
+    {
+      "character_id": "lin-che",
+      "canonical_name": "林澈",
+      "aliases": [
+        "阿澈",
+        "七師兄",
+        "林小友"
+      ],
+      "role": "star"
+    },
+    {
+      "character_id": "shen-ning",
+      "canonical_name": "沈寧",
+      "aliases": [
+        "沈姑娘",
+        "阿寧"
+      ],
+      "role": "planet"
+    },
+    {
+      "character_id": "zhao-kun",
+      "canonical_name": "趙坤",
+      "aliases": [
+        "趙管事",
+        "坤爺"
+      ],
+      "role": "planet"
+    },
+    {
+      "character_id": "wife",
+      "canonical_name": "妻子",
+      "aliases": [
+        "林妻"
+      ],
+      "role": "star"
+    },
+    {
+      "character_id": "husband",
+      "canonical_name": "丈夫",
+      "aliases": [
+        "老陳"
+      ],
+      "role": "planet"
+    }
+  ]
+}

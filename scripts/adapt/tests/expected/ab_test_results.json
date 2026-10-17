@@ -1,0 +1,466 @@
+{
+  "suite_status": "PASS",
+  "boundary_cases_count": 10,
+  "boundary_cases": [
+    {
+      "case_id": "case01_high_density_low_event",
+      "title": "高資訊密度但事件少的小說片段（壓縮設定不亂加劇情）",
+      "status": "PASS",
+      "total_score_100": 100.0,
+      "dimension_scores": {
+        "core_story_and_causality_18": 18.0,
+        "character_consistency_and_arc_14": 14.0,
+        "visualization_and_actability_14": 14.0,
+        "pacing_episode_and_duration_12": 12.0,
+        "genre_fit_and_emotional_payoff_10": 10.0,
+        "canon_spirit_and_settings_10": 10.0,
+        "dialogue_naturalness_and_audio_8": 8.0,
+        "filmability_and_handoff_8": 8.0,
+        "foreshadowing_and_continuity_6": 6.0
+      },
+      "gate_failures": [],
+      "must_keep_coverage": "1/1",
+      "duration_summary": {
+        "min": 16.1,
+        "max": 26.2,
+        "mid": 21.1
+      },
+      "vo_ratio": 0.0,
+      "error_count": 0,
+      "warning_count": 0,
+      "errors": [],
+      "warnings": [],
+      "schema_errors": []
+    },
+    {
+      "case_id": "case02_main_plot_vs_subplots",
+      "title": "重要事件與大量支線交錯（保留主因果，合併支線）",
+      "status": "PASS",
+      "total_score_100": 100.0,
+      "dimension_scores": {
+        "core_story_and_causality_18": 18.0,
+        "character_consistency_and_arc_14": 14.0,
+        "visualization_and_actability_14": 14.0,
+        "pacing_episode_and_duration_12": 12.0,
+        "genre_fit_and_emotional_payoff_10": 10.0,
+        "canon_spirit_and_settings_10": 10.0,
+        "dialogue_naturalness_and_audio_8": 8.0,
+        "filmability_and_handoff_8": 8.0,
+        "foreshadowing_and_continuity_6": 6.0
+      },
+      "gate_failures": [],
+      "must_keep_coverage": "1/1",
+      "duration_summary": {
+        "min": 16.7,
+        "max": 24.9,
+        "mid": 20.8
+      },
+      "vo_ratio": 0.0,
+      "error_count": 0,
+      "warning_count": 0,
+      "errors": [],
+      "warnings": [],
+      "schema_errors": []
+    },
+    {
+      "case_id": "case03_cross_chapter_foreshadow",
+      "title": "跨章伏筆後續揭露（禁止提前洩底）",
+      "status": "PASS",
+      "total_score_100": 100.0,
+      "dimension_scores": {
+        "core_story_and_causality_18": 18.0,
+        "character_consistency_and_arc_14": 14.0,
+        "visualization_and_actability_14": 14.0,
+        "pacing_episode_and_duration_12": 12.0,
+        "genre_fit_and_emotional_payoff_10": 10.0,
+        "canon_spirit_and_settings_10": 10.0,
+        "dialogue_naturalness_and_audio_8": 8.0,
+        "filmability_and_handoff_8": 8.0,
+        "foreshadowing_and_continuity_6": 6.0
+      },
+      "gate_failures": [],
+      "must_keep_coverage": "1/1",
+      "duration_summary": {
+        "min": 12.0,
+        "max": 18.6,
+        "mid": 15.3
+      },
+      "vo_ratio": 0.0,
+      "error_count": 0,
+      "warning_count": 0,
+      "errors": [],
+      "warnings": [],
+      "schema_errors": []
+    },
+    {
+      "case_id": "case04_character_aliases",
+      "title": "多角色同名或別名消歧（對白可用稱謂，發言人欄強制標準名）",
+      "status": "PASS",
+      "total_score_100": 100.0,
+      "dimension_scores": {
+        "core_story_and_causality_18": 18.0,
+        "character_consistency_and_arc_14": 14.0,
+        "visualization_and_actability_14": 14.0,
+        "pacing_episode_and_duration_12": 12.0,
+        "genre_fit_and_emotional_payoff_10": 10.0,
+        "canon_spirit_and_settings_10": 10.0,
+        "dialogue_naturalness_and_audio_8": 8.0,
+        "filmability_and_handoff_8": 8.0,
+        "foreshadowing_and_continuity_6": 6.0
+      },
+      "gate_failures": [],
+      "must_keep_coverage": "1/1",
+      "duration_summary": {
+        "min": 12.8,
+        "max": 18.9,
+        "mid": 15.8
+      },
+      "vo_ratio": 0.0,
+      "error_count": 0,
+      "warning_count": 0,
+      "errors": [],
+      "warnings": [],
+      "schema_errors": []
+    },
+    {
+      "case_id": "case05_emotional_no_combat",
+      "title": "無戰鬥的溫情傷感戲（孕婦丟失500元——對照原始滿血版提示詞示例）",
+      "status": "PASS",
+      "total_score_100": 95.5,
+      "dimension_scores": {
+        "core_story_and_causality_18": 18.0,
+        "character_consistency_and_arc_14": 14.0,
+        "visualization_and_actability_14": 14.0,
+        "pacing_episode_and_duration_12": 7.5,
+        "genre_fit_and_emotional_payoff_10": 10.0,
+        "canon_spirit_and_settings_10": 10.0,
+        "dialogue_naturalness_and_audio_8": 8.0,
+        "filmability_and_handoff_8": 8.0,
+        "foreshadowing_and_continuity_6": 6.0
+      },
+      "gate_failures": [],
+      "must_keep_coverage": "2/2",
+      "duration_summary": {
+        "min": 32.3,
+        "max": 51.3,
+        "mid": 41.8
+      },
+      "vo_ratio": 0.0,
+      "error_count": 0,
+      "warning_count": 1,
+      "errors": [],
+      "warnings": [
+        "[DURATION_OVER_BUDGET] 預估時長區間 [32.3s, 51.3s] 超出目標 20s (+15% 上限 23.0s)"
+      ],
+      "schema_errors": []
+    },
+    {
+      "case_id": "case06_intense_combat",
+      "title": "激烈戰鬥（戰術目標、代價與 AI 低碰撞拆解）",
+      "status": "PASS",
+      "total_score_100": 100.0,
+      "dimension_scores": {
+        "core_story_and_causality_18": 18.0,
+        "character_consistency_and_arc_14": 14.0,
+        "visualization_and_actability_14": 14.0,
+        "pacing_episode_and_duration_12": 12.0,
+        "genre_fit_and_emotional_payoff_10": 10.0,
+        "canon_spirit_and_settings_10": 10.0,
+        "dialogue_naturalness_and_audio_8": 8.0,
+        "filmability_and_handoff_8": 8.0,
+        "foreshadowing_and_continuity_6": 6.0
+      },
+      "gate_failures": [],
+      "must_keep_coverage": "1/1",
+      "duration_summary": {
+        "min": 14.5,
+        "max": 23.9,
+        "mid": 19.2
+      },
+      "vo_ratio": 0.0,
+      "error_count": 0,
+      "warning_count": 0,
+      "errors": [],
+      "warnings": [],
+      "schema_errors": []
+    },
+    {
+      "case_id": "case07_aspect_ratio_9x16_vs_16x9",
+      "title": "9:16 與 16:9 相同情節（因果不變，空間與分鏡要求適配）",
+      "status": "PASS",
+      "total_score_100": 100.0,
+      "dimension_scores": {
+        "core_story_and_causality_18": 18.0,
+        "character_consistency_and_arc_14": 14.0,
+        "visualization_and_actability_14": 14.0,
+        "pacing_episode_and_duration_12": 12.0,
+        "genre_fit_and_emotional_payoff_10": 10.0,
+        "canon_spirit_and_settings_10": 10.0,
+        "dialogue_naturalness_and_audio_8": 8.0,
+        "filmability_and_handoff_8": 8.0,
+        "foreshadowing_and_continuity_6": 6.0
+      },
+      "gate_failures": [],
+      "must_keep_coverage": "1/1",
+      "duration_summary": {
+        "min": 16.1,
+        "max": 26.2,
+        "mid": 21.1
+      },
+      "vo_ratio": 0.0,
+      "error_count": 0,
+      "warning_count": 0,
+      "errors": [],
+      "warnings": [],
+      "schema_errors": []
+    },
+    {
+      "case_id": "case08_incomplete_source",
+      "title": "來源資料不完整（殘稿標明缺口，禁止擅自虛構結局）",
+      "status": "PASS",
+      "total_score_100": 95.5,
+      "dimension_scores": {
+        "core_story_and_causality_18": 18.0,
+        "character_consistency_and_arc_14": 14.0,
+        "visualization_and_actability_14": 14.0,
+        "pacing_episode_and_duration_12": 7.5,
+        "genre_fit_and_emotional_payoff_10": 10.0,
+        "canon_spirit_and_settings_10": 10.0,
+        "dialogue_naturalness_and_audio_8": 8.0,
+        "filmability_and_handoff_8": 8.0,
+        "foreshadowing_and_continuity_6": 6.0
+      },
+      "gate_failures": [],
+      "must_keep_coverage": "1/1",
+      "duration_summary": {
+        "min": 7.2,
+        "max": 11.5,
+        "mid": 9.3
+      },
+      "vo_ratio": 0.0,
+      "error_count": 0,
+      "warning_count": 1,
+      "errors": [],
+      "warnings": [
+        "[DURATION_UNDER_BUDGET] 預估時長區間 [7.2s, 11.5s] 低於目標 20s (-15% 下限 17.0s)"
+      ],
+      "schema_errors": []
+    },
+    {
+      "case_id": "case09_multi_episode_continuity",
+      "title": "長篇多集跨集連戲（道具狀態、角色傷勢與 Debt Ledger 跨集傳遞）",
+      "status": "PASS",
+      "total_score_100": 100.0,
+      "dimension_scores": {
+        "core_story_and_causality_18": 18.0,
+        "character_consistency_and_arc_14": 14.0,
+        "visualization_and_actability_14": 14.0,
+        "pacing_episode_and_duration_12": 12.0,
+        "genre_fit_and_emotional_payoff_10": 10.0,
+        "canon_spirit_and_settings_10": 10.0,
+        "dialogue_naturalness_and_audio_8": 8.0,
+        "filmability_and_handoff_8": 8.0,
+        "foreshadowing_and_continuity_6": 6.0
+      },
+      "gate_failures": [],
+      "must_keep_coverage": "2/2",
+      "duration_summary": {
+        "min": 21.0,
+        "max": 31.7,
+        "mid": 26.4
+      },
+      "vo_ratio": 0.0,
+      "error_count": 0,
+      "warning_count": 0,
+      "errors": [],
+      "warnings": [],
+      "schema_errors": []
+    },
+    {
+      "case_id": "case10_contradictory_source",
+      "title": "刻意矛盾原文（主動登記矛盾清單與解決方案）",
+      "status": "PASS",
+      "total_score_100": 95.5,
+      "dimension_scores": {
+        "core_story_and_causality_18": 18.0,
+        "character_consistency_and_arc_14": 14.0,
+        "visualization_and_actability_14": 14.0,
+        "pacing_episode_and_duration_12": 7.5,
+        "genre_fit_and_emotional_payoff_10": 10.0,
+        "canon_spirit_and_settings_10": 10.0,
+        "dialogue_naturalness_and_audio_8": 8.0,
+        "filmability_and_handoff_8": 8.0,
+        "foreshadowing_and_continuity_6": 6.0
+      },
+      "gate_failures": [],
+      "must_keep_coverage": "1/1",
+      "duration_summary": {
+        "min": 10.7,
+        "max": 16.5,
+        "mid": 13.6
+      },
+      "vo_ratio": 0.0,
+      "error_count": 0,
+      "warning_count": 1,
+      "errors": [],
+      "warnings": [
+        "[DURATION_UNDER_BUDGET] 預估時長區間 [10.7s, 16.5s] 低於目標 20s (-15% 下限 17.0s)"
+      ],
+      "schema_errors": []
+    }
+  ],
+  "ab_comparison": {
+    "experiment_1_pregnant_wife_500_yuan": {
+      "description": "對照原始提示詞自帶的『孕婦丟500元』範例 vs 新 Skill 修復版",
+      "legacy_prompt_result": {
+        "status": "FAIL",
+        "total_score_100": 90.5,
+        "dimension_scores": {
+          "core_story_and_causality_18": 18.0,
+          "character_consistency_and_arc_14": 14.0,
+          "visualization_and_actability_14": 14.0,
+          "pacing_episode_and_duration_12": 7.5,
+          "genre_fit_and_emotional_payoff_10": 10.0,
+          "canon_spirit_and_settings_10": 10.0,
+          "dialogue_naturalness_and_audio_8": 8.0,
+          "filmability_and_handoff_8": 8.0,
+          "foreshadowing_and_continuity_6": 1.0
+        },
+        "gate_failures": [
+          "CANON_CONTRADICTION"
+        ],
+        "must_keep_coverage": "2/2",
+        "duration_summary": {
+          "min": 45.6,
+          "max": 72.8,
+          "mid": 59.2
+        },
+        "vo_ratio": 0.143,
+        "error_count": 1,
+        "warning_count": 1,
+        "errors": [
+          "[CONTINUITY_STATE_MISMATCH] EP01-S02: 物件/狀態 'money_500' 的初始狀態為 'in_pocket'，但上一場 (EP01-S01) 結束狀態為 'missing'，且無 state_transition_note 說明轉移原因"
+        ],
+        "warnings": [
+          "[DURATION_UNDER_BUDGET] 預估時長區間 [45.6s, 72.8s] 低於目標 90s (-15% 下限 76.5s)"
+        ]
+      },
+      "novel_to_manju_result": {
+        "status": "PASS",
+        "total_score_100": 95.5,
+        "dimension_scores": {
+          "core_story_and_causality_18": 18.0,
+          "character_consistency_and_arc_14": 14.0,
+          "visualization_and_actability_14": 14.0,
+          "pacing_episode_and_duration_12": 7.5,
+          "genre_fit_and_emotional_payoff_10": 10.0,
+          "canon_spirit_and_settings_10": 10.0,
+          "dialogue_naturalness_and_audio_8": 8.0,
+          "filmability_and_handoff_8": 8.0,
+          "foreshadowing_and_continuity_6": 6.0
+        },
+        "gate_failures": [],
+        "must_keep_coverage": "2/2",
+        "duration_summary": {
+          "min": 32.3,
+          "max": 51.3,
+          "mid": 41.8
+        },
+        "vo_ratio": 0.0,
+        "error_count": 0,
+        "warning_count": 1,
+        "errors": [],
+        "warnings": [
+          "[DURATION_OVER_BUDGET] 預估時長區間 [32.3s, 51.3s] 超出目標 20s (+15% 上限 23.0s)"
+        ]
+      }
+    },
+    "experiment_2_mystery_thriller_adaptation": {
+      "description": "對照原始提示詞強制『3秒爆點+80字爽點+全程不憋屈』改編懸疑小說 vs 新 Skill 改編版",
+      "legacy_prompt_result": {
+        "status": "FAIL",
+        "total_score_100": 39.0,
+        "dimension_scores": {
+          "core_story_and_causality_18": 2.0,
+          "character_consistency_and_arc_14": 8.0,
+          "visualization_and_actability_14": 6.0,
+          "pacing_episode_and_duration_12": 3.5,
+          "genre_fit_and_emotional_payoff_10": 2.0,
+          "canon_spirit_and_settings_10": 4.0,
+          "dialogue_naturalness_and_audio_8": 4.5,
+          "filmability_and_handoff_8": 8.0,
+          "foreshadowing_and_continuity_6": 1.0
+        },
+        "gate_failures": [
+          "CRITICAL_SCENE_UNFILMABLE",
+          "FATAL_CAUSAL_BREAK",
+          "UNTRACKED_MAJOR_CHANGE",
+          "CANON_CONTRADICTION"
+        ],
+        "must_keep_coverage": "0/2",
+        "duration_summary": {
+          "min": 38.0,
+          "max": 53.7,
+          "mid": 45.9
+        },
+        "vo_ratio": 0.667,
+        "error_count": 21,
+        "warning_count": 2,
+        "errors": [
+          "[CAMERA_JARGON_VIOLATION] 第 3 行 (1-1): 動作行出現分鏡攝影術語 '特寫鏡頭'（違反『劇本管戲，分鏡管拍』）",
+          "[CAMERA_JARGON_VIOLATION] 第 3 行 (1-1): 動作行出現分鏡攝影術語 '推鏡頭'（違反『劇本管戲，分鏡管拍』）",
+          "[CAMERA_JARGON_VIOLATION] 第 3 行 (1-1): 動作行出現分鏡攝影術語 '鏡頭給到'（違反『劇本管戲，分鏡管拍』）",
+          "[UNFILMABLE_ACTION] 第 3 行 (1-1): 動作行包含不可直接拍攝的抽象心理詞彙 '心裡想著'",
+          "[UNFILMABLE_ACTION] 第 3 行 (1-1): 動作行包含不可直接拍攝的抽象心理詞彙 '百感交集'",
+          "[DIALOGUE_OVER_35_CHARS] 第 6 行 (1-1 趙坤): 單句發音字數達 51 字（超過 35 字硬上限，TTS 韻律與單鏡對嘴易崩壞）",
+          "[ALIAS_USED_AS_CANONICAL] 場景 1-1 人物行使用了別名 '阿澈'，應統一使用標準名 '林澈'",
+          "[ALIAS_USED_AS_SPEAKER] 第 4 行 (1-1): 對白發言人使用了別名 '阿澈'，應使用標準名 '林澈'",
+          "[ALIAS_USED_AS_SPEAKER] 第 8 行 (1-1): 對白發言人使用了別名 '阿澈'，應使用標準名 '林澈'",
+          "[MISSING_MUST_KEEP_EVENT] 原著核心必保事件 'ch01:u1' (林澈發現信背字跡遭篡改) 被刪除，導致因果斷裂",
+          "[MISSING_MUST_KEEP_EVENT] 原著核心必保事件 'ch01:u2' (沈寧門外試探) 被刪除，導致因果斷裂",
+          "[PREMATURE_FORESHADOW_SPOILER] 伏筆 'clue-01' 的真相詞 '礦長孤女' 在場景 EP01-S01 被提前洩底",
+          "[UNREPORTED_SOURCE_GAP] 原著資料不完整（殘稿），但 Handoff 未在 source_gaps_or_contradictions 標明缺口，涉嫌擅自虛構結局",
+          "[UNREPORTED_SOURCE_CONTRADICTION] 原著含有內部設定矛盾，但改編未主動提出矛盾清單，涉嫌悄悄掩蓋或照抄矛盾",
+          "[GENRE_MISMATCH_FORCED_CLICHE] 當前題材為 'mystery_thriller'，劇本卻出現強迫打臉套路詞 '下跪求饒'",
+          "[GENRE_MISMATCH_FORCED_CLICHE] 當前題材為 'mystery_thriller'，劇本卻出現強迫打臉套路詞 '扇耳光'",
+          "[GENRE_MISMATCH_FORCED_CLICHE] 當前題材為 'mystery_thriller'，劇本卻出現強迫打臉套路詞 '百億神豪'",
+          "[GENRE_MISMATCH_FORCED_CLICHE] 當前題材為 'mystery_thriller'，劇本卻出現強迫打臉套路詞 '仙帝附體'",
+          "[GENRE_MISMATCH_FORCED_CLICHE] 當前題材為 'mystery_thriller'，劇本卻出現強迫打臉套路詞 '拉出去餵狗'",
+          "[GENRE_MISMATCH_FORCED_CLICHE] 當前題材為 'mystery_thriller'，劇本卻出現強迫打臉套路詞 '你算什麼東西也配'",
+          "[GENRE_MISMATCH_FORCED_CLICHE] 當前題材為 'mystery_thriller'，劇本卻出現強迫打臉套路詞 '三年之期已到'"
+        ],
+        "warnings": [
+          "[DIALOGUE_OVER_28_CHARS] 第 4 行 (1-1 阿澈): 單句發音字數為 31 字（超過 28 字 10 秒單鏡安全線，建議拆句或切反應鏡頭）",
+          "[DURATION_UNDER_BUDGET] 預估時長區間 [38.0s, 53.7s] 低於目標 90s (-15% 下限 76.5s)"
+        ]
+      },
+      "novel_to_manju_result": {
+        "status": "PASS",
+        "total_score_100": 100.0,
+        "dimension_scores": {
+          "core_story_and_causality_18": 18.0,
+          "character_consistency_and_arc_14": 14.0,
+          "visualization_and_actability_14": 14.0,
+          "pacing_episode_and_duration_12": 12.0,
+          "genre_fit_and_emotional_payoff_10": 10.0,
+          "canon_spirit_and_settings_10": 10.0,
+          "dialogue_naturalness_and_audio_8": 8.0,
+          "filmability_and_handoff_8": 8.0,
+          "foreshadowing_and_continuity_6": 6.0
+        },
+        "gate_failures": [],
+        "must_keep_coverage": "1/1",
+        "duration_summary": {
+          "min": 16.1,
+          "max": 26.2,
+          "mid": 21.1
+        },
+        "vo_ratio": 0.0,
+        "error_count": 0,
+        "warning_count": 0,
+        "errors": [],
+        "warnings": []
+      }
+    }
+  }
+}

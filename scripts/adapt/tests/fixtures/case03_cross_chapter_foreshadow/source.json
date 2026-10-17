@@ -1,0 +1,22 @@
+{
+  "case_id": "case03_cross_chapter_foreshadow",
+  "title": "跨章伏筆後續揭露（禁止提前洩底）",
+  "genre_mode": "mystery_thriller",
+  "story_units": [
+    {
+      "unit_id": "ch01:plant",
+      "summary": "沈寧手腕有一道舊燙傷疤痕（第5章才揭曉她是礦長孤女）",
+      "expected_grade": "MUST_KEEP"
+    }
+  ],
+  "foreshadowing": [
+    {
+      "clue_id": "clue-scar",
+      "min_reveal_scene_index": 2,
+      "forbidden_early_spoiler_phrases": [
+        "礦長孤女",
+        "親生女兒"
+      ]
+    }
+  ]
+}

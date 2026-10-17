@@ -1,0 +1,111 @@
+{
+  "project_id": "case08-project",
+  "rights_status": "owned_original",
+  "adaptation_mode": "balanced",
+  "genre_mode": "mystery_thriller",
+  "aspect_ratio": "9:16",
+  "target_medium": "ai_animation",
+  "source_gaps_or_contradictions": [
+    {
+      "issue_id": "gap-01",
+      "type": "incomplete_source",
+      "source_refs": [
+        "ch08:u1_incomplete"
+      ],
+      "description": "原稿於發現半枚銅鑰匙處中斷，後續銅鎖位置與真兇身份缺失",
+      "resolution": "於懸念處收束本集，顯式標記缺口待作者補充，絕不自行捏造真兇"
+    }
+  ],
+  "debt_ledger": [
+    {
+      "debt_id": "debt-01",
+      "origin_ep": "EP01",
+      "payoff_ep": "EP02",
+      "debtor": "lin-che",
+      "description": "林澈隱瞞信件背面字跡，引來沈寧懷疑",
+      "status": "open"
+    }
+  ],
+  "episodes": [
+    {
+      "episode_id": "EP01",
+      "title": "測試集",
+      "target_duration_seconds": 20,
+      "episode_goal": "推進核心衝突並驗證連戲",
+      "act_out_type": "revelation_twist",
+      "scenes": [
+        {
+          "project_id": "case08-project",
+          "episode_id": "EP01",
+          "scene_id": "EP01-S01",
+          "source_refs": [
+            "ch08:u1_incomplete"
+          ],
+          "adaptation_mode": "balanced",
+          "setting": {
+            "location": "old_apartment",
+            "time": "night",
+            "interior": true,
+            "timeline_tag": "present"
+          },
+          "characters": [
+            "lin-che"
+          ],
+          "scene_goal": "將暴雨背景與燒信抉擇外化為火盆與紅章信封動作",
+          "dramatic_turn": "信紙受熱浮現陌生字跡且沈寧已在門外",
+          "dialogue": [
+            {
+              "speaker": "shen-ning",
+              "text": "開門。我知道你看過那封信。",
+              "audio_type": "offscreen"
+            },
+            {
+              "speaker": "lin-che",
+              "text": "這字……不是我寫的。",
+              "audio_type": "onscreen"
+            }
+          ],
+          "props": [
+            "wet_letter",
+            "brazier"
+          ],
+          "continuity_initial": {
+            "wet_letter": "on_table"
+          },
+          "continuity_final": {
+            "wet_letter": "in_lin_che_hand"
+          },
+          "estimated_duration_seconds": {
+            "min": 14,
+            "max": 23
+          },
+          "adaptation_changes": [
+            {
+              "type": "compress",
+              "description": "將暴雨停擺與礦難心理獨白壓縮為『南岸礦務』紅章與火盆燒信動作",
+              "source_ref": "ch01:u1"
+            }
+          ],
+          "storyboard_handoff": {
+            "recommended_generation_modes": [
+              "I2V"
+            ],
+            "required_visual_beats": [
+              "南岸礦務紅章信封與火盆",
+              "敲門聲驚動翻信",
+              "信背浮現紅字"
+            ],
+            "required_audio_beats": [
+              "窗外暴雨聲",
+              "三下敲門聲",
+              "門外壓低聲音"
+            ],
+            "must_preserve": [
+              "信背受熱浮現字跡"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

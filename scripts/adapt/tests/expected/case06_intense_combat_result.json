@@ -1,0 +1,28 @@
+{
+  "status": "PASS",
+  "total_score_100": 100.0,
+  "dimension_scores": {
+    "core_story_and_causality_18": 18.0,
+    "character_consistency_and_arc_14": 14.0,
+    "visualization_and_actability_14": 14.0,
+    "pacing_episode_and_duration_12": 12.0,
+    "genre_fit_and_emotional_payoff_10": 10.0,
+    "canon_spirit_and_settings_10": 10.0,
+    "dialogue_naturalness_and_audio_8": 8.0,
+    "filmability_and_handoff_8": 8.0,
+    "foreshadowing_and_continuity_6": 6.0
+  },
+  "gate_failures": [],
+  "must_keep_coverage": "1/1",
+  "duration_summary": {
+    "min": 14.5,
+    "max": 23.9,
+    "mid": 19.2
+  },
+  "vo_ratio": 0.0,
+  "error_count": 0,
+  "warning_count": 0,
+  "errors": [],
+  "warnings": [],
+  "schema_errors": []
+}

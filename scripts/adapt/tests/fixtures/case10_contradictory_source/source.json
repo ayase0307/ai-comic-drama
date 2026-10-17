@@ -1,0 +1,15 @@
+{
+  "case_id": "case10_contradictory_source",
+  "title": "刻意矛盾原文（主動登記矛盾清單與解決方案）",
+  "genre_mode": "mystery_thriller",
+  "known_contradictions": [
+    "第1段稱林澈天生雙目失明，第3段卻寫林澈親眼看見信紙背面的紅色小字"
+  ],
+  "story_units": [
+    {
+      "unit_id": "ch10:u1_contra",
+      "summary": "原文前稱盲眼後稱親眼看信",
+      "expected_grade": "MUST_KEEP"
+    }
+  ]
+}

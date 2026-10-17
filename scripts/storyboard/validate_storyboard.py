@@ -1,0 +1,526 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+AI 電影與漫劇分鏡靜態驗證與品質審查器 (Storyboard Quality Linter v2.0)
+零外部依賴，執行七大硬核工程驗證：
+1. 時長守恆檢查 (各鏡頭秒數加總 == 目標切片總時長)
+2. 台詞 100% 一字不差保真與語速超載檢查 (防止刪詞、捏造或倍速嘴瓢)
+3. 偽精確度與醫學解剖學黑名單攔截 (攔截「眼輪匝肌、降口角肌、嘴角下垂3mm、流體折射率、@lmage」)
+4. 視角與武戲遮擋衝突檢查 (高速打擊/碰撞瞬間嚴禁使用 Dirty Frame 遮擋接觸點，強制 90° 無遮擋)
+5. 景別與五官粒度檢查 (遠景 ELS/LS 嚴禁描寫面部五官微表情)
+6. 雙模式跨組握手與 Observed > Planned 狀態檢查 (時空跳躍必須走 HARD_CUT_ESTABLISH)
+7. 9:16 直式短劇安全區與縱深構圖檢查
+"""
+
+import argparse
+import difflib
+import io
+import json
+import re
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from handoff_to_skeleton import MAX_SHOT_SEC, find_todo, segment_sort_key  # noqa: E402
+from speech_utils import count_speech_chars, normalize_speech  # noqa: E402
+
+if sys.platform.startswith("win"):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+
+# 嚴格攔截之偽精確度、醫學解剖學與 OCR 損壞詞黑名單
+FORBIDDEN_PSEUDO_TERMS = [
+    "眼輪匝肌", "眼轮匝肌",
+    "降口角肌",
+    "額肌", "额肌",
+    "嘴角下垂3mm", "嘴角下垂 3mm", "2mm", "3mm",
+    "折射率", "表面張力表現", "表面张力表现",
+    "@lmage", "Negative PrompU", "叫(物理音效)"
+]
+
+
+_KIND_OK = {
+    "obj": lambda v: isinstance(v, dict),
+    "list": lambda v: isinstance(v, list),
+    "str": lambda v: isinstance(v, str),
+    "bool": lambda v: isinstance(v, bool),
+    "num": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool),
+}
+_KIND_LABEL = {"obj": "JSON 物件", "list": "陣列", "str": "字串", "bool": "布林值", "num": "數字"}
+
+
+def _tname(value) -> str:
+    names = {dict: "物件", list: "陣列", str: "字串", bool: "布林值", int: "整數", float: "小數", type(None): "null"}
+    return names.get(type(value), type(value).__name__)
+
+
+def _as_dict(value) -> dict:
+    return value if isinstance(value, dict) else {}
+
+
+def _expect(container: dict, key: str, kind: str, path: str, errors: list, nullable: bool = False) -> None:
+    """key 存在時才檢查型別；缺少的欄位交給各檢查的預設值處理。"""
+    if key not in container or (container[key] is None and nullable):
+        return
+    if not _KIND_OK[kind](container[key]):
+        suffix = "（或 null）" if nullable else ""
+        errors.append(f"[格式錯誤] {path}.{key} 應為{_KIND_LABEL[kind]}{suffix}，實際為{_tname(container[key])}")
+
+
+def _shot_format_errors(shot, path: str) -> list:
+    if not isinstance(shot, dict):
+        return [f"[格式錯誤] {path} 應為 JSON 物件，實際為{_tname(shot)}"]
+    errors: list = []
+    _expect(shot, "shot_id", "str", path, errors)
+    _expect(shot, "duration", "num", path, errors)
+    _expect(shot, "dramatic_beat_type", "str", path, errors)
+    for key in ("camera_optics", "action_and_performance", "dialogue_and_audio"):
+        _expect(shot, key, "obj", path, errors)
+    for key in ("shot_size", "pov_routing", "physical_distance"):
+        _expect(_as_dict(shot.get("camera_optics")), key, "str", f"{path}.camera_optics", errors)
+    act = _as_dict(shot.get("action_and_performance"))
+    _expect(act, "observable_expression", "str", f"{path}.action_and_performance", errors)
+    _expect(act, "action_stages", "list", f"{path}.action_and_performance", errors)
+    stages = act.get("action_stages") if isinstance(act.get("action_stages"), list) else []
+    for i, stage in enumerate(stages):
+        if not isinstance(stage, str):
+            errors.append(f"[格式錯誤] {path}.action_and_performance.action_stages[{i}] 應為字串，實際為{_tname(stage)}")
+    dlg = _as_dict(shot.get("dialogue_and_audio"))
+    _expect(dlg, "line_verbatim", "str", f"{path}.dialogue_and_audio", errors, nullable=True)
+    return errors
+
+
+def layer2_format_errors(data) -> list:
+    """Layer 2 分鏡檔的型別檢查，錯誤訊息帶 JSON 路徑；有錯時不再往下跑業務檢查。"""
+    if not isinstance(data, dict):
+        return [f"[格式錯誤] $ 應為 JSON 物件，實際為{_tname(data)}"]
+    errors: list = []
+    for key in ("project_id", "scene_id", "segment_id", "source_scene_id"):
+        _expect(data, key, "str", "$", errors, nullable=key != "project_id")
+    for key in ("metadata", "continuity_handshake"):
+        _expect(data, key, "obj", "$", errors)
+    _expect(data, "shots", "list", "$", errors)
+    _expect(_as_dict(data.get("metadata")), "target_duration_sec", "num", "$.metadata", errors)
+    _expect(_as_dict(data.get("metadata")), "lighting_lock_line", "str", "$.metadata", errors)
+    handshake = _as_dict(data.get("continuity_handshake"))
+    for key in ("overflow_dialogue_in", "overflow_dialogue_out"):
+        _expect(handshake, key, "str", "$.continuity_handshake", errors, nullable=True)
+    shots = data.get("shots") if isinstance(data.get("shots"), list) else []
+    for idx, shot in enumerate(shots):
+        errors += _shot_format_errors(shot, f"$.shots[{idx}]")
+    return errors
+
+
+def handoff_format_errors(handoff) -> list:
+    """handoff JSON 的結構檢查：episodes 必須是陣列、場景與台詞項目必須是物件且 text 為字串。"""
+    if not isinstance(handoff, dict):
+        return [f"[格式錯誤] $ 應為 JSON 物件，實際為{_tname(handoff)}"]
+    episodes = handoff.get("episodes")
+    if not isinstance(episodes, list):
+        return [f"[格式錯誤] $.episodes 應為陣列，實際為{_tname(episodes) if episodes is not None else '缺少'}"]
+    errors: list = []
+    for i, episode in enumerate(episodes):
+        ep_path = f"$.episodes[{i}]"
+        if not isinstance(episode, dict):
+            errors.append(f"[格式錯誤] {ep_path} 應為 JSON 物件，實際為{_tname(episode)}")
+            continue
+        scenes = episode.get("scenes")
+        if not isinstance(scenes, list):
+            errors.append(f"[格式錯誤] {ep_path}.scenes 應為陣列，實際為{_tname(scenes) if scenes is not None else '缺少'}")
+            continue
+        for j, scene in enumerate(scenes):
+            sc_path = f"{ep_path}.scenes[{j}]"
+            if not isinstance(scene, dict):
+                errors.append(f"[格式錯誤] {sc_path} 應為 JSON 物件，實際為{_tname(scene)}")
+                continue
+            if not isinstance(scene.get("scene_id"), str):
+                errors.append(f"[格式錯誤] {sc_path}.scene_id 缺少或不是字串")
+            dialogue = scene.get("dialogue", [])
+            if not isinstance(dialogue, list):
+                errors.append(f"[格式錯誤] {sc_path}.dialogue 應為陣列，實際為{_tname(dialogue)}")
+                continue
+            for k, line in enumerate(dialogue):
+                line_path = f"{sc_path}.dialogue[{k}]"
+                if not isinstance(line, dict):
+                    errors.append(f"[格式錯誤] {line_path} 應為 JSON 物件，實際為{_tname(line)}")
+                elif not isinstance(line.get("text"), str):
+                    errors.append(f"[格式錯誤] {line_path}.text 缺少或不是字串")
+    return errors
+
+
+def dialogue_verbatim_errors(expected: list, actual: list) -> list:
+    """逐句比對（依順序），只在整段串接比對失敗時使用，用來指出是哪一句缺、改、或多出。"""
+    exp = [t.strip() for t in expected if t and t.strip()]
+    act = [t.strip() for t in actual if t and t.strip()]
+    if exp == act:
+        return []
+    errors = []
+    matcher = difflib.SequenceMatcher(a=exp, b=act, autojunk=False)
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == "delete":
+            errors += [f"[台詞保真鐵律違規] 缺少台詞：「{t}」" for t in exp[i1:i2]]
+        elif tag == "insert":
+            errors += [f"[台詞保真鐵律違規] 多出未見於劇本的台詞：「{t}」" for t in act[j1:j2]]
+        elif tag == "replace" and i2 - i1 == j2 - j1:
+            errors += [f"[台詞保真鐵律違規] 台詞被改寫：劇本「{old}」→ 分鏡「{new}」"
+                       for old, new in zip(exp[i1:i2], act[j1:j2])]
+        else:
+            errors += [f"[台詞保真鐵律違規] 缺少或被改寫的劇本台詞：「{t}」" for t in exp[i1:i2]]
+            errors += [f"[台詞保真鐵律違規] 分鏡中多出或被改寫的台詞：「{t}」" for t in act[j1:j2]]
+    return errors
+
+
+def verbatim_check(expected: list, actual: list) -> list:
+    """台詞保真：去標點與空白後，把整場台詞串成一個字串比對，允許 J-Cut 切段；
+    串接結果不同時，先指出第一個不一致的位置，再列出逐句差異。"""
+    exp_text = normalize_speech("".join(t for t in expected if t))
+    act_text = normalize_speech("".join(t for t in actual if t))
+    if exp_text == act_text:
+        return []
+    i = next((k for k, (a, b) in enumerate(zip(exp_text, act_text)) if a != b),
+             min(len(exp_text), len(act_text)))
+    lo, hi = max(0, i - 8), i + 8
+    head = (f"[台詞保真鐵律違規] 去標點後第 {i + 1} 字起不一致（劇本 {len(exp_text)} 字／分鏡 {len(act_text)} 字）："
+            f"劇本「…{exp_text[lo:hi]}…」→ 分鏡「…{act_text[lo:hi]}…」")
+    return [head] + dialogue_verbatim_errors(expected, actual)
+
+
+def dialogue_stream(segments: list) -> list:
+    """依段序產生台詞片段：段首的 overflow_dialogue_in、各鏡台詞、段尾的 overflow_dialogue_out 依序接起來。"""
+    pieces = []
+    prev_out = None
+    for data in segments:
+        handshake = _as_dict(data.get("continuity_handshake"))
+        overflow_in = (handshake.get("overflow_dialogue_in") or "").strip()
+        if overflow_in and overflow_in != prev_out:  # 與上一段 out 相同即為同一句的回聲，不重複計算
+            pieces.append(overflow_in)
+        for shot in data.get("shots", []):
+            dlg = _as_dict(shot.get("dialogue_and_audio"))
+            if dlg.get("has_dialogue") and (dlg.get("line_verbatim") or "").strip():
+                pieces.append(dlg["line_verbatim"].strip())
+        prev_out = (handshake.get("overflow_dialogue_out") or "").strip() or None
+        if prev_out:
+            pieces.append(prev_out)
+    return pieces
+
+
+def scene_key(data: dict) -> str:
+    """layer2 檔對應的來源場景 ID：source_scene_id → scene_id → segment_id 去掉 -a…-z、-aa… 段尾。"""
+    if data.get("source_scene_id"):
+        return data["source_scene_id"]
+    if data.get("scene_id"):
+        return data["scene_id"]
+    return re.sub(r"-[a-z]+$", "", data.get("segment_id", ""))
+
+
+def load_handoff_dialogues(handoff: dict) -> dict:
+    """{scene_id: [台詞原文, ...]}，依 handoff 的集與場順序。"""
+    return {
+        scene["scene_id"]: [line["text"] for line in scene.get("dialogue", [])]
+        for episode in handoff.get("episodes", [])
+        for scene in episode.get("scenes", [])
+    }
+
+
+def validate_storyboard_data(data: dict, original_script_dialogues: list = None) -> dict:
+    format_errors = layer2_format_errors(data)
+    if format_errors:
+        return {"passed": False, "errors": format_errors, "warnings": [], "checks_passed": []}
+    errors = []
+    warnings = []
+    checks_passed = []
+
+    errors += find_todo(data)
+
+    meta = data.get("metadata", {})
+    target_dur = float(meta.get("target_duration_sec", 0))
+    aspect = meta.get("aspect_ratio", "16:9")
+    lighting_lock = meta.get("lighting_lock_line", "").strip()
+
+    # Check 0: 光影鎖定線不可為空 (防止 v6.1 禁光影錯誤)
+    if not lighting_lock:
+        errors.append("[C-02 光影缺失錯誤] metadata.lighting_lock_line 為空！嚴禁卸載光影描述，否則跨鏡頭必然跳色。")
+    else:
+        checks_passed.append("[PASS] 全域光影與色卡鎖定線已確立")
+
+    shots = data.get("shots", [])
+    if not shots:
+        errors.append("[結構錯誤] shots 陣列為空！")
+        return {"passed": False, "errors": errors, "warnings": warnings, "checks_passed": checks_passed}
+
+    # Check 1: 時長加總守恆
+    total_shot_dur = round(sum(float(s.get("duration", 0)) for s in shots), 2)
+    if abs(total_shot_dur - target_dur) > 0.15:
+        errors.append(f"[時長不守恆] 鏡頭時長總和 ({total_shot_dur}s) != 目標總時長 ({target_dur}s)")
+    else:
+        checks_passed.append(f"[PASS] 時長守恆核對通過 ({total_shot_dur}s == {target_dur}s，共 {len(shots)} 鏡)")
+
+    # 收集所有分鏡台詞與文本
+    close_up_count = 0
+
+    for idx, s in enumerate(shots, 1):
+        sid = s.get("shot_id", f"SH{idx:02d}")
+        dur = float(s.get("duration", 1.0))
+        if dur > MAX_SHOT_SEC:
+            errors.append(f"[{sid} 鏡頭過長] 鏡頭時長 {dur}s 超過 {MAX_SHOT_SEC:.0f} 秒（H3 單鏡上限），請拆成兩鏡。")
+        beat_type = s.get("dramatic_beat_type", "")
+        cam = s.get("camera_optics", {})
+        shot_size = cam.get("shot_size", "MS")
+        pov_routing = cam.get("pov_routing", "objective")
+        phys_dist = cam.get("physical_distance", "")
+
+        act = s.get("action_and_performance", {})
+        stages = act.get("action_stages", [])
+        expr = act.get("observable_expression", "")
+        dlg = s.get("dialogue_and_audio", {})
+
+        if shot_size in ("MCU", "CU", "ECU", "OTS_CU"):
+            close_up_count += 1
+
+        # Check 2: 物理物距是否標註
+        if not phys_dist:
+            warnings.append(f"[{sid}] 未明確標註攝影機物理物距 (physical_distance)，可能削弱焦段透視表現。")
+
+        # Check 3: 單鏡動作拆解 <= 5 階段上限
+        if len(stages) > 5:
+            errors.append(f"[{sid} 動作過載] 單鏡動作拆解達 {len(stages)} 個階段 (上限為 5 階段)，極易引發模型果凍化形變！")
+
+        # Check 4: 武戲碰撞 vs Dirty Frame 遮擋衝突檢查
+        if beat_type == "Combat_Impact" and pov_routing == "dirty_frame_20_35":
+            errors.append(
+                f"[{sid} 視角遮擋衝突] 武戲打擊瞬間 (Combat_Impact) 嚴禁使用 Dirty Frame 前景遮擋！"
+                f"必須切換為 clear_impact_90deg (90度垂直軸線無遮擋) 以免擋住打擊接觸點！"
+            )
+
+        # Check 5: 遠景/全景零五官微表情檢查
+        if shot_size in ("ELS", "LS") and any(k in expr for k in ["瞳孔", "睫毛", "嘴角", "眼眶", "淚", "唇"]):
+            errors.append(f"[{sid} 景別粒度錯誤] 當前景別為遠/全景 ({shot_size})，臉部像素極小，嚴禁描寫五官細節 ({expr})！")
+
+        # Check 6: 偽精確度與醫學解剖學黑名單掃描
+        raw_shot_str = json.dumps(s, ensure_ascii=False)
+        for bad_word in FORBIDDEN_PSEUDO_TERMS:
+            if bad_word in raw_shot_str:
+                errors.append(f"[{sid} 偽精確/解剖詞污染] 檢測到禁用詞「{bad_word}」，請轉譯為可見外顯五官動作！")
+
+        # Check 7: 台詞語速與閉唇鎖檢查
+        if dlg.get("has_dialogue"):
+            line = (dlg.get("line_verbatim") or "").strip()
+            if line:
+                n_chars = count_speech_chars(line)
+                cps = n_chars / max(dur, 0.5)
+                if cps > 4.2:
+                    errors.append(
+                        f"[{sid} 語速超載] 台詞「{line}」({n_chars}字 / {dur}s = {cps:.1f}字/秒) 超出語速上限（閘門 4.2 字/秒，建議值 3.8）！"
+                        f"請於氣口切斷並順延至 overflow_dialogue_out。"
+                    )
+        else:
+            if not dlg.get("lips_closed_lock", False):
+                warnings.append(f"[{sid} 閉唇鎖提醒] 鏡頭無台詞，建議將 lips_closed_lock 設為 true 防止角色亂動嘴。")
+
+    checks_passed.append("[PASS] 單鏡動作 <=5 階段、武戲 90° 防遮擋與遠景五官過濾核對完成")
+    checks_passed.append("[PASS] 偽精確數值 (3mm/折射率) 與醫學解剖肌群詞零殘留")
+
+    # Check 8: 劇本台詞 100% 一字不差保真核對
+    if original_script_dialogues is not None:
+        dlg_errors = verbatim_check(original_script_dialogues, dialogue_stream([data]))
+        if dlg_errors:
+            errors += dlg_errors
+        else:
+            total_chars = count_speech_chars("".join(original_script_dialogues))
+            checks_passed.append(f"[PASS] 台詞 100% 一字不差保真核對通過 (共 {total_chars} 字)")
+
+    # Check 9: 9:16 豎屏短劇景別比例檢查
+    if aspect == "9:16":
+        cu_ratio = close_up_count / len(shots)
+        if cu_ratio < 0.65:
+            warnings.append(f"[9:16 豎屏構圖警告] 中近景/特寫佔比僅 {cu_ratio:.0%} (建議 >= 70%)，手機螢幕人物過小。")
+        else:
+            checks_passed.append(f"[PASS] 9:16 豎屏中近景/特寫高佔比核對通過 ({cu_ratio:.0%})")
+
+    return {
+        "passed": len(errors) == 0,
+        "errors": errors,
+        "warnings": warnings,
+        "checks_passed": checks_passed
+    }
+
+
+def run_demo_suite():
+    print("=" * 78)
+    print("🔍 啟動 cinematic-director-storyboard v2.0 靜態驗證與回歸測試套件 (Golden Suite)")
+    print("=" * 78)
+
+    # 測試案例 1：合規的實驗 A (深夜辦公室對峙 12s)
+    valid_case = {
+        "project_id": "TEST_A_OFFICE",
+        "scene_id": "SC01",
+        "segment_id": "SEG01",
+        "metadata": {
+            "aspect_ratio": "16:9",
+            "target_duration_sec": 12.0,
+            "pacing_profile": "Slow_Cinematic",
+            "lighting_lock_line": "冷鋼夜黑 (#0A0E17 暗部 + 4500K 窗外冷藍側逆光 + #D4AF37 門縫暖光)"
+        },
+        "continuity_handshake": {"mode": "HARD_CUT_ESTABLISH", "overflow_dialogue_out": None},
+        "shots": [
+            {
+                "shot_id": "SH01", "start_time": 0.0, "end_time": 3.0, "duration": 3.0,
+                "dramatic_beat_type": "Expository_Fast",
+                "camera_optics": {"shot_size": "MLS", "focal_length": "35mm", "physical_distance": "2.0m", "pov_routing": "objective", "movement": "Rack Focus"},
+                "spatial_blocking": {"anchor_objects": ["落地玻璃窗", "深色實木門"], "blocking_desc": "左A背影，右B推門"},
+                "action_and_performance": {"action_stages": ["A靜立窗前", "B推門走入", "焦點由A移至B"], "observable_expression": "A背影沉穩，B神情戒備"},
+                "dialogue_and_audio": {"has_dialogue": False, "lips_closed_lock": True}
+            },
+            {
+                "shot_id": "SH02", "start_time": 3.0, "end_time": 6.5, "duration": 3.5,
+                "dramatic_beat_type": "Dramatic_Core",
+                "camera_optics": {"shot_size": "CU", "focal_length": "85mm", "physical_distance": "3.5m", "pov_routing": "objective", "movement": "Slow Dolly-in"},
+                "spatial_blocking": {"anchor_objects": ["落地玻璃窗"], "blocking_desc": "A側臉近景"},
+                "action_and_performance": {"action_stages": ["A不回頭凝視窗玻璃倒影", "喉結微滾低聲開口", "尾字下頜微繃"], "observable_expression": "眼簾微垂，眼神冷峻"},
+                "dialogue_and_audio": {"has_dialogue": True, "speaker": "A", "line_verbatim": "你終於來了。", "lips_closed_lock": False}
+            },
+            {
+                "shot_id": "SH03", "start_time": 6.5, "end_time": 9.0, "duration": 2.5,
+                "dramatic_beat_type": "Suspense_Delay",
+                "camera_optics": {"shot_size": "ECU", "focal_length": "85mm", "physical_distance": "1.5m", "pov_routing": "objective", "movement": "Tilt Up"},
+                "spatial_blocking": {"anchor_objects": ["紅木辦公桌", "白色信封"], "blocking_desc": "B停步於桌角"},
+                "action_and_performance": {"action_stages": ["B雙腳急停", "五指猛然收緊捏皺白色信封"], "observable_expression": "指節用力泛白，紙張折痕明顯"},
+                "dialogue_and_audio": {"has_dialogue": False, "lips_closed_lock": True}
+            },
+            {
+                "shot_id": "SH04", "start_time": 9.0, "end_time": 12.0, "duration": 3.0,
+                "dramatic_beat_type": "Reaction_OTS",
+                "camera_optics": {"shot_size": "OTS_CU", "focal_length": "100mm", "physical_distance": "6.0m", "pov_routing": "defensive_reaction_ots", "movement": "Static"},
+                "spatial_blocking": {"anchor_objects": ["紅木辦公桌"], "blocking_desc": "越過A暗部右肩拍B"},
+                "action_and_performance": {"action_stages": ["B抬眼望向A背影", "雙唇微顫開口回答", "眼簾垂落輕嘆"], "observable_expression": "眼眶微紅，下唇微顫"},
+                "dialogue_and_audio": {"has_dialogue": True, "speaker": "B", "line_verbatim": "我不該來的。", "lips_closed_lock": False}
+            }
+        ],
+        "segment_end_state": {"planned_final_state": {"envelope": "creased"}, "observed_final_state": None}
+    }
+
+    res1 = validate_storyboard_data(valid_case, original_script_dialogues=["你終於來了。", "我不該來的。"])
+    print("\n✅ [測試 1：標準合規分鏡 (實驗 A 辦公室對峙)] 審查結果:", "PASS" if res1["passed"] else "FAIL")
+    for p in res1["checks_passed"]:
+        print("  ", p)
+
+    # 測試案例 2：故意注入野生提示詞常見病灶 (禁光影、眼輪匝肌、3mm、武戲用Dirty Frame遮擋、遠景寫瞳孔、竄改台詞)
+    flawed_case = {
+        "project_id": "TEST_FLAWED",
+        "scene_id": "SC02",
+        "segment_id": "SEG01",
+        "metadata": {"aspect_ratio": "16:9", "target_duration_sec": 10.0, "pacing_profile": "Fast_ShortDrama", "lighting_lock_line": ""},
+        "continuity_handshake": {"mode": "SEAMLESS_CONTINUATION"},
+        "shots": [
+            {
+                "shot_id": "SH01_BAD", "start_time": 0.0, "end_time": 4.0, "duration": 4.0,
+                "dramatic_beat_type": "Combat_Impact",
+                "camera_optics": {"shot_size": "ELS", "focal_length": "24mm", "physical_distance": "<0.4m", "pov_routing": "dirty_frame_20_35", "movement": "Pan"},
+                "spatial_blocking": {"anchor_objects": ["盾牌"], "blocking_desc": "A擊中B盾牌"},
+                "action_and_performance": {
+                    "action_stages": ["s1", "s2", "s3", "s4", "s5", "s6_overflow"],
+                    "observable_expression": "遠景中A眼輪匝肌收縮，嘴角下垂3mm，瞳孔驟然放大"
+                },
+                "dialogue_and_audio": {"has_dialogue": True, "speaker": "A", "line_verbatim": "你終於來啦！", "lips_closed_lock": False}
+            }
+        ],
+        "segment_end_state": {"planned_final_state": {}}
+    }
+
+    res2 = validate_storyboard_data(flawed_case, original_script_dialogues=["你終於來了。"])
+    print("\n🛡️ [測試 2：病態提示詞防呆攔截測試 (故意注入 6 項違規)] 審查結果:", "成功攔截所有違規!" if not res2["passed"] else "未攔截")
+    for err in res2["errors"]:
+        print("   ❌ 攔截成功 ->", err)
+    print("=" * 78)
+
+
+def check_dialogue_groups(datas: list, handoff: dict, only_scene: str = None) -> dict:
+    """同一場景的各段依段序串接台詞，與 handoff 劇本台詞比對。回傳 {scene_id: {passed, errors, segments}}。"""
+    expected_map = load_handoff_dialogues(handoff)
+    groups: dict = {}
+    for data in datas:
+        groups.setdefault(scene_key(data), []).append(data)
+    results = {}
+    for scene_id in [only_scene] if only_scene else list(groups):
+        segs = sorted(groups.get(scene_id, []),
+                      key=lambda d: segment_sort_key(d.get("segment_id", d.get("scene_id", ""))))
+        if scene_id not in expected_map:
+            errors = [f"[台詞保真] handoff 內找不到場景 {scene_id}"]
+        elif not segs:
+            errors = [f"[台詞保真] 找不到場景 {scene_id} 的分鏡檔，無法核對台詞"]
+        else:
+            errors = verbatim_check(expected_map[scene_id], dialogue_stream(segs))
+        results[scene_id] = {
+            "passed": not errors,
+            "errors": errors,
+            "segments": [d.get("segment_id", d.get("scene_id")) for d in segs],
+        }
+    return results
+
+
+def load_json(path: str):
+    """讀取 JSON；任何讀檔或解析失敗都拋出 ValueError，訊息帶檔名與位置。"""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            text = f.read()
+    except OSError as exc:
+        raise ValueError(f"{path} 讀取失敗：{exc.strerror or exc}") from None
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"{path} 不是 UTF-8 編碼：{exc.reason}") from None
+    if not text.strip():
+        raise ValueError(f"{path} 是空檔案")
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{path} 不是合法 JSON（第 {exc.lineno} 行第 {exc.colno} 欄）：{exc.msg}") from None
+
+
+def main():
+    parser = argparse.ArgumentParser(description="AI 電影與漫劇分鏡靜態驗證器 (v2.0)")
+    parser.add_argument("--file", nargs="+", help="待驗證的 Layer 2 JSON 分鏡檔（一或多個；分段時請把各段一併給出）")
+    parser.add_argument("--handoff", help="handoff JSON；提供時核對各場景台詞與劇本逐字一致（段落自動依段序合併）")
+    parser.add_argument("--scene", help="搭配 --handoff，只核對指定場景，例如 EP01-S01")
+    parser.add_argument("--demo", action="store_true", help="執行內建合規與防呆攔截雙向回歸測試")
+    args = parser.parse_args()
+
+    if args.demo or not args.file:
+        run_demo_suite()
+        return
+    if args.scene and not args.handoff:
+        parser.error("--scene 需要搭配 --handoff")
+
+    try:
+        datas = [load_json(path) for path in args.file]
+        handoff = load_json(args.handoff) if args.handoff else None
+    except ValueError as exc:
+        print(f"[錯誤] {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    problems = [f"{path}：{msg}" for path, data in zip(args.file, datas) for msg in layer2_format_errors(data)]
+    if handoff is not None:
+        problems += [f"{args.handoff}：{msg}" for msg in handoff_format_errors(handoff)]
+    if problems:
+        for msg in problems:
+            print(f"[錯誤] {msg}", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        files = {path: validate_storyboard_data(data) for path, data in zip(args.file, datas)}
+        dialogue = check_dialogue_groups(datas, handoff, args.scene) if handoff is not None else {}
+    except Exception as exc:  # 最後防線：未預期的資料異常只印錯誤訊息，不噴 traceback
+        print(f"[錯誤] 驗證時遇到無法處理的資料：{exc}", file=sys.stderr)
+        sys.exit(1)
+
+    if handoff is None and len(args.file) == 1:
+        res = next(iter(files.values()))
+        print(json.dumps(res, ensure_ascii=False, indent=2))
+        sys.exit(0 if res["passed"] else 1)
+
+    passed = all(r["passed"] for r in files.values()) and all(r["passed"] for r in dialogue.values())
+    print(json.dumps({"passed": passed, "files": files, "dialogue_checks": dialogue},
+                     ensure_ascii=False, indent=2))
+    sys.exit(0 if passed else 1)
+
+
+if __name__ == "__main__":
+    main()

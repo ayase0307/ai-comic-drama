@@ -1,0 +1,22 @@
+{
+  "case_id": "case02_main_plot_vs_subplots",
+  "title": "重要事件與大量支線交錯（保留主因果，合併支線）",
+  "genre_mode": "mystery_thriller",
+  "story_units": [
+    {
+      "unit_id": "ch02:u1_main",
+      "summary": "趙坤逼林澈交出礦場帳冊",
+      "expected_grade": "MUST_KEEP"
+    },
+    {
+      "unit_id": "ch02:u2_sub_tea",
+      "summary": "路人茶博士閒聊南城米價上漲三成",
+      "expected_grade": "REMOVE"
+    },
+    {
+      "unit_id": "ch02:u3_sub_henchman",
+      "summary": "小嘍囉甲與小嘍囉乙分別威脅林澈",
+      "expected_grade": "MERGE"
+    }
+  ]
+}

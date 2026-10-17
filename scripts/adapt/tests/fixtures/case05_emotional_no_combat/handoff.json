@@ -1,0 +1,217 @@
+{
+  "project_id": "case05-project",
+  "rights_status": "owned_original",
+  "adaptation_mode": "balanced",
+  "genre_mode": "healing_literary",
+  "aspect_ratio": "9:16",
+  "target_medium": "ai_animation",
+  "source_gaps_or_contradictions": [],
+  "debt_ledger": [
+    {
+      "debt_id": "debt-01",
+      "origin_ep": "EP01",
+      "payoff_ep": "EP02",
+      "debtor": "lin-che",
+      "description": "林澈隱瞞信件背面字跡，引來沈寧懷疑",
+      "status": "open"
+    }
+  ],
+  "episodes": [
+    {
+      "episode_id": "EP01",
+      "title": "測試集",
+      "target_duration_seconds": 20,
+      "episode_goal": "推進核心衝突並驗證連戲",
+      "act_out_type": "revelation_twist",
+      "scenes": [
+        {
+          "project_id": "case05-project",
+          "episode_id": "EP01",
+          "scene_id": "EP01-S01",
+          "source_refs": [
+            "ch05:u2_bedroom"
+          ],
+          "adaptation_mode": "balanced",
+          "setting": {
+            "location": "bedroom",
+            "time": "day",
+            "interior": true,
+            "timeline_tag": "present"
+          },
+          "characters": [
+            "wife"
+          ],
+          "scene_goal": "妻子發現五百元遺失並翻找口袋",
+          "dramatic_turn": "翻遍外套口袋確認錢已遺失",
+          "dialogue": [
+            {
+              "speaker": "wife",
+              "text": "不可能啊……我明明裝兜里了。",
+              "audio_type": "onscreen"
+            }
+          ],
+          "props": [
+            "khaki_coat"
+          ],
+          "continuity_initial": {
+            "money_500": "missing"
+          },
+          "continuity_final": {
+            "money_500": "missing"
+          },
+          "estimated_duration_seconds": {
+            "min": 8,
+            "max": 13
+          },
+          "adaptation_changes": [
+            {
+              "type": "reorder",
+              "description": "以臥室找錢的焦急狀態開場，再切入菜市場（閃回）交代掉錢過程，並刪去原版首句重複畫外音",
+              "source_ref": "ch05:u2_bedroom"
+            }
+          ],
+          "storyboard_handoff": {
+            "recommended_generation_modes": [
+              "I2V"
+            ],
+            "required_visual_beats": [
+              "倒出皮包收據",
+              "翻出空外套口袋"
+            ],
+            "required_audio_beats": [
+              "衣物翻找摩擦聲"
+            ],
+            "must_preserve": [
+              "孕肚特徵與空口袋"
+            ]
+          }
+        },
+        {
+          "project_id": "case05-project",
+          "episode_id": "EP01",
+          "scene_id": "EP01-S02",
+          "source_refs": [
+            "ch05:u1_market"
+          ],
+          "adaptation_mode": "balanced",
+          "setting": {
+            "location": "wet_market",
+            "time": "day",
+            "interior": false,
+            "timeline_tag": "flashback"
+          },
+          "characters": [
+            "wife",
+            "husband"
+          ],
+          "scene_goal": "閃回展示菜市場接電話時錢滑落地面",
+          "dramatic_turn": "溫馨通話與鈔票掉落地面形成戲劇反諷",
+          "dialogue": [
+            {
+              "speaker": "husband",
+              "text": "慢點走，別買太重的。",
+              "audio_type": "phone"
+            },
+            {
+              "speaker": "wife",
+              "text": "知道了，晚上給你燉魚湯。",
+              "audio_type": "onscreen"
+            }
+          ],
+          "props": [
+            "money_500",
+            "pink_phone"
+          ],
+          "continuity_initial": {
+            "money_500": "in_pocket"
+          },
+          "continuity_final": {
+            "money_500": "on_wet_ground"
+          },
+          "estimated_duration_seconds": {
+            "min": 10,
+            "max": 16
+          },
+          "adaptation_changes": [
+            {
+              "type": "must_keep",
+              "description": "顯式標記（閃回）保護時間線因果",
+              "source_ref": "ch05:u1_market"
+            }
+          ],
+          "storyboard_handoff": {
+            "recommended_generation_modes": [
+              "I2V"
+            ],
+            "required_visual_beats": [
+              "拎菜接電話微笑",
+              "鈔票滑落濕地特寫"
+            ],
+            "required_audio_beats": [
+              "菜市場環境音",
+              "電話溫柔男聲"
+            ],
+            "must_preserve": [
+              "鈔票掉在濕水泥地上未被察覺"
+            ]
+          }
+        },
+        {
+          "project_id": "case05-project",
+          "episode_id": "EP01",
+          "scene_id": "EP01-S03",
+          "source_refs": [
+            "ch05:u2_bedroom"
+          ],
+          "adaptation_mode": "balanced",
+          "setting": {
+            "location": "bedroom",
+            "time": "day",
+            "interior": true,
+            "timeline_tag": "present"
+          },
+          "characters": [
+            "wife"
+          ],
+          "scene_goal": "回到臥室現實時間線完成情緒沉澱",
+          "dramatic_turn": "自責落淚撫摸孕肚",
+          "dialogue": [
+            {
+              "speaker": "wife",
+              "text": "寶寶，媽媽是不是很沒用啊。",
+              "audio_type": "onscreen"
+            }
+          ],
+          "props": [
+            "khaki_coat"
+          ],
+          "continuity_initial": {
+            "money_500": "missing"
+          },
+          "continuity_final": {
+            "money_500": "missing"
+          },
+          "estimated_duration_seconds": {
+            "min": 6,
+            "max": 10
+          },
+          "adaptation_changes": [],
+          "storyboard_handoff": {
+            "recommended_generation_modes": [
+              "I2V"
+            ],
+            "required_visual_beats": [
+              "雙手護住孕肚落淚"
+            ],
+            "required_audio_beats": [
+              "安靜室內輕微啜泣聲"
+            ],
+            "must_preserve": [
+              "溫情傷感基調，不強行塞入打臉反轉"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

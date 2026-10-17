@@ -1,0 +1,13 @@
+{
+  "case_id": "case08_incomplete_source",
+  "title": "來源資料不完整（殘稿標明缺口，禁止擅自虛構結局）",
+  "genre_mode": "mystery_thriller",
+  "is_incomplete": true,
+  "story_units": [
+    {
+      "unit_id": "ch08:u1_incomplete",
+      "summary": "林澈打開暗格發現半枚銅鑰匙（原稿至此中斷，缺下半章）",
+      "expected_grade": "MUST_KEEP"
+    }
+  ]
+}
