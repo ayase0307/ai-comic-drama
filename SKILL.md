@@ -109,13 +109,14 @@ agent_created: true
 
 - `references/pipeline.md` — 八階段詳細流程、提問清單與各階段模板。
 - `references/adapt/` — **小說改編（階段 1、3）**：`novel-to-manju.md` 為總規範（10 階段、6 題材模式、四道退稿閘門、100 分制），其餘為原則、故事聖經、結構節奏、劇本格式、視覺寫作、對白、可拍性、分鏡交接、授權證據各篇，`templates/` 含交接 JSON Schema。腳本在 `scripts/adapt/`（附 10 個測試案例）。
-- `references/storyboard/` — **導演分鏡（階段 4）**：`cinematic-director.md` 為總規範（v2.0），含三步法、焦距物距光學、漫劇九宮格與連戲狀態機、武戲 90° 與多模型編譯；`templates/` 含 Layer 2 JSON Schema。腳本在 `scripts/storyboard/`。
-- `references/consistency.md` — **資產與一致性規範**：ID、角色設定板、場景、道具、音色、參考鏈、漂移偵測與修復、驗收門。階段 2、6 必讀。
+- `references/storyboard/` — **導演分鏡（階段 4）**：`cinematic-director.md` 為總規範（v2.0），含三步法、焦距物距光學、漫劇九宮格與連戲狀態機、武戲 90° 與多模型編譯；`combat-and-vfx-library.md`（高階武戲連招、玄幻大招五段鏈與 11 大戰場拓撲）；`acting-and-emotion-library.md`（邁斯納行為表演法、言行反差、10 大景別句型與 4D 配音）；`templates/` 含 Layer 2 JSON Schema。腳本在 `scripts/storyboard/`。
+- `references/consistency.md` — **資產與一致性規範**：ID、角色設定板（洋子鎖臉規範）、場景、道具、音色、多模態素材職責表、漂移偵測與修復、驗收門。階段 2、6 必讀。
 - `references/styles.md` — **漫劇風格鎖定錨**：十餘種主流風格的錨定詞、負面錨、色盤與同角色樣圖。階段 0 選風格時讀。
 - `references/freevideo.md` — **建議搭配 FreeVideo**：連線步驟、規則、與八階段的對應。階段 6 先讀這份。
 - `references/model-profiles.md` — **生成前必問清單**，以及各圖像／影片模型的提示詞風格對照與改寫流程。
 - `references/minimax-h3.md` — **MiniMax H3 專章（入口）**：規格、五種模式、預算表、十條速查、Red Flags。用 H3 前必讀。
 - `references/h3/` — H3 細部參考（與上游 [h3-video-prompting](https://github.com/ayase0307/h3-video-prompting) 的 `references/` 同名同步；詳見 `memory.md`）：
+  - `lora-guide.md` — **MiniMax H3 專用 LoRA 實戰與自動適配指南**：核心 8 大 LoRA 規格矩陣、速度滑塊正負權重、疊加預算鐵則與 FreeVideo API 掛載格式。
   - `prompt-formats.md` — 四種 prompt 格式決策（官方三欄／六段式／中文三段／社群區塊）、對齊句、參考檔上限。
   - `skin-realism-block.md` — **守富定版**三段式骨架與皮膚段原文（整段照抄）。
   - `motion-quality.md`、`action-choreography.md`、`rhythm-and-pacing.md` — 動作品質、動作拆解與打鬥一拍、節奏卡點與時間軸。

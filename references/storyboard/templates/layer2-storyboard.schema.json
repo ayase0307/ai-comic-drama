@@ -154,6 +154,20 @@
             "type": "string",
             "description": "SHA256 hash of the pencil sketch panel file for zero-contamination verification"
           },
+          "h3_loras": {
+            "type": "array",
+            "description": "Optional. Auto-adapted or manually specified MiniMax H3 LoRAs for this shot",
+            "items": {
+              "type": "object",
+              "required": ["name", "strength"],
+              "properties": {
+                "name": { "type": "string" },
+                "strength": { "type": "number", "minimum": -4.0, "maximum": 4.0 },
+                "trigger": { "type": ["string", "null"] },
+                "reason": { "type": "string" }
+              }
+            }
+          },
           "review": {
             "type": "object",
             "properties": {

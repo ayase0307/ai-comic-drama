@@ -90,10 +90,13 @@ MiniMax H3（即 Hailuo 3）是**全模態影視生成模型**，有官方規定
 | 你要做的 | 讀 |
 |---|---|
 | 選格式：官方三欄／六段式／中文三段／社群區塊式；對齊句、參考檔上限 | `h3/prompt-formats.md` |
+| MiniMax H3 專用 LoRA 實戰與自動適配：核心 8 大 LoRA 矩陣、速度滑塊、權重預算與 FreeVideo 掛載 | `h3/lora-guide.md` |
 | 套用**守富定版**皮膚段骨架 | `h3/skin-realism-block.md` |
 | 讓動作有重量、材質有回應、表情有意圖（含慢動作、動畫風格規律） | `h3/motion-quality.md` |
 | 排節奏、卡點、時間軸、速度詞 | `h3/rhythm-and-pacing.md` |
 | 人物動作拆解、打鬥一拍公式、多對一 | `h3/action-choreography.md` |
+| 高階武戲編排、冷兵器連招、玄幻大招五段鏈與 11 大戰場拓撲 | `storyboard/combat-and-vfx-library.md` |
+| 邁斯納壓力行為表演、潛台詞言行反差、10 大景別句型與 4D 配音 | `storyboard/acting-and-emotion-library.md` |
 | 生成結果不對，查症狀與修法；送出前 8 問、迭代策略 | `h3/failure-triage.md` |
 | **寫完 prompt 必跑**：跨 shot 變化四軸、spec 卡、能量曲線、送出前自檢（每個 shot 都對卻整支單調） | `h3/shot-variety-and-staging.md` §10 |
 

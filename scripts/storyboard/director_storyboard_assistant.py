@@ -251,6 +251,183 @@ def check_dialogue_pacing(dialogue: str, duration: float, is_slow_mood: bool = T
     }
 
 
+def auto_adapt_h3_loras(spec_or_shot: dict) -> dict:
+    """根據鏡頭的動作描述、景別、運鏡與戲劇節拍，自動推導最佳 LoRA 掛載組合、權重與觸發詞前綴。
+    相容 Layer 2 shot 結構與自訂分鏡 spec 字典。
+    
+    回傳字典：
+    {
+        "loras": [
+            {"name": str, "strength": float, "trigger": str or None, "reason": str}, ...
+        ],
+        "triggers": [str, ...],
+        "trigger_prefix": str
+    }
+    """
+    if "camera_optics" in spec_or_shot or "action_and_performance" in spec_or_shot:
+        # Layer 2 shot 字典結構
+        optics = spec_or_shot.get("camera_optics", {})
+        perf = spec_or_shot.get("action_and_performance", {})
+        spatial = spec_or_shot.get("spatial_blocking", {})
+        audio = spec_or_shot.get("dialogue_and_audio", {})
+        
+        action_text = " ".join(perf.get("action_stages", []))
+        expression_text = perf.get("observable_expression", "")
+        movement_text = f"{optics.get('movement', '')} {optics.get('pov_routing', '')}"
+        shot_size = optics.get("shot_size", "")
+        focal = optics.get("focal_length", "")
+        beat_type = spec_or_shot.get("dramatic_beat_type", "")
+        anchor_text = " ".join(spatial.get("anchor_objects", []))
+        dialogue_text = audio.get("line_verbatim", "") or ""
+    else:
+        # 自訂 spec 字典結構
+        action_text = spec_or_shot.get("action", "")
+        expression_text = spec_or_shot.get("expression", "")
+        movement_text = f"{spec_or_shot.get('pov', '')} {spec_or_shot.get('dirty_frame_obj', '')}"
+        shot_size = spec_or_shot.get("shot_size", "")
+        focal = spec_or_shot.get("focal", "")
+        beat_type = spec_or_shot.get("dramatic_beat_type", "")
+        anchor_text = spec_or_shot.get("anchor_obj", "")
+        dialogue_text = spec_or_shot.get("dialogue", "") or ""
+
+    full_context = f"{action_text} {expression_text} {movement_text} {anchor_text} {dialogue_text}".lower()
+
+    loras = []
+
+    # 1. 運鏡偵測
+    if "360 orbit" in full_context or "360度環繞" in full_context or "360環繞" in full_context:
+        loras.append({
+            "name": "minimax_h3_flf2v_lora_v1.safetensors",
+            "strength": 0.9,
+            "trigger": "360 orbit, frozen time",
+            "reason": "360度環繞子彈時間"
+        })
+    else:
+        # 判斷是否為動態運鏡 (非純 static/固定)
+        movement_clean = movement_text.strip().lower()
+        static_terms = ["static", "固定", "固定鏡頭", "靜態", "無", "none"]
+        is_dynamic = False
+        if movement_clean and not any(s == movement_clean for s in static_terms):
+            is_dynamic = True
+        dynamic_keywords = [
+            "handheld", "push", "pull", "track", "pan", "tilt", "orbit", "crane", "zoom",
+            "手持", "推鏡", "拉鏡", "跟拍", "搖鏡", "俯仰", "環繞", "升降", "運鏡", "移動",
+            "dirty_frame", "clear_impact_90deg", "defensive_ots", "reflection_delay"
+        ]
+        if any(dk in full_context for dk in dynamic_keywords):
+            is_dynamic = True
+
+        if is_dynamic:
+            loras.append({
+                "name": "camera_motion_h3_lora_v1_3000_pruned.safetensors",
+                "strength": 0.85,  # 若後續多掛動作 LoRA 則降為 0.7
+                "trigger": "camera motion",
+                "reason": "動態運鏡與手持穩定控制"
+            })
+
+    # 2. 兵器打鬥偵測
+    weapon_keywords = [
+        "刀", "劍", "槍", "刃", "棍", "戟", "拔刀", "格擋", "劈", "刺",
+        "sword", "blade", "spear", "dagger", "katana", "weapon", "parry", "slash"
+    ]
+    has_weapon = any(wk in full_context for wk in weapon_keywords)
+    if has_weapon:
+        loras.append({
+            "name": "Bunny_weapon_combatV1.safetensors",
+            "strength": 0.8,  # 若後續多掛則降為 0.7
+            "trigger": "BUNNY",
+            "reason": "冷兵器打鬥姿態與防武器穿模"
+        })
+        loras.append({
+            "name": "Motion_Repair.safetensors",
+            "strength": 0.35,
+            "trigger": None,
+            "reason": "打鬥防卡頓與動作流暢度修復"
+        })
+    else:
+        # 3. 徒手搏擊偵測
+        melee_keywords = [
+            "拳", "腳", "踢", "摔", "肘", "搏擊", "肉搏",
+            "punch", "kick", "martial arts", "takedown", "combat"
+        ]
+        has_melee = any(mk in full_context for mk in melee_keywords) or beat_type == "Combat_Impact"
+        if has_melee:
+            loras.append({
+                "name": "H3_Combat_V2.safetensors",
+                "strength": 0.8,  # 若後續多掛則降為 0.7
+                "trigger": "prfight2",
+                "reason": "徒手格鬥與肉搏受力反饋"
+            })
+            loras.append({
+                "name": "Motion_Repair.safetensors",
+                "strength": 0.35,
+                "trigger": None,
+                "reason": "格鬥防卡頓與動作流暢度修復"
+            })
+
+    # 4. 速度滑塊偵測（H3_SPEED_slider.safetensors）
+    slow_keywords = ["慢動作", "子彈時間", "凝結", "緩慢", "slow motion", "bullet time", "time dilation"]
+    fast_keywords = ["疾奔", "急速", "快打", "高速追逐", "殘影", "極速", "rapid", "high speed", "fast-paced", "sprint", "flurry"]
+
+    if any(sk in full_context for sk in slow_keywords):
+        loras.append({
+            "name": "H3_SPEED_slider.safetensors",
+            "strength": -1.5,
+            "trigger": None,
+            "reason": "負權重速度滑塊：慢動作/子彈時間凝結"
+        })
+    elif any(fk in full_context for fk in fast_keywords):
+        loras.append({
+            "name": "H3_SPEED_slider.safetensors",
+            "strength": 1.5,
+            "trigger": None,
+            "reason": "正權重速度滑塊：極速武打/高速追逐加速"
+        })
+
+    # 5. 人物特寫微表情偵測
+    is_close_up = shot_size in ["CU", "ECU", "MCU", "OTS_CU"] or focal in ["85mm", "100mm"]
+    emotion_keywords = [
+        "眼神", "瞳孔", "咬緊", "眼眶", "微顫", "冷汗", "下頜", "淚", "凝視",
+        "呼吸", "表情", "神色", "神態", "gaze", "expression", "pupil", "tear", "breath"
+    ]
+    has_emotion = any(ek in full_context for ek in emotion_keywords) or bool(dialogue_text.strip()) or beat_type in ["Suspense_Delay", "Dramatic_Core", "Reaction_OTS"]
+    if is_close_up and has_emotion and beat_type != "Combat_Impact" and not has_weapon:
+        loras.append({
+            "name": "h3-realism-people-t2v-i2v-r2v.safetensors",
+            "strength": 0.65,
+            "trigger": "r34l1sm",
+            "reason": "特寫人物皮膚肌理與微表情"
+        })
+
+    # 多 LoRA 權重預算調節（外掛動作/運鏡 LoRA 正權重總和建議 <= 1.8）
+    has_cam = any(l["name"] == "camera_motion_h3_lora_v1_3000_pruned.safetensors" for l in loras)
+    has_combat_action = any(l["name"] in ["Bunny_weapon_combatV1.safetensors", "H3_Combat_V2.safetensors"] for l in loras)
+    if has_cam and has_combat_action:
+        for l in loras:
+            if l["name"] == "camera_motion_h3_lora_v1_3000_pruned.safetensors":
+                l["strength"] = 0.70
+            elif l["name"] in ["Bunny_weapon_combatV1.safetensors", "H3_Combat_V2.safetensors"]:
+                l["strength"] = 0.70
+
+    # 觸發詞嚴格順序排序：1. camera motion -> 2. BUNNY -> 3. r34l1sm / prfight2 / 360 orbit, frozen time
+    priority_map = {
+        "camera motion": 1,
+        "BUNNY": 2,
+        "r34l1sm": 3,
+        "prfight2": 4,
+        "360 orbit, frozen time": 5
+    }
+    extracted_triggers = [l["trigger"] for l in loras if l.get("trigger")]
+    extracted_triggers.sort(key=lambda t: priority_map.get(t, 99))
+    trigger_prefix = ", ".join(extracted_triggers)
+
+    return {
+        "loras": loras,
+        "triggers": extracted_triggers,
+        "trigger_prefix": trigger_prefix
+    }
+
+
 def compile_to_models(spec: dict, warn_video: bool = False) -> dict:
     """將結構化分鏡規格編譯為 Layer 1 導演卡與 Layer 3 各大模型原生 Prompt。
     影片模型的欄位先去掉 HEX（換成「色票指定」）；warn_video 為 True 時把替換次數印到 stderr。"""
@@ -315,14 +492,19 @@ def compile_to_models(spec: dict, warn_video: bool = False) -> dict:
         f"伴隨{vspec['sfx']}，動作結束時{vspec['micro_tail']}，全過程嚴守180度軸線，無分屏無文字。"
     )
 
-    # 3. Layer 3 (B): MiniMax H3 官方三欄結構 (含 <d> 標記與閉唇鎖)
+    # 3. Layer 3 (B): MiniMax H3 官方三欄結構 (含 <d> 標記、閉唇鎖與 LoRA 自動適配)
     if dlg_info["has_dialogue"]:
         h3_speech = f"speaks with {vspec['voice_4d']}: <d>[Chinese] {dlg_info['kept']}</d>"
     else:
         h3_speech = "while their lips remain completely closed"
 
+    lora_adapt = auto_adapt_h3_loras(spec)
+    trigger_prefix_line = f"{lora_adapt['trigger_prefix']},\n" if lora_adapt["trigger_prefix"] else ""
+    freevideo_loras_json = json.dumps({"loras": lora_adapt["loras"]}, ensure_ascii=False, indent=2)
+
     minimax_h3 = (
         f"integrated_multimodal_description:\n"
+        f"{trigger_prefix_line}"
         f"Global palette and lighting locked to: {palette_video}.\n"
         f"[Shot 1] ({vspec['duration']}s, {vspec['aspect']}) {lens['distance_en']}, {lens['spatial_en']}. "
         f"Camera mode: {view['desc_en']}. Anchored by {vspec['anchor_obj']}, {vspec['subject']} performs the sequence: "
@@ -331,7 +513,9 @@ def compile_to_models(spec: dict, warn_video: bool = False) -> dict:
         f"overall_soundscape:\n"
         f"{vspec['sfx']}.\n\n"
         f"non_diegetic_music:\n"
-        f"Low atmospheric cinematic score matching the tension of the scene."
+        f"Low atmospheric cinematic score matching the tension of the scene.\n\n"
+        f"[AUTO-ADAPTED H3 LORAS (FreeVideo JSON)]\n"
+        f"{freevideo_loras_json}"
     )
 
     # 4. Layer 3 (C): Kling / 通用首尾幀接龍模式 (FL2VA)
@@ -395,8 +579,44 @@ def main():
         help="目標編譯模型格式"
     )
     parser.add_argument("--format", default="text", choices=["text", "json", "prompt", "all"], help="輸出格式 (向下相容 v1.0)")
+    parser.add_argument(
+        "--layer2-auto-lora",
+        metavar="LAYER2_JSON",
+        help="一鍵掃描整個 Layer 2 分鏡 JSON 的所有 shots[]，自動計算並回寫 shot['h3_loras']"
+    )
 
     args = parser.parse_args()
+
+    if args.layer2_auto_lora:
+        layer2_path = args.layer2_auto_lora
+        with open(layer2_path, "r", encoding="utf-8") as f:
+            l2_data = json.load(f)
+
+        shots = l2_data.get("shots", [])
+        print("=" * 75)
+        print(f"🎬 正在執行 Layer 2 分鏡 H3 LoRA 自動場景適配路由器: {layer2_path}")
+        print(f"總鏡頭數: {len(shots)}")
+        print("=" * 75)
+
+        adapted_count = 0
+        for idx, shot in enumerate(shots, 1):
+            shot_id = shot.get("shot_id", f"Shot-{idx}")
+            res = auto_adapt_h3_loras(shot)
+            shot["h3_loras"] = res["loras"]
+            adapted_count += 1
+            lora_desc = [f"{l['name']}(權重:{l['strength']})" for l in res["loras"]]
+            print(f"  * [{shot_id}] 掛載 {len(res['loras'])} 個 LoRA: {', '.join(lora_desc) if lora_desc else '無'}")
+            if res["triggers"]:
+                print(f"      ↳ 觸發詞前綴: {res['trigger_prefix']}")
+
+        with open(layer2_path, "w", encoding="utf-8") as f:
+            json.dump(l2_data, f, ensure_ascii=False, indent=2)
+            f.write("\n")
+
+        print("=" * 75)
+        print(f"✅ 成功完成 {adapted_count} 顆鏡頭的 H3 LoRA 自動適配，並已回寫至: {layer2_path}")
+        print("=" * 75)
+        return
 
     if args.list_presets:
         print("=" * 72)
