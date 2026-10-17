@@ -1,2 +1,0 @@
-@agent.md
-@memory.md
