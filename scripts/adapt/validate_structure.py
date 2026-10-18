@@ -100,6 +100,52 @@ def validate_json_against_schema(
     return errors
 
 
+ADAPTATION_CHANGE_TYPES = ("must_keep", "keep_if_possible", "merge", "compress", "remove", "reorder", "addition")  # 與 handoff.schema.json enum 一致
+_CHANGE_KEYWORDS = (
+    ("merge", ("合併", "併為", "併入", "merge")),
+    ("remove", ("刪", "移除", "拿掉", "省略", "remove")),
+    ("reorder", ("調換", "提前", "挪後", "倒敘", "順序", "reorder")),
+    ("addition", ("新增", "加入", "補一", "addition", "add ")),
+    ("compress", ("壓縮", "壓成", "濃縮", "改為", "改成", "改", "compress")),
+)
+_ID_RE = re.compile(r"\b[A-Z]{1,4}-?\d{1,4}[a-z]?\b")
+
+
+def _extract_ids(text: str) -> List[str]:
+    """只抽出 U01 / MK02 / S03 這類 ID，忽略註解裡的說明文字（修正空格切分把中文說明當 ID 的問題）。"""
+    ids = _ID_RE.findall(text)
+    if ids:
+        return list(dict.fromkeys(ids))
+    return [r.strip() for r in re.split(r"[,，、]+", text) if r.strip()]
+
+
+def _parse_change_comment(body: str) -> Dict[str, Any]:
+    """解析 <!-- change: ... -->。
+    支援兩種寫法：
+      1. 結構化：change: MERGE | U01 | 理由
+      2. 自由文字：change: "路遇與帶回合併為一場"（依關鍵字推斷類型，原文放進 description）
+    """
+    parts = [p.strip().strip('"“”「」') for p in body.split("|")]
+    first = parts[0] if parts else ""
+    if first.lower() in ADAPTATION_CHANGE_TYPES:
+        chg_type = first.lower()
+        chg_ref = parts[1] if len(parts) > 1 and parts[1] else None
+        chg_desc = " | ".join(parts[2:]) if len(parts) > 2 else ""
+    else:
+        text = " | ".join(p for p in parts if p)
+        chg_type = "compress"
+        low = text.lower()
+        for t, kws in _CHANGE_KEYWORDS:
+            if any(k in low for k in kws):
+                chg_type = t
+                break
+        ids = _ID_RE.findall(text)
+        chg_ref = ids[0] if ids else None
+        chg_desc = text
+    return {"type": chg_type, "source_ref": chg_ref, "description": chg_desc}
+
+
+
 def parse_and_validate_script(script_text: str) -> Dict[str, Any]:
     """解析人類可讀劇本並執行結構、黑名單與可拍性驗證。"""
     lines = script_text.splitlines()
@@ -130,23 +176,17 @@ def parse_and_validate_script(script_text: str) -> Dict[str, Any]:
                 current_scene.setdefault("comments", []).append(c_text)
                 s_m = re.match(r"^source[：:]\s*(.+)$", c_text, re.IGNORECASE)
                 if s_m:
-                    refs = [r.strip() for r in re.split(r"[,，\s]+", s_m.group(1)) if r.strip()]
+                    refs = _extract_ids(s_m.group(1))
                     current_scene.setdefault("source_refs", []).extend(refs)
                 mk_m = re.match(r"^must_keep[：:]\s*(.+)$", c_text, re.IGNORECASE)
                 if mk_m:
-                    mks = [r.strip() for r in re.split(r"[,，\s]+", mk_m.group(1)) if r.strip()]
+                    mks = _extract_ids(mk_m.group(1))
                     current_scene.setdefault("must_keep_ids", []).extend(mks)
                 chg_m = re.match(r"^change[：:]\s*(.+)$", c_text, re.IGNORECASE)
                 if chg_m:
-                    parts = [p.strip() for p in chg_m.group(1).split("|")]
-                    chg_type = parts[0] if len(parts) > 0 else "must_keep"
-                    chg_ref = parts[1] if len(parts) > 1 else None
-                    chg_desc = parts[2] if len(parts) > 2 else ""
-                    current_scene.setdefault("adaptation_changes", []).append({
-                        "type": chg_type,
-                        "source_ref": chg_ref,
-                        "description": chg_desc,
-                    })
+                    current_scene.setdefault("adaptation_changes", []).append(
+                        _parse_change_comment(chg_m.group(1))
+                    )
             continue
 
         clean_line = re.sub(r"^#+\s*", "", line)

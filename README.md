@@ -86,7 +86,7 @@ python scripts/storyboard/patch_shot.py --file layer2/layer2-EP01-S01-a.json --s
 python scripts/storyboard/qwen_storyboard_grid.py --layer2 layer2/layer2-EP01-S01-a.json --redraw-shot SH03 --assemble-grid
 
 # 6. 編譯為 H3 官方六段式提示詞包與 FreeVideo 批次分段檔（內建 --check 雙重對帳）
-python scripts/storyboard/compile_layer2_to_h3.py --layer2-dir layer2/ --ep 1 --out-md prompts-ep01.md --out-json segments-ep01.json --assets assets.md --bible adapt/bible.json --check
+python scripts/storyboard/compile_layer2_to_h3.py --layer2 layer2/layer2-EP01-*.json --episode EP01 --output-md prompts-ep01.md --output-segments segments-ep01.json --assets assets.md --bible adapt/bible.json --check
 
 # 7. 階段 6 批次提交生成（4.20 GiB 顯存安全檢查、SHA256 參考圖快取、自動輪詢下載）
 python scripts/storyboard/submit_h3_segments.py --segments segments-ep01.json --out-dir videos/ --dry-run

@@ -151,12 +151,13 @@ python scripts/init_project.py my-drama --title "我的漫劇" --episodes 12
   第1集｜噩夢初醒
   
   M-1 後山荒林 日/外
-  <!-- source: "第 1 章 蛇口餘生" -->
-  <!-- must_keep: true -->
-  <!-- change: "精簡原著長對白，強化動作打擊與巨蟒受擊反饋" -->
+  <!-- source: U01, U02 -->
+  <!-- must_keep: MK01 -->
+  <!-- change: compress | U02 | 精簡原著長對白，強化動作打擊與巨蟒受擊反饋 -->
   人物：洛年、沈凡
   △ 狂風席捲，黑影破土而出。
   ```
+- **註解寫法**：`source` / `must_keep` 只抽取 `U01`、`MK01` 這類 ID，其餘說明文字會被忽略；`change` 建議寫成 `類型 | 單元ID | 理由`，類型為 `must_keep`／`keep_if_possible`／`merge`／`compress`／`remove`／`reorder`／`addition`（與 handoff schema 一致）。只寫自由文字時，依關鍵字推斷類型（「合併」→ merge、「刪」→ remove…），但沒有單元 ID 就無法抵銷 `UNTRACKED_UNIT_OMISSION`，被合併或刪掉的單元請務必寫 ID。
 - **多餘場景修剪（`--prune-extra`）**：若 Markdown 中刪除了未鎖定場景，加入 `--prune-extra` 自動自 handoff 移除同步。
 - **審核鎖定防誤改**：
   ```bash
@@ -231,6 +232,8 @@ python scripts/adapt/compare_adaptation.py --source adapt/source.json --script s
 
 ```bash
 # 1. 產生 Layer 2 骨架（預設 10s/3 鏡、動作力學三要素模板、INDEPENDENT_REF2VA 四大連戲錨點）
+#    單集時自動讀 handoff 的 target_duration_seconds 把總長壓到目標（對白鏡保留字數÷4，只縮放動作鏡），
+#    並保證每段秒數 >= 2×鏡數+0.5，避免階段 5 才爆 E4 切點錯誤。--target-total-sec 0 可關閉。
 python scripts/storyboard/handoff_to_skeleton.py handoff-ep01.json --out-dir layer2/ --max-segment-sec 10.0 --max-shots 3
 
 # 2. 靜態校驗與時間線表格匯出（自動攔截罐頭詞、跨段複製貼上與多主體穿模）
@@ -270,7 +273,12 @@ python scripts/storyboard/compile_layer2_to_h3.py \
 ```
 
 ### 5.1 H3 官方六段式架構與防偷懶重構
-編譯器輸出的提示詞嚴格遵照官方六段式語法結構（全中文自然語言，嚴禁任何負面詞）：
+編譯器輸出的提示詞嚴格遵照官方六段式語法結構（英文提示詞，只有 `<d>` 台詞保留原文；嚴禁負面詞）：
+
+> **Layer 2 英文欄位**：`action_stages` / `observable_expression` 寫中文給人審，`action_stages_en` / `observable_expression_en` 寫英文給 H3（lint E15 會擋中文動作）。骨架會預留 `TODO` 英文欄位；`--check` 遇到 TODO 直接算錯誤。
+> **段落選填欄位**：`asset_refs.primary_character`（指定綁圖主角）、`metadata.mood_en` / `music_en` / `soundscape_en`（英文摘要、配樂、音效）。
+> **畫風**：取自 `style_lock.anchor`，其次 `assets.md` 的 `style_anchor`，不再寫死 live-action。寫實皮膚 LoRA 只在寫實風格才掛；LoRA 只在含 `Combat_Impact` 鏡頭的段落推導。
+> **旁白**：`speaker` 為旁白／V.O. 時寫成 off-screen narrator，永不成為參考圖主體。
 1. **`subject_definitions`**：定義參考素材與角色對應標籤（`<Picture 1>` 場景圖、`<Picture 2>` 核心角色圖）。嚴格落實**防混臉單圖排序（一段一張角色圖）**，同場其他次要角色轉為純外觀文字描述，防止多角色特徵平均化。
 2. **`summary`**：整段秒數、情境氛圍與核心戲劇主旨概述。
 3. **`retention_analysis`**：精確聲明各參考圖的繼承層級（如「保留 Picture 2 面部五官與服裝，服裝顏色嚴格依照設定圖」）。
@@ -279,7 +287,12 @@ python scripts/storyboard/compile_layer2_to_h3.py \
 6. **`non_diegetic_music`**：非附隨性配樂、BGM 風格與情緒走向。
 
 ### 5.2 服裝狀態機（`wardrobe_states`）解析
-編譯器支援解析 `character-bible.md` 或 `bible.json` 中的服裝狀態機（如 `char-ShenLuonian-casual.png` 便服 vs `char-ShenLuonian.png` 制服），依分鏡與場景時空自動綁定對應服裝圖片。
+編譯器依 Layer 2 `asset_refs.characters[].costume_id` 綁定服裝圖，來源為 `bible.json` 的 `wardrobe_states`，或 `assets.md` 角色卡的：
+```markdown
+- **服裝**：`W-chenshi-01` `pale lotus-pink jacket`；`W-chenshi-02` `same outfit smeared with mud`
+- **服裝設定圖**：`W-chenshi-02` `images/char-chenshi-street.png`
+```
+參考圖路徑相對專案根目錄（`--project-root`），`--check` 會檢查檔案是否存在。設定板用語（純灰底、three-view）會自動從影片提示詞剔除。
 
 ### 5.3 物理門禁與雙重程式對帳
 - **階段 4 實體門禁檢查**：編譯前檢查 `images/grid-*.png` 或 `panels/panel-*.png` 是否存在，若無九宮格構圖圖檔，直接退出並報錯！

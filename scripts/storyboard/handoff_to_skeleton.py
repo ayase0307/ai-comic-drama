@@ -284,6 +284,11 @@ def make_shot(item: dict, shot_id: str, start: float, duration: float,
         ]
         character_ids = [char_map[c] for c in scene.get("characters", [])]
 
+    stages_en = [
+        f"{TODO}: force origin in English",
+        f"{TODO}: transfer path in English",
+        f"{TODO}: reaction and environment feedback in English",
+    ]
     tail_note = "末鏡收尾靜止留白" if is_last_shot else "動作與視線延伸"
     return {
         "shot_id": shot_id,
@@ -307,6 +312,8 @@ def make_shot(item: dict, shot_id: str, start: float, duration: float,
         "action_and_performance": {
             "action_stages": stages,
             "observable_expression": f"{TODO}：五官神態微表演（{tail_note}）",
+            "action_stages_en": stages_en,
+            "observable_expression_en": f"{TODO}: observable expression in English",
         },
         "dialogue_and_audio": audio,
     }
@@ -427,6 +434,83 @@ def convert_handoff(handoff: dict, scene_filter: str | None,
     return results
 
 
+MIN_ACTION_SHOT_SEC = 1.5
+MIN_CUT_GAP_SEC = 2.0  # 與 audit_refs_and_segments E4 一致：首切、間隔、末段都要 >= 2 秒
+
+
+def _round_half(x: float) -> float:
+    return round(x * 2) / 2
+
+
+def min_segment_sec(n_shots: int) -> float:
+    """n 鏡分段在 FreeVideo 取整（17n+5 floor）後仍能滿足 E4 切點規則的最短名義秒數。"""
+    if n_shots <= 1:
+        return 2.0
+    return MIN_CUT_GAP_SEC * n_shots + 0.5
+
+
+def fit_total_duration(results: list[tuple[str, dict]], target_total: float) -> list[str]:
+    """把骨架總長壓/拉到 target_total：對白鏡維持字數 ÷ 4 的下限，只縮放動作鏡；
+    以 0.5 秒為單位取整，並確保每段鏡數符合 E4 切點最短秒數。回傳警告訊息。"""
+    notes: list[str] = []
+    shots = [(seg, sh) for _, seg in results for sh in seg["shots"]]
+    if not shots:
+        return notes
+
+    def floor_of(sh: dict) -> float:
+        dlg = sh.get("dialogue_and_audio", {})
+        if dlg.get("has_dialogue") and dlg.get("line_verbatim"):
+            return max(MIN_ACTION_SHOT_SEC, _round_half(count_speech_chars(dlg["line_verbatim"]) / CHARS_PER_SEC + 0.25))
+        return MIN_ACTION_SHOT_SEC
+
+    fixed = sum(floor_of(sh) for _, sh in shots)
+    current = sum(float(sh["duration"]) for _, sh in shots)
+    if target_total < fixed:
+        notes.append(f"目標總長 {target_total}s 低於對白與最短動作鏡下限 {fixed}s，請刪減台詞或鏡頭。")
+    flex_cur = sum(float(sh["duration"]) - floor_of(sh) for _, sh in shots)
+    flex_tgt = max(0.0, target_total - fixed)
+    ratio = (flex_tgt / flex_cur) if flex_cur > 0 else 0.0
+    for _, sh in shots:
+        f = floor_of(sh)
+        sh["duration"] = max(f, _round_half(f + (float(sh["duration"]) - f) * ratio))
+
+    # 段落 E4 最短秒數：不足就從最長鏡借秒
+    for seg_id, seg in results:
+        need = min_segment_sec(len(seg["shots"]))
+        tot = sum(sh["duration"] for sh in seg["shots"])
+        if tot < need:
+            seg["shots"][-1]["duration"] += _round_half(need - tot + 0.25)
+            notes.append(f"{seg_id}: {len(seg['shots'])} 鏡至少需 {need}s 才過 E4 切點規則，已延長末鏡。")
+
+    # 0.5 秒取整造成的殘差，用最長動作鏡吸收
+    diff = _round_half(target_total - sum(sh["duration"] for _, sh in shots))
+    if diff:
+        cand = sorted(((seg, sh) for seg, sh in shots if not sh.get("dialogue_and_audio", {}).get("has_dialogue")),
+                      key=lambda x: -x[1]["duration"]) or list(shots)
+        step = 0.5 if diff > 0 else -0.5
+        i = 0
+        while abs(diff) >= 0.5 and i < len(cand) * 4:
+            seg, sh = cand[i % len(cand)]
+            seg_tot = sum(x["duration"] for x in seg["shots"])
+            if step > 0 or (sh["duration"] - 0.5 >= floor_of(sh)
+                            and seg_tot - 0.5 >= min_segment_sec(len(seg["shots"]))):
+                sh["duration"] += step
+                diff -= step
+            i += 1
+
+    for _, seg in results:
+        t = 0.0
+        for sh in seg["shots"]:
+            sh["start_time"] = round(t, 2)
+            t += sh["duration"]
+            sh["end_time"] = round(t, 2)
+        seg["metadata"]["target_duration_sec"] = round(t, 2)
+    total = sum(seg["metadata"]["target_duration_sec"] for _, seg in results)
+    notes.append(f"骨架總長由 {current:.1f}s 調整為 {total:.1f}s（目標 {target_total}s）。")
+    return notes
+
+
+
 def write_skeletons(results: list[tuple[str, dict]], out_dir: Path, force: bool) -> list[dict]:
     """先算完所有路徑、內容與結構檢查，確認沒有重複檔名後才開始寫檔，避免寫到一半留下殘缺骨架。"""
     planned = []
@@ -499,6 +583,9 @@ def main() -> int:
     ap.add_argument("--max-shots", type=int, default=DEFAULT_MAX_SHOTS,
                     help="單段最大鏡頭數（預設 3 鏡，每段建議 2–3 節拍）")
     ap.add_argument("--force", action="store_true", help="覆寫已存在的骨架檔")
+    ap.add_argument("--target-total-sec", type=float, default=None,
+                    help="整集目標總秒數；預設讀 handoff episodes[].target_duration_seconds（單集且未用 --scene 時），"
+                         "填 0 則不調整。對白鏡保留字數÷4 下限，只縮放動作鏡")
     args = ap.parse_args()
 
     try:
@@ -522,6 +609,14 @@ def main() -> int:
     except ValueError as exc:
         print(f"[錯誤] {exc}", file=sys.stderr)
         return 2
+
+    target_total = args.target_total_sec
+    episodes = handoff.get("episodes", [])
+    if target_total is None and not args.scene and len(episodes) == 1:
+        target_total = episodes[0].get("target_duration_seconds")
+    if target_total:
+        for note in fit_total_duration(results, float(target_total)):
+            warn(note)
 
     try:
         rows = write_skeletons(results, args.out_dir, args.force)

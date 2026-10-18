@@ -13,21 +13,48 @@
     "segment_end_state"
   ],
   "properties": {
-    "project_id": { "type": "string" },
-    "scene_id": { "type": "string" },
-    "segment_id": { "type": "string" },
-    "source_scene_id": { "type": "string", "description": "Optional. Scene ID from the upstream handoff JSON (e.g. EP01-S01)" },
-    "grid_preview_file": { "type": "string" },
+    "project_id": {
+      "type": "string"
+    },
+    "scene_id": {
+      "type": "string"
+    },
+    "segment_id": {
+      "type": "string"
+    },
+    "source_scene_id": {
+      "type": "string",
+      "description": "Optional. Scene ID from the upstream handoff JSON (e.g. EP01-S01)"
+    },
+    "grid_preview_file": {
+      "type": "string"
+    },
     "storyboard_panels": {
       "type": "array",
       "description": "Optional. 1:1 mapping manifest between 3x3 grid panels and shot IDs",
       "items": {
         "type": "object",
         "properties": {
-          "index": { "type": "integer", "minimum": 1, "maximum": 9 },
-          "shot_id": { "type": "string" },
-          "panel_file": { "type": ["string", "null"] },
-          "sha256": { "type": ["string", "null"] }
+          "index": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9
+          },
+          "shot_id": {
+            "type": "string"
+          },
+          "panel_file": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sha256": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
         }
       }
     },
@@ -36,7 +63,12 @@
       "properties": {
         "review_status": {
           "type": "string",
-          "enum": ["draft", "pending_review", "approved", "rejected"]
+          "enum": [
+            "draft",
+            "pending_review",
+            "approved",
+            "rejected"
+          ]
         },
         "revision": {
           "type": "integer",
@@ -46,7 +78,10 @@
           "type": "boolean"
         },
         "reviewer_note": {
-          "type": ["string", "null"]
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "updated_at": {
           "type": "string"
@@ -60,19 +95,35 @@
       "type": "object",
       "description": "Optional. Locked style description reused by every shot",
       "properties": {
-        "anchor": { "type": "string" },
-        "negative": { "type": "string" },
-        "lighting_lock_line": { "type": "string" },
+        "anchor": {
+          "type": "string"
+        },
+        "negative": {
+          "type": "string"
+        },
+        "lighting_lock_line": {
+          "type": "string"
+        },
         "continuity_anchors": {
           "type": "object",
           "properties": {
-            "lighting": { "type": "string" },
-            "axis": { "type": "string" },
-            "blocking": { "type": "string" },
-            "texture": { "type": "string" }
+            "lighting": {
+              "type": "string"
+            },
+            "axis": {
+              "type": "string"
+            },
+            "blocking": {
+              "type": "string"
+            },
+            "texture": {
+              "type": "string"
+            }
           }
         },
-        "tail_freeze_hold": { "type": "boolean" }
+        "tail_freeze_hold": {
+          "type": "boolean"
+        }
       }
     },
     "asset_refs": {
@@ -84,48 +135,139 @@
           "items": {
             "type": "object",
             "properties": {
-              "id": { "type": "string", "pattern": "^C-[a-z0-9-]+$" },
-              "costume_id": { "type": "string" },
-              "version": { "type": "string" }
+              "id": {
+                "type": "string",
+                "pattern": "^(C|CREATURE)-[A-Za-z0-9-]+$"
+              },
+              "costume_id": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
             }
           }
         },
-        "scene_id": { "type": "string" },
-        "props": { "type": "array", "items": { "type": "string" } },
+        "scene_id": {
+          "type": "string"
+        },
+        "props": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "voices": {
           "type": "array",
           "items": {
             "type": "object",
             "properties": {
-              "character_id": { "type": "string" },
-              "voice_id": { "type": "string" }
+              "character_id": {
+                "type": "string"
+              },
+              "voice_id": {
+                "type": "string"
+              }
             }
           }
+        },
+        "primary_character": {
+          "type": "string",
+          "description": "Optional. The one character bound as <Subject 1> reference image for this segment (default: heaviest close-up weight; narrator never)"
         }
       }
     },
     "metadata": {
       "type": "object",
-      "required": ["aspect_ratio", "target_duration_sec", "pacing_profile", "lighting_lock_line"],
+      "required": [
+        "aspect_ratio",
+        "target_duration_sec",
+        "pacing_profile",
+        "lighting_lock_line"
+      ],
       "properties": {
-        "aspect_ratio": { "type": "string", "enum": ["16:9", "9:16", "2.39:1", "1:1"] },
-        "target_duration_sec": { "type": "number", "minimum": 1.0, "maximum": 60.0 },
-        "pacing_profile": { "type": "string", "enum": ["Slow_Cinematic", "Standard_Narrative", "Fast_ShortDrama"] },
-        "palette_preset": { "type": "string" },
-        "lighting_lock_line": { "type": "string" }
+        "aspect_ratio": {
+          "type": "string",
+          "enum": [
+            "16:9",
+            "9:16",
+            "2.39:1",
+            "1:1"
+          ]
+        },
+        "target_duration_sec": {
+          "type": "number",
+          "minimum": 1.0,
+          "maximum": 60.0
+        },
+        "pacing_profile": {
+          "type": "string",
+          "enum": [
+            "Slow_Cinematic",
+            "Standard_Narrative",
+            "Fast_ShortDrama"
+          ]
+        },
+        "palette_preset": {
+          "type": "string"
+        },
+        "lighting_lock_line": {
+          "type": "string"
+        },
+        "mood_en": {
+          "type": "string",
+          "description": "Optional. One English clause for the H3 summary"
+        },
+        "music_en": {
+          "type": "string",
+          "description": "Optional. English non_diegetic_music line"
+        },
+        "soundscape_en": {
+          "type": "string",
+          "description": "Optional. English overall_soundscape line"
+        },
+        "primary_character": {
+          "type": "string"
+        }
       }
     },
     "continuity_handshake": {
       "type": "object",
-      "required": ["mode"],
+      "required": [
+        "mode"
+      ],
       "properties": {
-        "mode": { "type": "string", "enum": ["SEAMLESS_CONTINUATION", "HARD_CUT_ESTABLISH", "INDEPENDENT_REF2VA"] },
-        "inherited_from_segment": { "type": ["string", "null"] },
-        "overflow_dialogue_in": { "type": ["string", "null"] },
-        "overflow_dialogue_out": { "type": ["string", "null"] },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "SEAMLESS_CONTINUATION",
+            "HARD_CUT_ESTABLISH",
+            "INDEPENDENT_REF2VA"
+          ]
+        },
+        "inherited_from_segment": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "overflow_dialogue_in": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "overflow_dialogue_out": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "persistent_world_state": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "description": "ViMax-style dependency graph tracking irreversible prop/character states (e.g., 'white envelope is creased', 'cup is shattered')"
         }
       }
@@ -146,16 +288,37 @@
           "dialogue_and_audio"
         ],
         "properties": {
-          "shot_id": { "type": "string" },
-          "character_ids": { "type": "array", "items": { "type": "string" } },
+          "shot_id": {
+            "type": "string"
+          },
+          "character_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "reference_refs": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "Reference image file paths fed to this shot"
           },
-          "status": { "type": "string", "enum": ["pending", "image_done", "video_done", "skipped"] },
-          "image_file": { "type": "string" },
-          "video_file": { "type": "string" },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "image_done",
+              "video_done",
+              "skipped"
+            ]
+          },
+          "image_file": {
+            "type": "string"
+          },
+          "video_file": {
+            "type": "string"
+          },
           "sketch_file": {
             "type": "string",
             "description": "Path to 1:1 pencil sketch panel image for this shot"
@@ -169,12 +332,28 @@
             "description": "Optional. Auto-adapted or manually specified MiniMax H3 LoRAs for this shot",
             "items": {
               "type": "object",
-              "required": ["name", "strength"],
+              "required": [
+                "name",
+                "strength"
+              ],
               "properties": {
-                "name": { "type": "string" },
-                "strength": { "type": "number", "minimum": -4.0, "maximum": 4.0 },
-                "trigger": { "type": ["string", "null"] },
-                "reason": { "type": "string" }
+                "name": {
+                  "type": "string"
+                },
+                "strength": {
+                  "type": "number",
+                  "minimum": -4.0,
+                  "maximum": 4.0
+                },
+                "trigger": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                }
               }
             }
           },
@@ -183,7 +362,12 @@
             "properties": {
               "review_status": {
                 "type": "string",
-                "enum": ["draft", "pending_review", "approved", "rejected"]
+                "enum": [
+                  "draft",
+                  "pending_review",
+                  "approved",
+                  "rejected"
+                ]
               },
               "revision": {
                 "type": "integer",
@@ -193,7 +377,10 @@
                 "type": "boolean"
               },
               "reviewer_note": {
-                "type": ["string", "null"]
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "updated_at": {
                 "type": "string"
@@ -203,64 +390,197 @@
               }
             }
           },
-          "start_time": { "type": "number", "minimum": 0.0 },
-          "end_time": { "type": "number", "minimum": 0.5 },
-          "duration": { "type": "number", "minimum": 0.5 },
+          "start_time": {
+            "type": "number",
+            "minimum": 0.0
+          },
+          "end_time": {
+            "type": "number",
+            "minimum": 0.5
+          },
+          "duration": {
+            "type": "number",
+            "minimum": 0.5
+          },
           "dramatic_beat_type": {
             "type": "string",
-            "enum": ["Expository_Fast", "Suspense_Delay", "Dramatic_Core", "Combat_Impact", "Reaction_OTS"]
+            "enum": [
+              "Expository_Fast",
+              "Suspense_Delay",
+              "Dramatic_Core",
+              "Combat_Impact",
+              "Reaction_OTS"
+            ]
           },
           "camera_optics": {
             "type": "object",
-            "required": ["shot_size", "focal_length", "physical_distance", "pov_routing", "movement"],
+            "required": [
+              "shot_size",
+              "focal_length",
+              "physical_distance",
+              "pov_routing",
+              "movement"
+            ],
             "properties": {
-              "shot_size": { "type": "string", "enum": ["ELS", "LS", "MLS", "MS", "MCU", "CU", "ECU", "OTS_MS", "OTS_CU"] },
-              "focal_length": { "type": "string", "enum": ["14mm", "24mm", "35mm", "50mm", "85mm", "100mm", "135mm"] },
-              "physical_distance": { "type": "string", "description": "Physical camera-to-subject distance (e.g. '<0.5m extreme close' or '>6m telephoto compression')" },
+              "shot_size": {
+                "type": "string",
+                "enum": [
+                  "ELS",
+                  "LS",
+                  "MLS",
+                  "MS",
+                  "MCU",
+                  "CU",
+                  "ECU",
+                  "OTS_MS",
+                  "OTS_CU"
+                ]
+              },
+              "focal_length": {
+                "type": "string",
+                "enum": [
+                  "14mm",
+                  "24mm",
+                  "35mm",
+                  "50mm",
+                  "85mm",
+                  "100mm",
+                  "135mm"
+                ]
+              },
+              "physical_distance": {
+                "type": "string",
+                "description": "Physical camera-to-subject distance (e.g. '<0.5m extreme close' or '>6m telephoto compression')"
+              },
               "pov_routing": {
                 "type": "string",
-                "enum": ["dirty_frame_20_35", "clear_impact_90deg", "defensive_reaction_ots", "reflection_delay", "objective"]
+                "enum": [
+                  "dirty_frame_20_35",
+                  "clear_impact_90deg",
+                  "defensive_reaction_ots",
+                  "reflection_delay",
+                  "objective"
+                ]
               },
-              "movement": { "type": "string" },
-              "axis_side": { "type": "string" }
+              "movement": {
+                "type": "string"
+              },
+              "axis_side": {
+                "type": "string"
+              }
             }
           },
           "spatial_blocking": {
             "type": "object",
-            "required": ["anchor_objects", "blocking_desc"],
+            "required": [
+              "anchor_objects",
+              "blocking_desc"
+            ],
             "properties": {
-              "anchor_objects": { "type": "array", "items": { "type": "string" } },
-              "blocking_desc": { "type": "string" },
-              "safe_zone_9x16_passed": { "type": "boolean" }
+              "anchor_objects": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "blocking_desc": {
+                "type": "string"
+              },
+              "safe_zone_9x16_passed": {
+                "type": "boolean"
+              }
             }
           },
           "action_and_performance": {
             "type": "object",
-            "required": ["action_stages", "observable_expression"],
+            "required": [
+              "action_stages",
+              "observable_expression"
+            ],
             "properties": {
               "action_stages": {
                 "type": "array",
                 "maxItems": 5,
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Max 5 stages per shot to prevent AI morphing"
               },
-              "observable_expression": { "type": "string" },
-              "background_idle_life": { "type": ["string", "null"] },
-              "micro_physics_tail": { "type": "string" }
+              "observable_expression": {
+                "type": "string"
+              },
+              "background_idle_life": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "micro_physics_tail": {
+                "type": "string"
+              },
+              "action_stages_en": {
+                "type": "array",
+                "maxItems": 5,
+                "items": {
+                  "type": "string"
+                },
+                "description": "English force-origin / transfer / reaction stages used by compile_layer2_to_h3 (H3 English prompt mode, lint E15)"
+              },
+              "observable_expression_en": {
+                "type": "string",
+                "description": "English observable expression for the H3 prompt"
+              }
             }
           },
           "dialogue_and_audio": {
             "type": "object",
-            "required": ["has_dialogue", "lips_closed_lock"],
+            "required": [
+              "has_dialogue",
+              "lips_closed_lock"
+            ],
             "properties": {
-              "has_dialogue": { "type": "boolean" },
-              "speaker": { "type": ["string", "null"] },
-              "line_verbatim": { "type": ["string", "null"] },
-              "voice_4d_spec": { "type": ["string", "null"] },
-              "delivery_timing_anchor": { "type": ["string", "null"] },
-              "lips_closed_lock": { "type": "boolean" },
-              "audio_bridge": { "type": "string", "enum": ["NONE", "J_CUT", "L_CUT", "HARD_CUT"] },
-              "foley_and_ambience": { "type": "string" }
+              "has_dialogue": {
+                "type": "boolean"
+              },
+              "speaker": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "line_verbatim": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "voice_4d_spec": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "delivery_timing_anchor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "lips_closed_lock": {
+                "type": "boolean"
+              },
+              "audio_bridge": {
+                "type": "string",
+                "enum": [
+                  "NONE",
+                  "J_CUT",
+                  "L_CUT",
+                  "HARD_CUT"
+                ]
+              },
+              "foley_and_ambience": {
+                "type": "string"
+              }
             }
           }
         }
@@ -268,11 +588,18 @@
     },
     "segment_end_state": {
       "type": "object",
-      "required": ["planned_final_state"],
+      "required": [
+        "planned_final_state"
+      ],
       "properties": {
-        "planned_final_state": { "type": "object" },
+        "planned_final_state": {
+          "type": "object"
+        },
         "observed_final_state": {
-          "type": ["object", "null"],
+          "type": [
+            "object",
+            "null"
+          ],
           "description": "Overrides planned_final_state when actual generated video frame is inspected"
         }
       }

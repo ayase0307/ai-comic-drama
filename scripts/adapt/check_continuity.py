@@ -6,6 +6,7 @@ check_continuity.py — 跨集人物別名消歧、道具狀態流轉、時間�
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
@@ -57,7 +58,9 @@ def audit_continuity(
                         f"[ALIAS_USED_AS_SPEAKER] 第 {dlg['line_no']} 行 ({sc['scene_num']}): "
                         f"對白發言人使用了別名 '{sp}'，應使用標準名 '{alias_to_canonical[sp]}'"
                     )
-                elif sp not in canonical_to_id and len(canonical_to_id) > 0:
+                elif (sp not in canonical_to_id and len(canonical_to_id) > 0
+                      and not re.match(r"^(旁白|畫外音|字幕|narrator|narration|v\.?o\.?)", sp.strip(), re.IGNORECASE)):
+                    # 旁白／畫外音不是角色，不需要在 Story Bible 註冊
                     errors.append(
                         f"[UNREGISTERED_SPEAKER] 第 {dlg['line_no']} 行 ({sc['scene_num']}): "
                         f"發言人 '{sp}' 未在 Story Bible 中註冊"

@@ -23,6 +23,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from handoff_to_skeleton import MAX_SHOT_SEC, find_todo, segment_sort_key  # noqa: E402
 from speech_utils import count_speech_chars, normalize_speech  # noqa: E402
+from audit_refs_and_segments import effective_duration  # noqa: E402
+
+BEAT_TYPES = ("Expository_Fast", "Suspense_Delay", "Dramatic_Core", "Combat_Impact", "Reaction_OTS")
+PACING_PROFILES = ("Slow_Cinematic", "Standard_Narrative", "Fast_ShortDrama")
+_CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 
 if sys.platform.startswith("win"):
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
@@ -290,6 +295,21 @@ def validate_storyboard_data(data: dict, original_script_dialogues: list = None)
     else:
         checks_passed.append(f"[PASS] 時長守恆核對通過 ({total_shot_dur}s == {target_dur}s，共 {len(shots)} 鏡)")
 
+    # Check 1b: H3 取整後的切點可行性（與 audit_refs_and_segments E4 同規則，提前到階段 4 攔截）
+    if len(shots) > 1 and target_dur > 0:
+        eff_d = effective_duration(target_dur)
+        need = 2.0 * len(shots)
+        if eff_d - 0.05 < need:
+            errors.append(
+                f"[E4 切點不可行] {len(shots)} 鏡分段取整後只有 {eff_d:.3f}s，首切/間隔/收尾各需 >= 2s（共 {need:.1f}s）。"
+                f"請把本段延長到 >= {2.0 * len(shots) + 0.5:.1f}s 或減少鏡頭數。"
+            )
+
+    # Check 1c: enum 合法性
+    pacing = meta.get("pacing_profile")
+    if pacing and pacing not in PACING_PROFILES:
+        errors.append(f"[enum 錯誤] metadata.pacing_profile '{pacing}' 不在 {PACING_PROFILES}")
+
     # 收集所有分鏡台詞與文本
     close_up_count = 0
 
@@ -299,6 +319,11 @@ def validate_storyboard_data(data: dict, original_script_dialogues: list = None)
         if dur > MAX_SHOT_SEC:
             errors.append(f"[{sid} 鏡頭過長] 鏡頭時長 {dur}s 超過 {MAX_SHOT_SEC:.0f} 秒（H3 單鏡上限），請拆成兩鏡。")
         beat_type = s.get("dramatic_beat_type", "")
+        if beat_type and beat_type not in BEAT_TYPES:
+            errors.append(f"[{sid} enum 錯誤] dramatic_beat_type '{beat_type}' 不在 {BEAT_TYPES}")
+        _act = s.get("action_and_performance", {}) or {}
+        if not _act.get("action_stages_en") and any(_CJK_RE.search(x or "") for x in _act.get("action_stages", []) if isinstance(x, str)):
+            warnings.append(f"[{sid} 英文動作缺漏] action_stages 為中文且未提供 action_stages_en；階段 5 編譯 H3 英文提示詞會觸發 E15，請補英譯。")
         cam = s.get("camera_optics", {})
         shot_size = cam.get("shot_size", "MS")
         pov_routing = cam.get("pov_routing", "objective")
