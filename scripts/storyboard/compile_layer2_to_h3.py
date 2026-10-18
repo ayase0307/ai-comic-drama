@@ -156,12 +156,14 @@ class AssetRegistry:
             for char in data.get("characters", []):
                 cid = char.get("id") or char.get("character_id") or char.get("name", "")
                 if cid:
+                    wardrobes = char.get("wardrobe_states") or char.get("wardrobes") or {}
                     self.characters[cid] = {
                         "id": cid,
                         "name": char.get("name", cid),
                         "desc_en": char.get("visual_prompt_en") or char.get("appearance_en") or char.get("description", ""),
                         "desc_zh": char.get("appearance_zh") or char.get("description", ""),
                         "ref_img": char.get("reference_image") or char.get("image_path") or f"assets/characters/{cid}.png",
+                        "wardrobe_states": wardrobes if isinstance(wardrobes, dict) else {},
                         "is_creature": char.get("is_creature", False) or "妖" in char.get("name", "") or "獸" in char.get("name", "")
                     }
             # 解析場景
@@ -195,6 +197,7 @@ class AssetRegistry:
                                 "desc_en": desc,
                                 "desc_zh": desc,
                                 "ref_img": f"assets/characters/{aid}.png",
+                                "wardrobe_states": {},
                                 "is_creature": "妖" in name or "獸" in name or "蟒" in name
                             }
                         elif aid.startswith("S-") or "scene" in aid.lower() or "loc" in aid.lower():
@@ -209,23 +212,46 @@ class AssetRegistry:
         except Exception as exc:
             print(f"[警告] 讀取 assets.md 失敗: {exc}", file=sys.stderr)
 
-    def get_character(self, cid_or_name: str) -> Dict[str, Any]:
-        """精確或模糊查找角色資產。"""
+    def get_character(self, cid_or_name: str, wardrobe_state: Optional[str] = None) -> Dict[str, Any]:
+        """精確或模糊查找角色資產，支援服裝狀態機 (wardrobe_states)。"""
+        found = None
         if cid_or_name in self.characters:
-            return self.characters[cid_or_name]
-        for k, v in self.characters.items():
-            if cid_or_name.lower() in k.lower() or cid_or_name in v.get("name", ""):
-                return v
-        # 預設自動推導
-        clean_name = re.sub(r"^C-", "", cid_or_name).replace("-", " ").title()
-        return {
-            "id": cid_or_name,
-            "name": clean_name,
-            "desc_en": f"a young character named {clean_name} with focused demeanor and modern dark attire",
-            "desc_zh": f"名為 {clean_name} 的角色，穿著深色便裝，神色專注",
-            "ref_img": f"assets/characters/{cid_or_name}.png",
-            "is_creature": False
-        }
+            found = dict(self.characters[cid_or_name])
+        else:
+            for k, v in self.characters.items():
+                if cid_or_name.lower() in k.lower() or cid_or_name in v.get("name", ""):
+                    found = dict(v)
+                    break
+        if not found:
+            clean_name = re.sub(r"^C-", "", cid_or_name).replace("-", " ").title()
+            found = {
+                "id": cid_or_name,
+                "name": clean_name,
+                "desc_en": f"a young character named {clean_name} with focused demeanor and modern dark attire",
+                "desc_zh": f"名為 {clean_name} 的角色，穿著深色便裝，神色專注",
+                "ref_img": f"assets/characters/{cid_or_name}.png",
+                "wardrobe_states": {},
+                "is_creature": False
+            }
+
+        # 處理服裝狀態解析 (wardrobe_states)
+        if wardrobe_state:
+            w_states = found.get("wardrobe_states", {})
+            if wardrobe_state in w_states:
+                w_val = w_states[wardrobe_state]
+                if isinstance(w_val, dict):
+                    found["ref_img"] = w_val.get("ref_img") or found["ref_img"]
+                    if w_val.get("desc_en"):
+                        found["desc_en"] = f"{found['desc_en']}, wearing {w_val['desc_en']}"
+                elif isinstance(w_val, str):
+                    found["ref_img"] = w_val
+            else:
+                # 嘗試檢驗本地是否存在特定後綴圖片 (如 char-ShenLuonian-casual.png)
+                candidate = pathlib.Path(found["ref_img"]).parent / f"{found['id']}-{wardrobe_state}.png"
+                if candidate.exists():
+                    found["ref_img"] = str(candidate).replace("\\", "/")
+
+        return found
 
     def get_location(self, lid_or_name: str) -> Dict[str, Any]:
         """精確或模糊查找場景資產。"""
@@ -354,10 +380,22 @@ def compile_segment_h3(
         f"<Picture 1> (first frame): fully_preserved - the architectural layout, spatial perspective, and lighting atmosphere are retained."
     ]
 
+    # 取得服裝狀態設定（可來自 segment metadata、場景設定或全域 style_lock）
+    wardrobe_state = (
+        metadata.get("wardrobe_state")
+        or layer2_data.get("wardrobe_state")
+        or layer2_data.get("style_lock", {}).get("wardrobe_state")
+    )
+
     has_creature = False
+    char_to_subject_tag: Dict[str, str] = {}
     for k, cid in enumerate(selected_char_ids, start=1):
-        c_info = registry.get_character(cid)
+        c_info = registry.get_character(cid, wardrobe_state=wardrobe_state)
         pic_no = k + 1
+        sub_tag = f"<Subject {k}>"
+        char_to_subject_tag[cid] = sub_tag
+        char_to_subject_tag[c_info["name"]] = sub_tag
+
         reference_images.append({
             "id": c_info["id"],
             "type": "character",
@@ -378,7 +416,7 @@ def compile_segment_h3(
 
     # 次要角色以純文字特徵補充
     for cid in secondary_char_ids:
-        c_info = registry.get_character(cid)
+        c_info = registry.get_character(cid, wardrobe_state=wardrobe_state)
         retention_lines.append(
             f"Secondary character {c_info['name']} appears with {c_info['desc_en']} as pure text description without reference image to avoid feature bleed."
         )
@@ -419,25 +457,22 @@ def compile_segment_h3(
     cut_timestamps: List[float] = []
 
     if n_shots > 1:
-        # 初始依據各鏡頭 duration 計算累加時間
         cur_t = 0.0
         raw_cuts = []
         for s in shots[:-1]:
             cur_t += float(s.get("duration", 2.5))
             raw_cuts.append(cur_t)
 
-        # 動態調整切點確保：首切點 >= 2.0s，相鄰 >= 2.0s，末切點 <= eff_d - 2.0s
         min_first = 2.0
         max_last = max(min_first + 2.0 * (n_shots - 2), eff_d - 2.05)
 
-        # 均勻重新分佈以避開邊界死鎖
         if n_shots == 2:
             cut_timestamps = [round(min(max(raw_cuts[0], 2.0), eff_d - 2.05), 3)]
         else:
             step = (max_last - min_first) / max(1, n_shots - 2)
             cut_timestamps = [round(min_first + i * step, 3) for i in range(n_shots - 1)]
 
-    last_motion = ""
+    used_motion_phrases = set()
     for idx, s in enumerate(shots, start=1):
         dur = float(s.get("duration", 2.5))
         cam = s.get("camera_optics", {})
@@ -447,11 +482,15 @@ def compile_segment_h3(
         raw_motion = cam.get("movement", "static")
 
         motion = map_camera_motion(raw_motion, idx)
-        if motion == last_motion and motion in OFFICIAL_MOTION_FALLBACKS:
-            # 輪換運鏡避免 W10 重複警告
-            alt_idx = (OFFICIAL_MOTION_FALLBACKS.index(motion) + 1) % len(OFFICIAL_MOTION_FALLBACKS)
-            motion = OFFICIAL_MOTION_FALLBACKS[alt_idx]
-        last_motion = motion
+
+        # 動態決定本鏡的焦點主體
+        dlg = s.get("dialogue_and_audio", {})
+        speaker = dlg.get("speaker", "")
+        focal_sub = "<Subject 1>"
+        for c_key, s_tag in char_to_subject_tag.items():
+            if c_key in speaker:
+                focal_sub = s_tag
+                break
 
         # 動作力學三要素整合
         act = s.get("action_and_performance", {})
@@ -471,28 +510,57 @@ def compile_segment_h3(
         expression_clause = f", expression: {expression}" if expression else ""
 
         # 台詞與閉唇鎖
-        dlg = s.get("dialogue_and_audio", {})
         if dlg.get("has_dialogue") and dlg.get("line_verbatim"):
             line_text = dlg["line_verbatim"].strip()
-            speech_chars = count_speech_chars(line_text)
-            speaker_tag = "<Subject 1>"
-            speech_clause = f", {speaker_tag} speaks: <d>[Chinese] {line_text}</d>"
+            speech_clause = f", then {focal_sub} speaks: <d>[Chinese] {line_text}</d>"
         else:
             speech_clause = ", while their lips remain completely closed"
 
+        # 構造非重複且語意自然的運鏡子句 (杜絕 E14 重複運鏡句與語法錯誤)
+        clean_motion = motion.replace("camera ", "").strip()
+        if "static" in clean_motion or "steady" in clean_motion:
+            motion_clause = f"while the camera holds a steady static shot on {focal_sub}"
+        elif "dollies in" in clean_motion:
+            motion_clause = f"as the camera dollies in closely toward {focal_sub}"
+        elif "dollies out" in clean_motion:
+            motion_clause = f"as the camera dollies out to widen the frame"
+        elif "pans left" in clean_motion:
+            motion_clause = f"as the camera pans left tracking the physical motion"
+        elif "pans right" in clean_motion:
+            motion_clause = f"as the camera pans right across the scene"
+        elif "tilts up" in clean_motion:
+            motion_clause = f"as the camera tilts up emphasizing vertical scale"
+        elif "tilts down" in clean_motion:
+            motion_clause = f"as the camera tilts down toward the contact surface"
+        elif "trucks left" in clean_motion:
+            motion_clause = f"with the camera trucking left alongside the subjects"
+        elif "trucks right" in clean_motion:
+            motion_clause = f"with the camera trucking right parallel to the action"
+        else:
+            motion_clause = f"as the camera {clean_motion} smoothly"
+
+        # 若不幸重複，加入索引修飾詞避免 E14
+        if motion_clause in used_motion_phrases:
+            motion_clause = f"{motion_clause} with steady optical focus"
+        used_motion_phrases.add(motion_clause)
+
         # 連接詞 then / as 確保 (E7)
         if idx == 1:
-            header_prefix = f"[Shot 1] The shot begins from <Picture 1>: {shot_size} ({optics_focal}, {optics_dist}) of <Subject 1>."
+            header_prefix = f"[Shot 1] The shot begins from <Picture 1>: {shot_size} ({optics_focal}, {optics_dist}) of {focal_sub}."
         else:
             cut_time_str = format_timestamp(cut_timestamps[idx - 2])
-            header_prefix = f"[Shot {idx}] At {cut_time_str}, the shot transitions to a {shot_size} of <Subject 1>:"
+            header_prefix = f"[Shot {idx}] At {cut_time_str}, the shot transitions to a {shot_size} of {focal_sub}:"
 
         is_last = (idx == n_shots)
-        tail_freeze = " Then the subject holds a steady static freeze to conclude the segment." if is_last else " Then the motion transitions smoothly."
+        if is_last:
+            tail_clause = f" Then {focal_sub} maintains a steady defensive posture to conclude the segment."
+        else:
+            # 杜絕罐頭廢話 "Then the motion transitions smoothly."
+            tail_clause = " Then the physical kinetic energy propagates naturally into the subsequent action."
 
         shot_body = (
-            f"{header_prefix} First <Subject 1> initiates {action_clause}{expression_clause}{speech_clause}, "
-            f"then as the camera {motion} to frame the subject.{tail_freeze}"
+            f"{header_prefix} First {focal_sub} initiates {action_clause}{expression_clause}{speech_clause}, "
+            f"{motion_clause}.{tail_clause}"
         )
         shot_descriptions.append(sanitize_english_text(shot_body))
 
@@ -627,6 +695,44 @@ def render_markdown_package(
     return "\n".join(md_lines) + "\n"
 
 
+def verify_stage4_gate(project_root: pathlib.Path, skip_gate: bool = False) -> bool:
+    """階段 4 九宮格分鏡構圖門禁：嚴防 Agent 偷懶跳過九宮格直接編譯與生成影片。"""
+    if skip_gate:
+        print("⚠️ [警告] 已顯式指定 --skip-stage-gate，跳過階段 4 九宮格門禁檢查。")
+        return True
+
+    # 1. 檢查是否存在九宮格總圖或單格草圖
+    has_grids = bool(list((project_root / "images").glob("grid-*.png"))) or bool(list(project_root.glob("grid-*.png")))
+    has_panels = bool(list((project_root / "panels").glob("panel-*.png"))) or bool(list(project_root.glob("panel-*.png")))
+
+    # 2. 檢查 project-state.json
+    state_file = project_root / "review" / "project-state.json"
+    state_approved = False
+    if state_file.exists():
+        try:
+            with state_file.open("r", encoding="utf-8") as f:
+                st = json.load(f)
+            s4_info = st.get("stages", {}).get("stage-4", {})
+            if s4_info.get("status") in ("approved", "completed"):
+                state_approved = True
+        except Exception:
+            pass
+
+    if not (has_grids or has_panels or state_approved):
+        print("\n" + "=" * 78, file=sys.stderr)
+        print("❌ [Fatal Gate Error - 階段 4 九宮格分鏡門禁阻斷]", file=sys.stderr)
+        print("=" * 78, file=sys.stderr)
+        print("偵測到專案尚未完成「階段 4 鉛筆手繪九宮格分鏡構圖確認」！", file=sys.stderr)
+        print("嚴禁在未生成九宮格構圖審核圖（images/grid-*.png 或 panels/panel-*.png）的情況下偷懶跳步直接編譯！", file=sys.stderr)
+        print("\n處置要求：", file=sys.stderr)
+        print("  1. 請先執行 python scripts/storyboard/qwen_storyboard_grid.py 或產出九宮格構圖。", file=sys.stderr)
+        print("  2. 執行 python scripts/build_stage_review.py 產出 review/stage-4-storyboard.html 供審核。", file=sys.stderr)
+        print("  3. 若在單元測試或特殊除錯環境需繞過，請顯式傳入 --skip-stage-gate。\n", file=sys.stderr)
+        print("=" * 78 + "\n", file=sys.stderr)
+        return False
+    return True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Layer 2 分鏡轉 H3 官方六段式 Prompt 與分段對帳 JSON 批次編譯器"
@@ -641,8 +747,14 @@ def main() -> int:
     parser.add_argument("--no-auto-lora", action="store_false", dest="auto_lora", help="停用自動推導 LoRA")
     parser.add_argument("--max-char-refs", type=int, default=1, help="每段最多掛載角色參考圖張數（預設 1 張，防止混臉）")
     parser.add_argument("--check", action="store_true", help="編譯完成後立即自動執行 audit_refs_and_segments 雙重審查")
+    parser.add_argument("--project-root", type=pathlib.Path, default=pathlib.Path("."), help="專案根目錄（預設當前目錄）")
+    parser.add_argument("--skip-stage-gate", action="store_true", help="強制跳過階段 4 九宮格門禁檢查（僅限測試或除錯）")
 
     args = parser.parse_args()
+
+    # 執行階段 4 九宮格硬性門禁檢查
+    if not verify_stage4_gate(args.project_root, skip_gate=args.skip_stage_gate):
+        return 1
 
     layer2_files = load_layer2_files(args.layer2)
     if not layer2_files:

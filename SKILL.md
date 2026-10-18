@@ -30,23 +30,31 @@ agent_created: true
 6. **不假裝生成。** 沒有實際呼叫生成工具，就不得聲稱已產出圖片或影片。
 7. **H3 寫實／半寫實走守富定版骨架。** 用 MiniMax H3 且風格為寫實或半寫實（如 `styles.md` 的第 8 種、3D 真人感）時，影片提示詞一律 `【鏡頭——賣點】` → `【光線——色調】` → `【皮膚——通透白皙有真實肌理】` 三段，**皮膚段整段照抄**，只微調光色字眼。原文見 `references/h3/skin-realism-block.md`。**2D、水墨、Q 版、美漫等非寫實風格不用皮膚段**（它含 photorealistic skin，與這些風格的負面錨衝突），改照 `references/h3/scenarios-world-and-styles.md` 的對應風格寫法，畫面風格以設定板參考圖鎖定。FreeVideo 送官方三欄格式（`h3/prompt-formats.md`）。
 8. **工作紀律鐵律（先算先定再動手）**：**「先講秒數規劃 → 寫進檔案 → 跑完確定性自檢（E 0）→ 等使用者說『跑』才送 FreeVideo」**，嚴禁邊想邊送件燒時間。
+9. **階段斷點與 HTML 視覺化審核鐵律（強制中斷點）**：**每完成一個階段，Agent 必須執行 `python scripts/build_stage_review.py` 產出該階段 Cinema Editorial Studio 級別之 HTML 審核頁面（位於 `review/`），並主動停下等待使用者核准！** 使用者明確表達沒問題後才可推進到下一階段。嚴禁 Agent 擅自連續跨階段偷懶一條龍執行。
+10. **角色設定 v4 十一大章節門禁（階段 1 改編 P0 鐵律）**：在劇本改寫前，必須依據原著產出《完整角色設定文件 v4.0》（`adapt/character-bible.md`，對標《反派擺爛指南》角色設定 v4 十一大章節規範，外貌、標誌武器、表深層性格、核心能力、人物弧光、角色金句、登場服裝狀態機均需標註原著 `(Lxxx)` 行號依據；跨章節全文檢索查證真名，**嚴禁自創英文代號如 `BrownHairSlayer` 或張冠李戴套名**）。完成後必須通過 `scripts/adapt/validate_character_bible.py` 確定性驗證。
+11. **階段 4 鉛筆九宮格構圖物理防偷懶門禁**：資產圖生成後，**嚴禁跳過分鏡直接生成影片！** 必須先產出黑白鉛筆九宮格構圖圖檔（`images/grid-*.png` 或 `panels/panel-*.png`），並產出 `review/stage-4-storyboard.html` 供使用者確認走位、景深與滅點。`compile_layer2_to_h3.py` 與 `submit_h3_segments.py` 在代碼進入點設定實體硬性檢查，無九宮格圖時直接拋出 Fatal Gate Error 並終止執行！
+12. **防偷懶物理穿模與罐頭詞禁令**：
+    - **禁止同段/跨段複製貼上罐頭詞**（如「微風掠過衣擺，光影保持自然抖動」、「Then the motion transitions smoothly.」等，由 `validate_storyboard.py` 與 `audit_refs_and_segments.py` 確定性攔截）。
+    - **禁止多主體碰撞擠壓**：單鏡嚴禁同時塞入主角＋路人＋道具＋巨獸等 4 方碰撞（實測會導致道具懸空吸附 3 秒、巨獸如布偶倒塌），必須拆解為主客觀分鏡。
+    - **禁止無參考圖路人單獨佔據中近景或特寫主鏡**：防止 H3 失去風格鎖定而漂移至真人恐怖片。
+    - **精確 LoRA 匹配**：LoRA 綁定採精確複合詞匹配，杜絕「刺耳火星」誤掛刀劍 LoRA 或「家具砸擊」誤掛拳擊 LoRA。
 
 ---
 
-## 八階段流程
+## 八階段流程與 HTML 斷點
 
-| 階段 | 做什麼 | 產出 |
-|---|---|---|
-| 0 定調 | 鎖定題材、載體、畫風錨、比例、**台詞政策（4選1）與體量反推秒數門禁**（`estimate_duration.py --novel`、`init_project.py`） | `project.md`、`adapt/source.json`、`adapt/bible.json` |
-| 1 改編 | 小說目錄掃描與單章清洗抽取（`extract_chapter.py`）、保留分級、A/B/C 方案、分集架構、跨集驗收（`compare_adaptation.py --episode`） | 故事地圖、`series-outline`、併入 `project.md` |
-| 2 資產與設定圖 | 故事聖經→`assets.md`、**生圖工具詢問推薦（Codex CLI）與跨章節鎖定**、**生物純底設定圖**、**演員表主角優先排序** | `assets.md`、`images/` 設定板 |
-| 3 漫劇劇本 | 場景化改寫、時長與台詞預算審計（`estimate_duration.py --h3`）、HTML 註解元數據注入、交接 JSON、人工審核鎖（`sync_script.py`） | `script-ep01.md`、`handoff-ep01.json`、`adaptation-diff.md` |
-| 4 導演分鏡 | **分段級分鏡（預設 10s/3 鏡，`handoff_to_skeleton.py`）**、焦距物距、**動作力學三要素**、`INDEPENDENT_REF2VA` 四大錨點、Qwen 鉛筆九宮格構圖審核 | `layer2/*.json`、`storyboard-ep01.md`、`grid-*.png` |
-| 5 提示詞包 | **H3 官方六段式批次編譯（`compile_layer2_to_h3.py`）**、防混臉參考圖排序、切點時間保護、LoRA 適配、`--check` 雙重對帳 | `prompts-ep01.md`、`segments-ep01.json` |
-| 6 生成 | **主力定案：獨立 Ref2VA（四錨點連戲、一段一張角色圖防平均化）**；`submit_h3_segments.py`（4.20 GiB 顯存臨界點保護）；`verify_video_shot.py` 影片批次審查 | `images/`、`videos/`、`qa-report.json` |
-| 7 組裝交付 | **`assemble_episode.py` 智慧配音、字幕燒錄與無縫拼接成片**、旁白稿、字幕、時間線、交付清單 | `final/ep01_final.mp4`、`narration-ep01.md`、`timeline-ep01.csv` |
+| 階段 | 做什麼 | 產出與驗證門禁 | HTML 審核介面 |
+|---|---|---|---|
+| 0 定調 | 鎖定題材、載體、畫風錨、比例、**台詞政策（4選1）與體量反推秒數門禁**（`estimate_duration.py --novel`、`init_project.py`） | `project.md`、`adapt/source.json`、`adapt/bible.json` | `review/stage-0-pitch.html` |
+| 1 改編 | 小說目錄清洗（`extract_chapter.py`）、**角色設定 v4 十一大章節**（`validate_character_bible.py`）、保留分級、分集架構 | `adapt/character-bible.md`、故事地圖、`series-outline` | `review/stage-1-adapt.html` |
+| 2 資產與設定圖 | 故事聖經→`assets.md`、**生圖工具詢問推薦（Codex CLI）與跨章節鎖定**、**生物純底設定圖**、**演員表主角優先排序** | `assets.md`、`images/` 設定板、**缺圖紅框攔截** | `review/stage-2-assets.html`（表格與圖片左右並排對照） |
+| 3 漫劇劇本 | 場景化改寫、時長與台詞預算審計（`estimate_duration.py --h3`）、HTML 註解元數據注入、交接 JSON、人工審核鎖（`sync_script.py`） | `script-ep01.md`、`handoff-ep01.json`、`adaptation-diff.md` | `review/stage-3-script.html` |
+| 4 導演分鏡 | **分段級分鏡（預設 10s/3 鏡，`handoff_to_skeleton.py`）**、焦距物距、**動作力學三要素**、**Qwen 鉛筆九宮格構圖審核** | `layer2/*.json`、`storyboard-ep01.md`、`grid-*.png`、`panels/` | `review/stage-4-storyboard.html`（**九宮格構圖必經斷點**） |
+| 5 提示詞包 | **H3 官方六段式批次編譯（`compile_layer2_to_h3.py`，含九宮格門禁檢查）**、服裝狀態機解析、LoRA 精確適配、`--check` 雙重對帳 | `prompts-ep01.md`、`segments-ep01.json` | `review/stage-5-prompts.html` |
+| 6 生成 | **主力定案：獨立 Ref2VA（四錨點連戲、一段一張角色圖防平均化）**；`submit_h3_segments.py`（**17 條 audit 自檢與九宮格門禁**）；`verify_video_shot.py` 影片批次審查 | `images/`、`videos/`、`qa-report.json` | `review/stage-6-generation.html` |
+| 7 組裝交付 | **`assemble_episode.py` 智慧配音、字幕燒錄與無縫拼接成片**、旁白稿、字幕、時間線、交付清單 | `final/ep01_final.mp4`、`narration-ep01.md`、`timeline-ep01.csv` | `review/stage-7-assembly.html` |
 
-**詳細做法、每階段模板與檢查點見 `references/pipeline.md`。** 階段 3、4 各有確定性驗證腳本（`scripts/adapt/`、`scripts/storyboard/`），**通過才進下一階段**。
+**詳細做法、每階段模板與檢查點見 `references/pipeline.md`。** 每個階段完成後，必須產出對應 HTML 審核介面並停下等待確認，**使用者明確核准後才可進入下一階段**。
 
 ### 建議專案結構
 
@@ -54,7 +62,7 @@ agent_created: true
 <專案名>/
 ├── project.md              # 定調 + 分集規劃
 ├── source/                 # 原著小說（不外洩）
-├── adapt/                  # 改編中間產物（source.json、bible.json、故事地圖、保留分級、方案）
+├── adapt/                  # 改編中間產物（character-bible.md、source.json、bible.json、故事地圖）
 ├── assets.md               # 風格錨 + 角色 / 場景 / 道具 / 音色聖經（ID、固定片段）
 ├── script-ep01.md          # 漫劇劇本（△ 場號制，無攝影機術語）
 ├── handoff-ep01.json       # 劇本→分鏡交接
@@ -64,11 +72,21 @@ agent_created: true
 ├── prompts-ep01.md         # 逐鏡圖像 / 影片提示詞
 ├── segments-ep01.json       # FreeVideo 批次分段檔（H3 官方六段式結構）
 ├── panels/                 # Qwen 單格黑白鉛筆手繪草圖（panel-*.png）
-├── keyframes/              # Qwen 轉繪全彩關鍵幀首幀（keyframe-*.png，去黑箭頭）
+├── keyframes/              # Qwen 轉繪全彩關鍵幀首幀（選用實驗，keyframe-*.png）
 ├── narration-ep01.md       # 旁白與字幕稿
 ├── timeline-ep01.csv       # 剪輯時間線
 ├── images/                 # 生成圖（設定板、場景主圖、九宮格總覽 grid-*.png）
-└── videos/                 # 生成影片片段與審查報告
+├── videos/                 # 生成影片片段與審查報告
+└── review/                 # 八階段 Cinema Editorial Studio HTML 審核頁面與狀態檔
+    ├── project-state.json  # 狀態機 SSoT
+    ├── stage-0-pitch.html
+    ├── stage-1-adapt.html
+    ├── stage-2-assets.html
+    ├── stage-3-script.html
+    ├── stage-4-storyboard.html
+    ├── stage-5-prompts.html
+    ├── stage-6-generation.html
+    └── stage-7-assembly.html
 ```
 
 用 `scripts/init_project.py` 一鍵建立骨架（自動初始化 `adapt/source.json`、`adapt/bible.json` 與 `project.md` 門禁欄位）。

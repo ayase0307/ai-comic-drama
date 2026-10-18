@@ -130,20 +130,52 @@ SCRIPTS_DIR = Path(__file__).resolve().parent  # 技能的 scripts 目錄（絕�
 
 
 def flow_hint(root: Path) -> str:
-    """下一步指引；指令中的專案檔案與腳本都用絕對路徑。"""
+    """下一步指引：八階段嚴格斷點與 HTML 審核流程；指令與路徑均使用絕對路徑。"""
     storyboard = SCRIPTS_DIR / "storyboard"
+    adapt = SCRIPTS_DIR / "adapt"
+    build_review = SCRIPTS_DIR / "build_stage_review.py"
     handoff = root / "handoff-ep01.json"
     layer2 = root / "layer2"
-    return f"""下一步（新流程：改編 → 資產 → 劇本 → 分鏡）：
-  1. 原稿是小說：讀 references/adapt/novel-to-manju.md，把原著放進 source/，完成故事地圖、保留分級、A/B/C 方案選定與分集表（寫入 adapt/ 與 project.md），不得直接把小說當劇本
-  2. 資產與設定圖：填 assets.md（風格錨點、色盤、角色／場景／道具），設定圖流程見 references/consistency.md
-  3. 劇本與 handoff：寫 script-epNN.md（只寫戲，不寫鏡頭術語）並產出 handoff-epNN.json；跑 scripts/adapt 驗證
-  4. 分鏡骨架：
-     python "{storyboard / 'handoff_to_skeleton.py'}" "{handoff}" --out-dir "{layer2}"
-     → 單段場景的檔名沒有字尾，例如 layer2-EP01-S01.json；分段場景為 layer2-EP01-S01-a.json、-b…（單鏡超過 15 秒的對白自動切鏡）
-  5. 導演精修 layer2/ 內所有 TODO 後驗證（萬用字元 bash 會展開；PowerShell 請改成逐一列出檔名）：
-     python "{storyboard / 'validate_storyboard.py'}" --handoff "{handoff}" --file "{layer2}"/layer2-EP01-*.json
-     同一場的 -a、-b… 段落要一起給；EP02 起照樣改集號（layer2/layer2-EP02-*.json、handoff-ep02.json）"""
+
+    return f"""下一步（八階段流程與 HTML 斷點審核機制）：
+  【重要鐵律】每完成一個階段，必須執行 python "{build_review}" 產出該階段 HTML 審核頁（位於 review/）供確認，取得使用者明確核准後才可推進至下一階段！
+  
+  階段 0 定調：
+    - 填寫 project.md，確定台詞政策（4選1）與原文秒數反推門禁。
+    - 生成審核頁：python "{build_review}" --stage 0
+  
+  階段 1 改編（角色設定 v4 門禁）：
+    - 依原著改寫 adapt/character-bible.md（遵循十一大章節，外貌/武器/能力均附 Lxxx 行號依據，跨章節查證真名嚴禁英文假名）。
+    - 跑確定性驗證：python "{adapt / 'validate_character_bible.py'}" --bible adapt/character-bible.md --json adapt/bible.json
+    - 生成審核頁：python "{build_review}" --stage 1
+  
+  階段 2 資產與設定圖：
+    - 詢問推薦生圖工具（推薦 Codex CLI），出齊角色設定板、場景母版圖與生物純底三視圖。
+    - 生成審核頁（左側角色表格＋右側產出圖片並排對照）：python "{build_review}" --stage 2
+    - 【斷點】開啟 review/stage-2-assets.html 供審核，確認畫風與臉型完全一致後才推進！
+  
+  階段 3 漫劇劇本：
+    - 撰寫劇本（只寫戲，不寫鏡頭術語）並產出 handoff-ep01.json。
+    - 執行驗證：python "{adapt / 'check_continuity.py'}" adapt/bible.json handoff-ep01.json
+    - 生成審核頁：python "{build_review}" --stage 3
+  
+  階段 4 導演分鏡與九宮格構圖：
+    - 生成分鏡骨架：python "{storyboard / 'handoff_to_skeleton.py'}" "{handoff}" --out-dir "{layer2}"
+    - 精修分鏡並執行 validate_storyboard.py 驗證（防範罐頭詞與多主體穿模）。
+    - 產出鉛筆手繪九宮格草圖：python "{storyboard / 'qwen_storyboard_grid.py'}"
+    - 生成審核頁：python "{build_review}" --stage 4
+    - 【斷點】開啟 review/stage-4-storyboard.html 審核構圖走位與滅點，確認無誤後才允許編譯！
+  
+  階段 5 提示詞包：
+    - 編譯 H3 六段式 Prompt：python "{storyboard / 'compile_layer2_to_h3.py'}" --layer2 "{layer2}" --bible adapt/bible.json --check
+  
+  階段 6 生成：
+    - 送件至 FreeVideo：python "{storyboard / 'submit_h3_segments.py'}" --segments segments-ep01.json --dry-run
+    - 生成審核頁：python "{build_review}" --stage 6
+  
+  階段 7 組裝交付：
+    - 語音合成、字幕燒錄與最終成片：python "{storyboard / 'assemble_episode.py'}" --episode EP01
+    - 生成最終驗收頁：python "{build_review}" --stage 7"""
 
 
 def slugify_project(name: str) -> str:
@@ -257,6 +289,54 @@ def handoff_stub(project_id: str, episode: int) -> dict:
     }
 
 
+def initial_project_state(title: str, project_id: str) -> dict:
+    """初始化 8 個階段之狀態檔，供 build_stage_review.py 驅動斷點審核。"""
+    stage_titles = {
+        0: "階段 0：專案定調與門禁",
+        1: "階段 1：改編與角色設定 v4",
+        2: "階段 2：資產與設定圖審核",
+        3: "階段 3：漫劇劇本與交接",
+        4: "階段 4：分鏡與鉛筆九宮格構圖",
+        5: "階段 5：H3 六段式提示詞包",
+        6: "階段 6：影片片段生成審查",
+        7: "階段 7：配音字幕與成片驗收",
+    }
+    stage_files = {
+        0: "stage-0-pitch.html",
+        1: "stage-1-adapt.html",
+        2: "stage-2-assets.html",
+        3: "stage-3-script.html",
+        4: "stage-4-storyboard.html",
+        5: "stage-5-prompts.html",
+        6: "stage-6-generation.html",
+        7: "stage-7-assembly.html",
+    }
+    return {
+        "project_id": project_id,
+        "title": title,
+        "current_stage": 0,
+        "stages": {
+            f"stage-{i}": {
+                "id": f"stage-{i}",
+                "title": stage_titles.get(i, f"階段 {i}"),
+                "status": "pending",
+                "review_html": f"review/{stage_files.get(i, f'stage-{i}.html')}",
+                "notes": "尚未執行"
+            }
+            for i in range(8)
+        }
+    }
+
+
+def load_character_bible_template(title: str) -> str:
+    """讀取 character-bible-v4.md 模板並填入專案名。"""
+    tpl_path = SCRIPTS_DIR.parent / "references" / "adapt" / "templates" / "character-bible-v4.md"
+    if tpl_path.exists():
+        content = tpl_path.read_text(encoding="utf-8")
+        return content.replace("{{work_title}}", title).replace("{{source_path}}", "source/input.md")
+    return f"# 《{title}》完整角色設定文件 v4.0\n\n## 一、角色總覽\n\n待填寫（遵循角色設定 v4 十一大章節規範）\n"
+
+
 def build_files(title: str, episodes: int, project_id: str) -> dict[str, str]:
     rows = "\n".join(f"| {i} | | | |" for i in range(1, episodes + 1))
     files: dict[str, str] = {
@@ -265,6 +345,8 @@ def build_files(title: str, episodes: int, project_id: str) -> dict[str, str]:
         "adapt/README.md": ADAPT_README,
         "adapt/source.json": json.dumps(source_stub(title), ensure_ascii=False, indent=2) + "\n",
         "adapt/bible.json": json.dumps(bible_stub(project_id), ensure_ascii=False, indent=2) + "\n",
+        "adapt/character-bible.md": load_character_bible_template(title),
+        "review/project-state.json": json.dumps(initial_project_state(title, project_id), ensure_ascii=False, indent=2) + "\n",
     }
     for ep in range(1, episodes + 1):
         tag = f"ep{ep:02d}"
@@ -276,7 +358,7 @@ def build_files(title: str, episodes: int, project_id: str) -> dict[str, str]:
     return files
 
 
-DIRS = ["source", "adapt", "layer2", "images", "videos"]
+DIRS = ["source", "adapt", "layer2", "images", "videos", "review", "panels"]
 
 
 def main() -> None:

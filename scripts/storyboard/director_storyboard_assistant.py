@@ -365,12 +365,22 @@ def auto_adapt_h3_loras(spec_or_shot: dict, enable_camera_lora: bool = False) ->
                 "reason": "動態運鏡與手持穩定控制 (依需求顯式掛載)"
             })
 
-    # 2. 兵器打鬥偵測
+    # 2. 兵器打鬥偵測（嚴格使用雙字以上複合詞，徹底杜絕「刺耳火星」誤觸「刺」、「雙腳」誤觸「腳」之子字串 Bug）
+    clean_for_weapon = full_context
+    for false_pos in ["刺耳", "刺激", "骨刺", "尖刺", "背脊刺", "劈啪", "劈里啪啦", "刀疤", "雙腳", "腳步", "腳踝", "腳跟", "前腳", "後腳"]:
+        clean_for_weapon = clean_for_weapon.replace(false_pos, " ")
+
     weapon_keywords = [
-        "刀", "劍", "槍", "刃", "棍", "戟", "拔刀", "格擋", "劈", "刺",
-        "sword", "blade", "spear", "dagger", "katana", "weapon", "parry", "slash"
+        "拔刀", "揮刀", "長刀", "砍刀", "單刃刀", "橫刀", "太刀", "短刀", "刀鋒", "刀刃", "刀光",
+        "拔劍", "揮劍", "長劍", "古劍", "劍刃", "劍鋒", "劍氣",
+        "長槍", "銀槍", "槍尖", "三節棍", "長棍", "戰戟", "匕首", "格擋", "劈砍", "刺擊",
+        "sword", "blade", "spear", "dagger", "katana", "weapon", "parry", "slash", "machete"
     ]
-    has_weapon = any(wk in full_context for wk in weapon_keywords)
+    # 若為純異獸掃尾/撲咬或手持日常家具（鐵凳/圓凳/椅子）砸怪，嚴禁掛載人形刀劍/徒手拳擊 LoRA（實測會導致鐵凳吸附在怪獸鼻頭！）
+    is_furniture_smash = any(fk in full_context for fk in ["鐵凳", "圓凳", "金屬凳", "椅子", "木凳", "steel stool", "metal stool"])
+    is_pure_creature = spec_or_shot.get("is_creature_only", False)
+
+    has_weapon = (not is_furniture_smash) and (not is_pure_creature) and any(wk in clean_for_weapon for wk in weapon_keywords)
     if has_weapon:
         loras.append({
             "name": "Bunny_weapon_combatV1.safetensors",
@@ -385,12 +395,13 @@ def auto_adapt_h3_loras(spec_or_shot: dict, enable_camera_lora: bool = False) ->
             "reason": "打鬥防卡頓與動作流暢度修復"
         })
     else:
-        # 3. 徒手搏擊偵測
+        # 3. 徒手搏擊偵測（僅限人類拳腳武術交鋒；家具砸擊或巨獸掃尾只掛 Motion_Repair 不掛 H3_Combat_V2）
         melee_keywords = [
-            "拳", "腳", "踢", "摔", "肘", "搏擊", "肉搏",
-            "punch", "kick", "martial arts", "takedown", "combat"
+            "出拳", "重拳", "右拳", "左拳", "拳面", "拳風", "拳師",
+            "飛踢", "側踢", "迴旋踢", "鞭腿", "過肩摔", "肘擊", "搏擊", "肉搏", "近身格鬥",
+            "punch", "kick", "martial arts", "takedown", "fistfight", "hand-to-hand"
         ]
-        has_melee = any(mk in full_context for mk in melee_keywords) or beat_type == "Combat_Impact"
+        has_melee = (not is_furniture_smash) and (not is_pure_creature) and any(mk in clean_for_weapon for mk in melee_keywords)
         if has_melee:
             loras.append({
                 "name": "H3_Combat_V2.safetensors",
@@ -404,6 +415,15 @@ def auto_adapt_h3_loras(spec_or_shot: dict, enable_camera_lora: bool = False) ->
                 "trigger": None,
                 "reason": "格鬥防卡頓與動作流暢度修復"
             })
+        elif beat_type == "Combat_Impact" or is_furniture_smash:
+            # 異獸衝擊或重物砸擊僅掛載無觸發詞之 Motion_Repair 提升運動流暢度，避免人形拳擊姿態扭曲道具物理
+            loras.append({
+                "name": "Motion_Repair.safetensors",
+                "strength": 0.35,
+                "trigger": None,
+                "reason": "物理碰撞與高速運動流暢度修復（不掛人形拳擊 LoRA 防道具吸附）"
+            })
+
 
     # 4. 速度滑塊偵測（H3_SPEED_slider.safetensors）
     slow_keywords = ["慢動作", "子彈時間", "凝結", "緩慢", "slow motion", "bullet time", "time dilation"]

@@ -53,7 +53,7 @@ python scripts/init_project.py my-drama --title "我的漫劇" --episodes 12
 
 ---
 
-## 階段 1：改編（小說 → 可拍的漫劇結構）
+## 階段 1：改編（小說 → 可拍的漫劇結構與角色設定 v4）
 
 **原稿是小說時必走。** 規範全文：`references/adapt/novel-to-manju.md`（對應其 Phase 0–5）。做什麼：
 
@@ -66,11 +66,34 @@ python scripts/init_project.py my-drama --title "我的漫劇" --episodes 12
      ```bash
      python scripts/adapt/extract_chapter.py source/novel.txt --volume 1 --chapter 1 --out source/ch01.txt
      ```
-1. **全文解析與故事地圖**：logline、主衝突、因果鏈、時間線、人物關係、世界規則、伏筆、原著內部矛盾（列出，不私自掩蓋）。長篇分批讀，不假裝讀完沒看過的章節。模板 `adapt/templates/source-analysis.md`。
-2. **保留分級**：每個事件標 `MUST_KEEP`／`KEEP_IF_POSSIBLE`／`MERGE`／`COMPRESS`／`REMOVE`／`REORDER`，記原文引用與理由。
-3. **A／B／C 三方案停靠**：忠於原著／節奏優先／成本優先，比較後推薦，**交使用者選**。
-4. **分集架構**：`Arc → Episode → Sequence → Scene → Beat`；每集寫目標、阻礙、選擇、變化、結果、下集動機與因果債務。模板 `series-outline.md`、`episode-outline.md`。
-5. **單章拆多集跨集驗收**：原著單章往往需要拆編為多集漫劇（如 1 章拆為 Ep01–Ep03），支援單集驗收與多集合併全章驗收：
+1. **《完整角色設定文件 v4.0》（P0 強制門禁，對標《反派擺爛指南》）**：
+   - 在改寫劇本前，**必須先產出詳細角色設定 `adapt/character-bible.md`**，包含完整十一大章節：
+     - 一、角色總覽
+     - 二、核心角色（基本資料、外貌、武器/隨身道具、表深層性格、核心能力與戰力、人物弧光與命運走勢、角色金句）
+     - 三、重要配角
+     - 四、功能性角色與異獸生物設定（純底三視圖規格）
+     - 五、背景角色與路人收斂策略（嚴禁無圖路人單獨佔據中近景）
+     - 六、角色關係圖（ASCII/Mermaid 網絡）
+     - 七、角色狀態與能力演進表
+     - 八、角色戲劇與喜劇功能分配
+     - 九、角色命名與視覺象徵邏輯（**跨章節真名查證，嚴禁自創英文假名如 `BrownHairSlayer`**）
+     - 十、角色登場章節與場次服裝索引（**服裝狀態機 `wardrobe_states`**）
+     - 附錄：角色設定速查表
+   - **原著行號依據**：所有外貌、武器、年齡與能力描述必須附帶 `(Lxxx)` 行號依據，非原著內容標註 `【改編新增】`。
+   - **確定性驗證器**：
+     ```bash
+     python scripts/adapt/validate_character_bible.py --bible adapt/character-bible.md --json adapt/bible.json
+     ```
+   - **產出階段 1 HTML 審核頁並停下**：
+     ```bash
+     python scripts/build_stage_review.py --stage 1
+     ```
+     Agent 必須主動停下，提示使用者查閱 `review/stage-1-adapt.html`，取得核准後才可進入階段 2！
+2. **全文解析與故事地圖**：logline、主衝突、因果鏈、時間線、人物關係、世界規則、伏筆、原著內部矛盾（列出，不私自掩蓋）。長篇分批讀，不假裝讀完沒看過的章節。模板 `adapt/templates/source-analysis.md`。
+3. **保留分級**：每個事件標 `MUST_KEEP`／`KEEP_IF_POSSIBLE`／`MERGE`／`COMPRESS`／`REMOVE`／`REORDER`，記原文引用與理由。
+4. **A／B／C 三方案停靠**：忠於原著／節奏優先／成本優先，比較後推薦，**交使用者選**。
+5. **分集架構**：`Arc → Episode → Sequence → Scene → Beat`；每集寫目標、阻礙、選擇、變化、結果、下集動機與因果債務。模板 `series-outline.md`、`episode-outline.md`。
+6. **單章拆多集跨集驗收**：原著單章往往需要拆編為多集漫劇（如 1 章拆為 Ep01–Ep03），支援單集驗收與多集合併全章驗收：
    ```bash
    # 單集過濾驗收：
    python scripts/adapt/compare_adaptation.py --source adapt/source.json --script script-ep01.md --handoff handoff-ep01.json --episode 1 --h3
@@ -84,7 +107,7 @@ python scripts/init_project.py my-drama --title "我的漫劇" --episodes 12
 
 ---
 
-## 階段 2：資產聖經與設定圖
+## 階段 2：資產聖經與設定圖（左右並排審核斷點）
 
 一致性的根基。規範全文：**`references/consistency.md`**（ID、設定板版面、表情集、服裝、場景主圖、道具、音色、參考鏈、驗收門）。
 
@@ -101,9 +124,13 @@ python scripts/init_project.py my-drama --title "我的漫劇" --episodes 12
    - **詢問指定工具（推薦 Codex CLI）**：在出核心資產圖前，必須詢問使用者指定生圖工具（推薦本機 Codex CLI 或使用者授權之工具）。
    - **跨章節強制鎖定同一生圖引擎**：全劇各章節（Ch01、Ch02…）的所有角色設定板、服裝三視圖與場景母片，必須強制鎖定同一個生圖工具，嚴禁混用造成畫風撕裂。
    - **Qwen-Image 2.1 嚴格限制範圍**：本機 Qwen-Image 2.1 **僅限用於階段 4 鉛筆分鏡九宮格構圖審核**，嚴禁用於階段 2 核心資產圖。
-6. 出設定圖（見階段 6.1），**通過 `consistency.md` §10 驗收門**才算完成。
-
-固定描述片段要具體到可畫：「黑色短髮、左眉尾一道疤、藏青立領風衣、右手銀戒」。避免「很帥」「氣質高雅」這類不可視化的詞。
+6. **產出階段 2 HTML 並排審核頁面與斷點停下（P0 鐵律）**：
+   - 生成資產圖後，**必須執行**：
+     ```bash
+     python scripts/build_stage_review.py --stage 2
+     ```
+   - 產出 `review/stage-2-assets.html`：**左側展示角色設定表格（姓名、年齡、外貌、服裝、武器、原著行號依據），右側展示生成的設定圖（支援全螢幕 Lightbox 放大，缺圖紅框攔截警示）**。
+   - **Agent 必須立即停下**，提示使用者打開 `review/stage-2-assets.html` 進行外貌與畫風審核，確認每位角色臉型、服裝無誤後，使用者發出明確核准指令方可進入階段 3！嚴禁未經確認私自往下推進！
 
 ---
 
@@ -200,23 +227,30 @@ python scripts/adapt/compare_adaptation.py --source adapt/source.json --script s
   2. **② 傳導路徑**：力量如何經身體傳遞、肌肉/鱗片變形與重心轉移（肩胛後縮、腰部擰轉、鱗片緊繃反光）；
   3. **③ 受擊反應與環境反饋**：受力後退距離、結構折疊挫傷、立刻反擊或掙扎，以及環境特效（碎石揚塵、環形氣浪、風切位移空氣、撞擊火花）。
 
-### 4.4 分鏡工具鏈操作
+### 4.4 分鏡工具鏈操作與九宮格審核斷點（P0 強制斷點）
 
 ```bash
-# 產生 Layer 2 骨架（預設 10s/3 鏡、動作力學三要素模板、INDEPENDENT_REF2VA 四大連戲錨點）
+# 1. 產生 Layer 2 骨架（預設 10s/3 鏡、動作力學三要素模板、INDEPENDENT_REF2VA 四大連戲錨點）
 python scripts/storyboard/handoff_to_skeleton.py handoff-ep01.json --out-dir layer2/ --max-segment-sec 10.0 --max-shots 3
 
-# 靜態校驗與時間線表格匯出
+# 2. 靜態校驗與時間線表格匯出（自動攔截罐頭詞、跨段複製貼上與多主體穿模）
 python scripts/storyboard/validate_storyboard.py --file layer2/layer2-EP01-*.json --handoff handoff-ep01.json
 python scripts/storyboard/layer2_to_table.py layer2/layer2-EP01-*.json --check --md storyboard-ep01.md --timeline timeline-ep01.csv
 
-# 視覺化黑白鉛筆九宮格構圖審核（支援 --no-arrows 生成純淨底稿）
+# 3. 視覺化黑白鉛筆九宮格構圖生成（必做！嚴禁跳步）
 python scripts/storyboard/qwen_storyboard_grid.py --layer2 layer2/layer2-EP01-S01-a.json --generate-all --assemble-grid
 
-# 單鏡修改與重抽（相鄰鏡頭吸收秒數，已審核鏡頭鎖定保護）
+# 4. 單鏡修改與重抽（若構圖不佳，微調秒數或重新繪製）
 python scripts/storyboard/patch_shot.py --file layer2/layer2-EP01-S01-a.json --shot SH03 --shot-size CU --duration 3.5 --absorb-from SH04
 python scripts/storyboard/qwen_storyboard_grid.py --layer2 layer2/layer2-EP01-S01-a.json --redraw-shot SH03 --assemble-grid
+
+# 5. 產出階段 4 HTML 審核頁並停下等待確認
+python scripts/build_stage_review.py --stage 4
 ```
+
+> **⛔【階段 4 強制斷點鐵律】**  
+> 生成九宮格後，**Agent 必須立即停下**，提示使用者打開 `review/stage-4-storyboard.html` 審查九宮格構圖、站位、景深與滅點！  
+> **嚴禁資產圖一出來就直接跳去生影片！** 缺少九宮格圖（`images/grid-*.png`）時，後續階段 5 編譯器與階段 6 送件腳本會在代碼進入點強制報錯阻斷執行！
 
 ---
 
@@ -226,39 +260,30 @@ python scripts/storyboard/qwen_storyboard_grid.py --layer2 layer2/layer2-EP01-S0
 
 ```bash
 python scripts/storyboard/compile_layer2_to_h3.py \
-  --layer2-dir layer2/ \
-  --ep 1 \
-  --out-md prompts-ep01.md \
-  --out-json segments-ep01.json \
+  --layer2 layer2/layer2-EP01-*.json \
+  --episode EP01 \
+  --output-md prompts-ep01.md \
+  --output-segments segments-ep01.json \
   --assets assets.md \
   --bible adapt/bible.json \
   --check
 ```
 
-### 5.1 H3 官方六段式架構
-
+### 5.1 H3 官方六段式架構與防偷懶重構
 編譯器輸出的提示詞嚴格遵照官方六段式語法結構（全中文自然語言，嚴禁任何負面詞）：
 1. **`subject_definitions`**：定義參考素材與角色對應標籤（`<Picture 1>` 場景圖、`<Picture 2>` 核心角色圖）。嚴格落實**防混臉單圖排序（一段一張角色圖）**，同場其他次要角色轉為純外觀文字描述，防止多角色特徵平均化。
 2. **`summary`**：整段秒數、情境氛圍與核心戲劇主旨概述。
 3. **`retention_analysis`**：精確聲明各參考圖的繼承層級（如「保留 Picture 2 面部五官與服裝，服裝顏色嚴格依照設定圖」）。
-4. **`detailed_description`**：`[Shot 1]` ～ `[Shot N]` 逐鏡細節，整合焦距物距、光源名詞映射、官方運鏡詞微交替、動作力學三要素與角色表情，台詞精確封裝於 `<d>角色：台詞</d>`。
+4. **`detailed_description`**：`[Shot 1]` ～ `[Shot N]` 逐鏡細節，整合焦距物距、光源名詞映射、官方運鏡詞多樣化子句（**杜絕重複運鏡句與語法錯誤**）、動作力學三要素與角色表情，台詞精確封裝於 `<d>角色：台詞</d>`。**徹底消滅「Then the motion transitions smoothly.」等罐頭廢話**。
 5. **`overall_soundscape`**：環境音效、動作打擊音、喘息與擬音（Foley）。
 6. **`non_diegetic_music`**：非附隨性配樂、BGM 風格與情緒走向。
 
-### 5.2 切點時間軸保護與自動調諧
+### 5.2 服裝狀態機（`wardrobe_states`）解析
+編譯器支援解析 `character-bible.md` 或 `bible.json` 中的服裝狀態機（如 `char-ShenLuonian-casual.png` 便服 vs `char-ShenLuonian.png` 制服），依分鏡與場景時空自動綁定對應服裝圖片。
 
-H3 以 24fps 影格網格為基礎，整段總時長以畫格下取整公式計算：
-$$D = \frac{\text{frames\_for}(T, \text{"floor"})}{24.0}$$
-若最後一鏡切點距離 $D$ 不足 2.0 秒，將觸發 H3 切點過密或末鏡渲染異常。`compile_layer2_to_h3.py` 內建自動調諧，保證：
-$$D - \text{末切點} \ge 2.05s$$
-確保生成時所有鏡頭皆有充裕的物理展開時長。
-
-### 5.3 LoRA 自動適配與雙重程式對帳
-
-- **LoRA 自動適配**：根據分鏡中的動作類型與風格標記（如劇烈打鬥、奔跑追逐），自動掛載相應的 LoRA 配置（如 Bunny 武戲滑桿、速度滑桿，停用易造成視角漂移的 camera_motion），並輸出 FreeVideo API 相容之掛載欄位。
-- **雙重程式對帳（`--check`）**：在編譯完成後，自動啟動 `audit_refs_and_segments.py` 進行全流程閉環稽核：
-  - **模式 A（序對對照）**：Layer 2 ↔ `prompts-epNN.md` 逐段比對參考圖、主體定義、說話者與字數預算；
-  - **模式 B（13 條規則自檢）**：檢查參考圖數量、單句字數（$\le 15$ 字）、說話秒數佔比（$\le 60\%$）、切點邊界、台詞標籤對齊。雙重對帳達成 **0 Errors** 方可放行出片。
+### 5.3 物理門禁與雙重程式對帳
+- **階段 4 實體門禁檢查**：編譯前檢查 `images/grid-*.png` 或 `panels/panel-*.png` 是否存在，若無九宮格構圖圖檔，直接退出並報錯！
+- **雙重程式對帳（`--check`）**：調用 `audit_refs_and_segments.py` 執行 17 條自檢與參考圖對帳，達成 **0 Errors** 方可放行出片。
 
 ---
 
@@ -285,33 +310,21 @@ $$D - \text{末切點} \ge 2.05s$$
   - Qwen 黑白鉛筆九宮格：**「✅ 階段 4 視覺化構圖與佔位審核工具」**。
   - Qwen 轉繪全彩首幀（`--to-color-keyframe`）：**「⚠️ 選用實驗功能（需整部片全部統一用同一圖片模型生首幀並排驗證）」**。一般情況下，一律走主力定案獨立 Ref2VA。
 
-### 6.1 參考圖張數與角色平均化風險防範
+### 6.1 送件前確定性自檢與顯存保護（`submit_h3_segments.py`）
 
-> **【定案 3 核心引用】使用者原話**：  
-> 「這可能跟提示詞品質、以及 FreeVideo 模型訓練有關，走量化版模型可能就能多參考，之後可以嘗試」
-
-- **實測現象**：單段若同時掛 3 張以上年齡/身形相近的角色圖（如三名普通男高中生），H3 會發生特徵融合，平均化成同一張臉；視覺差異極大者（如大胖子配黑框眼鏡）能存活。
-- **建議做法**：
-  - **保守預設：「一段一張角色參考圖」**。若要拍多人反應，拆成多段各自單人特寫。
-  - 群戲需要時可給到 1 場景 + 最多 5 角色 = 6 張，但需認知融合風險（留待未來量化模型嘗試，不寫死為硬限制）。
-  - **P0 程式稽核**：執行 `audit_refs_and_segments.py`，嚴查參考圖陣列、主體定義與說話者代號完全對齊。
-
-### 6.2 顯存安全檢查與批次提交（`submit_h3_segments.py`）
-
-MiniMax H3 本機出片核心工具，內建 **4.20 GiB 顯存臨界點安全保護** 與 FreeVideo 非同步任務排程：
+MiniMax H3 本機出片核心工具，內建 **階段 4 九宮格門禁**、**17 條 audit 事前自檢** 與 **4.20 GiB 顯存臨界點安全保護**：
 
 ```bash
-# 1. 乾跑驗證（安全檢查 segments-ep01.json、參考圖實體路徑與當前顯存）
-python scripts/storyboard/submit_h3_segments.py --segments segments-ep01.json --out-dir videos/ --dry-run
+# 1. 乾跑驗證（安全檢查九宮格門禁、17 條 audit 自檢、參考圖 SHA256 與顯存狀態）
+python scripts/storyboard/submit_h3_segments.py --segments segments-ep01.json --output-dir videos/ --dry-run
 
 # 2. 正式批次提交（自動上傳參考圖 SHA256 快取、掛載 LoRA、輪詢進度並下載成品）
-python scripts/storyboard/submit_h3_segments.py --segments segments-ep01.json --out-dir videos/
+python scripts/storyboard/submit_h3_segments.py --segments segments-ep01.json --output-dir videos/
 ```
 
+- **九宮格實體門禁**：未生成九宮格圖時直接拋出 Fatal Gate Error 並拒絕送件！
+- **17 條 audit 事前自檢**：送件前自動跑 `audit_refs_and_segments.py`，有任何 E14 重複運鏡、E15 中英混雜、E16 物理衝擊反饋缺失或多主體穿模時，直接拒絕送件！
 - **4.20 GiB (4300 MB) 顯存門禁**：提交前自動透過 `nvidia-smi` 查詢剩餘可用顯存，若不足 4300 MB 立即發出醒目警報並計算差額（避免 CUDA OOM 導致崩潰）。
-- **參考圖 SHA256 快取**：同圖不重複上傳 FreeVideo，顯著加速多分段批次生成。
-- **LoRA 自動適配**：直接讀取 segment 中的 `h3_loras` 參數注入請求體。
-- **令牌安全**：嚴格禁止在任何終端輸出、日誌或檔案中印出 FreeVideo Token。
 
 ### 6.3 影片自動審查門禁（`verify_video_shot.py`）
 

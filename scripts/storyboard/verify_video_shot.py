@@ -259,11 +259,13 @@ def check_grid_split_screen(raw_rgb: bytes, w: int, h: int) -> Tuple[bool, List[
             edge_diff = max(left_mean - col_mean, right_mean - col_mean)
             is_dip = (left_mean - col_mean > 15.0) and (right_mean - col_mean > 15.0)
 
-            # 判定條件：
-            # A) 兩側明顯高於當前列的深色凹槽 (is_dip 且 edge_diff > 15.0)
-            # B) 整列為深暗色實線且有階躍 (col_mean < 45.0 且 edge_diff > 12.0)
-            # C) 整列高度均質低變異且與兩側有對比 (col_std < 8.0 且 edge_diff > 15.0)
-            if (is_dip and edge_diff > 15.0) or (col_mean < 45.0 and edge_diff > 12.0) or (col_std < 8.0 and edge_diff > 15.0):
+            # 判定條件：九宮格實線必須符合「低變異度 (std < 12.0)」直線特徵，避免複雜暗部自然畫面誤判
+            is_linear_low_var = (col_std < 12.0)
+            cond_dip = is_dip and (edge_diff > 15.0)
+            cond_dark_edge = (col_mean < 45.0) and (edge_diff > 12.0)
+            cond_contrast = (col_std < 8.0) and (edge_diff > 15.0)
+
+            if is_linear_low_var and (cond_dip or cond_dark_edge or cond_contrast):
                 detected_borders.append(
                     f"{label} (x={cand_x}/{w}, 均值={col_mean:.1f}, 標準差={col_std:.2f}, 邊緣階躍={edge_diff:.1f})"
                 )
@@ -292,7 +294,13 @@ def check_grid_split_screen(raw_rgb: bytes, w: int, h: int) -> Tuple[bool, List[
             edge_diff = max(up_mean - row_mean, down_mean - row_mean)
             is_dip = (up_mean - row_mean > 15.0) and (down_mean - row_mean > 15.0)
 
-            if (is_dip and edge_diff > 15.0) or (row_mean < 45.0 and edge_diff > 12.0) or (row_std < 8.0 and edge_diff > 15.0):
+            # 判定條件：九宮格實線必須符合「低變異度 (std < 12.0)」直線特徵
+            is_linear_low_var = (row_std < 12.0)
+            cond_dip = is_dip and (edge_diff > 15.0)
+            cond_dark_edge = (row_mean < 45.0) and (edge_diff > 12.0)
+            cond_contrast = (row_std < 8.0) and (edge_diff > 15.0)
+
+            if is_linear_low_var and (cond_dip or cond_dark_edge or cond_contrast):
                 detected_borders.append(
                     f"{label} (y={cand_y}/{h}, 均值={row_mean:.1f}, 標準差={row_std:.2f}, 邊緣階躍={edge_diff:.1f})"
                 )

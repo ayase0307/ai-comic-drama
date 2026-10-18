@@ -38,6 +38,16 @@ FORBIDDEN_PSEUDO_TERMS = [
     "@lmage", "Negative PrompU", "叫(物理音效)"
 ]
 
+# 嚴格攔截之子代理偷懶罐頭詞與萬用廢話黑名單（防止 Goodhart's Law 批量造假）
+FORBIDDEN_BOILERPLATE_PHRASES = [
+    "微風掠過衣擺，光影保持自然抖動",
+    "衣角與髮絲隨動作慣性自然下垂",
+    "executes deliberate physical blocking with natural body movement",
+    "Then the motion transitions smoothly",
+    "executing choreographed actions with emotional continuity",
+]
+
+
 
 _KIND_OK = {
     "obj": lambda v: isinstance(v, dict),
@@ -344,6 +354,41 @@ def validate_storyboard_data(data: dict, original_script_dialogues: list = None)
             if bad_word in raw_shot_str:
                 errors.append(f"[{sid} 偽精確/解剖詞污染] 檢測到禁用詞「{bad_word}」，請轉譯為可見外顯五官動作！")
 
+        # Check 6b: 防偷懶罐頭詞與萬用廢話黑名單攔截
+        for bp_word in FORBIDDEN_BOILERPLATE_PHRASES:
+            if bp_word in raw_shot_str:
+                errors.append(
+                    f"[{sid} 偷懶罐頭詞攔截] 檢測到禁用萬用罐頭句「{bp_word}」！"
+                    f"必須依該場次真實環境（如室內餐廳日光燈、塵埃飛散、桌面震動）撰寫具象物理細節，嚴禁複製貼上！"
+                )
+
+        # Check 6c: H3 物理穿模高風險攔截（單顆打擊鏡同時塞入主角＋路人＋手持道具＋異獸四方碰撞）
+        blocking_desc = s.get("spatial_blocking", {}).get("blocking_desc", "")
+        anchors_str = " ".join(s.get("spatial_blocking", {}).get("anchor_objects", []))
+        combined_visual = f"{' '.join(stages)} {blocking_desc} {anchors_str}"
+        has_npc_victim = any(k in combined_visual for k in ["幼童", "小孩", "婦人", "路人", "店員", "食客", "母子"])
+        has_creature = any(k in combined_visual for k in ["巨鼠", "巨蟒", "異獸", "妖獸", "怪物", "巨獸"])
+        has_prop_strike = any(k in combined_visual for k in ["鐵凳", "圓凳", "椅子", "砸向", "掄起"])
+        if beat_type == "Combat_Impact" and has_npc_victim and has_creature and has_prop_strike:
+            errors.append(
+                f"[{sid} H3 多主體碰撞穿模攔截] 單顆戰鬥鏡頭同時塞入「主角＋無錨定路人＋手持道具＋異獸」四方碰撞，"
+                f"實測必然導致鐵凳懸空吸附鼠鼻與路人衣服被染色！請拆分為："
+                f"① 主角瞳孔驟縮／時間減速感知抄起道具特寫 ➔ ② 90度純粹道具轟中異獸部位特寫（最多2主體） ➔ ③ 異獸受擊翻滾撞翻家具。"
+            )
+
+        # Check 6d: 無參考圖路人單獨佔據中近景/特寫主鏡攔截
+        has_protagonist_or_creature = any(
+            k in combined_visual for k in ["洛年", "沈洛年", "懷真", "賴一心", "瑪蓮", "奇雅", "狄純", "巨鼠", "巨蟒", "白獸", "A", "B", "調查員", "旅人", "女主角", "劍客"]
+        ) or len(s.get("character_ids", [])) > 0
+        is_back_or_partial = any(
+            k in combined_visual.lower() for k in ["背影", "剪影", "失焦", "局部", "畫外音", "back view", "silhouette", "blurred"]
+        )
+        if has_npc_victim and not has_protagonist_or_creature and not is_back_or_partial and shot_size in ("MS", "MCU", "CU", "ECU"):
+            errors.append(
+                f"[{sid} 無參考圖路人主鏡畫風漂移攔截] 鏡頭以無設定圖之路人（如幼童/婦人）作為 {shot_size} 正面主體，"
+                f"H3 在缺乏人物參考圖錨定時必然漂移成異質真人實拍風！請改用背影/前景失焦局部，或改拍已綁定參考圖之主角反應特寫。"
+            )
+
         # Check 7: 台詞語速與閉唇鎖檢查 (含 4 字/秒法則與單句長度警告)
         if dlg.get("has_dialogue"):
             line = (dlg.get("line_verbatim") or "").strip()
@@ -362,6 +407,25 @@ def validate_storyboard_data(data: dict, original_script_dialogues: list = None)
         else:
             if not dlg.get("lips_closed_lock", False):
                 warnings.append(f"[{sid} 閉唇鎖提醒] 鏡頭無台詞，建議將 lips_closed_lock 設為 true 防止角色亂動嘴。")
+
+    # Check 7b: 同段內跨鏡頭複製貼上檢查 (background_idle_life / micro_physics_tail / observable_expression)
+    for field_key, field_label in (
+        ("background_idle_life", "背景動態 (background_idle_life)"),
+        ("micro_physics_tail", "微物理尾韻 (micro_physics_tail)"),
+        ("observable_expression", "外顯表情 (observable_expression)"),
+    ):
+        seen_vals = {}
+        for s in shots:
+            sid = s.get("shot_id", "SH")
+            val = (s.get("action_and_performance", {}).get(field_key) or "").strip()
+            if val and len(val) >= 6:
+                if val in seen_vals:
+                    errors.append(
+                        f"[{sid} 同段複製貼上偷懶違規] {field_label}「{val}」與同段鏡頭 {seen_vals[val]} 完全重複！"
+                        f"請針對每一鏡的實際動作與光影獨立撰寫。"
+                    )
+                else:
+                    seen_vals[val] = sid
 
     # 整段台詞密度與說話時長比例檢查
     total_dialogue_chars = sum(
@@ -388,7 +452,7 @@ def validate_storyboard_data(data: dict, original_script_dialogues: list = None)
     )
 
     checks_passed.append("[PASS] 單鏡動作 <=5 階段、武戲 90° 防遮擋與遠景五官過濾核對完成")
-    checks_passed.append("[PASS] 偽精確數值 (3mm/折射率) 與醫學解剖肌群詞零殘留")
+    checks_passed.append("[PASS] 偽精確數值 (3mm/折射率)、萬用罐頭詞與醫學解剖肌群詞零殘留")
 
     # Check 8: 劇本台詞 100% 一字不差保真核對
     if original_script_dialogues is not None:
@@ -413,6 +477,34 @@ def validate_storyboard_data(data: dict, original_script_dialogues: list = None)
         "warnings": warnings,
         "checks_passed": checks_passed
     }
+
+
+def check_cross_segment_slop(datas: list) -> list:
+    """跨分段批量複製貼上偵測：若同一句 background_idle_life / micro_physics_tail / observable_expression
+    在多個分鏡檔中重複出現 >= 3 次，判定為腳本批量灌水造假並強制攔截。"""
+    errors = []
+    if len(datas) < 2:
+        return errors
+    for field_key, label in (
+        ("background_idle_life", "background_idle_life"),
+        ("micro_physics_tail", "micro_physics_tail"),
+        ("observable_expression", "observable_expression"),
+    ):
+        counts: dict = {}
+        for d in datas:
+            seg_id = d.get("segment_id") or d.get("scene_id") or "SEG"
+            for s in d.get("shots", []):
+                val = (s.get("action_and_performance", {}).get(field_key) or "").strip()
+                if val and len(val) >= 6:
+                    counts.setdefault(val, []).append(f"{seg_id}:{s.get('shot_id', '')}")
+        for val, locs in counts.items():
+            if len(locs) >= 3:
+                errors.append(
+                    f"[跨段批量罐頭詞違規] `{label}` 內容「{val}」在全集重複出現 {len(locs)} 次 "
+                    f"({', '.join(locs[:4])}...)！嚴禁用腳本批量塞罐頭句敷衍過檢！"
+                )
+    return errors
+
 
 
 def run_demo_suite():
@@ -590,6 +682,7 @@ def main():
     try:
         files = {path: validate_storyboard_data(data) for path, data in zip(args.file, datas)}
         dialogue = check_dialogue_groups(datas, handoff, args.scene) if handoff is not None else {}
+        cross_slop = check_cross_segment_slop(datas)
     except Exception as exc:  # 最後防線：未預期的資料異常只印錯誤訊息，不噴 traceback
         print(f"[錯誤] 驗證時遇到無法處理的資料：{exc}", file=sys.stderr)
         sys.exit(1)
@@ -599,11 +692,14 @@ def main():
         print(json.dumps(res, ensure_ascii=False, indent=2))
         sys.exit(0 if res["passed"] else 1)
 
-    passed = all(r["passed"] for r in files.values()) and all(r["passed"] for r in dialogue.values())
-    print(json.dumps({"passed": passed, "files": files, "dialogue_checks": dialogue},
-                     ensure_ascii=False, indent=2))
+    passed = all(r["passed"] for r in files.values()) and all(r["passed"] for r in dialogue.values()) and not cross_slop
+    out_obj = {"passed": passed, "files": files, "dialogue_checks": dialogue}
+    if cross_slop:
+        out_obj["cross_segment_slop_errors"] = cross_slop
+    print(json.dumps(out_obj, ensure_ascii=False, indent=2))
     sys.exit(0 if passed else 1)
 
 
 if __name__ == "__main__":
     main()
+

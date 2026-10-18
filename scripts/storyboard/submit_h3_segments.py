@@ -38,6 +38,16 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
+CURRENT_DIR = Path(__file__).resolve().parent
+if str(CURRENT_DIR) not in sys.path:
+    sys.path.insert(0, str(CURRENT_DIR))
+
+try:
+    from audit_refs_and_segments import audit_refs_and_subjects, lint_h3_prompt
+except ImportError:
+    audit_refs_and_subjects = None
+    lint_h3_prompt = None
+
 
 DEFAULT_API_URL = "http://127.0.0.1:8189/freevideo/agent/v1"
 SAFE_VRAM_MB = 4300  # 4.20 GiB MiniMax H3 臨界啟動安全顯存
@@ -181,6 +191,77 @@ def cancel_stale_jobs(api_url: str, token: str) -> None:
     print("✅ 孤兒任務清理完畢。")
 
 
+def verify_stage4_gate(root_dir: Path, skip_gate: bool = False) -> bool:
+    """階段 4 九宮格門禁：嚴防未審核九宮格分鏡即送件生成影片。"""
+    if skip_gate:
+        print("⚠️ [警告] 已顯式指定 --skip-stage-gate，跳過階段 4 九宮格分鏡門禁。")
+        return True
+
+    # 1. 檢查 images/grid-*.png 或 panels/panel-*.png
+    has_grids = bool(list((root_dir / "images").glob("grid-*.png"))) or bool(list(root_dir.glob("grid-*.png")))
+    has_panels = bool(list((root_dir / "panels").glob("panel-*.png"))) or bool(list(root_dir.glob("panel-*.png")))
+
+    # 2. 檢查 review/stage-4-storyboard.html 或 project-state.json
+    has_review_html = (root_dir / "review" / "stage-4-storyboard.html").exists()
+    state_file = root_dir / "review" / "project-state.json"
+    state_approved = False
+    if state_file.exists():
+        try:
+            with state_file.open("r", encoding="utf-8") as f:
+                st = json.load(f)
+            s4_info = st.get("stages", {}).get("stage-4", {})
+            if s4_info.get("status") in ("approved", "completed"):
+                state_approved = True
+        except Exception:
+            pass
+
+    if not (has_grids or has_panels or state_approved or has_review_html):
+        print("\n" + "=" * 78, file=sys.stderr)
+        print("❌ [Fatal Gate Error - 階段 4 九宮格分鏡門禁阻斷]", file=sys.stderr)
+        print("=" * 78, file=sys.stderr)
+        print("偵測到專案尚未完成「階段 4 鉛筆手繪九宮格分鏡構圖確認」！", file=sys.stderr)
+        print("嚴禁在未生成九宮格構圖審核圖（images/grid-*.png 或 panels/panel-*.png）的情況下偷懶直接呼叫 FreeVideo 生成影片！", file=sys.stderr)
+        print("\n處置要求：", file=sys.stderr)
+        print("  1. 請先執行 python scripts/storyboard/qwen_storyboard_grid.py 產出九宮格草圖。", file=sys.stderr)
+        print("  2. 執行 python scripts/build_stage_review.py 產出 review/stage-4-storyboard.html 並取得核准。", file=sys.stderr)
+        print("  3. 若在單元測試或特殊除錯環境需繞過，請顯式傳入 --skip-stage-gate。\n", file=sys.stderr)
+        print("=" * 78 + "\n", file=sys.stderr)
+        return False
+    return True
+
+
+def audit_segment_prompts(todo_segs: List[Dict[str, Any]]) -> Tuple[bool, List[str]]:
+    """送件前執行 audit_refs_and_segments 17 條確定性審查，杜絕劣質與錯誤 Prompt 浪費顯存。"""
+    if audit_refs_and_subjects is None or lint_h3_prompt is None:
+        return True, []
+
+    errors: List[str] = []
+    for idx, seg in enumerate(todo_segs, 1):
+        sid = seg.get("segment_id") or seg.get("group") or seg.get("id") or f"seg_{idx}"
+        prompt = seg.get("h3_prompt") or seg.get("prompt", "")
+        if not prompt:
+            continue
+
+        dur = 7.0
+        if "metadata" in seg and isinstance(seg["metadata"], dict):
+            dur = float(seg["metadata"].get("target_duration_sec") or seg["metadata"].get("effective_duration_sec") or 7.0)
+
+        # 模式 A: 參考圖序對
+        if "reference_images" in seg:
+            r_res = audit_refs_and_subjects(seg)
+            if not r_res.get("passed", True):
+                for e in r_res.get("errors", []):
+                    errors.append(f"[{sid}] 模式 A 參考圖錯誤: {e}")
+
+        # 模式 B: H3 提示詞 17 條自檢
+        l_res = lint_h3_prompt(prompt, nominal_duration=dur)
+        if not l_res.get("passed", True):
+            for e in l_res.get("errors", []):
+                errors.append(f"[{sid}] 模式 B 提示詞錯誤: {e}")
+
+    return len(errors) == 0, errors
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="submit_h3_segments.py — MiniMax H3 批次分段影片送件工具"
@@ -194,6 +275,7 @@ def main() -> int:
     parser.add_argument("--cancel-stale", action="store_true", help="清理伺服器殘留的孤兒分段任務")
     parser.add_argument("--force", action="store_true", help="若目標影片已存在，強制重新送件覆蓋")
     parser.add_argument("--root-dir", type=Path, default=Path("."), help="專案根目錄 (用以解析相對路徑參考圖)")
+    parser.add_argument("--skip-stage-gate", action="store_true", help="強制跳過階段 4 九宮格分鏡門禁檢查（僅限測試或除錯）")
 
     args = parser.parse_args()
 
@@ -211,6 +293,10 @@ def main() -> int:
 
     if not args.segments.exists():
         sys.exit(f"❌ 錯誤: 分段檔不存在: {args.segments}")
+
+    # 執行階段 4 九宮格硬性門禁檢查
+    if not verify_stage4_gate(args.root_dir, skip_gate=args.skip_stage_gate):
+        return 1
 
     # 讀取分段列表
     with args.segments.open("r", encoding="utf-8") as f:
@@ -237,6 +323,17 @@ def main() -> int:
 
     if not todo_segs:
         sys.exit(f"❌ 錯誤: 在 {args.segments} 中未找到符合條件的分段！")
+
+    # 執行提示詞確定性事前自檢
+    prompt_ok, prompt_errors = audit_segment_prompts(todo_segs)
+    if not prompt_ok:
+        print("\n" + "=" * 78, file=sys.stderr)
+        print(f"❌ [Fatal Audit Error - 提示詞品質自檢攔截 ({len(prompt_errors)} 項錯誤)]", file=sys.stderr)
+        print("=" * 78, file=sys.stderr)
+        for pe in prompt_errors:
+            print(f"  • {pe}", file=sys.stderr)
+        print("\n處置要求：請修正 Layer 2 分鏡或重新編譯 H3 提示詞，杜絕劣質 Prompt 浪費算力。\n", file=sys.stderr)
+        return 1
 
     print("\n" + "=" * 70)
     print("🎬 MiniMax H3 分段影片送件管理器 (submit_h3_segments)")

@@ -512,6 +512,56 @@ def lint_h3_prompt(
         )
 
     # --------------------------------------------------------------------------
+    # 規則 14 (E): 同鏡重複運鏡詞句與罐頭模板句攔截 (抓出子代理每句前後重複貼 static shot)
+    # --------------------------------------------------------------------------
+    canned_patterns = [
+        r"then the motion transitions smoothly",
+        r"executes deliberate physical blocking with natural body movement",
+        r"executing choreographed actions with emotional continuity",
+    ]
+    for idx, block in enumerate(shot_blocks, start=1):
+        b_lower = block.lower()
+        # 檢查同鏡內是否有重複出現的 "as the camera" 或 "the camera"
+        cam_mentions = len(re.findall(r"\b(?:as\s+)?the\s+camera\s+[a-z\s]+?(?:to\s+frame|holds|\.)", b_lower))
+        if cam_mentions > 1 or b_lower.count("as the camera") > 1 or b_lower.count("holds a static shot") > 1:
+            errors.append(
+                f"[E14: 同鏡重複運鏡句違規] [Shot {idx}] 出現多次重複運鏡句或模板拼接（如重複貼上 'as the camera holds a static shot'）！"
+                f"單鏡必須只有一次連貫的運鏡動機與鏡頭運動。"
+            )
+        for cp in canned_patterns:
+            if re.search(cp, b_lower):
+                errors.append(
+                    f"[E14: 罐頭模板違規] [Shot {idx}] 含有未具象化的機械式模板句 '{cp}'！"
+                    f"必須依實際劇情與物理力學描繪具體動作。"
+                )
+
+    # --------------------------------------------------------------------------
+    # 規則 15 (E): 未翻譯中文混雜攔截 (防 compile_layer2_to_h3 丟失中文動作直接硬拼)
+    # --------------------------------------------------------------------------
+    if "the target video is" in detailed_desc.lower():
+        # 移除 <d>...</d> 中的中文台詞後，檢查是否仍有未翻譯的中文動作句
+        non_dlg_desc = re.sub(r"<d>.*?</d>", "", detailed_desc, flags=re.DOTALL)
+        raw_chinese_chars = re.findall(r"[\u4e00-\u9fff]", non_dlg_desc)
+        if len(raw_chinese_chars) > 6:
+            errors.append(
+                f"[E15: 動作描述未完整翻譯] detailed_description 含有 {len(raw_chinese_chars)} 個未編譯為英文的中文動作文字！"
+                f"英文提示詞模式下，除 `<d>` 台詞外所有動作力學三要素必須完整英譯。"
+            )
+
+    # --------------------------------------------------------------------------
+    # 規則 16 (E): 戰鬥衝擊鏡頭缺少物理反饋
+    # --------------------------------------------------------------------------
+    combat_cues = ["whip", "strike", "swing", "smash", "punch", "slash", "crash", "tumble", "collide", "shatter"]
+    impact_feedback_cues = ["sparks", "debris", "recoil", "flinch", "dust", "smoke", "shatter", "knocked back", "tumbles", "shockwave", "blast"]
+    if any(re.search(rf"\b{cc}\b", detailed_desc, re.IGNORECASE) for cc in combat_cues):
+        has_impact_feedback = any(re.search(rf"\b{fc}\b", detailed_desc, re.IGNORECASE) for fc in impact_feedback_cues)
+        if not has_impact_feedback:
+            errors.append(
+                "[E16: 戰鬥衝擊缺少物理反饋] 檢測到戰鬥打擊動作，但未描述任何受擊反饋（如 sparks, dust, recoil, tumbles, shockwave 等）！"
+                "缺乏環境物理反饋必然導致武器/道具懸空吸附在怪獸身上。"
+            )
+
+    # --------------------------------------------------------------------------
     # 規則 10 (W): 相鄰鏡頭運鏡同款警告
     # --------------------------------------------------------------------------
     for i in range(len(shot_motions) - 1):
@@ -585,6 +635,7 @@ def lint_h3_prompt(
         "warnings": warnings,
         "details": details,
     }
+
 
 
 # ==============================================================================
