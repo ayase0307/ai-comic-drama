@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 compare_adaptation.py — 原著改編差異審計、四大強制退稿閘門檢查與 100 分制 A/B 對照評分器
+支援單章拆多集合併總驗收與單集過濾驗收模式。
 """
 
 import argparse
@@ -26,20 +27,28 @@ def evaluate_adaptation(
     handoff_data: Dict[str, Any],
     script_text: str,
     bible_data: Optional[Dict[str, Any]] = None,
+    target_episode: Optional[str] = None,
+    h3_mode: bool = False,
 ) -> Dict[str, Any]:
-    """對改編成果執行原著對帳、四大退稿閘門檢測與 100 分制量化評分。"""
+    """對改編成果執行原著對帳、四大退稿閘門檢測與 100 分制量化評分。支援多集合併與單集過濾。"""
     errors: List[str] = []
     warnings: List[str] = []
     gate_failures: List[str] = []
 
     struct_res = parse_and_validate_script(script_text)
     genre_mode = handoff_data.get("genre_mode", source_data.get("genre_mode", "mystery_thriller"))
-    target_sec = None
+
     episodes = handoff_data.get("episodes", [])
+    if target_episode:
+        matched_eps = [ep for ep in episodes if ep.get("episode_id", "").upper() == target_episode.upper()]
+        if matched_eps:
+            episodes = matched_eps
+
+    target_sec = None
     if episodes:
         target_sec = sum(ep.get("target_duration_seconds", 90) for ep in episodes)
 
-    dur_res = estimate_script_duration(script_text, genre_mode=genre_mode, target_seconds=target_sec)
+    dur_res = estimate_script_duration(script_text, genre_mode=genre_mode, target_seconds=target_sec, h3_mode=h3_mode)
     cont_res = (
         audit_continuity(bible_data, handoff_data, script_text)
         if bible_data
@@ -72,7 +81,13 @@ def evaluate_adaptation(
                     tracked_change_refs.add(chg["source_ref"])
 
     # 1. 檢查原著 MUST_KEEP 事件是否遺失 & 是否存在 UNTRACKED_MAJOR_CHANGE
-    source_units = source_data.get("story_units", [])
+    raw_source_units = source_data.get("story_units", [])
+    if target_episode:
+        ep_filter = target_episode.upper()
+        source_units = [u for u in raw_source_units if not u.get("episode") or u.get("episode", "").upper() == ep_filter]
+    else:
+        source_units = raw_source_units
+
     must_keep_total = 0
     must_keep_kept = 0
 
@@ -99,7 +114,7 @@ def evaluate_adaptation(
                 if "UNTRACKED_MAJOR_CHANGE" not in gate_failures:
                     gate_failures.append("UNTRACKED_MAJOR_CHANGE")
 
-    # 2. 檢查跨章伏筆是否提前洩底（Premature Spoiler Check — 檢查劇本正文與場景對白/動作節拍）
+    # 2. 檢查跨章伏筆是否提前洩底（Premature Spoiler Check）
     for clue in source_data.get("foreshadowing", []):
         clue_id = clue.get("clue_id")
         reveal_after_scene_idx = clue.get("min_reveal_scene_index", 0)
@@ -122,7 +137,7 @@ def evaluate_adaptation(
                         if "FATAL_CAUSAL_BREAK" not in gate_failures:
                             gate_failures.append("FATAL_CAUSAL_BREAK")
 
-    # 3. 檢查原著缺口與刻意矛盾是否誠實登記（Incomplete / Contradictory Source Check）
+    # 3. 檢查原著缺口與刻意矛盾是否誠實登記
     reported_issues = handoff_data.get("source_gaps_or_contradictions", [])
     reported_types = {item.get("type") for item in reported_issues}
 
@@ -166,7 +181,6 @@ def evaluate_adaptation(
         "foreshadowing_and_continuity_6": 6.0,
     }
 
-    # 依具體錯誤扣分
     if "FATAL_CAUSAL_BREAK" in gate_failures:
         scores["core_story_and_causality_18"] -= 10.0
     if must_keep_total > 0 and must_keep_kept < must_keep_total:
@@ -218,29 +232,102 @@ def evaluate_adaptation(
         "warning_count": len(warnings),
         "errors": errors,
         "warnings": warnings,
+        "h3_audit": dur_res.get("h3_audit"),
     }
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="評估小說改編品質、檢查四大退稿閘門並支援 A/B 對照")
+    parser = argparse.ArgumentParser(description="評估小說改編品質、檢查四大退稿閘門並支援 A/B 對照與單章拆多集合併驗收")
     parser.add_argument("--source", type=str, required=True, help="原著結構化分析 JSON 路徑")
-    parser.add_argument("--handoff", type=str, required=True, help="改編後 Handoff JSON 路徑")
-    parser.add_argument("--script", type=str, required=True, help="改編後劇本路徑")
+    parser.add_argument(
+        "--handoff",
+        type=str,
+        nargs="+",
+        required=True,
+        help="改編後 Handoff JSON 路徑（支援多檔案或逗號分隔，進行多集合併全章驗收）",
+    )
+    parser.add_argument(
+        "--script",
+        type=str,
+        nargs="+",
+        required=True,
+        help="改編後劇本路徑（支援多檔案或逗號分隔，進行多集合併全章驗收）",
+    )
     parser.add_argument("--bible", type=str, default=None, help="選填：Story Bible JSON 路徑")
+    parser.add_argument("--episode", type=str, default=None, help="選填：指定單集代號（例如 EP01）以進行單集過濾驗收")
+    parser.add_argument("--h3", action="store_true", help="開啟 H3 漫劇台詞預算嚴格檢查（4字/秒、單句≤15字、說話秒數佔比≤60%%）")
     parser.add_argument("--json", action="store_true", help="輸出 JSON 格式")
     args = parser.parse_args()
 
-    source_data = json.loads(Path(args.source).read_text(encoding="utf-8"))
-    handoff_data = json.loads(Path(args.handoff).read_text(encoding="utf-8"))
-    script_text = Path(args.script).read_text(encoding="utf-8")
+    # 扁平化展開多路徑參數
+    handoff_paths: List[Path] = []
+    for h in args.handoff:
+        for p in h.split(","):
+            p_clean = p.strip()
+            if p_clean:
+                handoff_paths.append(Path(p_clean))
+
+    script_paths: List[Path] = []
+    for s in args.script:
+        for p in s.split(","):
+            p_clean = p.strip()
+            if p_clean:
+                script_paths.append(Path(p_clean))
+
+    source_path = Path(args.source)
+    if not source_path.exists():
+        print(f"[錯誤] 找不到原著 source 檔案：{source_path}", file=sys.stderr)
+        return 1
+    source_data = json.loads(source_path.read_text(encoding="utf-8"))
+
+    # 讀取並合併多集 handoff
+    base_handoff: Dict[str, Any] = {}
+    all_episodes = []
+    for hp in handoff_paths:
+        if not hp.exists():
+            print(f"[錯誤] 找不到 Handoff 檔案：{hp}", file=sys.stderr)
+            return 1
+        hdata = json.loads(hp.read_text(encoding="utf-8"))
+        if not base_handoff:
+            base_handoff = dict(hdata)
+            base_handoff["episodes"] = []
+        for ep in hdata.get("episodes", []):
+            all_episodes.append(ep)
+
+    base_handoff["episodes"] = all_episodes
+    handoff_data = base_handoff
+
+    # 讀取並合併多集劇本文字
+    script_text_parts = []
+    for sp in script_paths:
+        if not sp.exists():
+            print(f"[錯誤] 找不到劇本檔案：{sp}", file=sys.stderr)
+            return 1
+        script_text_parts.append(sp.read_text(encoding="utf-8"))
+    script_text = "\n\n".join(script_text_parts)
+
     bible_data = json.loads(Path(args.bible).read_text(encoding="utf-8")) if args.bible else None
 
-    res = evaluate_adaptation(source_data, handoff_data, script_text, bible_data)
+    res = evaluate_adaptation(
+        source_data,
+        handoff_data,
+        script_text,
+        bible_data=bible_data,
+        target_episode=args.episode,
+        h3_mode=args.h3,
+    )
 
     if args.json:
         print(json.dumps(res, ensure_ascii=False, indent=2))
     else:
-        print(f"=== 改編品質 100 分制與四大閘門審計報告 ({Path(args.script).name}) ===")
+        if len(handoff_paths) > 1:
+            scope_str = f"多集合併全章驗收 ({len(handoff_paths)} 集)"
+        elif args.episode:
+            scope_str = f"單集驗收: {args.episode}"
+        else:
+            scope_str = script_paths[0].name
+
+        print(f"=== 改編品質 100 分制與四大閘門審計報告 ({scope_str}) ===")
         print(
             f"總評狀態: {res['status']} | 總分: {res['total_score_100']}/100 | "
             f"MUST_KEEP 保留: {res['must_keep_coverage']} | 錯誤數: {res['error_count']}"
@@ -249,6 +336,15 @@ def main() -> int:
             print(f"🚨 觸發一票否決退稿閘門: {', '.join(res['gate_failures'])}")
         else:
             print("✅ 四大強制退稿閘門: 全部通過 (0 觸發)")
+
+        if res.get("h3_audit") and res["h3_audit"].get("h3_mode"):
+            h3 = res["h3_audit"]
+            pass_str = "✅ 符合預算" if h3["passed"] else "⚠️ 建議調整"
+            print(
+                f"【H3 台詞預算審計】{pass_str} | 純說話秒數: {h3['speech_seconds']}s (4.0字/秒) | "
+                f"說話時長佔比: {h3['speech_ratio']:.1%} (上限 60.0%) | 最長單句: {h3['max_line_chars']} 字 (上限 15 字)"
+            )
+
         print("各維度得分明細:")
         for k, v in res["dimension_scores"].items():
             print(f"  - {k}: {v}")

@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
-"""handoff JSON 轉 Layer 2 分鏡骨架。
+"""handoff JSON 轉 Layer 2 分鏡骨架（已全面升級對齊《噩盡島》實戰定案）。
 
 用法：
-    python scripts/storyboard/handoff_to_skeleton.py <handoff.json> --out-dir <目錄> [--scene EP01-S01] [--force]
+    python scripts/storyboard/handoff_to_skeleton.py <handoff.json> --out-dir <目錄> [--scene EP01-S01] [--max-segment-sec 10.0] [--max-shots 3] [--force]
 
 每個場景輸出 <目錄>/layer2-<segment_id>.json，結構符合
 references/storyboard/templates/layer2-storyboard.schema.json。
 
 這是「骨架」，供導演細化，不是成品分鏡：
-- 每句對白、每個動作拍各一個鏡頭（每段上限 8 鏡），對白逐字複製，絕不丟棄。
-- 鏡頭秒數由文字推算：對白 = 字數 ÷ 3.8（至少 1.5 秒），動作拍預設 2.5 秒。
-- 單鏡估時超過 15 秒（H3 單鏡上限）的對白，依標點切成多鏡（找不到標點就切中間字），串接後與原文相同。
-- 場景依序切段，每段 ≤ 8 鏡且估時 ≤ 60 秒；段名 <scene_id>-a…-z、-aa、-ab…，後段 SEAMLESS_CONTINUATION 接前段。
+- 每句對白、每個動作拍各一個鏡頭（預設每段 2–3 節拍/鏡，時長 7–10 秒），對白逐字複製，絕不丟棄。
+- 鏡頭秒數由文字推算：對白 = 字數 ÷ 4.0（至少 2.5 秒，確保窗口足夠），動作拍預設 2.5 秒。
+- 單鏡估時超過 10~15 秒（H3 單鏡上限）的對白，依標點切成多鏡（找不到標點就切中間字），串接後與原文相同。
+- 場景依序切段，每段預設 ≤ 3 鏡且估時 ≤ 10 秒；段名 <scene_id>-a…-z、-aa、-ab…，跨段預設採 INDEPENDENT_REF2VA 獨立分段。
+- 動作階段預填【施力點 ➔ 傳導路徑 ➔ 受擊與環境反饋】三要素模板，連戲預填四大錨點（lighting/axis/blocking/texture）。
 - 鏡頭語言、動作階段、光線鎖、風格鎖等標 TODO，導演須依情節重寫；
   validate_storyboard.py 與 layer2_to_table.py --check 遇到 TODO 一律失敗。
 - 動作拍的順序為先動作後對白（handoff 未提供兩者的先後關係）。
@@ -35,10 +36,10 @@ ROOT = Path(__file__).resolve().parents[2]
 LAYER2_SCHEMA = ROOT / "references/storyboard/templates/layer2-storyboard.schema.json"
 HANDOFF_SCHEMA = ROOT / "references/adapt/templates/handoff.schema.json"
 
-MAX_SHOTS = 8
-MAX_SEGMENT_SEC = 60.0
-CHARS_PER_SEC = 3.8
-MIN_DIALOGUE_SEC = 1.5
+DEFAULT_MAX_SHOTS = 3
+DEFAULT_MAX_SEGMENT_SEC = 10.0
+CHARS_PER_SEC = 4.0
+MIN_DIALOGUE_SEC = 2.5
 MAX_SHOT_SEC = 15.0  # H3 單鏡上限
 ACTION_SHOT_SEC = 2.5
 ASPECT_MAP = {"9:16": "9:16", "16:9": "16:9", "other": "16:9"}
@@ -156,14 +157,14 @@ def segment_sort_key(segment_id: str) -> tuple:
 
 
 def dialogue_seconds(text: str) -> float:
-    """對白鏡秒數 = 字數 ÷ 3.8，至少 1.5 秒。"""
+    """對白鏡秒數 = 字數 ÷ 4.0，至少 2.5 秒（確保 H3 窗口足夠）。"""
     return round(max(MIN_DIALOGUE_SEC, count_speech_chars(text) / CHARS_PER_SEC), 2)
 
 
-def split_long_line(text: str) -> list[str]:
-    """估時超過 MAX_SHOT_SEC 的對白切成多鏡：優先切在最接近中間的標點後（兩側都要有字），否則切中間字。
+def split_long_line(text: str, max_sec: float = MAX_SHOT_SEC) -> list[str]:
+    """估時超過 max_sec 的對白切成多鏡：優先切在最接近中間的標點後（兩側都要有字），否則切中間字。
     遞迴直到每段 ≤ 上限；串接結果與原文逐字相同。"""
-    if dialogue_seconds(text) <= MAX_SHOT_SEC or len(text) < 2:
+    if dialogue_seconds(text) <= max_sec or len(text) < 2:
         return [text]
     mid = len(text) // 2
     cuts = [
@@ -172,38 +173,45 @@ def split_long_line(text: str) -> list[str]:
         and count_speech_chars(text[: i + 1]) > 0 and count_speech_chars(text[i + 1:]) > 0
     ]
     cut = min(cuts, key=lambda c: abs(c - mid)) if cuts else mid
-    return split_long_line(text[:cut]) + split_long_line(text[cut:])
+    return split_long_line(text[:cut], max_sec=max_sec) + split_long_line(text[cut:], max_sec=max_sec)
 
 
-def build_items(scene: dict) -> list[dict]:
+def build_items(scene: dict, max_sec: float = DEFAULT_MAX_SEGMENT_SEC) -> list[dict]:
     """先動作拍、後對白（對白為必保留項目，動作拍是段落的填充物）。超長對白會切成多個對白鏡。"""
-    beats = scene.get("action_beats") or scene["storyboard_handoff"].get("required_visual_beats") or []
+    beats = scene.get("action_beats") or scene.get("storyboard_handoff", {}).get("required_visual_beats") or []
     items: list[dict] = [{"kind": "beat", "text": text, "duration": ACTION_SHOT_SEC} for text in beats]
-    for line in scene["dialogue"]:
-        for piece in split_long_line(line["text"]):
+    split_threshold = min(max_sec, MAX_SHOT_SEC)
+    for line in scene.get("dialogue", []):
+        speech_len = count_speech_chars(line["text"])
+        if speech_len > 15:
+            warn(f"{scene.get('scene_id')} 單句台詞超過 15 字（{speech_len} 字）：「{line['text']}」，建議拆短以符合 H3 實戰台詞預算")
+        for piece in split_long_line(line["text"], max_sec=split_threshold):
             items.append({
                 "kind": "dialogue",
                 "speaker": line["speaker"],
                 "text": piece,
                 "note": line.get("delivery_note", ""),
-                "audio_type": line["audio_type"],
+                "audio_type": line.get("audio_type", "dialogue"),
                 "duration": dialogue_seconds(piece),
             })
     return items
 
 
-def pack_items(items: list[dict], scene_id: str) -> list[list[dict]]:
-    """依序裝段：每段 ≤ MAX_SHOTS 鏡且估時 ≤ MAX_SEGMENT_SEC。只換段，不丟任何項目。"""
+def pack_items(items: list[dict], scene_id: str,
+               max_shots: int = DEFAULT_MAX_SHOTS,
+               max_segment_sec: float = DEFAULT_MAX_SEGMENT_SEC) -> list[list[dict]]:
+    """依序裝段：每段 ≤ max_shots 鏡且估時 ≤ max_segment_sec。只換段，不丟任何項目。"""
     segments: list[list[dict]] = []
     current: list[dict] = []
     current_sec = 0.0
     for item in items:
-        if item["duration"] > MAX_SEGMENT_SEC:
+        if item["duration"] > MAX_SHOT_SEC:
             raise DialogueOverflowError(
-                f"{scene_id} 有一句台詞估時 {item['duration']} 秒，超過單段 {MAX_SEGMENT_SEC:.0f} 秒上限，"
+                f"{scene_id} 有一句台詞估時 {item['duration']} 秒，超過 H3 單鏡 {MAX_SHOT_SEC:.0f} 秒上限，"
                 f"無法切段又不丟台詞：{item['text']!r}。請拆句後重跑。"
             )
-        if current and (len(current) >= MAX_SHOTS or current_sec + item["duration"] > MAX_SEGMENT_SEC):
+        # 若當前段已滿 max_shots，或加入後超過 max_segment_sec（且當前段已有鏡頭），則切段
+        if current and (len(current) >= max_shots or current_sec + item["duration"] > max_segment_sec):
             segments.append(current)
             current, current_sec = [], 0.0
         current.append(item)
@@ -213,10 +221,12 @@ def pack_items(items: list[dict], scene_id: str) -> list[list[dict]]:
     return segments
 
 
-def scene_chunks(scene: dict) -> list[list[dict]]:
+def scene_chunks(scene: dict, max_shots: int = DEFAULT_MAX_SHOTS,
+                 max_segment_sec: float = DEFAULT_MAX_SEGMENT_SEC) -> list[list[dict]]:
     """場景切段（純計算，不發警告，供計算銜接關係時重複呼叫）。"""
     placeholder = {"kind": "beat", "text": f"{TODO}：補動作", "duration": ACTION_SHOT_SEC}
-    return pack_items(build_items(scene) or [placeholder], scene["scene_id"])
+    items = build_items(scene, max_sec=max_segment_sec) or [placeholder]
+    return pack_items(items, scene["scene_id"], max_shots=max_shots, max_segment_sec=max_segment_sec)
 
 
 def segment_target(chunk: list[dict]) -> float:
@@ -225,14 +235,14 @@ def segment_target(chunk: list[dict]) -> float:
 
 def build_char_map(scene: dict) -> dict[str, str]:
     raws = list(scene.get("characters", []))
-    for line in scene["dialogue"]:
+    for line in scene.get("dialogue", []):
         if line["speaker"] not in raws:
             raws.append(line["speaker"])
     return {raw: make_id("C", raw, i) for i, raw in enumerate(raws)}
 
 
 def make_shot(item: dict, shot_id: str, start: float, duration: float,
-              scene: dict, char_map: dict[str, str]) -> dict:
+              scene: dict, char_map: dict[str, str], is_last_shot: bool = False) -> dict:
     end = round(start + duration, 2)
     if item["kind"] == "dialogue":
         speaker_id = char_map[item["speaker"]]
@@ -249,7 +259,12 @@ def make_shot(item: dict, shot_id: str, start: float, duration: float,
             "audio_bridge": "NONE",
             "foley_and_ambience": TODO,
         }
-        stages = [f"{TODO}：補動作階段"]
+        # 動作力學三要素引導結構（說話鏡頭）
+        stages = [
+            f"{TODO}：【施力點】說話起手姿態與神態反應",
+            f"{TODO}：【傳導路徑】重心微移與肢體呼吸起伏",
+            f"{TODO}：【受擊與環境反饋】神態定格與環境氛圍呼應",
+        ]
         character_ids = [speaker_id]
     else:
         audio = {
@@ -260,8 +275,16 @@ def make_shot(item: dict, shot_id: str, start: float, duration: float,
             "audio_bridge": "NONE",
             "foley_and_ambience": TODO,
         }
-        stages = [item["text"]]
+        beat_text = item["text"]
+        # 動作力學三要素引導結構（動作拍）
+        stages = [
+            f"{TODO}：【施力點】{beat_text}（發力部位與起手動作）",
+            f"{TODO}：【傳導路徑】重心轉移與肢體/武器運動軌跡",
+            f"{TODO}：【受擊與環境反饋】形變/位移與揚塵/氣浪特效",
+        ]
         character_ids = [char_map[c] for c in scene.get("characters", [])]
+
+    tail_note = "末鏡收尾靜止留白" if is_last_shot else "動作與視線延伸"
     return {
         "shot_id": shot_id,
         "start_time": start,
@@ -283,7 +306,7 @@ def make_shot(item: dict, shot_id: str, start: float, duration: float,
         },
         "action_and_performance": {
             "action_stages": stages,
-            "observable_expression": TODO,
+            "observable_expression": f"{TODO}：五官神態微表演（{tail_note}）",
         },
         "dialogue_and_audio": audio,
     }
@@ -291,8 +314,11 @@ def make_shot(item: dict, shot_id: str, start: float, duration: float,
 
 def build_shots(chunk: list[dict], seg_id: str, scene: dict, char_map: dict[str, str]) -> list[dict]:
     shots, start = [], 0.0
+    total = len(chunk)
     for i, item in enumerate(chunk, start=1):
-        shot = make_shot(item, f"{seg_id}-SH{i:02d}", round(start, 2), item["duration"], scene, char_map)
+        is_last = (i == total)
+        shot = make_shot(item, f"{seg_id}-SH{i:02d}", round(start, 2), item["duration"],
+                         scene, char_map, is_last_shot=is_last)
         shots.append(shot)
         start = shot["end_time"]
     return shots
@@ -300,9 +326,9 @@ def build_shots(chunk: list[dict], seg_id: str, scene: dict, char_map: dict[str,
 
 def build_asset_refs(scene: dict, char_map: dict[str, str]) -> dict:
     """char_map 已含場景角色與說話者（說話者不在 scene.characters 時也會補入）。"""
-    location = scene["setting"].get("location", "")
+    location = scene.get("setting", {}).get("location", "")
     speakers: list[str] = []
-    for line in scene["dialogue"]:
+    for line in scene.get("dialogue", []):
         if line["speaker"] not in speakers:
             speakers.append(line["speaker"])
     return {
@@ -325,14 +351,25 @@ def build_layer2(handoff: dict, scene: dict, seg_id: str, chunk: list[dict],
         **handshake,
         "overflow_dialogue_in": None,
         "overflow_dialogue_out": None,
-        "persistent_world_state": [f"{k}: {v}" for k, v in scene["continuity_final"].items()],
+        "persistent_world_state": [f"{k}: {v}" for k, v in scene.get("continuity_final", {}).items()],
     }
     return {
         "project_id": handoff["project_id"],
         "scene_id": scene["scene_id"],
         "segment_id": seg_id,
         "source_scene_id": scene["scene_id"],
-        "style_lock": {"anchor": TODO, "negative": TODO, "lighting_lock_line": TODO},
+        "style_lock": {
+            "anchor": TODO,
+            "negative": TODO,
+            "lighting_lock_line": TODO,
+            "continuity_anchors": {
+                "lighting": f"{TODO}：光線錨點（光源方向、色溫與主影位置）",
+                "axis": f"{TODO}：軸線錨點（180度水平視線軸與攝影機安全側）",
+                "blocking": f"{TODO}：站位錨點（主體與實體家具之相對空間坐標）",
+                "texture": f"{TODO}：材質錨點（服裝布料、皮膚質感與環境材質）",
+            },
+            "tail_freeze_hold": True,
+        },
         "asset_refs": build_asset_refs(scene, char_map),
         "metadata": {
             "aspect_ratio": ASPECT_MAP[handoff["aspect_ratio"]],
@@ -347,11 +384,13 @@ def build_layer2(handoff: dict, scene: dict, seg_id: str, chunk: list[dict],
 
 
 def build_scene(handoff: dict, scene: dict, chunks: list[list[dict]],
-                prev_last_id: str | None) -> list[tuple[str, dict]]:
-    """prev_last_id 為 None 代表該集第一場，採 HARD_CUT_ESTABLISH。"""
+                prev_last_id: str | None,
+                max_shots: int = DEFAULT_MAX_SHOTS,
+                max_segment_sec: float = DEFAULT_MAX_SEGMENT_SEC) -> list[tuple[str, dict]]:
+    """prev_last_id 為 None 代表該集第一場，採 HARD_CUT_ESTABLISH；後續段落預設走 INDEPENDENT_REF2VA 獨立分段。"""
     ids = segment_ids(scene["scene_id"], len(chunks))
     if len(chunks) > 1:
-        warn(f"{scene['scene_id']} 切成 {len(chunks)} 段（每段 ≤ {MAX_SHOTS} 鏡、≤ {MAX_SEGMENT_SEC:.0f} 秒），請導演確認切點")
+        warn(f"{scene['scene_id']} 切成 {len(chunks)} 段（每段 ≤ {max_shots} 鏡、≤ {max_segment_sec:.1f} 秒），請導演確認切點")
     char_map = build_char_map(scene)
     out = []
     for i, (seg_id, chunk) in enumerate(zip(ids, chunks)):
@@ -359,26 +398,29 @@ def build_scene(handoff: dict, scene: dict, chunks: list[list[dict]],
             handshake = {"mode": "HARD_CUT_ESTABLISH", "inherited_from_segment": None}
         else:
             inherited = prev_last_id if i == 0 else ids[i - 1]
-            handshake = {"mode": "SEAMLESS_CONTINUATION", "inherited_from_segment": inherited}
-        planned = scene["continuity_final"] if i == len(chunks) - 1 else {}
+            handshake = {"mode": "INDEPENDENT_REF2VA", "inherited_from_segment": inherited}
+        planned = scene.get("continuity_final", {}) if i == len(chunks) - 1 else {}
         out.append((seg_id, build_layer2(handoff, scene, seg_id, chunk, handshake, planned, char_map)))
     return out
 
 
-def convert_handoff(handoff: dict, scene_filter: str | None) -> list[tuple[str, dict]]:
+def convert_handoff(handoff: dict, scene_filter: str | None,
+                    max_shots: int = DEFAULT_MAX_SHOTS,
+                    max_segment_sec: float = DEFAULT_MAX_SEGMENT_SEC) -> list[tuple[str, dict]]:
     """回傳 [(segment_id, layer2 dict)]，依集與場順序。"""
-    if handoff["aspect_ratio"] == "other":
+    if handoff.get("aspect_ratio") == "other":
         warn("handoff aspect_ratio 為 other，Layer 2 對應為 16:9，請導演確認")
     results: list[tuple[str, dict]] = []
     matched = False
-    for episode in handoff["episodes"]:
+    for episode in handoff.get("episodes", []):
         prev_last_id: str | None = None
-        for scene in episode["scenes"]:
-            chunks = scene_chunks(scene)
+        for scene in episode.get("scenes", []):
+            chunks = scene_chunks(scene, max_shots=max_shots, max_segment_sec=max_segment_sec)
             ids = segment_ids(scene["scene_id"], len(chunks))
             if scene_filter is None or scene_filter == scene["scene_id"]:
                 matched = matched or scene_filter == scene["scene_id"]
-                results += build_scene(handoff, scene, chunks, prev_last_id)
+                results += build_scene(handoff, scene, chunks, prev_last_id,
+                                       max_shots=max_shots, max_segment_sec=max_segment_sec)
             prev_last_id = ids[-1]
     if scene_filter and not matched:
         raise ValueError(f"找不到場景 {scene_filter}")
@@ -448,10 +490,14 @@ def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
         sys.stderr.reconfigure(encoding="utf-8")
-    ap = argparse.ArgumentParser(description="handoff JSON 轉 Layer 2 分鏡骨架（僅供導演細化）")
+    ap = argparse.ArgumentParser(description="handoff JSON 轉 Layer 2 分鏡骨架（已全面升級對齊《噩盡島》實戰定案）")
     ap.add_argument("handoff", type=Path, help="handoff JSON 路徑")
     ap.add_argument("--out-dir", type=Path, required=True, help="輸出目錄")
     ap.add_argument("--scene", help="只輸出指定場景，例如 EP01-S01")
+    ap.add_argument("--max-segment-sec", type=float, default=DEFAULT_MAX_SEGMENT_SEC,
+                    help="單段最大目標時長秒數（預設 10.0s，每段建議 7–10s）")
+    ap.add_argument("--max-shots", type=int, default=DEFAULT_MAX_SHOTS,
+                    help="單段最大鏡頭數（預設 3 鏡，每段建議 2–3 節拍）")
     ap.add_argument("--force", action="store_true", help="覆寫已存在的骨架檔")
     args = ap.parse_args()
 
@@ -467,7 +513,9 @@ def main() -> int:
         return 1
 
     try:
-        results = convert_handoff(handoff, args.scene)
+        results = convert_handoff(handoff, args.scene,
+                                  max_shots=args.max_shots,
+                                  max_segment_sec=args.max_segment_sec)
     except DialogueOverflowError as exc:
         print(f"[錯誤] {exc}", file=sys.stderr)
         return 1

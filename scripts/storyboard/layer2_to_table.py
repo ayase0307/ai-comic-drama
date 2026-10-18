@@ -36,16 +36,21 @@ TIMELINE_COLUMNS = ["shot_id", "start", "end", "duration", "video_file",
 
 
 def collect_files(inputs: list[str]) -> list[Path]:
+    import glob
     files: list[Path] = []
     for raw in inputs:
-        path = Path(raw)
-        if path.is_dir():
-            found = sorted(path.glob("layer2-*.json"))
-            if not found:
-                print(f"[警告] 目錄 {path} 內沒有 layer2-*.json", file=sys.stderr)
-            files.extend(found)
+        if any(c in raw for c in ("*", "?", "[")):
+            matched = sorted(glob.glob(raw))
+            files.extend(Path(p) for p in matched)
         else:
-            files.append(path)
+            path = Path(raw)
+            if path.is_dir():
+                found = sorted(path.glob("layer2-*.json"))
+                if not found:
+                    print(f"[警告] 目錄 {path} 內沒有 layer2-*.json", file=sys.stderr)
+                files.extend(found)
+            else:
+                files.append(path)
     return files
 
 

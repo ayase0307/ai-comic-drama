@@ -62,7 +62,17 @@
       "properties": {
         "anchor": { "type": "string" },
         "negative": { "type": "string" },
-        "lighting_lock_line": { "type": "string" }
+        "lighting_lock_line": { "type": "string" },
+        "continuity_anchors": {
+          "type": "object",
+          "properties": {
+            "lighting": { "type": "string" },
+            "axis": { "type": "string" },
+            "blocking": { "type": "string" },
+            "texture": { "type": "string" }
+          }
+        },
+        "tail_freeze_hold": { "type": "boolean" }
       }
     },
     "asset_refs": {
@@ -109,7 +119,7 @@
       "type": "object",
       "required": ["mode"],
       "properties": {
-        "mode": { "type": "string", "enum": ["SEAMLESS_CONTINUATION", "HARD_CUT_ESTABLISH"] },
+        "mode": { "type": "string", "enum": ["SEAMLESS_CONTINUATION", "HARD_CUT_ESTABLISH", "INDEPENDENT_REF2VA"] },
         "inherited_from_segment": { "type": ["string", "null"] },
         "overflow_dialogue_in": { "type": ["string", "null"] },
         "overflow_dialogue_out": { "type": ["string", "null"] },

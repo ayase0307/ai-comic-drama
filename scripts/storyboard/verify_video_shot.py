@@ -343,10 +343,12 @@ def verify_single_shot(
     video_path: Path,
     segment_meta: Optional[Dict[str, Any]] = None,
     contact_sheet_dir: Optional[Path] = None,
+    expected_duration: Optional[float] = None,
 ) -> Dict[str, Any]:
     """針對單顆鏡頭執行規格與畫質審查，比對 Layer 2 規範。"""
     shot_id = shot_spec.get("shot_id", "UNKNOWN_SHOT")
-    expected_duration = float(shot_spec.get("duration", 3.0))
+    if expected_duration is None:
+        expected_duration = float(shot_spec.get("duration", 3.0))
     expected_aspect = (segment_meta or {}).get("aspect_ratio", "16:9")
     dlg = shot_spec.get("dialogue_and_audio", {})
     has_dialogue = bool(dlg.get("has_dialogue", False))
@@ -492,6 +494,170 @@ def verify_single_shot(
             "action_and_performance": shot_spec.get("action_and_performance", {}),
             "dialogue_and_audio": shot_spec.get("dialogue_and_audio", {}),
         }
+    }
+
+def verify_single_segment(
+    segment_spec: Dict[str, Any],
+    video_path: Path,
+    metadata: Optional[Dict[str, Any]] = None,
+    contact_sheet_dir: Optional[Path] = None,
+) -> Dict[str, Any]:
+    """針對整個分段 (Segment) 影片執行時長規格、畫質與防污染審查。"""
+    sid = segment_spec.get("segment_id") or segment_spec.get("group") or segment_spec.get("id") or "UNKNOWN_SEGMENT"
+
+    # 1. 預期時長計算 (優先取 metadata 總秒數，次之 shots 總和，次之頂層 seconds)
+    seg_meta = segment_spec.get("metadata") or metadata or {}
+    expected_duration = float(
+        seg_meta.get("effective_duration_sec")
+        or seg_meta.get("target_duration_sec")
+        or 0.0
+    )
+    if expected_duration <= 0.0 and "shots" in segment_spec:
+        expected_duration = sum(float(s.get("duration", 0.0)) for s in segment_spec["shots"])
+    if expected_duration <= 0.0:
+        expected_duration = float(segment_spec.get("seconds", 8.0))
+
+    expected_aspect = seg_meta.get("aspect_ratio") or segment_spec.get("aspect", "16:9")
+
+    aspect_map = {
+        "16:9": 16.0 / 9.0,
+        "9:16": 9.0 / 16.0,
+        "2.39:1": 2.39,
+        "1:1": 1.0,
+        "4:3": 4.0 / 3.0,
+    }
+    target_aspect_val = aspect_map.get(expected_aspect, 16.0 / 9.0)
+
+    # 2. 讀取真實影片規格
+    specs = probe_video_specs(video_path)
+    actual_duration = specs["duration"]
+    actual_aspect_val = specs["aspect_ratio_val"]
+    actual_fps = specs["fps"]
+    has_audio = specs["has_audio"]
+
+    # 3. 檢驗時長誤差 (大於 0.5s 告警/退稿)
+    duration_diff = abs(actual_duration - expected_duration)
+    duration_ok = duration_diff <= 0.5
+    duration_note = f"預期 {expected_duration:.2f}s, 實際 {actual_duration:.2f}s (差額 {duration_diff:.2f}s)"
+
+    aspect_diff = abs(actual_aspect_val - target_aspect_val) / target_aspect_val if target_aspect_val > 0 else 0
+    aspect_ok = aspect_diff <= 0.05
+    aspect_note = f"預期 {expected_aspect} ({target_aspect_val:.3f}), 實際 {specs['width']}x{specs['height']} ({actual_aspect_val:.3f})"
+
+    # 4. 抽取影格
+    t_head = min(0.1, actual_duration * 0.1) if actual_duration > 0.3 else 0.0
+    t_mid = actual_duration / 2.0 if actual_duration > 0.0 else 0.0
+    t_tail = max(0.0, actual_duration - 0.1) if actual_duration > 0.3 else actual_duration
+
+    raw_head = extract_frame_rgb(video_path, t_head, w=360, h=202)
+    raw_mid = extract_frame_rgb(video_path, t_mid, w=360, h=202)
+    raw_tail = extract_frame_rgb(video_path, t_tail, w=360, h=202)
+
+    # 5. 彩度檢驗
+    c_head = compute_frame_chroma(raw_head)
+    c_mid = compute_frame_chroma(raw_mid)
+    c_tail = compute_frame_chroma(raw_tail)
+    mean_chroma = (c_head + c_mid + c_tail) / 3.0
+
+    style_lock = seg_meta.get("style_lock", {})
+    palette_preset = seg_meta.get("palette_preset", "")
+    is_intended_monochrome = any(
+        term in str(style_lock).lower() or term in palette_preset.lower()
+        for term in ["monochrome", "ink", "grayscale", "black and white", "水墨", "黑白"]
+    )
+
+    chroma_ok = True
+    chroma_warning = None
+    if not is_intended_monochrome and mean_chroma < 10.0:
+        chroma_ok = False
+        chroma_warning = (
+            f"STYLE_BLEED_GRAYSCALE: 分段平均彩度 Chroma C*={mean_chroma:.2f} (< 10.0)，"
+            "檢測到嚴重黑白線稿污染！"
+        )
+
+    # 6. 九宮格殘留檢驗
+    grid_detected_mid, border_details_mid = check_grid_split_screen(raw_mid, 360, 202)
+    grid_detected_head, border_details_head = check_grid_split_screen(raw_head, 360, 202)
+    grid_detected = grid_detected_mid or grid_detected_head
+    all_borders = list(set(border_details_mid + border_details_head))
+
+    grid_warning = None
+    if grid_detected:
+        grid_warning = (
+            f"GRID_PANEL_BORDER_DETECTED: 在畫面檢測到低變異度直線分割帶！位置: {', '.join(all_borders)}"
+        )
+
+    # 7. 色盤提取
+    px_tail = [tuple(raw_tail[i:i + 3]) for i in range(0, len(raw_tail), 3)]
+    tail_palette = extract_palette(px_tail, k=5)
+    mean_tail_lab = to_lab(tuple(sum(p[i] for p in px_tail) // len(px_tail) for i in range(3)))
+
+    contact_sheet_file = None
+    if contact_sheet_dir:
+        cs_path = contact_sheet_dir / f"contact_sheet_{sid}.jpg"
+        if generate_contact_sheet(video_path, actual_duration, cs_path):
+            contact_sheet_file = str(cs_path)
+
+    passed = duration_ok and chroma_ok and not grid_detected
+
+    issues: List[str] = []
+    if not duration_ok:
+        issues.append(f"DURATION_MISMATCH: {duration_note}")
+    if not aspect_ok:
+        issues.append(f"ASPECT_RATIO_MISMATCH: {aspect_note}")
+    if chroma_warning:
+        issues.append(chroma_warning)
+    if grid_warning:
+        issues.append(grid_warning)
+
+    sha_hash = compute_file_sha256(video_path)
+    return {
+        "shot_id": sid,
+        "segment_id": sid,
+        "is_segment": True,
+        "video_file": str(video_path),
+        "video_sha256": sha_hash,
+        "file_hash_sha256": sha_hash,
+        "passed": passed,
+        "review_status": "approved" if passed else "rejected",
+        "specs": {
+            "expected_duration": expected_duration,
+            "duration": actual_duration,
+            "width": specs["width"],
+            "height": specs["height"],
+            "fps": specs["fps"],
+            "has_audio": specs["has_audio"],
+            "aspect_ratio": specs["aspect_ratio_val"],
+        },
+        "duration_check": {
+            "expected_sec": expected_duration,
+            "actual_sec": actual_duration,
+            "diff_sec": round(duration_diff, 2),
+            "ok": duration_ok,
+            "note": duration_note,
+        },
+        "aspect_ratio_check": {
+            "expected": expected_aspect,
+            "actual_dimensions": f"{specs['width']}x{specs['height']}",
+            "actual_ratio": round(actual_aspect_val, 3),
+            "ok": aspect_ok,
+            "note": aspect_note,
+        },
+        "technical_specs": specs,
+        "color_analysis": {
+            "c_head": round(c_head, 2),
+            "c_mid": round(c_mid, 2),
+            "c_tail": round(c_tail, 2),
+            "mean_chroma": round(mean_chroma, 2),
+            "tail_mean_lab": [round(x, 2) for x in mean_tail_lab],
+            "tail_palette_lab": [[round(x, 2) for x in swatch] for swatch in tail_palette],
+        },
+        "grid_check": {
+            "detected": grid_detected,
+            "border_details": all_borders,
+        },
+        "contact_sheet_file": contact_sheet_file,
+        "issues": issues,
     }
 
 
@@ -931,11 +1097,15 @@ def run_self_test() -> bool:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="verify_video_shot.py — AI 影片自動審核與分鏡差異檢驗工具 (v1.0)"
+        description="verify_video_shot.py — AI 影片自動審核與分鏡差異檢驗工具 (v2.0 支援批次分段與色差整合)"
     )
     parser.add_argument("--layer2", type=Path, help="Layer 2 分鏡規格 JSON 路徑 (e.g. layer2/segment-01.json)")
+    parser.add_argument("--layer2-dir", type=Path, help="批次審查整個目錄下的 layer2-*.json 檔案")
+    parser.add_argument("--segments", type=Path, help="compile_layer2_to_h3 產出的 segments-epXX.json 批次分段檔")
+    parser.add_argument("--videos-dir", type=Path, help="影片所在目錄 (搭配 --segments 或 --layer2-dir 批次尋找 mp4)")
     parser.add_argument("--shot", type=str, help="指定審查的單個 shot_id (如 SH01 或 EP01-S01-a-SH01)")
     parser.add_argument("--video", type=Path, help="指定要審查的 MP4 影片路徑")
+    parser.add_argument("--segment-mode", action="store_true", help="強制以分段 (Segment) 總時長而非單鏡時長比對影片")
     parser.add_argument("--all-shots", action="store_true", help="審查 Layer 2 中所有已設定 video_file 的鏡頭")
     parser.add_argument("--contact-dir", type=Path, help="Contact Sheet 拼圖儲存目錄 (預設為影片同目錄)")
     parser.add_argument("--out-report", type=Path, help="輸出 Markdown 審查報表路徑")
@@ -949,8 +1119,139 @@ def main() -> int:
         success = run_self_test()
         return 0 if success else 1
 
+    # =========================================================================
+    # 模式 1：--segments 批次分段審查
+    # =========================================================================
+    if args.segments:
+        if not args.segments.exists():
+            sys.exit(f"❌ 錯誤: 分段檔不存在: {args.segments}")
+        with args.segments.open("r", encoding="utf-8") as f:
+            seg_data = json.load(f)
+
+        raw_list = seg_data if isinstance(seg_data, list) else seg_data.get("segments", [seg_data])
+        v_dir = args.videos_dir or args.segments.parent / "videos"
+        contact_dir = args.contact_dir or (v_dir / "reviews")
+        contact_dir.mkdir(parents=True, exist_ok=True)
+
+        results: List[Dict[str, Any]] = []
+        unproduced: List[str] = []
+
+        for seg in raw_list:
+            sid = seg.get("segment_id") or seg.get("group") or seg.get("id")
+            if not sid:
+                continue
+            # 尋找對應的影片檔
+            cand_files = [
+                v_dir / f"{sid}.mp4",
+                v_dir / f"{sid.lower()}.mp4",
+                v_dir / f"seg-{sid}.mp4",
+            ]
+            found_v = next((p for p in cand_files if p.exists()), None)
+            if not found_v:
+                # 模糊比對
+                found_v = next((p for p in v_dir.glob("*.mp4") if sid.lower() in p.stem.lower()), None)
+
+            if found_v and found_v.exists():
+                res = verify_single_segment(seg, found_v, contact_sheet_dir=contact_dir)
+                results.append(res)
+            else:
+                unproduced.append(sid)
+
+        continuity_warnings = check_inter_shot_continuity(results)
+        report_md = render_markdown_report(results, {"project_id": args.segments.stem, "segment_id": "BATCH"}, continuity_warnings)
+
+        if unproduced:
+            report_md += f"\n\n### ⚠️ 尚未生成影片之分段 ({len(unproduced)} 段)\n"
+            report_md += ", ".join(f"`{u}`" for u in unproduced) + "\n"
+
+        if args.out_report:
+            args.out_report.parent.mkdir(parents=True, exist_ok=True)
+            args.out_report.write_text(report_md, encoding="utf-8")
+            print(f"[+] Markdown 審查報表已寫入: {args.out_report}")
+        else:
+            print("\n" + report_md + "\n")
+
+        if args.out_json:
+            args.out_json.parent.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "results": results,
+                "unproduced_segments": unproduced,
+                "continuity_warnings": continuity_warnings,
+                "generated_at": datetime.now(timezone.utc).isoformat()
+            }
+            with args.out_json.open("w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+            print(f"[+] 結構化 JSON 審查報告已寫入: {args.out_json}")
+
+        has_rejected = any(not r["passed"] for r in results)
+        return 1 if (has_rejected or not results) else 0
+
+    # =========================================================================
+    # 模式 2：--layer2-dir 批次目錄審查
+    # =========================================================================
+    if args.layer2_dir:
+        if not args.layer2_dir.exists():
+            sys.exit(f"❌ 錯誤: Layer 2 目錄不存在: {args.layer2_dir}")
+        l2_files = sorted(args.layer2_dir.glob("layer2-*.json"))
+        if not l2_files:
+            sys.exit(f"❌ 錯誤: 在 {args.layer2_dir} 中找不到任何 layer2-*.json 檔案！")
+
+        v_dir = args.videos_dir or args.layer2_dir.parent / "videos"
+        contact_dir = args.contact_dir or (v_dir / "reviews")
+        contact_dir.mkdir(parents=True, exist_ok=True)
+
+        results: List[Dict[str, Any]] = []
+        unproduced: List[str] = []
+
+        for lf in l2_files:
+            with lf.open("r", encoding="utf-8") as f:
+                ldata = json.load(f)
+            sid = ldata.get("metadata", {}).get("segment_id") or lf.stem.replace("layer2-", "")
+            cand_files = [v_dir / f"{sid}.mp4", v_dir / f"{sid.lower()}.mp4"]
+            found_v = next((p for p in cand_files if p.exists()), None)
+            if not found_v:
+                found_v = next((p for p in v_dir.glob("*.mp4") if sid.lower() in p.stem.lower()), None)
+
+            if found_v and found_v.exists():
+                res = verify_single_segment(ldata, found_v, ldata.get("metadata"), contact_sheet_dir=contact_dir)
+                results.append(res)
+            else:
+                unproduced.append(sid)
+
+        continuity_warnings = check_inter_shot_continuity(results)
+        report_md = render_markdown_report(results, {"project_id": args.layer2_dir.parent.name, "segment_id": "BATCH"}, continuity_warnings)
+
+        if unproduced:
+            report_md += f"\n\n### ⚠️ 尚未生成影片之分段 ({len(unproduced)} 段)\n"
+            report_md += ", ".join(f"`{u}`" for u in unproduced) + "\n"
+
+        if args.out_report:
+            args.out_report.parent.mkdir(parents=True, exist_ok=True)
+            args.out_report.write_text(report_md, encoding="utf-8")
+            print(f"[+] Markdown 審查報表已寫入: {args.out_report}")
+        else:
+            print("\n" + report_md + "\n")
+
+        if args.out_json:
+            args.out_json.parent.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "results": results,
+                "unproduced_segments": unproduced,
+                "continuity_warnings": continuity_warnings,
+                "generated_at": datetime.now(timezone.utc).isoformat()
+            }
+            with args.out_json.open("w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+            print(f"[+] 結構化 JSON 審查報告已寫入: {args.out_json}")
+
+        has_rejected = any(not r["passed"] for r in results)
+        return 1 if (has_rejected or not results) else 0
+
+    # =========================================================================
+    # 模式 3：單個 --layer2 審查模式 (向後相容)
+    # =========================================================================
     if not args.layer2:
-        parser.error("請提供 --layer2 參數，或使用 --self-test 進行自檢。")
+        parser.error("請提供 --layer2, --layer2-dir, --segments 或使用 --self-test。")
 
     if not args.layer2.exists():
         sys.exit(f"錯誤: Layer 2 檔案不存在: {args.layer2}")
@@ -981,21 +1282,14 @@ def main() -> int:
         results.append(res)
 
     elif args.video:
-        # 傳入了單個影片但未指定 shot_id
-        # 若 Layer 2 只有一個 shot，預設對應它；否則比對檔名
-        target_shot = None
-        if len(shots) == 1:
-            target_shot = shots[0]
+        if args.segment_mode or len(shots) > 1:
+            # 支援分段時長比對模式
+            res = verify_single_segment(layer2_data, args.video, layer2_data.get("metadata"), contact_sheet_dir=contact_dir)
+            results.append(res)
         else:
-            for s in shots:
-                if s.get("shot_id") and s["shot_id"].lower() in args.video.stem.lower():
-                    target_shot = s
-                    break
-        if not target_shot:
             target_shot = shots[0]
-
-        res = verify_single_shot(target_shot, args.video, layer2_data.get("metadata"), contact_sheet_dir=contact_dir)
-        results.append(res)
+            res = verify_single_shot(target_shot, args.video, layer2_data.get("metadata"), contact_sheet_dir=contact_dir)
+            results.append(res)
 
     else:
         # 審查所有有 video_file 的鏡頭

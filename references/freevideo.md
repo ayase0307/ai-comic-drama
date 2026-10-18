@@ -30,16 +30,58 @@
 
 ## 對應本技能的八階段
 
-| 本技能階段 | FreeVideo 做什麼 |
-|---|---|
-| 2 角色／場景設定 | 角色庫搜尋與建卡；`assets.md` 的固定描述片段寫進卡片，沒有照片就生成參考圖 |
-| 4 分鏡表 | 多鏡影片：先預覽劇本與各鏡拍攝條數，確認後開拍，逐鏡看畫面選片 |
-| 5 提示詞包 | FreeVideo 吃官方 H3 格式（三欄／Ref2VA 六段式），所以 `prompts-ep01.md` 的影片提示詞照 `references/h3/prompt-formats.md` 寫，原樣可送 |
-| 6 生成 | 單段 ≤ 60 秒用一個 generate 任務；首幀圖、參考圖、首尾幀都可帶；結果自動進 FreeVideo「作品」 |
-| 7 交付 | 每鏡選定後提交拼接；影片可用接口下載到 `videos/` |
+| 本技能階段 | FreeVideo 做什麼 | 工具支援 |
+|---|---|---|
+| 2 角色／場景設定 | 角色庫搜尋與建卡；`assets.md` 的固定描述片段寫進卡片，沒有照片就生成參考圖 | 核心資產圖詢問指定工具（推薦 Codex CLI），跨章節強制鎖定同一生圖引擎 |
+| 4 分鏡表 | 多鏡影片：先預覽劇本與各鏡拍攝條數，確認後開拍，逐鏡看畫面選片 | `qwen_storyboard_grid.py` 內建 Qwen 黑白九宮格構圖審核 |
+| 5 提示詞包 | FreeVideo 吃官方 H3 格式（三欄／Ref2VA 六段式），所以 `prompts-ep01.md` 的影片提示詞照 `references/h3/prompt-formats.md` 寫，原樣可送 | `compile_layer2_to_h3.py` 產生 `prompts-epXX.md` 與 `segments-epXX.json` |
+| 6 生成 | 單段 ≤ 60 秒（實戰推薦 7–10 秒）；首幀圖、參考圖、首尾幀都可帶；結果自動進 FreeVideo「作品」 | `submit_h3_segments.py` 批次提交與顯存保護；`verify_video_shot.py` 批次審查 |
+| 7 交付 | 每鏡選定後提交拼接；影片可用接口下載到 `videos/` | `assemble_episode.py` 智慧配音、字幕燒錄與無縫拼接 |
+
+## 實戰顯存臨界點保護（8GB VRAM 硬約束）
+
+> [!IMPORTANT]
+> **4.20 GiB (4300 MB) 顯存啟動門檻**：  
+> 本機在 RTX 4060 Ti 8GB 等顯卡環境下，啟動 FreeVideo H3 模型生成影片需消耗約 4.20 GiB 專屬顯存。若當前系統剩餘顯存低於此臨界點，將直接觸發 CUDA Out of Memory (OOM) 導致 FreeVideo 背景進程崩潰中斷。
+
+`scripts/storyboard/submit_h3_segments.py` 內建即時顯存安全檢查機制：
+1. **即時查詢**：提交前透過 `nvidia-smi` 查詢當前 GPU 總顯存、已用顯存與剩餘可用顯存。
+2. **自動差額診斷**：若剩餘顯存 $< 4300\text{ MB}$，立即發出醒目警示並精確計算差額（如「尚缺 162 MB」），提示使用者關閉瀏覽器硬體加速或高負載進程後重試。
+3. **乾跑驗證（`--dry-run`）**：在不消耗 GPU 資源與不送出排程的情況下，完整驗證 `segments-epXX.json` 的參考圖是否存在、提示詞結構是否完備、顯存是否充足。
+
+## 自動化工具鏈操作
+
+### 1. 階段 6 批次提交（`submit_h3_segments.py`）
+```bash
+# 乾跑檢查（安全驗證參考圖路徑、提示詞、顯存預檢）
+python scripts/storyboard/submit_h3_segments.py --segments segments-ep01.json --out-dir videos/ --dry-run
+
+# 正式批次提交（自動上傳參考圖 SHA256 快取、掛載 LoRA、輪詢進度並下載）
+python scripts/storyboard/submit_h3_segments.py --segments segments-ep01.json --out-dir videos/
+```
+
+### 2. 階段 6 批次自動審查（`verify_video_shot.py`）
+```bash
+# 對照 segments-ep01.json 批次審查已生成影片，自動串聯 color_qa.py 並輸出 qa-report.json
+python scripts/storyboard/verify_video_shot.py --segments segments-ep01.json --videos-dir videos/ --qa-report videos/qa-report.json
+```
+
+### 3. 階段 7 配音、字幕與成片組裝（`assemble_episode.py`）
+```bash
+# 執行全鏈路智慧配音（Edge-TTS + SAPI 備案）、Windows 冒號轉義字幕燒錄與無縫拼接
+python scripts/storyboard/assemble_episode.py \
+  --segments segments-ep01.json \
+  --videos-dir videos/ \
+  --out-dir final/ \
+  --output final/ep01_final.mp4
+
+# 全鏈路閉環自檢
+python scripts/storyboard/assemble_episode.py --self-test
+```
 
 ## 注意
 
+- **令牌保護鐵律**：嚴禁在任何終端輸出、日誌或持久化檔案中印出 FreeVideo 令牌（Token）。
 - 不要把 FreeVideo 的字幕規則當成必然：H3 有時仍會把台詞渲染成字幕。不要字幕時在描述結尾寫 `No subtitles, no on-screen text.`，仍出現就換 seed 重拍。
 - 生成任務共用一條佇列；忙碌時用 `?wait=25` 等待，不要連續輪詢。
 - 連不上時如實告訴使用者「我連接不到你電腦上的 FreeVideo」，不要另裝程式繞過。

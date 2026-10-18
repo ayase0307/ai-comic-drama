@@ -30,6 +30,14 @@
       "warning_count": 0,
       "errors": [],
       "warnings": [],
+      "h3_audit": {
+        "h3_mode": false,
+        "spoken_chars": 18,
+        "speech_seconds": 4.5,
+        "speech_ratio": 0.225,
+        "max_line_chars": 11,
+        "passed": true
+      },
       "schema_errors": []
     },
     {
@@ -60,6 +68,14 @@
       "warning_count": 0,
       "errors": [],
       "warnings": [],
+      "h3_audit": {
+        "h3_mode": false,
+        "spoken_chars": 38,
+        "speech_seconds": 9.5,
+        "speech_ratio": 0.475,
+        "max_line_chars": 20,
+        "passed": false
+      },
       "schema_errors": []
     },
     {
@@ -90,6 +106,14 @@
       "warning_count": 0,
       "errors": [],
       "warnings": [],
+      "h3_audit": {
+        "h3_mode": false,
+        "spoken_chars": 21,
+        "speech_seconds": 5.2,
+        "speech_ratio": 0.26,
+        "max_line_chars": 12,
+        "passed": true
+      },
       "schema_errors": []
     },
     {
@@ -120,6 +144,14 @@
       "warning_count": 0,
       "errors": [],
       "warnings": [],
+      "h3_audit": {
+        "h3_mode": false,
+        "spoken_chars": 30,
+        "speech_seconds": 7.5,
+        "speech_ratio": 0.375,
+        "max_line_chars": 16,
+        "passed": false
+      },
       "schema_errors": []
     },
     {
@@ -152,6 +184,14 @@
       "warnings": [
         "[DURATION_OVER_BUDGET] 預估時長區間 [32.3s, 51.3s] 超出目標 20s (+15% 上限 23.0s)"
       ],
+      "h3_audit": {
+        "h3_mode": false,
+        "spoken_chars": 40,
+        "speech_seconds": 10.0,
+        "speech_ratio": 0.5,
+        "max_line_chars": 11,
+        "passed": true
+      },
       "schema_errors": []
     },
     {
@@ -182,6 +222,14 @@
       "warning_count": 0,
       "errors": [],
       "warnings": [],
+      "h3_audit": {
+        "h3_mode": false,
+        "spoken_chars": 17,
+        "speech_seconds": 4.2,
+        "speech_ratio": 0.21,
+        "max_line_chars": 10,
+        "passed": true
+      },
       "schema_errors": []
     },
     {
@@ -212,6 +260,14 @@
       "warning_count": 0,
       "errors": [],
       "warnings": [],
+      "h3_audit": {
+        "h3_mode": false,
+        "spoken_chars": 18,
+        "speech_seconds": 4.5,
+        "speech_ratio": 0.225,
+        "max_line_chars": 11,
+        "passed": true
+      },
       "schema_errors": []
     },
     {
@@ -244,6 +300,14 @@
       "warnings": [
         "[DURATION_UNDER_BUDGET] 預估時長區間 [7.2s, 11.5s] 低於目標 20s (-15% 下限 17.0s)"
       ],
+      "h3_audit": {
+        "h3_mode": false,
+        "spoken_chars": 11,
+        "speech_seconds": 2.8,
+        "speech_ratio": 0.14,
+        "max_line_chars": 11,
+        "passed": true
+      },
       "schema_errors": []
     },
     {
@@ -274,6 +338,14 @@
       "warning_count": 0,
       "errors": [],
       "warnings": [],
+      "h3_audit": {
+        "h3_mode": false,
+        "spoken_chars": 45,
+        "speech_seconds": 11.2,
+        "speech_ratio": 0.311,
+        "max_line_chars": 14,
+        "passed": true
+      },
       "schema_errors": []
     },
     {
@@ -306,6 +378,14 @@
       "warnings": [
         "[DURATION_UNDER_BUDGET] 預估時長區間 [10.7s, 16.5s] 低於目標 20s (-15% 下限 17.0s)"
       ],
+      "h3_audit": {
+        "h3_mode": false,
+        "spoken_chars": 22,
+        "speech_seconds": 5.5,
+        "speech_ratio": 0.275,
+        "max_line_chars": 11,
+        "passed": true
+      },
       "schema_errors": []
     }
   ],
@@ -343,7 +423,15 @@
         ],
         "warnings": [
           "[DURATION_UNDER_BUDGET] 預估時長區間 [45.6s, 72.8s] 低於目標 90s (-15% 下限 76.5s)"
-        ]
+        ],
+        "h3_audit": {
+          "h3_mode": false,
+          "spoken_chars": 55,
+          "speech_seconds": 13.8,
+          "speech_ratio": 0.153,
+          "max_line_chars": 15,
+          "passed": true
+        }
       },
       "novel_to_manju_result": {
         "status": "PASS",
@@ -372,7 +460,15 @@
         "errors": [],
         "warnings": [
           "[DURATION_OVER_BUDGET] 預估時長區間 [32.3s, 51.3s] 超出目標 20s (+15% 上限 23.0s)"
-        ]
+        ],
+        "h3_audit": {
+          "h3_mode": false,
+          "spoken_chars": 40,
+          "speech_seconds": 10.0,
+          "speech_ratio": 0.5,
+          "max_line_chars": 11,
+          "passed": true
+        }
       }
     },
     "experiment_2_mystery_thriller_adaptation": {
@@ -432,7 +528,15 @@
         "warnings": [
           "[DIALOGUE_OVER_28_CHARS] 第 4 行 (1-1 阿澈): 單句發音字數為 31 字（超過 28 字 10 秒單鏡安全線，建議拆句或切反應鏡頭）",
           "[DURATION_UNDER_BUDGET] 預估時長區間 [38.0s, 53.7s] 低於目標 90s (-15% 下限 76.5s)"
-        ]
+        ],
+        "h3_audit": {
+          "h3_mode": false,
+          "spoken_chars": 106,
+          "speech_seconds": 26.5,
+          "speech_ratio": 0.294,
+          "max_line_chars": 51,
+          "passed": false
+        }
       },
       "novel_to_manju_result": {
         "status": "PASS",
@@ -459,7 +563,15 @@
         "error_count": 0,
         "warning_count": 0,
         "errors": [],
-        "warnings": []
+        "warnings": [],
+        "h3_audit": {
+          "h3_mode": false,
+          "spoken_chars": 18,
+          "speech_seconds": 4.5,
+          "speech_ratio": 0.225,
+          "max_line_chars": 11,
+          "passed": true
+        }
       }
     }
   }

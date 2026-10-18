@@ -23,7 +23,7 @@ agent_created: true
 
 0. **小說不得直接當劇本用。** 吃進小說一律先走階段 1 改編（保留分級、A/B/C 方案、分集、因果債務），再改寫成漫劇劇本；原稿已是劇本或原創梗概才可略過解析。規範見 `references/adapt/novel-to-manju.md`。
 1. **先定調，再動筆。** 開工前先鎖定：集數與每集時長、題材模式與載體、畫風（從 `references/styles.md` 選一套風格鎖定錨）、畫面比例、語言、旁白或對白、交付到哪一步。**階段 0 必問兩項門禁：台詞政策（4 選 1）與原文體量反推片長公式**。缺的先問使用者，**一次問完，不要擠牙膏**。
-2. **一致性靠登記、參考鏈與驗收。** 角色／服裝／場景／道具／音色各有 ID、設定圖與固定描述片段；生物/怪獸設定圖（Creature Sheet）同等規格純底出圖；演員表依該場主角重要性排序。有參考圖時外觀只在首次出現寫一次，沒有時逐字貼片段。設定板版面、驗收門、漂移修復見 `references/consistency.md`。
+2. **一致性靠登記、參考鏈與驗收。** 角色／服裝／場景／道具／音色各有 ID、設定圖與固定描述片段；生物/怪獸設定圖（Creature Sheet）同等規格純底出圖；演員表依該場主角重要性排序。**階段 2 核心資產圖生成前必須詢問指定工具（推薦 Codex CLI），跨章節強制鎖定同一生圖引擎，嚴禁混用；本機 Qwen-Image 2.1 嚴格限定階段 4 鉛筆九宮格構圖審核**。有參考圖時外觀只在首次出現寫一次，沒有時逐字貼片段。設定板版面、驗收門、漂移修復見 `references/consistency.md`。
 3. **先分鏡，後生成。** 分鏡走導演分鏡體系（`references/storyboard/cinematic-director.md`），導入「分段級分鏡（7–10 秒/段）」；焦距與物距成對寫；分鏡表未驗證通過不出圖；出圖後先確認角色長相，再拿去生成影片。
 4. **生成前先問清楚，再動手。** 圖像與影片**都要**先問使用者：用哪個模型／工具、參數怎麼設、提示詞用中文還英文、先做幾鏡。**提示詞會隨模型不同而變**，確認後才依該模型改寫。詳見 `references/model-profiles.md`。
 5. **影片生成優先走 FreeVideo。** 本技能在使用者本機運行，建議搭配 FreeVideo（`http://127.0.0.1:8189`）讓 Agent 直接出片；連線與用法見 `references/freevideo.md`。FreeVideo 連不上才退回問模型的流程。
@@ -37,14 +37,14 @@ agent_created: true
 
 | 階段 | 做什麼 | 產出 |
 |---|---|---|
-| 0 定調 | 鎖定題材、載體、畫風錨、比例、**台詞政策（4選1）與體量反推秒數** | `project.md` |
-| 1 改編 | 小說解析、保留分級、A/B/C 方案、分集架構（原稿是小說必走） | 故事地圖、`series-outline`、併入 `project.md` |
-| 2 資產與設定圖 | 故事聖經→`assets.md`、**生物純底設定圖**、**演員表主角優先排序** | `assets.md`、`images/` 設定板 |
-| 3 漫劇劇本 | 場景化改寫、時長與可製作性審計、交接 JSON、人工審核鎖（`sync_script.py`） | `script-ep01.md`、`handoff-ep01.json`、`adaptation-diff.md` |
-| 4 導演分鏡 | **分段級分鏡（每段 7–10s 獨立節拍）**、焦距物距、**避開遠景與正面景深陷阱**、Qwen 鉛筆九宮格構圖審核 | `layer2/*.json`、`storyboard-ep01.md`、`grid-*.png` |
-| 5 提示詞包 | Layer 3 編譯成目標模型語法、**動作力學三要素**、**台詞預算 ≤4字/秒** | `prompts-ep01.md` |
-| 6 生成 | **主力定案：獨立 Ref2VA（四錨點連戲、一段一張角色圖防平均化）**；`verify_video_shot.py` 影片審查 | `images/`、`videos/`、審查報告 |
-| 7 組裝交付 | **配音分層決策（推薦外部 TTS 重配）**、旁白稿、字幕、時間線、交付清單 | `narration-ep01.md`、`timeline-ep01.csv` |
+| 0 定調 | 鎖定題材、載體、畫風錨、比例、**台詞政策（4選1）與體量反推秒數門禁**（`estimate_duration.py --novel`、`init_project.py`） | `project.md`、`adapt/source.json`、`adapt/bible.json` |
+| 1 改編 | 小說目錄掃描與單章清洗抽取（`extract_chapter.py`）、保留分級、A/B/C 方案、分集架構、跨集驗收（`compare_adaptation.py --episode`） | 故事地圖、`series-outline`、併入 `project.md` |
+| 2 資產與設定圖 | 故事聖經→`assets.md`、**生圖工具詢問推薦（Codex CLI）與跨章節鎖定**、**生物純底設定圖**、**演員表主角優先排序** | `assets.md`、`images/` 設定板 |
+| 3 漫劇劇本 | 場景化改寫、時長與台詞預算審計（`estimate_duration.py --h3`）、HTML 註解元數據注入、交接 JSON、人工審核鎖（`sync_script.py`） | `script-ep01.md`、`handoff-ep01.json`、`adaptation-diff.md` |
+| 4 導演分鏡 | **分段級分鏡（預設 10s/3 鏡，`handoff_to_skeleton.py`）**、焦距物距、**動作力學三要素**、`INDEPENDENT_REF2VA` 四大錨點、Qwen 鉛筆九宮格構圖審核 | `layer2/*.json`、`storyboard-ep01.md`、`grid-*.png` |
+| 5 提示詞包 | **H3 官方六段式批次編譯（`compile_layer2_to_h3.py`）**、防混臉參考圖排序、切點時間保護、LoRA 適配、`--check` 雙重對帳 | `prompts-ep01.md`、`segments-ep01.json` |
+| 6 生成 | **主力定案：獨立 Ref2VA（四錨點連戲、一段一張角色圖防平均化）**；`submit_h3_segments.py`（4.20 GiB 顯存臨界點保護）；`verify_video_shot.py` 影片批次審查 | `images/`、`videos/`、`qa-report.json` |
+| 7 組裝交付 | **`assemble_episode.py` 智慧配音、字幕燒錄與無縫拼接成片**、旁白稿、字幕、時間線、交付清單 | `final/ep01_final.mp4`、`narration-ep01.md`、`timeline-ep01.csv` |
 
 **詳細做法、每階段模板與檢查點見 `references/pipeline.md`。** 階段 3、4 各有確定性驗證腳本（`scripts/adapt/`、`scripts/storyboard/`），**通過才進下一階段**。
 
@@ -54,7 +54,7 @@ agent_created: true
 <專案名>/
 ├── project.md              # 定調 + 分集規劃
 ├── source/                 # 原著小說（不外洩）
-├── adapt/                  # 改編中間產物（故事地圖、保留分級、方案）
+├── adapt/                  # 改編中間產物（source.json、bible.json、故事地圖、保留分級、方案）
 ├── assets.md               # 風格錨 + 角色 / 場景 / 道具 / 音色聖經（ID、固定片段）
 ├── script-ep01.md          # 漫劇劇本（△ 場號制，無攝影機術語）
 ├── handoff-ep01.json       # 劇本→分鏡交接
@@ -62,6 +62,7 @@ agent_created: true
 ├── layer2/                 # 分鏡 Layer 2 JSON（機器可讀 SSoT）
 ├── storyboard-ep01.md      # 分鏡表（人可讀）
 ├── prompts-ep01.md         # 逐鏡圖像 / 影片提示詞
+├── segments-ep01.json       # FreeVideo 批次分段檔（H3 官方六段式結構）
 ├── panels/                 # Qwen 單格黑白鉛筆手繪草圖（panel-*.png）
 ├── keyframes/              # Qwen 轉繪全彩關鍵幀首幀（keyframe-*.png，去黑箭頭）
 ├── narration-ep01.md       # 旁白與字幕稿
@@ -70,7 +71,7 @@ agent_created: true
 └── videos/                 # 生成影片片段與審查報告
 ```
 
-用 `scripts/init_project.py` 一鍵建立骨架。
+用 `scripts/init_project.py` 一鍵建立骨架（自動初始化 `adapt/source.json`、`adapt/bible.json` 與 `project.md` 門禁欄位）。
 
 ---
 
@@ -178,13 +179,22 @@ agent_created: true
   - `example-fight-10s.md`、`example-spec-to-prompt-10s.md`、`example-seedance-to-h3.md` — 完整改寫範例。
   - `community-sources.md` — 規則來源與可信度。
 - `references/prompt-playbook.md` — 圖像／影片提示詞撰寫手冊（景別、運鏡、光線、風格鎖、負面提示詞）。
-- `scripts/init_project.py` — 建立專案骨架與模板檔。
-- `scripts/adapt/*.py` — 劇本結構、時長、連戲、改編差異驗證。
-- `scripts/adapt/sync_script.py` — 人工審核鎖定與 Markdown 劇本修改同步回寫 `handoff-epNN.json` 工具。
-- `scripts/storyboard/handoff_to_skeleton.py` — 交接 JSON → Layer 2 骨架；`layer2_to_table.py` — Layer 2 → 表格／時間線；`validate_storyboard.py` — 分鏡靜態驗證；`director_storyboard_assistant.py` — 預設配置與多模型提示詞編譯。
+- `scripts/init_project.py` — 一鍵建立專案骨架與模板檔，自動初始化 `adapt/source.json`、`adapt/bible.json` 與 `project.md` 兩大門禁欄位（台詞政策與體量秒數反推）。
+- `scripts/adapt/extract_chapter.py` — 小說大檔目錄掃描（`--list`）、單章抽取（`--volume`、`--chapter`）與 Pandoc 6 重自動清洗工具。
+- `scripts/adapt/estimate_duration.py` — Unicode P 類別統一計字、`--novel` 階段 0 體量反推門禁（四大台詞政策試算）與 `--h3` 實戰台詞預算審計（4字/秒、單句 ≤15 字警告、說話時長佔比 ≤60% 警告）。
+- `scripts/adapt/sync_script.py` — 人工審核鎖定、從零建立 handoff、多場景自動擴展、劇本 HTML 註解元數據（`<!-- source / must_keep / change -->`）自動解析注入與 `--prune-extra` 未鎖定多餘場景修剪工具。
+- `scripts/adapt/compare_adaptation.py` — 原著與改編差異比對，支援 `--episode` 單集過濾驗收與多檔合併（`--handoff`、`--script` 傳多檔）全章總體驗收，連動 `--h3`。
+- `scripts/adapt/*.py` — 劇本結構、時長、連戲、改編差異完整驗證套件。
+- `scripts/storyboard/handoff_to_skeleton.py` — 交接 JSON → Layer 2 骨架，預設每段 10.0s / 3 鏡（支援 `--max-segment-sec`、`--max-shots`）、統一 4.0 字/秒、窗口 $\ge 2.5s$、動作力學三要素結構模板（施力點 ➔ 傳導路徑 ➔ 受擊反饋）、`INDEPENDENT_REF2VA` 握手與四大連戲錨點（lighting/axis/blocking/texture）。
+- `scripts/storyboard/compile_layer2_to_h3.py` — Layer 2 批次編譯為 H3 官方六段式提示詞（`prompts-epXX.md`）與 FreeVideo 批次分段檔（`segments-epXX.json`），支援防混臉參考圖排序（一段一張角色圖）、切點時間軸保護（$D - \text{末切點} \ge 2.05s$）、光源名詞映射、官方運鏡詞微交替、LoRA 自動適配與 `--check` 雙重對帳。
+- `scripts/storyboard/audit_refs_and_segments.py` — 分段參考圖、主體定義、說話者與字數預算多維程式對帳工具（支援雙重審查：模式 A 序對 + 模式 B 13 條自檢）。
 - `scripts/storyboard/patch_shot.py` — 單鏡局部修改與審核鎖定工具（支援秒數吸收、自動重算時間軸）。
 - `scripts/storyboard/qwen_storyboard_grid.py` — Qwen-Image 2.1 電影分鏡鉛筆草圖、單格局部重繪、九宮格拼版與去黑箭頭轉全彩首幀工具。
-- `scripts/storyboard/verify_video_shot.py` — AI 影片自動審查與分鏡規格差異檢驗門禁工具（時長、彩度防黑白污染、九宮格分屏殘留、色彩連貫性）。
-- `scripts/storyboard/audit_refs_and_segments.py` — 分段參考圖、主體定義、說話者與字數預算多維程式對帳工具。
+- `scripts/storyboard/submit_h3_segments.py` — 階段 6 FreeVideo H3 批次提交與顯存保護工具（4.20 GiB 顯存臨界點安全保護、不足時差額診斷、--dry-run 乾跑檢查、參考圖 SHA256 快取、LoRA 自動適配與任務輪詢下載）。
+- `scripts/storyboard/verify_video_shot.py` — AI 影片自動審查與分鏡規格差異檢驗門禁工具（分段總時長精確對齊、彩度防黑白污染、九宮格分屏殘留、串聯 `color_qa.py` 輸出 `qa-report.json`）。
+- `scripts/storyboard/assemble_episode.py` — 階段 7 配音分層、字幕燒錄與成片拼接交付工具（智慧 TTS 雙重保障：Edge-TTS 遇 403 自動降級 SAPI、Windows 字幕冒號轉義、`adelay`+`amix` 背景音分層混音、FFmpeg Concat 無縫拼接成片，附 `--self-test`）。
+- `scripts/storyboard/layer2_to_table.py` — Layer 2 → 人可讀 Markdown 分鏡表與時間線 CSV 匯出工具。
+- `scripts/storyboard/validate_storyboard.py` — 分鏡 Layer 2 JSON 靜態驗證工具。
+- `scripts/storyboard/director_storyboard_assistant.py` — 預設配置與多模型提示詞編譯輔助工具。
 - `scripts/color_qa.py` — 跨鏡頭色彩一致性檢查（同步自上游，用法見 `references/h3/lighting-and-color.md`）。
 

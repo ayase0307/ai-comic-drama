@@ -18,6 +18,7 @@ import argparse
 import hashlib
 import io
 import json
+import math
 import os
 import pathlib
 import re
@@ -506,7 +507,14 @@ def process_storyboard_segment(
         )
         print(f"   任務已提交，ID: {job_id}，正在長輪詢等待 Qwen-Image 2.1 渲染...")
 
-        result = client.poll_job_until_done(job_id=job_id, wait_seconds=25, timeout_seconds=240)
+        try:
+            result = client.poll_job_until_done(job_id=job_id, wait_seconds=25, timeout_seconds=240)
+        except Exception as e:
+            if "no_memory" in str(e).lower():
+                print(f"\n❌ [FreeVideo 顯存不足錯誤 (no_memory)]: {e}")
+                check_gpu_vram(verbose=True)
+            raise
+
         dur = time.time() - t_start
 
         # 下載圖片至指定單格路徑
@@ -636,7 +644,63 @@ def convert_to_color_keyframes(
 
 
 # ==============================================================================
-# 自動拼合 3x3 九宮格預覽板
+# GPU 顯存 4.20 GiB 檢測與友善診斷模組
+# ==============================================================================
+
+def check_gpu_vram(threshold_mb: int = 4300, verbose: bool = True) -> Dict[str, Any]:
+    """檢測 GPU 可用顯存，針對 FreeVideo 4.20 GiB (4300 MiB) 硬門檻提供友善診斷。"""
+    import subprocess
+    info = {
+        "available": False,
+        "free_mb": 0,
+        "used_mb": 0,
+        "total_mb": 0,
+        "threshold_mb": threshold_mb,
+        "is_safe": False,
+        "diff_mb": 0,
+        "top_processes": [],
+    }
+    try:
+        cmd = ["nvidia-smi", "--query-gpu=memory.free,memory.used,memory.total", "--format=csv,noheader,nounits"]
+        res = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        parts = [int(x.strip()) for x in res.stdout.strip().split(",")]
+        info["free_mb"], info["used_mb"], info["total_mb"] = parts[0], parts[1], parts[2]
+        info["available"] = True
+        info["is_safe"] = info["free_mb"] >= threshold_mb
+        info["diff_mb"] = max(0, threshold_mb - info["free_mb"])
+
+        # 查詢吃顯存的程序
+        pcmd = ["nvidia-smi", "--query-compute-apps=pid,process_name,used_memory", "--format=csv,noheader,nounits"]
+        pres = subprocess.run(pcmd, capture_output=True, text=True)
+        if pres.stdout.strip():
+            for line in pres.stdout.strip().splitlines()[:10]:
+                if line.strip():
+                    info["top_processes"].append(line.strip())
+    except Exception as e:
+        if verbose:
+            print(f"[顯存檢測提示] 無法透過 nvidia-smi 獲取顯存資訊: {e}")
+        return info
+
+    if verbose:
+        print("\n" + "=" * 80)
+        print(f"📊 [GPU 顯存診斷] 總量: {info['total_mb']} MiB | 已用: {info['used_mb']} MiB | 可用: {info['free_mb']} MiB")
+        print(f"   FreeVideo Qwen-Image 2.1 引擎硬性安全門檻: {threshold_mb} MiB (4.20 GiB)")
+        if not info["is_safe"]:
+            print(f"⚠️ 【顯存不足警告】距離 4.20 GiB 門檻尚差 {info['diff_mb']} MiB！生圖任務可能觸發 no_memory 中斷！")
+            if info["top_processes"]:
+                print("   當前佔用 GPU 之進程清單:")
+                for p in info["top_processes"]:
+                    print(f"     - {p}")
+            print("   👉 排除指引: 請關閉高顯存消耗的背景程式（如瀏覽器硬體加速、動態桌布、大型應用）以釋放約 300~500 MB 顯存。")
+        else:
+            print(f"✅ GPU 可用顯存充足（高於 {threshold_mb} MiB），可安全執行生圖。")
+        print("=" * 80 + "\n")
+
+    return info
+
+
+# ==============================================================================
+# 自適應分鏡拼版模組 (Compact, 3x3, Episode-Pages, Segment-Rep)
 # ==============================================================================
 
 def get_preferred_font(size: int = 18) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
@@ -656,23 +720,16 @@ def get_preferred_font(size: int = 18) -> ImageFont.FreeTypeFont | ImageFont.Ima
     return ImageFont.load_default()
 
 
-def assemble_3x3_grid(
-    layer2_data: Dict[str, Any],
+def render_grid_canvas(
+    shots: List[Dict[str, Any]],
+    cols: int,
+    rows: int,
+    header_title: str,
+    header_subtitle: str,
     out_dir: pathlib.Path,
-    grid_filename: Optional[str] = None,
+    save_path: pathlib.Path,
 ) -> pathlib.Path:
-    """將單格圖片拼合成 3x3 九宮格總覽圖，帶頂部資訊 Header 與單格標籤條。"""
-    project_id = layer2_data.get("project_id", "PROJ")
-    scene_id = layer2_data.get("scene_id", "SC01")
-    segment_id = layer2_data.get("segment_id", "S01-a")
-    meta = layer2_data.get("metadata", {})
-    shots = layer2_data.get("shots", [])
-
-    if not grid_filename:
-        grid_filename = f"grid-{segment_id}.png"
-    grid_path = out_dir / grid_filename
-
-    # 單格規格設定
+    """底層通用拼版渲染器：依據指定 cols x rows 拼合畫布，徹底避免多餘空白格。"""
     panel_w = 800
     panel_h = 450   # 16:9
     bar_h = 56      # 底部資訊條
@@ -683,62 +740,49 @@ def assemble_3x3_grid(
     gap = 18
     header_h = 100
 
-    total_w = margin * 2 + cell_w * 3 + gap * 2
-    total_h = margin * 2 + header_h + cell_h * 3 + gap * 2
+    total_w = margin * 2 + cell_w * cols + gap * (cols - 1)
+    total_h = margin * 2 + header_h + cell_h * rows + gap * (rows - 1)
 
-    # 建立畫布（深灰背景）
     bg_color = (20, 24, 33)
     grid_img = Image.new("RGB", (total_w, total_h), bg_color)
     draw = ImageDraw.Draw(grid_img)
 
-    # 載入字型
     font_title = get_preferred_font(28)
     font_meta = get_preferred_font(18)
     font_bar = get_preferred_font(17)
     font_empty = get_preferred_font(32)
 
     # 1. 繪製頂部 Header
-    header_x0 = margin
-    header_y0 = margin
-    header_x1 = total_w - margin
-    header_y1 = margin + header_h
+    hx0, hy0 = margin, margin
+    hx1, hy1 = total_w - margin, margin + header_h
+    draw.rectangle([hx0, hy0, hx1, hy1], fill=(13, 17, 23), outline=(48, 54, 61), width=2)
+    draw.text((hx0 + 20, hy0 + 16), header_title, fill=(240, 246, 252), font=font_title)
+    draw.text((hx0 + 20, hy0 + 58), header_subtitle, fill=(139, 148, 158), font=font_meta)
 
-    draw.rectangle([header_x0, header_y0, header_x1, header_y1], fill=(13, 17, 23), outline=(48, 54, 61), width=2)
-
-    title_text = f"CINEMATIC STORYBOARD 3x3 GRID | {project_id} · {scene_id} · {segment_id}"
-    draw.text((header_x0 + 20, header_y0 + 16), title_text, fill=(240, 246, 252), font=font_title)
-
-    target_dur = meta.get("target_duration_sec", sum(s.get("duration", 0) for s in shots))
-    pacing = meta.get("pacing_profile", "Standard_Narrative")
-    aspect = meta.get("aspect_ratio", "16:9")
-    now_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-
-    sub_text = (
-        f"鏡頭數: {len(shots)}/9 鏡  |  目標時長: {target_dur:.1f}s  |  節奏: {pacing}  |  "
-        f"畫幅: {aspect}  |  生成模型: Qwen-Image 2.1 Turbo (Pencil Sketch)  |  時間: {now_str}"
-    )
-    draw.text((header_x0 + 20, header_y0 + 58), sub_text, fill=(139, 148, 158), font=font_meta)
-
-    # 2. 逐格貼圖 (3x3 = 9 格)
+    # 2. 逐格排版
     panels_dir = out_dir / "panels"
+    total_cells = cols * rows
 
-    for grid_idx in range(9):
-        col = grid_idx % 3
-        row = grid_idx // 3
+    for grid_idx in range(total_cells):
+        col = grid_idx % cols
+        row = grid_idx // cols
         x = margin + col * (cell_w + gap)
         y = margin + header_h + gap + row * (cell_h + gap)
 
-        shot_idx = grid_idx
-        if shot_idx < len(shots):
-            shot = shots[shot_idx]
+        if grid_idx < len(shots):
+            shot = shots[grid_idx]
             shot_id = shot.get("shot_id", f"SH{grid_idx+1:02d}")
-            panel_file = shot.get("sketch_file")
+            panel_file = shot.get("sketch_file") or shot.get("image_file")
             panel_path: Optional[pathlib.Path] = None
 
             if panel_file:
                 p = out_dir / panel_file
                 if p.exists():
                     panel_path = p
+                else:
+                    cand = pathlib.Path(panel_file)
+                    if cand.exists():
+                        panel_path = cand
 
             if not panel_path:
                 candidate = panels_dir / f"panel-{grid_idx+1:02d}-{shot_id}.png"
@@ -752,18 +796,15 @@ def assemble_3x3_grid(
                         p_resized = p_img.convert("RGB").resize((panel_w, panel_h), Image.Resampling.LANCZOS)
                         grid_img.paste(p_resized, (x, y))
                 except Exception as e:
-                    # 讀圖失敗繪製錯誤底
                     draw.rectangle([x, y, x + panel_w, y + panel_h], fill=(40, 20, 20))
                     draw.text((x + 30, y + 200), f"讀取失敗: {e}", fill=(255, 100, 100), font=font_bar)
             else:
-                # 尚未生成圖
                 draw.rectangle([x, y, x + panel_w, y + panel_h], fill=(30, 35, 45), outline=(55, 65, 81), width=1)
                 draw.text((x + panel_w // 2 - 120, y + panel_h // 2 - 15), "[等待生成草圖]", fill=(120, 130, 150), font=font_empty)
 
-            # 單格邊框
             draw.rectangle([x, y, x + panel_w, y + panel_h], outline=(55, 65, 81), width=1)
 
-            # 繪製底部資訊條
+            # 底部資訊條
             bar_y = y + panel_h
             draw.rectangle([x, bar_y, x + panel_w, bar_y + bar_h], fill=(13, 17, 23), outline=(55, 65, 81), width=1)
 
@@ -777,52 +818,165 @@ def assemble_3x3_grid(
             locked = review.get("locked", False)
 
             if locked or status == "approved":
-                status_str = "APPROVED"
-                status_color = (63, 185, 80)  # 綠
+                status_str, status_color = "APPROVED", (63, 185, 80)
             elif status == "rejected":
-                status_str = "REJECTED"
-                status_color = (248, 81, 73)  # 紅
+                status_str, status_color = "REJECTED", (248, 81, 73)
             else:
-                status_str = "DRAFT"
-                status_color = (88, 166, 255) # 藍
+                status_str, status_color = "DRAFT", (88, 166, 255)
 
             line1 = f"[#{grid_idx+1:02d}] {shot_id}  |  {shot_size} {focal}  |  {dur:.1f}s  |  {movement}"
             draw.text((x + 12, bar_y + 8), line1, fill=(240, 246, 252), font=font_bar)
-
-            # 狀態標籤
             draw.text((x + 12, bar_y + 30), f"審核: {status_str}", fill=status_color, font=font_bar)
             if review.get("reviewer_note"):
-                note = review.get("reviewer_note")
-                draw.text((x + 140, bar_y + 30), f"備註: {note[:28]}", fill=(139, 148, 158), font=font_bar)
+                draw.text((x + 140, bar_y + 30), f"備註: {review['reviewer_note'][:28]}", fill=(139, 148, 158), font=font_bar)
 
         else:
-            # 不足 9 鏡之空白格 (EMPTY PANEL)
+            # 空白格
             draw.rectangle([x, y, x + panel_w, y + panel_h], fill=(26, 30, 39), outline=(48, 54, 61), width=1)
-            empty_msg = f"[#{grid_idx+1:02d}] EMPTY PANEL / 未配置鏡頭"
-            draw.text((x + panel_w // 2 - 200, y + panel_h // 2 - 16), empty_msg, fill=(75, 85, 99), font=font_empty)
-
-            # 空白格資訊條
+            draw.text((x + panel_w // 2 - 200, y + panel_h // 2 - 16), f"[#{grid_idx+1:02d}] EMPTY PANEL", fill=(75, 85, 99), font=font_empty)
             bar_y = y + panel_h
             draw.rectangle([x, bar_y, x + panel_w, bar_y + bar_h], fill=(18, 21, 28), outline=(48, 54, 61), width=1)
             draw.text((x + 12, bar_y + 16), f"[#{grid_idx+1:02d}] (空鏡頭位)", fill=(100, 110, 125), font=font_bar)
 
-    # 儲存九宮格圖片
-    grid_img.save(grid_path, format="PNG", optimize=True)
-    print(f"\n[九宮格拼版完成] 已儲存至: {grid_path} (尺寸: {total_w}x{total_h})")
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+    grid_img.save(save_path, format="PNG", optimize=True)
+    print(f"  [拼版產出] 已儲存至: {save_path.name} ({cols}x{rows} 格, 尺寸: {total_w}x{total_h})")
+    return save_path
+
+
+def assemble_adaptive_grid(
+    layer2_data: Dict[str, Any],
+    out_dir: pathlib.Path,
+    grid_filename: Optional[str] = None,
+    grid_mode: str = "auto",
+) -> pathlib.Path:
+    """單一 Layer 2 分段自適應拼版：消除單段 2~3 鏡印出 7 個 EMPTY PANEL 的問題。"""
+    segment_id = layer2_data.get("segment_id", "S01")
+    scene_id = layer2_data.get("scene_id", "SC01")
+    project_id = layer2_data.get("project_id", "PROJ")
+    shots = layer2_data.get("shots", [])
+    n_shots = len(shots)
+
+    if not grid_filename:
+        grid_filename = f"grid-{segment_id}.png"
+    save_path = out_dir / grid_filename
+
+    # 計算行列
+    if grid_mode == "3x3":
+        cols, rows = 3, 3
+    elif grid_mode == "compact" or (grid_mode == "auto" and n_shots <= 6):
+        if n_shots <= 1:
+            cols, rows = 1, 1
+        elif n_shots == 2:
+            cols, rows = 2, 1
+        elif n_shots == 3:
+            cols, rows = 3, 1
+        elif n_shots == 4:
+            cols, rows = 2, 2
+        elif n_shots in (5, 6):
+            cols, rows = 3, 2
+        else:
+            cols, rows = 3, 3
+    else:
+        cols, rows = 3, 3
+
+    meta = layer2_data.get("metadata", {})
+    dur = meta.get("target_duration_sec", sum(s.get("duration", 0) for s in shots))
+    pacing = meta.get("pacing_profile", "Standard")
+    now_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+
+    title = f"CINEMATIC STORYBOARD GRID ({cols}x{rows}) | {project_id} · {scene_id} · {segment_id}"
+    subtitle = (
+        f"鏡頭數: {n_shots} 鏡 ({cols}x{rows} 版面)  |  時長: {dur:.1f}s  |  節奏: {pacing}  |  "
+        f"模型: Qwen-Image 2.1 (Pencil)  |  時間: {now_str}"
+    )
+
+    render_grid_canvas(
+        shots=shots,
+        cols=cols,
+        rows=rows,
+        header_title=title,
+        header_subtitle=subtitle,
+        out_dir=out_dir,
+        save_path=save_path,
+    )
 
     # 回寫 Layer 2 JSON
-    layer2_data["grid_preview_file"] = str(grid_path.relative_to(out_dir).as_posix())
+    layer2_data["grid_preview_file"] = str(save_path.relative_to(out_dir).as_posix())
     panel_manifest = []
     for idx, shot in enumerate(shots, start=1):
         panel_manifest.append({
             "index": idx,
             "shot_id": shot.get("shot_id"),
-            "panel_file": shot.get("sketch_file"),
+            "panel_file": shot.get("sketch_file") or shot.get("image_file"),
             "sha256": shot.get("sketch_sha256"),
         })
     layer2_data["storyboard_panels"] = panel_manifest
+    return save_path
 
-    return grid_path
+
+def assemble_episode_grids(
+    segment_files: List[pathlib.Path],
+    out_dir: pathlib.Path,
+    episode_tag: str,
+    grid_mode: str = "episode-pages",
+) -> List[pathlib.Path]:
+    """跨段整集拼版：支援每 9 鏡一頁滿版 3x3 (episode-pages) 或每段抽第 1 鏡 (segment-rep)。"""
+    all_shots: List[Dict[str, Any]] = []
+    rep_shots: List[Dict[str, Any]] = []
+
+    for sf in segment_files:
+        try:
+            with sf.open("r", encoding="utf-8") as f:
+                data = json.load(f)
+            seg_shots = data.get("shots", [])
+            all_shots.extend(seg_shots)
+            if seg_shots:
+                rep_shots.append(seg_shots[0])
+        except Exception as e:
+            print(f"[警告] 讀取分段檔案失敗 {sf.name}: {e}")
+
+    output_paths: List[pathlib.Path] = []
+    now_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+
+    if grid_mode == "segment-rep":
+        # 抽取各段第 1 鏡組裝代表總覽圖 (取前 9 鏡)
+        target_shots = rep_shots[:9]
+        save_path = out_dir / f"grid-{episode_tag.lower()}-representative.png"
+        title = f"CINEMATIC STORYBOARD REPRESENTATIVE 3x3 GRID | {episode_tag} (Segment Reps)"
+        sub = f"總段落數: {len(segment_files)} 段  |  代表鏡數: {len(target_shots)}/9 鏡  |  時間: {now_str}"
+        p = render_grid_canvas(
+            shots=target_shots,
+            cols=3,
+            rows=3,
+            header_title=title,
+            header_subtitle=sub,
+            out_dir=out_dir,
+            save_path=save_path,
+        )
+        output_paths.append(p)
+
+    else:
+        # episode-pages：每 9 鏡切為一頁滿版 3x3
+        total_shots = len(all_shots)
+        pages = math.ceil(total_shots / 9) if total_shots > 0 else 1
+        for page_idx in range(pages):
+            page_shots = all_shots[page_idx * 9 : (page_idx + 1) * 9]
+            save_path = out_dir / f"grid-{episode_tag.lower()}-p{page_idx+1}.png"
+            title = f"CINEMATIC STORYBOARD 3x3 GRID | {episode_tag} · Page {page_idx+1}/{pages}"
+            sub = f"整集鏡頭總數: {total_shots} 鏡 (本頁: {len(page_shots)} 鏡)  |  時間: {now_str}"
+            p = render_grid_canvas(
+                shots=page_shots,
+                cols=3,
+                rows=3,
+                header_title=title,
+                header_subtitle=sub,
+                out_dir=out_dir,
+                save_path=save_path,
+            )
+            output_paths.append(p)
+
+    return output_paths
 
 
 # ==============================================================================
@@ -831,40 +985,68 @@ def assemble_3x3_grid(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Qwen-Image 2.1 Turbo 鉛筆分鏡九宮格草圖生成、局部重繪與自動拼版工具"
+        description="Qwen-Image 2.1 Turbo 鉛筆分鏡自適應拼版與生圖工具 (升級版 v2.0)"
     )
-    parser.add_argument("--layer2", type=str, required=True, help="Layer 2 分鏡 JSON 檔案路徑")
+    parser.add_argument("--layer2", type=str, default=None, help="單一 Layer 2 分鏡 JSON 檔案路徑")
+    parser.add_argument("--layer2-dir", type=str, default=None, help="Layer 2 分段目錄 (批次處理整集多個 JSON)")
+    parser.add_argument("--episode", type=str, default=None, help="指定集數過濾 (例如 EP01, EP02)")
     parser.add_argument("--out-dir", type=str, default=None, help="輸出圖片與九宮格目錄 (預設為 layer2 所在目錄)")
     parser.add_argument("--generate-all", action="store_true", help="逐格生成全部草圖 (自動跳過已鎖定/審核通過之單格)")
-    parser.add_argument("--redraw-shot", type=str, default=None, help="指定單一 shot_id 進行局部重繪 (其餘 8 格完全不變)")
-    parser.add_argument("--no-arrows", action="store_true", help="生成純淨無黑箭頭的鉛筆構圖底稿，避免後續轉彩時箭頭殘留為路面標線")
-    parser.add_argument("--to-color-keyframe", type=str, default=None, metavar="SHOT_ID_OR_ALL", help="將指定 shot_id 或 'all' 的已核准鉛筆草圖轉繪為全彩關鍵幀首幀（自動注入去黑箭頭擦除指令）")
-    parser.add_argument("--seed", type=int, default=None, help="生圖隨機種子 (可選)")
-    parser.add_argument("--assemble-grid", action="store_true", help="拼合 3x3 九宮格總覽預覽圖")
-    parser.add_argument("--grid-name", type=str, default=None, help="指定產出九宮格的檔案名稱 (例如 grid-v1.png)")
+    parser.add_argument("--redraw-shot", type=str, default=None, help="指定單一 shot_id 進行局部重繪 (其餘格子完全不變)")
+    parser.add_argument("--no-arrows", action="store_true", help="生成純淨無黑箭頭的鉛筆構圖底稿")
+    parser.add_argument("--to-color-keyframe", type=str, default=None, metavar="SHOT_ID_OR_ALL", help="將指定 shot_id 或 'all' 轉繪為全彩首幀")
+    parser.add_argument("--seed", type=int, default=None, help="生圖隨機種子")
+    parser.add_argument("--assemble-grid", action="store_true", help="執行拼版總覽圖")
+    parser.add_argument("--assemble-only", action="store_true", help="純拼版模式 (不呼叫生圖 API，適合離線排版驗收)")
+    parser.add_argument("--grid-mode", type=str, default="auto", choices=["auto", "compact", "3x3", "episode-pages", "segment-rep"],
+                        help="拼版模式: compact(自適應無空格), 3x3(固定九宮格), episode-pages(整集分頁九宮格), segment-rep(各段代表鏡總覽)")
+    parser.add_argument("--grid-name", type=str, default=None, help="指定產出九宮格的檔案名稱")
+    parser.add_argument("--check-vram", action="store_true", help="執行 GPU 顯存 4.20 GiB 檢測與診斷")
     parser.add_argument("--dry-run", action="store_true", help="只編譯提示詞並驗證連線，不實際調用生圖 API")
 
     args = parser.parse_args()
 
-    layer2_path = pathlib.Path(args.layer2).resolve()
-    if not layer2_path.exists():
-        print(f"[錯誤] 找不到 Layer 2 檔案: {layer2_path}", file=sys.stderr)
+    # 1. 獨立顯存檢測
+    if args.check_vram:
+        check_gpu_vram(verbose=True)
+        if not (args.layer2 or args.layer2_dir):
+            sys.exit(0)
+
+    # 2. 確定處理檔案列表
+    layer2_files: List[pathlib.Path] = []
+    if args.layer2:
+        p = pathlib.Path(args.layer2).resolve()
+        if not p.exists():
+            print(f"[錯誤] 找不到檔案: {p}", file=sys.stderr)
+            sys.exit(1)
+        layer2_files.append(p)
+    elif args.layer2_dir:
+        dir_p = pathlib.Path(args.layer2_dir).resolve()
+        if not dir_p.exists():
+            print(f"[錯誤] 找不到目錄: {dir_p}", file=sys.stderr)
+            sys.exit(1)
+        pattern = f"*{args.episode}*.json" if args.episode else "*.json"
+        layer2_files = sorted(dir_p.glob(pattern))
+        if not layer2_files:
+            print(f"[錯誤] 在 {dir_p} 找不到匹配 {pattern} 的分段 JSON 檔案！", file=sys.stderr)
+            sys.exit(1)
+    else:
+        print("[錯誤] 請指定 --layer2 <檔案> 或 --layer2-dir <目錄>", file=sys.stderr)
         sys.exit(1)
 
-    with layer2_path.open("r", encoding="utf-8") as f:
-        layer2_data = json.load(f)
-
+    # 輸出目錄
     if args.out_dir:
         out_dir = pathlib.Path(args.out_dir).resolve()
     else:
-        out_dir = layer2_path.parent
+        out_dir = layer2_files[0].parent
     out_dir.mkdir(parents=True, exist_ok=True)
 
     client = FreeVideoClient()
 
-    # 1. 驗證連線與握手 (若需要生圖或乾跑)
-    need_connection = args.generate_all or args.redraw_shot or args.to_color_keyframe or args.dry_run
-    if need_connection:
+    # 3. 檢查連線 (若需要生圖)
+    need_conn = (args.generate_all or args.redraw_shot or args.to_color_keyframe) and not args.assemble_only
+    if need_conn:
+        check_gpu_vram(verbose=True)
         print("[連線初始化] 正在檢查 FreeVideo 伺服器並握手...")
         try:
             root_info = client.verify_connection()
@@ -878,54 +1060,63 @@ def main():
                 print(f"[連線錯誤] {e}", file=sys.stderr)
                 sys.exit(1)
 
-    # 2. 執行逐格生成或局部重繪 (鉛筆草圖)
-    if args.generate_all or args.redraw_shot or (args.dry_run and not args.to_color_keyframe):
-        layer2_data, sha256_map = process_storyboard_segment(
-            client=client,
-            layer2_data=layer2_data,
+    # 4. 逐檔處理生成
+    for l2_path in layer2_files:
+        with l2_path.open("r", encoding="utf-8") as f:
+            l2_data = json.load(f)
+
+        if (args.generate_all or args.redraw_shot or (args.dry_run and not args.to_color_keyframe)) and not args.assemble_only:
+            l2_data, _ = process_storyboard_segment(
+                client=client,
+                layer2_data=l2_data,
+                out_dir=out_dir,
+                generate_all=args.generate_all,
+                redraw_shot_id=args.redraw_shot,
+                no_arrows=args.no_arrows,
+                seed=args.seed,
+                dry_run=args.dry_run,
+            )
+            with l2_path.open("w", encoding="utf-8") as f:
+                json.dump(l2_data, f, ensure_ascii=False, indent=2)
+
+        if args.to_color_keyframe and not args.assemble_only:
+            print(f"\n{STYLE_CONSISTENCY_WARNING}\n")
+            l2_data = convert_to_color_keyframes(
+                client=client,
+                layer2_data=l2_data,
+                out_dir=out_dir,
+                target_shot=args.to_color_keyframe,
+                seed=args.seed,
+                dry_run=args.dry_run,
+            )
+            with l2_path.open("w", encoding="utf-8") as f:
+                json.dump(l2_data, f, ensure_ascii=False, indent=2)
+
+        # 單檔自適應拼版
+        if (args.assemble_grid or args.assemble_only) and args.grid_mode in ("auto", "compact", "3x3"):
+            assemble_adaptive_grid(
+                layer2_data=l2_data,
+                out_dir=out_dir,
+                grid_filename=args.grid_name,
+                grid_mode=args.grid_mode,
+            )
+            with l2_path.open("w", encoding="utf-8") as f:
+                json.dump(l2_data, f, ensure_ascii=False, indent=2)
+
+    # 5. 跨段整集拼版 (episode-pages 或 segment-rep)
+    if (args.assemble_grid or args.assemble_only) and args.grid_mode in ("episode-pages", "segment-rep"):
+        ep_tag = args.episode or "ALL"
+        print(f"\n[執行跨段整集拼版] 模式: {args.grid_mode} | 涵蓋分段數: {len(layer2_files)}")
+        assemble_episode_grids(
+            segment_files=layer2_files,
             out_dir=out_dir,
-            generate_all=args.generate_all,
-            redraw_shot_id=args.redraw_shot,
-            no_arrows=args.no_arrows,
-            seed=args.seed,
-            dry_run=args.dry_run,
+            episode_tag=ep_tag,
+            grid_mode=args.grid_mode,
         )
 
-        # 回寫更新 Layer 2 JSON
-        with layer2_path.open("w", encoding="utf-8") as f:
-            json.dump(layer2_data, f, ensure_ascii=False, indent=2)
-        print(f"[JSON 已更新] 分鏡草圖產物路徑與 SHA256 已回寫至: {layer2_path}")
-
-    # 3. 執行鉛筆草圖轉全彩關鍵幀首幀
-    if args.to_color_keyframe:
-        print(f"\n{STYLE_CONSISTENCY_WARNING}\n")
-        layer2_data = convert_to_color_keyframes(
-            client=client,
-            layer2_data=layer2_data,
-            out_dir=out_dir,
-            target_shot=args.to_color_keyframe,
-            seed=args.seed,
-            dry_run=args.dry_run,
-        )
-
-        # 回寫更新 Layer 2 JSON
-        with layer2_path.open("w", encoding="utf-8") as f:
-            json.dump(layer2_data, f, ensure_ascii=False, indent=2)
-        print(f"[JSON 已更新] 全彩關鍵幀產物路徑與 status 已回寫至: {layer2_path}")
-
-    # 4. 自動拼合九宮格
-    if args.assemble_grid:
-        assemble_3x3_grid(
-            layer2_data=layer2_data,
-            out_dir=out_dir,
-            grid_filename=args.grid_name,
-        )
-        # 回寫更新 Layer 2 JSON
-        with layer2_path.open("w", encoding="utf-8") as f:
-            json.dump(layer2_data, f, ensure_ascii=False, indent=2)
-
-    print("\n[所有指定任務執行完畢]")
+    print("\n✅ [所有指定分鏡任務執行完畢]")
 
 
 if __name__ == "__main__":
     main()
+

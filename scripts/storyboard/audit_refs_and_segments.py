@@ -33,9 +33,10 @@ import sys
 from typing import Any, Dict, List, Optional, Tuple
 
 # 確保 Windows 終端輸出 UTF-8
-if sys.platform.startswith("win"):
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 
 # ==============================================================================
@@ -815,48 +816,105 @@ def main():
 
     for p in json_files:
         print(f"\n▶ 檔案: {p.name}")
-        try:
-            with p.open("r", encoding="utf-8") as f:
-                data = json.load(f)
-        except Exception as exc:
-            print(f"  ❌ JSON 讀取失敗: {exc}")
-            total_errors += 1
-            continue
+        if p.suffix.lower() == ".md":
+            try:
+                content = p.read_text(encoding="utf-8")
+                sections = re.split(r"(?=^#{2,3}\s+)", content, flags=re.MULTILINE)
+                items_to_check = []
+                for sec in sections:
+                    sec = sec.strip()
+                    if not sec or not re.match(r"^#{2,3}\s+", sec):
+                        continue
+                    m_title = re.search(r"^#{2,3}\s+(?:Segment\s+\d+:\s*`?)?([A-Za-z0-9_-]+)", sec)
+                    seg_id = m_title.group(1) if m_title else "segment"
+                    m_dur = re.search(r"(?:時長|Duration|目標|真實有效)[：:\s`]*([0-9.]+)\s*s?", sec, re.IGNORECASE)
+                    dur = float(m_dur.group(1)) if m_dur else args.duration
+                    m_code = re.findall(r"```(?:text|prompt)?\s*\n(.*?)\n```", sec, re.DOTALL)
+                    prompt_cand = ""
+                    for cb in m_code:
+                        if "subject_definitions:" in cb or "detailed_description:" in cb:
+                            prompt_cand = cb.strip()
+                            break
+                    if not prompt_cand:
+                        m_sub = re.search(r"(subject_definitions:.*?)(?=(?:\n##|\Z))", sec, re.DOTALL)
+                        if m_sub:
+                            prompt_cand = m_sub.group(1).strip()
+                    if prompt_cand:
+                        items_to_check.append({
+                            "segment_id": seg_id,
+                            "metadata": {"target_duration_sec": dur},
+                            "h3_prompt": prompt_cand
+                        })
+                if not items_to_check and ("subject_definitions:" in content or "detailed_description:" in content):
+                    items_to_check = [{
+                        "segment_id": p.stem,
+                        "metadata": {"target_duration_sec": args.duration},
+                        "h3_prompt": content.strip()
+                    }]
+            except Exception as exc:
+                print(f"  ❌ Markdown 讀取失敗: {exc}")
+                total_errors += 1
+                continue
+        else:
+            try:
+                with p.open("r", encoding="utf-8") as f:
+                    data = json.load(f)
+            except Exception as exc:
+                print(f"  ❌ JSON 讀取失敗: {exc}")
+                total_errors += 1
+                continue
 
-        # 模式 A: 審查與修復參考圖
-        if args.audit_refs:
-            if args.fix_refs:
-                data = fix_refs_and_subjects(data)
-                with p.open("w", encoding="utf-8") as f:
-                    json.dump(data, f, ensure_ascii=False, indent=2)
-                    f.write("\n")
-                print(f"  🔧 已自動覆寫修復 reference_images 與 subject_definitions！")
-
-            refs_res = audit_refs_and_subjects(data)
-            if refs_res["passed"]:
-                print("  [PASS] 參考圖與主體定義序對稽核通過")
+            items_to_check = []
+            if isinstance(data, list):
+                items_to_check = data
+            elif isinstance(data, dict) and "segments" in data and isinstance(data["segments"], list):
+                items_to_check = data["segments"]
+            elif isinstance(data, dict):
+                items_to_check = [data]
             else:
-                for e in refs_res["errors"]:
-                    print(f"  ❌ {e}")
-                total_errors += len(refs_res["errors"])
-            for w in refs_res["warnings"]:
-                print(f"  ⚠️ {w}")
-            total_warnings += len(refs_res["warnings"])
+                print(f"  ❌ 資料格式應為物件或陣列: {type(data)}")
+                total_errors += 1
+                continue
 
-        # 模式 B: H3 提示詞 13 條自檢
-        if args.lint_h3:
-            prompt_str = extract_prompt_from_seg(data)
-            dur = float(data.get("metadata", {}).get("target_duration_sec", args.duration))
-            lint_res = lint_h3_prompt(prompt_str, nominal_duration=dur, rounding_mode=args.rounding)
-            if lint_res["passed"]:
-                print(f"  [PASS] H3 提示詞 13 條自檢通過 (名義 {dur}s -> 真實有效 {lint_res['details']['effective_duration_sec']}s)")
-            else:
-                for e in lint_res["errors"]:
-                    print(f"  ❌ {e}")
-                total_errors += len(lint_res["errors"])
-            for w in lint_res["warnings"]:
-                print(f"  ⚠️ {w}")
-            total_warnings += len(lint_res["warnings"])
+        for seg_idx, seg_data in enumerate(items_to_check, start=1):
+            seg_id_label = seg_data.get("segment_id", f"item_{seg_idx}")
+            if len(items_to_check) > 1:
+                print(f"  --- [分段 {seg_id_label}] ---")
+
+            # 模式 A: 審查與修復參考圖
+            if args.audit_refs:
+                if args.fix_refs:
+                    seg_data = fix_refs_and_subjects(seg_data)
+                    with p.open("w", encoding="utf-8") as f:
+                        json.dump(data, f, ensure_ascii=False, indent=2)
+                        f.write("\n")
+                    print(f"  🔧 已自動覆寫修復 reference_images 與 subject_definitions！")
+
+                refs_res = audit_refs_and_subjects(seg_data)
+                if refs_res["passed"]:
+                    print(f"  [PASS] 參考圖與主體定義序對稽核通過 ({seg_id_label})")
+                else:
+                    for e in refs_res["errors"]:
+                        print(f"  ❌ {e}")
+                    total_errors += len(refs_res["errors"])
+                for w in refs_res["warnings"]:
+                    print(f"  ⚠️ {w}")
+                total_warnings += len(refs_res["warnings"])
+
+            # 模式 B: H3 提示詞 13 條自檢
+            if args.lint_h3:
+                prompt_str = extract_prompt_from_seg(seg_data)
+                dur = float(seg_data.get("metadata", {}).get("target_duration_sec", args.duration))
+                lint_res = lint_h3_prompt(prompt_str, nominal_duration=dur, rounding_mode=args.rounding)
+                if lint_res["passed"]:
+                    print(f"  [PASS] H3 提示詞 13 條自檢通過 ({seg_id_label}: 名義 {dur}s -> 真實有效 {lint_res['details']['effective_duration_sec']}s)")
+                else:
+                    for e in lint_res["errors"]:
+                        print(f"  ❌ {e}")
+                    total_errors += len(lint_res["errors"])
+                for w in lint_res["warnings"]:
+                    print(f"  ⚠️ {w}")
+                total_warnings += len(lint_res["warnings"])
 
     print("\n" + "=" * 75)
     print(f"📊 稽核總結: 檢查 {total_files} 個檔案 | 錯誤 (Errors): {total_errors} | 警告 (Warnings): {total_warnings}")

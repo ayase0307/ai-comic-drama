@@ -118,15 +118,47 @@ def parse_and_validate_script(script_text: str) -> Dict[str, Any]:
         if not line:
             continue
 
-        # 略過 Markdown code fence 或標題註解
-        if line.startswith("```") or line.startswith("#"):
+        # 略過 Markdown code fence
+        if line.startswith("```"):
             continue
 
-        ep_match = EPISODE_HEADER_RE.match(line)
+        # 支援 HTML 註解元數據 (例如 <!-- source: U01, U02 -->)
+        comment_match = re.match(r"^<!--\s*(.*?)\s*-->$", line)
+        if comment_match:
+            if current_scene is not None:
+                c_text = comment_match.group(1).strip()
+                current_scene.setdefault("comments", []).append(c_text)
+                s_m = re.match(r"^source[：:]\s*(.+)$", c_text, re.IGNORECASE)
+                if s_m:
+                    refs = [r.strip() for r in re.split(r"[,，\s]+", s_m.group(1)) if r.strip()]
+                    current_scene.setdefault("source_refs", []).extend(refs)
+                mk_m = re.match(r"^must_keep[：:]\s*(.+)$", c_text, re.IGNORECASE)
+                if mk_m:
+                    mks = [r.strip() for r in re.split(r"[,，\s]+", mk_m.group(1)) if r.strip()]
+                    current_scene.setdefault("must_keep_ids", []).extend(mks)
+                chg_m = re.match(r"^change[：:]\s*(.+)$", c_text, re.IGNORECASE)
+                if chg_m:
+                    parts = [p.strip() for p in chg_m.group(1).split("|")]
+                    chg_type = parts[0] if len(parts) > 0 else "must_keep"
+                    chg_ref = parts[1] if len(parts) > 1 else None
+                    chg_desc = parts[2] if len(parts) > 2 else ""
+                    current_scene.setdefault("adaptation_changes", []).append({
+                        "type": chg_type,
+                        "source_ref": chg_ref,
+                        "description": chg_desc,
+                    })
+            continue
+
+        clean_line = re.sub(r"^#+\s*", "", line)
+
+        ep_match = EPISODE_HEADER_RE.match(clean_line)
         if ep_match:
             continue
 
-        scene_match = SCENE_HEADER_RE.match(line)
+        scene_match = SCENE_HEADER_RE.match(clean_line)
+        if not scene_match and line.startswith("#"):
+            # 一般 Markdown 註解或非場景章節標題，略過
+            continue
         if scene_match:
             scene_num, loc_name, time_of_day, int_ext, timeline_tag = scene_match.groups()
             if scene_num in seen_scene_ids:
@@ -151,6 +183,10 @@ def parse_and_validate_script(script_text: str) -> Dict[str, Any]:
                 "characters": [],
                 "actions": [],
                 "dialogues": [],
+                "source_refs": [],
+                "must_keep_ids": [],
+                "adaptation_changes": [],
+                "comments": [],
             }
             continue
 

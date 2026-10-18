@@ -559,6 +559,19 @@ def main():
     if args.scene and not args.handoff:
         parser.error("--scene 需要搭配 --handoff")
 
+    expanded_files = []
+    import glob
+    for p in args.file:
+        if any(c in p for c in ("*", "?", "[")):
+            matched = sorted(glob.glob(p))
+            expanded_files.extend(matched if matched else [p])
+        elif Path(p).is_dir():
+            matched = sorted(glob.glob(os.path.join(p, "layer2-*.json")))
+            expanded_files.extend(matched if matched else [p])
+        else:
+            expanded_files.append(p)
+    args.file = expanded_files
+
     try:
         datas = [load_json(path) for path in args.file]
         handoff = load_json(args.handoff) if args.handoff else None

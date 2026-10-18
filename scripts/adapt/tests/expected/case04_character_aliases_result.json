@@ -24,5 +24,13 @@
   "warning_count": 0,
   "errors": [],
   "warnings": [],
+  "h3_audit": {
+    "h3_mode": false,
+    "spoken_chars": 30,
+    "speech_seconds": 7.5,
+    "speech_ratio": 0.375,
+    "max_line_chars": 16,
+    "passed": false
+  },
   "schema_errors": []
 }

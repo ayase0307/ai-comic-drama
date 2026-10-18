@@ -26,5 +26,13 @@
   "warnings": [
     "[DURATION_OVER_BUDGET] 預估時長區間 [32.3s, 51.3s] 超出目標 20s (+15% 上限 23.0s)"
   ],
+  "h3_audit": {
+    "h3_mode": false,
+    "spoken_chars": 40,
+    "speech_seconds": 10.0,
+    "speech_ratio": 0.5,
+    "max_line_chars": 11,
+    "passed": true
+  },
   "schema_errors": []
 }

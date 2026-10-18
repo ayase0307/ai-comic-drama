@@ -38,6 +38,8 @@ PROJECT_TEMPLATE = """# {title}
 - source_type：<小說／網文／故事梗概／劇本>
 - source_rights：<原著版權來源與授權說明，未確認就寫 unconfirmed 與待辦>
 - 風格錨點 ID：STYLE-<slug>（對應 assets.md 的 style_anchor 行）
+- 台詞政策：<① 100%逐字保留／② 只留重點句／③ 全改影視對白／④ 無台詞純旁白>
+- 原文體量反推試算：<原著對白字數 ÷ 4 × 1.6 = 預估總秒數，例：300 字 ÷ 4 × 1.6 = 120 秒（約 1.3 集）>
 
 ## 一句話賣點
 <主角 + 目標 + 阻礙>
@@ -149,6 +151,62 @@ def slugify_project(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "project"
 
 
+def source_stub(title: str) -> dict:
+    """提供符合 compare_adaptation.py 檢驗標準的初始原著分析骨架。"""
+    return {
+        "work_title": title,
+        "segment_id": "seg-01",
+        "genre_mode": "healing_literary",
+        "is_incomplete": False,
+        "known_contradictions": [],
+        "must_keep": ["U01"],
+        "story_units": [
+            {
+                "unit_id": "U01",
+                "summary": "開場核心原著事件",
+                "expected_grade": "MUST_KEEP",
+            }
+        ],
+        "foreshadowing": [],
+    }
+
+
+def bible_stub(project_id: str) -> dict:
+    """提供符合 check_continuity.py 與 compare_adaptation.py 檢驗標準的初始世界觀與角色聖經骨架。"""
+    return {
+        "project_id": project_id,
+        "style_mode": "healing_literary",
+        "irreversible_states": [
+            "destroyed",
+            "burned",
+            "dead",
+        ],
+        "characters": [
+            {
+                "character_id": "C-protagonist",
+                "canonical_name": "<角色名>",
+                "aliases": ["<主角別名>"],
+                "role": "star",
+            }
+        ],
+        "props": [
+            {
+                "prop_id": "P-sample",
+                "name": "<道具名>",
+                "initial_state": "intact",
+                "description": "<道具描述與狀態>",
+            }
+        ],
+        "locations": [
+            {
+                "location_id": "S-sample",
+                "name": "<場景名>",
+                "description": "<空間類型、環境特徵與光影>",
+            }
+        ],
+    }
+
+
 def handoff_stub(project_id: str, episode: int) -> dict:
     """最小結構 stub：必要欄位齊全、enum 取合法值，但內容皆為待填。"""
     tag = f"EP{episode:02d}"
@@ -156,10 +214,10 @@ def handoff_stub(project_id: str, episode: int) -> dict:
         "project_id": project_id,
         "episode_id": tag,
         "scene_id": f"{tag}-S01",
-        "source_refs": [],
+        "source_refs": ["U01"],
         "adaptation_mode": "balanced",
-        "setting": {"location": "TODO", "time": "unknown", "interior": True},
-        "characters": [],
+        "setting": {"location": "<場景名>", "time": "unknown", "interior": True},
+        "characters": ["C-protagonist"],
         "scene_goal": "TODO",
         "dramatic_turn": "TODO",
         "dialogue": [],
@@ -167,7 +225,14 @@ def handoff_stub(project_id: str, episode: int) -> dict:
         "continuity_initial": {},
         "continuity_final": {},
         "estimated_duration_seconds": {"min": 10, "max": 20},
-        "adaptation_changes": [],
+        "adaptation_changes": [
+            {
+                "type": "must_keep",
+                "description": "保留核心開場事件",
+                "source_ref": "U01",
+                "is_adaptation_addition": False,
+            }
+        ],
         "storyboard_handoff": {
             "required_visual_beats": [],
             "required_audio_beats": [],
@@ -198,6 +263,8 @@ def build_files(title: str, episodes: int, project_id: str) -> dict[str, str]:
         "project.md": PROJECT_TEMPLATE.format(title=title, episodes=episodes, episode_rows=rows),
         "assets.md": ASSETS_TEMPLATE,
         "adapt/README.md": ADAPT_README,
+        "adapt/source.json": json.dumps(source_stub(title), ensure_ascii=False, indent=2) + "\n",
+        "adapt/bible.json": json.dumps(bible_stub(project_id), ensure_ascii=False, indent=2) + "\n",
     }
     for ep in range(1, episodes + 1):
         tag = f"ep{ep:02d}"

@@ -26,5 +26,13 @@
   "warnings": [
     "[DURATION_UNDER_BUDGET] 預估時長區間 [10.7s, 16.5s] 低於目標 20s (-15% 下限 17.0s)"
   ],
+  "h3_audit": {
+    "h3_mode": false,
+    "spoken_chars": 22,
+    "speech_seconds": 5.5,
+    "speech_ratio": 0.275,
+    "max_line_chars": 11,
+    "passed": true
+  },
   "schema_errors": []
 }
