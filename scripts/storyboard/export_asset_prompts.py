@@ -50,36 +50,42 @@ ENGINE_CONSISTENCY_GATE = """
 2. 跨章節製作時，必須嚴格沿用前章相同的圖片生成引擎（如 Codex CLI / GPT Image 2.5）；
    嚴禁本章改用 Qwen-Image 或其他圖片模型生成彩色核心資產！
 3. 圖片模型之間的筆觸、材質與膚色渲染（SSS）存在顯著割裂，一旦混用將導致片中角色換臉與風格跳變！
-4. Qwen-Image 僅限用於階段 4 的黑白鉛筆分鏡草圖九宮格構圖審核。
+4. 畫風語義漂移防禦（Anti-Pixar 鐵律）：
+   - 角色 Prompt 必須嚴格指定「東亞五官骨相與比例（realistic East Asian facial proportions）」；
+   - 嚴格負向/排他詞：STRICTLY NO Pixar style, NO Disney cartoon style, NO Western cartoon proportions, NO exaggerated oversized eyes, NO freckles；
+   - 嚴格禁止使用「wide bright eyes + wide grin」等會誘導歐美卡通大眼雀斑笑臉的詞彙組合。
+5. 生圖後必須以 view_file 進行親眼視覺驗收，禁止僅憑檔案大小與解析度交件！
+6. Qwen-Image 僅限用於階段 4 的黑白鉛筆分鏡草圖九宮格構圖審核。
 ================================================================================
 """
 
 DEFAULT_STYLE_LOCK_3D = (
-    "3D animated series still, stylized realistic CG render, "
-    "thick-paint texture over subsurface-scattering skin, cinematic volumetric lighting, "
-    "shallow depth of field, detailed hair and fabric, 16:9"
+    "Photorealistic-stylized East Asian 3D CG cinematic render, Unreal Engine 5 aesthetic, "
+    "realistic East Asian facial bone structure and eye proportions, delicate subsurface-scattering skin texture, "
+    "cinematic volumetric lighting, shallow depth of field, detailed hair and fabric, 16:9; "
+    "STRICTLY NO Pixar style, NO Disney cartoon style, NO exaggerated oversized cartoon eyes, NO freckles"
 )
 
 CHARACTER_TURNAROUND_TEMPLATE = (
-    "3D animated series character concept sheet, stylized realistic CG render, "
-    "thick-paint texture over subsurface-scattering skin, neutral studio lighting, 16:9 aspect ratio. "
-    "Character turn-around model sheet showing 4 views horizontally aligned against a seamless flat "
-    "neutral medium-grey background: from left to right, extreme close-up of face showing detailed "
-    "facial features, full-body front view, full-body 90-degree profile side view, full-body back view. "
+    "Photorealistic-stylized East Asian 3D CG character concept sheet (Unreal Engine 5 / Korean-Chinese next-gen CG cinema aesthetic, "
+    "realistic East Asian facial bone structure and eye proportions, delicate subsurface-scattering pore skin texture; "
+    "STRICTLY NO Pixar style, NO Disney cartoon style, NO Western cartoon proportions, NO exaggerated oversized eyes, NO freckles). "
+    "Character turn-around model sheet showing 4 views horizontally aligned against a seamless flat neutral medium-grey background: "
+    "from left to right, extreme close-up of face showing fine East Asian eyes and smooth skin, full-body front view, full-body 90-degree profile side view, full-body back view. "
     "Subject: {subject_desc}"
 )
 
 CREATURE_TURNAROUND_TEMPLATE = (
-    "3D animated series creature concept sheet, stylized realistic CG render, "
-    "cinematic creature design, neutral studio lighting, 16:9 aspect ratio. "
+    "Photorealistic-stylized 3D CG creature concept sheet, cinematic creature design, "
+    "realistic textures and volume, neutral studio lighting, 16:9 aspect ratio. "
     "Creature turnaround model sheet against a seamless flat neutral medium-grey background showing "
     "front view, side profile view, and head close-up. "
     "Subject: {subject_desc}"
 )
 
 SCENE_PLATE_TEMPLATE = (
-    "3D animated series environment plate, stylized realistic CG render, "
-    "thick-paint texture, cinematic volumetric lighting, deep perspective architectural view, 16:9 aspect ratio. "
+    "Photorealistic-stylized 3D CG environment plate, realistic architectural and environmental rendering, "
+    "cinematic volumetric lighting, deep perspective view, 16:9 aspect ratio. "
     "{subject_desc}, completely empty of people, cinematic establishing plate."
 )
 

@@ -56,6 +56,17 @@
    - 本機 FreeVideo 內建之 `Qwen-Image 2.1` **嚴格限定僅用於階段 4 鉛筆分鏡九宮格視覺化構圖與走位審核**。
    - **嚴禁用於階段 2 核心資產設定圖**，亦不可與雲端大模型資產混編，守牢風格邊界。
 
+### 2.2 Anti-Pixar 語義漂移防護與生圖後親眼視覺驗收（實戰血淚鐵律）
+1. **美式卡通語義漂移成因與教訓**：
+   - 在 GPT Image / Codex CLI 等自然語言生圖模型中，若使用過於寬泛的「3D animated series」加上性格形容詞如「unruly hair, wide bright eyes, a wide fearless grin」，模型會極易觸發 **Pixar / Disney 美式 3D 卡通動畫風（誇張圓眼、雀斑、露齒誇張大笑、卡通頭身比）** 的強烈語義漂移，導致該角色與同劇其他細膩寫實東亞 CG / 3D 國漫角色徹底割裂！
+2. **東亞骨相與排他負向詞硬性約束**：
+   - 角色 Prompt 必須明確錨定：`Photorealistic-stylized East Asian 3D CG character concept sheet (Unreal Engine 5 / Korean-Chinese next-gen CG cinema aesthetic, realistic East Asian facial bone structure and eye proportions, delicate subsurface-scattering pore skin texture)`；
+   - 嚴格加入排他約束：`STRICTLY NO Pixar style, NO Disney cartoon style, NO Western cartoon proportions, NO exaggerated oversized eyes, NO freckles`；
+   - 嚴禁使用「wide bright eyes + wide grin」等極易被歐美模型解釋為迪士尼卡通臉的危險組合，改用「sharp confident East Asian eyes, a composed confident slight smile with closed lips」。
+3. **生圖後禁止「只看檔案大小」盲驗，必須親眼視覺驗收**：
+   - 生圖完成後，**嚴禁僅憑檔案大小（>20KB）或解析度（1672×941）就判定驗收通過**！
+   - Agent 必須呼叫 `view_file` 或視覺工具親自渲染圖片，親眼審視五官骨相、眼睛大小、神態與材質，並與現有已驗收角色圖（如 `char-YeWeishan.png`、`char-BlackHairDaoist.png`）橫向比對，確認畫風與審美 100% 一致後方可宣告完工交付！
+
 ## 3. 角色與生物設定板（Character & Creature Sheet）
 
 ### 3.1 角色設定板（Character Sheet）
