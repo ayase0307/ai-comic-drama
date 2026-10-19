@@ -6,12 +6,12 @@
 
 **一個 Agent Skill：把小說、故事或劇本，端到端做成角色一致的 AI 漫劇／動態漫／短劇。**
 
-小說 → 改編分集 → 資產設定圖 → 漫劇劇本 → 導演分鏡 → 提示詞 → 圖 → 片，全程在 Agent 內完成。
+依需求交付文字規劃、提示詞或媒體；圖片／影片生成視目前 Agent 與所選後端是否提供相容能力。
 
 ![Claude Skill](https://img.shields.io/badge/Claude-Agent%20Skill-7c3aed?logo=anthropic&logoColor=white)
 ![MiniMax H3](https://img.shields.io/badge/MiniMax-H3%20ready-f59e0b)
 ![Python](https://img.shields.io/badge/Python-3.8%2B-3776ab?logo=python&logoColor=white)
-![Zero dependency](https://img.shields.io/badge/dependencies-zero-22c55e)
+![Tiered dependencies](https://img.shields.io/badge/dependencies-tiered-22c55e)
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 ![PRs welcome](https://img.shields.io/badge/PRs-welcome-ec4899)
 
@@ -25,21 +25,21 @@
 
 | | |
 |---|---|
-| 🧩 **零外部依賴** | 不需要自託管平台、MCP、資料庫。寫作與分鏡由 Agent 完成，出圖出片用內建生成能力。 |
+| 🧩 **分層工作流程** | 文字規劃可獨立完成；圖片與影片生成依目前 Agent 工具或可用後端，不假設內建影片能力。 |
 | 📑 **小說切章與 6 重清洗** | `extract_chapter.py` 大檔目錄掃描（`--list`）、單章抽取與 Pandoc 6 重自動清洗。 |
 | ⏱️ **台詞預算與 H3 實戰審計** | `estimate_duration.py` Unicode P 類別統一計字、`--novel` 體量反推門禁（四大台詞政策試算）與 `--h3` 實戰台詞預算審計（4字/秒、單句 ≤15 字、說話佔比 ≤60%）。 |
 | 📝 **劇本 HTML 註解與雙向同步** | `sync_script.py` 支援 Markdown 註解元數據注入、從零建立 handoff、多場景自動擴展與 `--prune-extra` 修剪。 |
 | ⚖️ **單章拆多集跨集驗收** | `compare_adaptation.py` 支援 `--episode` 單集過濾與多檔合併總體驗收，連動 `--h3`。 |
-| 🎬 **分段級導演分鏡** | 預設每段 10.0s / 3 鏡、4.0 字/秒、避開遠景人物與正面景深陷阱、動作力學三要素（施力 ➔ 傳導 ➔ 反饋）、`INDEPENDENT_REF2VA` 四大連戲錨點。 |
-| 🖼️ **視覺化九宮格審核** | Qwen 黑白鉛筆草圖 3x3 九宮格預覽，人工審核直觀清晰，單鏡重繪零污染保護。 |
+| 🎬 **分段級導演分鏡** | 可由約 10s / 3 鏡作為起點；依內容調整，含焦距物距、動作表演與 `INDEPENDENT_REF2VA` 連戲錨點。 |
+| 🖼️ **構圖審核** | Qwen 九宮格為可用選項；手繪或其他工具輸出的 shot 對應 PNG 也可使用同一審核門。 |
 | 🔒 **單鏡局部修改與審核鎖** | `patch_shot.py` 單鏡景別秒數修改與自動時間軸重算；`sync_script.py` 場景審核狀態保護防誤改。 |
 | ⚡ **H3 官方六段式批次編譯** | `compile_layer2_to_h3.py` 一鍵產出 `prompts-epXX.md` 與 `segments-epXX.json`、防混臉單圖排序、切點時間保護（$D - \text{末切點} \ge 2.05s$）、LoRA 適配與 `--check` 雙重對帳。 |
-| 🚀 **顯存保護與批次送件** | `submit_h3_segments.py` 4.20 GiB (4300 MB) 顯存臨界點安全保護與不足差額診斷、`--dry-run` 乾跑驗證、參考圖 SHA256 上傳快取、LoRA 自動掛載與非同步輪詢下載。 |
+| 🚀 **批次送件預檢** | `submit_h3_segments.py` 提供 `--dry-run`、參考圖檢查、可用 GPU 診斷與非同步任務處理；實際需求依模型與後端而異。 |
 | 🛡️ **批次自動審查門禁** | `verify_video_shot.py` 修復分段總時長精確對齊、支援 `--segments` 批次掃描、防灰階線稿滲透、防九宮格分屏線殘留、串聯 `color_qa.py` 匯總輸出 `qa-report.json`。 |
-| 🎬 **配音字幕與成片組裝** | `assemble_episode.py` 智慧 TTS 雙重保障（Edge-TTS + Windows SAPI 離線備案）、Windows 字幕冒號轉義、`adelay`+`amix` 背景音分層混音、FFmpeg Concat 協議無縫拼接成片。 |
+| 🎬 **配音字幕與成片組裝** | `assemble_episode.py` 可選字幕／配音與 FFmpeg 組裝；TTS、外部服務與素材格式依本機能力而定。外部 narration Markdown 需先轉成支援的 inline 欄位或交給剪輯工具。 |
 | ⚖️ **多維程式對帳（P0）** | `audit_refs_and_segments.py` 嚴查參考圖陣列、主體定義、說話者代號與台詞字數預算（模式 A 序對 + 模式 B 13 條自檢）。 |
 | 🎨 **11 種風格鎖定錨** | 主流漫劇風格蒸餾成可貼的錨定詞，每種附同角色樣圖。 |
-| 🎭 **資產與生物純底規範** | 角色與怪獸（Creature Sheet）純色背景三視圖，核心資產圖詢問推薦（Codex CLI）並跨章節強制鎖定同一生圖引擎，演員表主角優先排序。 |
+| 🎭 **資產一致性規範** | 以資產 ID、參考圖與風格描述維持一致；依使用者已選擇且當前可用的圖片工具製作。 |
 | 🎞️ **主力定案獨立 Ref2VA** | 確立每段獨立 Ref2VA（四大連戲錨點與收尾交接格），一段一張角色圖防平均化，避開尾幀續接 422 互斥。 |
 | 🛑 **先算先定再動工** | 階段 0 台詞政策門禁（4選1）、體量反推秒數公式；確認後才動工，絕不假裝生成。 |
 
@@ -51,53 +51,83 @@
 git clone https://github.com/ayase0307/ai-comic-drama.git ~/.claude/skills/ai-comic-drama
 ```
 
-然後對 Agent 說：
+把要處理的原稿放入新專案的 `source/` 後，再對 Agent 說：
 
 > 「幫我把這篇小說改編成 12 集、每集 90 秒的漫劇，畫風 3D 國漫，9:16，台詞只留重點句，到分鏡圖。」
 
-Agent 會先一次問完定調項目（含台詞政策門禁與秒數預算反推），小說會先走改編再寫劇本。
+Agent 會依你指定的交付範圍開始工作，沿用已提供的 brief、工具與參數；只詢問會阻礙當前工作的必要缺項。純文字劇本或分鏡可獨立交付，不必生成圖片或影片。
 
-也可單獨使用全套命令列工具鏈：
+也可單獨使用命令列工具。先檢查本機支援的能力，再跑可離線驗證的流程：
 
-```bash
-# 0. 小說大檔目錄掃描與單章抽取清洗
-python scripts/adapt/extract_chapter.py source/novel.txt --list
-python scripts/adapt/extract_chapter.py source/novel.txt --volume 1 --chapter 1 --out source/ch01.txt
+下面是各階段命令索引，不可整段連跑。先依 `init_project.py` 產生的 `FLOW_HINT.md` 按目標完成階段 0–3 的 review 與人工核准；只有需要 H3 編譯時，才進入 stage 4。
 
-# 1. 建立專案骨架與體量反推門禁試算（自動產生 adapt/source.json 與 adapt/bible.json）
+```powershell
+# 1. 建立專案骨架（自動產生 adapt/source.json 與 adapt/bible.json）
 python scripts/init_project.py my-drama --title "我的漫劇" --episodes 12
-python scripts/adapt/estimate_duration.py --novel source/ch01.txt --target-seconds 90
+# 在 repo 根目錄執行；init_project 只建立專案資料夾，不會把 scripts 複製進去
+$skillRoot = (Resolve-Path .).Path
+Set-Location my-drama
+python "$skillRoot/scripts/check_environment.py"
+python "$skillRoot/scripts/run_offline_checks.py"
+# 先把原稿放入專案 source/；再掃描目錄並抽取所需章節
+python "$skillRoot/scripts/adapt/extract_chapter.py" --input source/novel.txt --list
+python "$skillRoot/scripts/adapt/extract_chapter.py" --input source/novel.txt --volume 1 --chapter 1 --output source/ch01.txt
+python "$skillRoot/scripts/adapt/estimate_duration.py" --novel --novel-file source/ch01.txt --target-seconds 90
 
 # 2. 劇本 HTML 註解同步回寫 handoff 與 H3 台詞審計
-python scripts/adapt/sync_script.py --handoff handoff-ep01.json --script script-ep01.md --prune-extra
-python scripts/adapt/estimate_duration.py --script script-ep01.md --genre xuanhuan_revenge --h3
-python scripts/adapt/compare_adaptation.py --source adapt/source.json --script script-ep01.md --handoff handoff-ep01.json --episode 1 --h3
+python "$skillRoot/scripts/adapt/sync_script.py" --handoff handoff-ep01.json --script script-ep01.md --prune-extra
+python "$skillRoot/scripts/adapt/estimate_duration.py" --script script-ep01.md --genre xuanhuan_revenge --h3
+python "$skillRoot/scripts/adapt/compare_adaptation.py" --source adapt/source.json --script script-ep01.md --handoff handoff-ep01.json --episode 1 --h3
 
 # 3. 交接 JSON → 分鏡 Layer 2 骨架（預設 10s/3 鏡、動作力學模板），再轉表格與時間線
-python scripts/storyboard/handoff_to_skeleton.py handoff-ep01.json --out-dir layer2/
-python scripts/storyboard/validate_storyboard.py --file layer2/layer2-EP01-*.json --handoff handoff-ep01.json
-python scripts/storyboard/layer2_to_table.py layer2/layer2-EP01-*.json --check --md storyboard-ep01.md --timeline timeline-ep01.csv
+python "$skillRoot/scripts/storyboard/handoff_to_skeleton.py" handoff-ep01.json --out-dir layer2/
+python "$skillRoot/scripts/storyboard/validate_storyboard.py" --file layer2/layer2-EP01-*.json --handoff handoff-ep01.json
+python "$skillRoot/scripts/storyboard/layer2_to_table.py" layer2/layer2-EP01-*.json --check --md storyboard-ep01.md --timeline timeline-ep01.csv
 
 # 4. 生成 Qwen 黑白鉛筆分鏡 3x3 九宮格總覽圖（支援 --no-arrows 生成純淨底稿）
-python scripts/storyboard/qwen_storyboard_grid.py --layer2 layer2/layer2-EP01-S01-a.json --generate-all --assemble-grid
+python "$skillRoot/scripts/storyboard/qwen_storyboard_grid.py" --layer2 layer2/layer2-EP01-S01-a.json --generate-all --assemble-grid
 
 # 5. 人工審核與單鏡局部修改（調整景別時長並由相鄰鏡頭吸收，零污染單格局部重抽）
-python scripts/storyboard/patch_shot.py --file layer2/layer2-EP01-S01-a.json --shot SH03 --shot-size CU --duration 3.5 --absorb-from SH04
-python scripts/storyboard/qwen_storyboard_grid.py --layer2 layer2/layer2-EP01-S01-a.json --redraw-shot SH03 --assemble-grid
+python "$skillRoot/scripts/storyboard/patch_shot.py" --file layer2/layer2-EP01-S01-a.json --shot SH03 --shot-size CU --duration 3.5 --absorb-from SH04
+python "$skillRoot/scripts/storyboard/qwen_storyboard_grid.py" --layer2 layer2/layer2-EP01-S01-a.json --redraw-shot SH03 --assemble-grid
 
-# 6. 編譯為 H3 官方六段式提示詞包與 FreeVideo 批次分段檔（內建 --check 雙重對帳）
-python scripts/storyboard/compile_layer2_to_h3.py --layer2 layer2/layer2-EP01-*.json --episode EP01 --output-md prompts-ep01.md --output-segments segments-ep01.json --assets assets.md --bible adapt/bible.json --check
+# 6. 若需 H3 編譯，先審核 stage 4 構圖圖（Qwen、手繪或其他工具皆可）
+python "$skillRoot/scripts/build_stage_review.py" --project-dir . --stage 4
+# 使用者審核通過後才記錄核准，之後才能編譯
+python "$skillRoot/scripts/build_stage_review.py" --project-dir . --approve-stage 4
+# 編譯為 H3 官方六段式提示詞與 segments
+python "$skillRoot/scripts/storyboard/compile_layer2_to_h3.py" --layer2 layer2/ --episode EP01 --project-root . --output-md prompts-ep01.md --output-segments segments-ep01.json --assets assets.md --bible adapt/bible.json --check
+python "$skillRoot/scripts/build_stage_review.py" --project-dir . --stage 5
+# 使用者審核通過後才記錄核准
+python "$skillRoot/scripts/build_stage_review.py" --project-dir . --approve-stage 5
 
-# 7. 階段 6 批次提交生成（4.20 GiB 顯存安全檢查、SHA256 參考圖快取、自動輪詢下載）
-python scripts/storyboard/submit_h3_segments.py --segments segments-ep01.json --out-dir videos/ --dry-run
-python scripts/storyboard/submit_h3_segments.py --segments segments-ep01.json --out-dir videos/
+# 7. 僅在使用者要求生成且 FreeVideo adapter 當前可用時乾跑
+python "$skillRoot/scripts/storyboard/submit_h3_segments.py" --segments segments-ep01.json --root-dir . --output-dir videos/ --dry-run
+# 真正送件需有效 stage 5 核准且使用者要求生成；FreeVideo 只在本機 adapter 可用時使用
+python "$skillRoot/scripts/storyboard/submit_h3_segments.py" --segments segments-ep01.json --root-dir . --output-dir videos/
+
 
 # 8. 階段 6 批次影片審查（分段總時長精確比對、黑白防漏、九宮格邊框檢驗、串聯 color_qa.py 輸出報告）
-python scripts/storyboard/verify_video_shot.py --segments segments-ep01.json --videos-dir videos/ --qa-report videos/qa-report.json
+python "$skillRoot/scripts/storyboard/verify_video_shot.py" --segments segments-ep01.json --videos-dir videos/ --out-report videos/qa-report.md --out-json videos/qa-report.json
 
-# 9. 階段 7 全自動配音、字幕燒錄與成片組裝（智慧 TTS、Windows 冒號轉義、多軌混音、Concat 拼接）
-python scripts/storyboard/assemble_episode.py --segments segments-ep01.json --videos-dir videos/ --out-dir final/ --output final/ep01_final.mp4
+# 9. 階段 7 選用組裝（需實際可用的影片／音訊工具）（智慧 TTS、Windows 冒號轉義、多軌混音、Concat 拼接）
+python "$skillRoot/scripts/storyboard/layer2_to_table.py" segments-ep01.json --check --timeline timeline-ep01.csv
+python "$skillRoot/scripts/storyboard/assemble_episode.py" --segments segments-ep01.json --videos-dir videos/ --output final/ep01_final.mp4 --delivery-report final/delivery-ep01.md
+# 外部 narration-ep01.md 不會由組裝器解析；將旁白轉為支援的 inline 欄位，或交由剪輯工具處理
 ```
+
+`review/project-state.json` 是唯一階段狀態來源；核准會綁定輸入 hash，內容變更後須重審。Compiler 要求 stage 4 核准，實際提交要求 stage 5 核准；dry-run 可用於預檢。影片 QA 的技術通過結果不會自動成為人工核准。
+
+### 依賴能力
+
+| 工作 | 需要的能力 |
+|---|---|
+| 文字規劃、JSON/提示詞檢查 | Python 標準庫 |
+| review 頁與九宮格 | Python；圖片操作需 Pillow |
+| 影片 QA 與組裝 | FFmpeg、ffprobe；部分輸入檢查使用 Python/Pillow |
+| 圖片/影片生成 | Agent 當前可用的相容工具或連線後端；FreeVideo 是可選 adapter |
+
+`scripts/check_environment.py` 檢查本機依賴，不探測 provider、帳戶或模型；`scripts/run_offline_checks.py` 執行離線測試。生成能力仍需依當前工具介面確認。
 
 ## 🧭 八階段流程
 
@@ -107,14 +137,14 @@ python scripts/storyboard/assemble_episode.py --segments segments-ep01.json --vi
 
 | 階段 | 做什麼 | 產出 |
 |---|---|---|
-| 0 定調 | 鎖定題材、載體、畫風錨、比例、**台詞政策（4選1）與體量反推秒數門禁**（`estimate_duration.py --novel`、`init_project.py`） | `project.md`、`adapt/source.json`、`adapt/bible.json` |
+| 0 定調 | 依交付範圍確認題材、比例、聲音與必要片長；沿用已提供資料 | `project.md`、選用的規劃文件 |
 | 1 改編 | 小說目錄掃描與單章清洗抽取（`extract_chapter.py`）、保留分級、A/B/C 方案、分集架構、跨集驗收（`compare_adaptation.py --episode`） | 故事地圖、分集大綱 |
-| 2 資產與設定圖 | 故事聖經 → `assets.md`、**生圖工具詢問推薦（Codex CLI）與跨章節鎖定**、**生物純底設定圖**、**演員表主角優先排序** | `assets.md`、設定板 |
+| 2 資產與設定圖 | 若目標包含設定圖，使用實際可用且已選擇的工具；維護資產參考 | `assets.md`、可選設定板 |
 | 3 漫劇劇本 | 場景化改寫、時長與台詞預算審計（`estimate_duration.py --h3`）、HTML 註解元數據注入、交接 JSON、人工審核鎖（`sync_script.py`） | `script-ep01.md`、`handoff-ep01.json`、`adaptation-diff.md` |
 | 4 導演分鏡 | **分段級分鏡（預設 10s/3 鏡，`handoff_to_skeleton.py`）**、焦距物距、**動作力學三要素**、`INDEPENDENT_REF2VA` 四大錨點、鉛筆九宮格構圖審核 | `layer2/*.json`、`storyboard-ep01.md`、`grid-*.png` |
 | 5 提示詞包 | **H3 官方六段式批次編譯（`compile_layer2_to_h3.py`）**、防混臉單圖排序、切點時間保護、LoRA 適配、`--check` 雙重對帳 | `prompts-ep01.md`、`segments-ep01.json` |
 | 6 生成 | **主力定案：獨立 Ref2VA（四錨點連戲、一段一張角色圖）**；`submit_h3_segments.py` 批次送件；`verify_video_shot.py` 批次審查 | `images/`、`videos/`、`qa-report.json` |
-| 7 組裝交付 | **`assemble_episode.py` 智慧配音、字幕燒錄與無縫拼接成片**、旁白稿、字幕、剪輯時間線、交付清單 | `final/ep01_final.mp4`、`narration-ep01.md`、`timeline-ep01.csv` |
+| 7 組裝交付（選用） | 依可用素材與依賴進行組裝；旁白稿可另行交付，實際時間線由 compiled segments 匯出 | `final/ep01_final.mp4`、`narration-ep01.md`、`timeline-ep01.csv` |
 
 詳細模板與每階段檢查點見 [`references/pipeline.md`](references/pipeline.md)。
 

@@ -1,30 +1,33 @@
 # 八階段詳細流程
 
-全程在 Agent 內部完成。每階段都有產出物，落成檔案、過驗收門才進下一階段。**小說、故事梗概一律先走階段 1 改編，不得直接當劇本用。**
+依使用者指定的交付範圍選擇階段；只要文字劇本、分鏡或提示詞時，可停在該階段並交付 draft，不要求圖片或影片生成。小說改編依使用者要求進入改編流程，不把完整八階段當成每項任務的必經步驟。
+
+文字規劃、Python 本機檢查、圖片生成與影片生成是不同能力層。先以 `python scripts/check_environment.py` 檢查本機工具；`python scripts/run_offline_checks.py` 執行離線檢查。這些命令不檢查 provider 帳戶、token 或模型生成能力。FreeVideo 是可選 adapter，影片生成要以當前 Agent 或已連線後端實際可用為準。
+
+階段狀態只記錄於 `review/project-state.json`，每次核准綁定輸入 hash，修改後必須重審。stage 4 review 核准是 H3 compiler 前置條件；實際 submit 要求 stage 5 核准。QA 技術通過不會自動成為人工核准。
 
 ---
 
 ## 階段 0：定調（Intake）
 
-一次問完，缺哪項問哪項：
+只詢問當前交付所缺少且會阻礙工作的項目；沿用使用者已給的 brief、模型與參數，不重複詢問。純文本或分鏡交付不要求先收齊出片參數。
 
 | 項目 | 選項／說明 |
 |---|---|
 | 集數與每集時長 | 單集 60–120 秒最常見；小說改編預設 90–120 秒 |
-| 原稿類型與授權 | 小說／網文／故事梗概／已有劇本；授權狀態與用途（私人文本不外洩） |
+| 原稿類型與用途 | 小說／網文／故事梗概／已有劇本；依當前任務確認需要的來源與處理方式 |
 | `genre_mode` | `xuanhuan_revenge`／`romance_emotional`／`mystery_thriller`／`comedy_slice_of_life`／`wuxia_action`／`healing_literary` |
 | `target_medium` | `motion_comic` 動態漫／`ai_animation` AI 動畫漫劇／`live_action_short_drama` 真人短劇 |
 | 畫風 | 從 `references/styles.md` 選一套風格鎖定錨（整部只用一套） |
 | `aspect_ratio` | 9:16（預設）／16:9／1:1 |
 | 語言與聲音形式 | 旁白解說／角色對白／混合／默片字幕 |
-| **台詞政策（必選門禁）** | **4 選 1**：`① 原文逐字保留` / `② 只留重點句，其餘可刪（推薦）` / `③ 全部改寫為影視對白` / `④ 無台詞純旁白` |
+| 台詞政策（需要改寫或估算時） | `① 原文逐字保留` / `② 只留重點句` / `③ 影視化改寫` / `④ 無台詞純旁白`；已在 brief 中交代則沿用 |
 | 交付深度 | 只到分鏡／到設定圖／到分鏡圖／到影片 |
 
-### 階段 0 兩項必問門禁與工作紀律鐵律
+### 階段 0 按需求選用的台詞與體量檢查
 
-1. **台詞政策門禁（4 選 1）**：
-   - Agent 必須清楚區分「外部框架規則（如 Lyra 的台詞 100% 一字不差）」與「使用者真實需求」。
-   - 開工前必須向使用者確認台詞政策：
+1. **台詞政策（只在當前改編需要決策時）**：
+   - 區分「外部框架規則」與「使用者真實需求」；沿用已給政策，不重複詢問。若台詞政策缺失且會影響改編，才詢問：
      - `① 原文逐字保留`：忠於原著字句，但需嚴格遵守下述片長與氣口順延；
      - `② 只留重點句，其餘可刪（推薦）`：去蕪存菁，留下推動情節之戲劇金句，大幅提升成片節奏；
      - `③ 全部改寫為影視對白`：重構為影視化口語短句；
@@ -35,15 +38,15 @@
      $$\text{總片長估算} \approx \text{純念台詞秒數} \times 1.6 \quad \text{（含動作反應、氣口與鏡頭呼吸）}$$
    - **命令列確定性試算**：
      ```bash
-     python scripts/adapt/estimate_duration.py --novel source/ch01.txt --target-seconds 90
+     python scripts/adapt/estimate_duration.py --novel --novel-file source/ch01.txt --target-seconds 90
      ```
      該命令使用 Unicode P 類別統一排除標點符號，精確統計有效漢字數，並一次輸出四大台詞政策下的預估片長、壓縮比與分集建議。
-   - **阻斷門禁**：若估算片長 $> \text{目標片長} \times 2$，**強制在階段 0 停下，嚴禁擅自動筆！** 拋出三選一供使用者抉擇：
+   - **體量提示**：需要長度估算時，可用估算結果提示拆分、精簡或保留原文等選項；不把單一工作流的數值門檻套用到所有任務。缺少會影響當前目標的選擇時再詢問。
      - **方案 A（改編壓縮）**：採用台詞政策 ②，大刀改編壓縮原著台詞至目標容量；
      - **方案 B（拆集推進）**：將當前場次拆分為多集或上下篇製作；
      - **方案 C（接受片長）**：使用者調高目標時長預算，接受成片大幅拉長。
 3. **工作紀律鐵律**：
-   - **「先講秒數規劃 → 寫進檔案 → 跑完確定性自檢（E 0）→ 等使用者說『跑』才送 FreeVideo」**，嚴禁邊想邊送件燒時間。
+   - 生成任務先確認交付、當前可用後端與需要的參數；沒有生成要求時停在文字交付。
 
 **一鍵初始化骨架**：
 ```bash
@@ -60,11 +63,11 @@ python scripts/init_project.py my-drama --title "我的漫劇" --episodes 12
 0. **小說大檔目錄掃描與單章清洗抽取（`extract_chapter.py`）**：
    - 若原稿為整本長篇小說大檔（幾十萬至百萬字），先掃描章節目錄結構：
      ```bash
-     python scripts/adapt/extract_chapter.py source/novel.txt --list
+     python scripts/adapt/extract_chapter.py --input source/novel.txt --list
      ```
    - 精確抽取指定卷指定章，並自動執行 Pandoc 6 重清洗（移除 Gutenberg/版權頁眉頁腳、統一破折號與省略號、縮進清理、空行壓縮、繁簡標點正規化與標題抽取）：
      ```bash
-     python scripts/adapt/extract_chapter.py source/novel.txt --volume 1 --chapter 1 --out source/ch01.txt
+     python scripts/adapt/extract_chapter.py --input source/novel.txt --volume 1 --chapter 1 --output source/ch01.txt
      ```
 1. **《完整角色設定文件 v4.0》（P0 強制門禁，對標《反派擺爛指南》）**：
    - 在改寫劇本前，**必須先產出詳細角色設定 `adapt/character-bible.md`**，包含完整十一大章節：
@@ -122,8 +125,8 @@ python scripts/init_project.py my-drama --title "我的漫劇" --episodes 12
    - 生物（巨蟒、白獸等）在誕生、威脅或主戰場次往往是核心，必須排在第一位（`subject 1`），避免被 H3 參考圖上限或注意力機制稀釋擠掉。
 5. **核心資產生圖工具詢問與跨章節鎖定鐵律**：
    - **詢問指定工具（推薦 Codex CLI）**：在出核心資產圖前，必須詢問使用者指定生圖工具（推薦本機 Codex CLI 或使用者授權之工具）。
-   - **跨章節強制鎖定同一生圖引擎**：全劇各章節（Ch01、Ch02…）的所有角色設定板、服裝三視圖與場景母片，必須強制鎖定同一個生圖工具，嚴禁混用造成畫風撕裂。
-   - **Qwen-Image 2.1 嚴格限制範圍**：本機 Qwen-Image 2.1 **僅限用於階段 4 鉛筆分鏡九宮格構圖審核**，嚴禁用於階段 2 核心資產圖。
+   - **跨章節工具選擇**：若使用者要求跨章節風格一致，記錄已選工具及可重用的風格參考；依每個工具實際能力安排工作，不強制使用特定引擎。
+   - Qwen、手繪或其他可用圖像工具可依任務製作設定圖或分鏡構圖圖；同一張圖是否可用於後續生成依目標模型能力判斷。
 6. **產出階段 2 HTML 並排審核頁面與斷點停下（P0 鐵律）**：
    - 生成資產圖後，**必須執行**：
      ```bash
@@ -236,24 +239,25 @@ python scripts/adapt/compare_adaptation.py --source adapt/source.json --script s
 #    並保證每段秒數 >= 2×鏡數+0.5，避免階段 5 才爆 E4 切點錯誤。--target-total-sec 0 可關閉。
 python scripts/storyboard/handoff_to_skeleton.py handoff-ep01.json --out-dir layer2/ --max-segment-sec 10.0 --max-shots 3
 
-# 2. 靜態校驗與時間線表格匯出（自動攔截罐頭詞、跨段複製貼上與多主體穿模）
+# 2. 靜態校驗與企劃時間表匯出
 python scripts/storyboard/validate_storyboard.py --file layer2/layer2-EP01-*.json --handoff handoff-ep01.json
-python scripts/storyboard/layer2_to_table.py layer2/layer2-EP01-*.json --check --md storyboard-ep01.md --timeline timeline-ep01.csv
+python scripts/storyboard/layer2_to_table.py layer2/layer2-EP01-*.json --check --md storyboard-ep01.md --timeline timeline-plan-ep01.csv
 
-# 3. 視覺化黑白鉛筆九宮格構圖生成（必做！嚴禁跳步）
+# 3. 可選：若 Qwen 圖像工具已可用，生成黑白鉛筆九宮格構圖
 python scripts/storyboard/qwen_storyboard_grid.py --layer2 layer2/layer2-EP01-S01-a.json --generate-all --assemble-grid
+
+# 若 Qwen 不可用，可用手繪或其他已授權的圖像工具提供對應 shot 的 PNG，並在 Layer 2 設定 sketch_file
 
 # 4. 單鏡修改與重抽（若構圖不佳，微調秒數或重新繪製）
 python scripts/storyboard/patch_shot.py --file layer2/layer2-EP01-S01-a.json --shot SH03 --shot-size CU --duration 3.5 --absorb-from SH04
 python scripts/storyboard/qwen_storyboard_grid.py --layer2 layer2/layer2-EP01-S01-a.json --redraw-shot SH03 --assemble-grid
 
-# 5. 產出階段 4 HTML 審核頁並停下等待確認
-python scripts/build_stage_review.py --stage 4
+# 5. 產出 stage 4 HTML review；只有使用者確認後才記錄核准
+python scripts/build_stage_review.py --project-dir . --stage 4
+python scripts/build_stage_review.py --project-dir . --approve-stage 4
 ```
 
-> **⛔【階段 4 強制斷點鐵律】**  
-> 生成九宮格後，**Agent 必須立即停下**，提示使用者打開 `review/stage-4-storyboard.html` 審查九宮格構圖、站位、景深與滅點！  
-> **嚴禁資產圖一出來就直接跳去生影片！** 缺少九宮格圖（`images/grid-*.png`）時，後續階段 5 編譯器與階段 6 送件腳本會在代碼進入點強制報錯阻斷執行！
+> **stage 4 審核門**：要進入 H3 編譯，每鏡須有對應的有效九宮格／單格 PNG，並通過人工 review。圖可由 Qwen、手繪或其他工具製作，需遵循相同 shot 對應與 hash 審核。文字分鏡 draft 可以先交付，不必生成圖或影片。
 
 ---
 
@@ -264,6 +268,7 @@ python scripts/build_stage_review.py --stage 4
 ```bash
 python scripts/storyboard/compile_layer2_to_h3.py \
   --layer2 layer2/layer2-EP01-*.json \
+  --project-root . \
   --episode EP01 \
   --output-md prompts-ep01.md \
   --output-segments segments-ep01.json \
@@ -295,14 +300,16 @@ python scripts/storyboard/compile_layer2_to_h3.py \
 參考圖路徑相對專案根目錄（`--project-root`），`--check` 會檢查檔案是否存在。設定板用語（純灰底、three-view）會自動從影片提示詞剔除。
 
 ### 5.3 物理門禁與雙重程式對帳
-- **階段 4 實體門禁檢查**：編譯前檢查 `images/grid-*.png` 或 `panels/panel-*.png` 是否存在，若無九宮格構圖圖檔，直接退出並報錯！
+- **stage 4 gate**：編譯前要求 stage 4 有效核准，且輸入 Layer 2 與對應構圖 PNG 仍符合核准 hash；編譯不支援跳過 gate。
 - **雙重程式對帳（`--check`）**：調用 `audit_refs_and_segments.py` 執行 17 條自檢與參考圖對帳，達成 **0 Errors** 方可放行出片。
 
 ---
 
 ## 階段 6：生成（實戰定案與驗收）
 
-### 6.0 實戰定案：獨立 Ref2VA vs 首幀流程之界限
+### 6.0 特定 H3/FreeVideo 實測：Ref2VA 與首幀流程
+
+下列結論來自特定模型與 adapter 版本，作為該環境的操作經驗；其他模型、provider 或生成模式需依當前接口和實際需求判斷。此 repo 的 H3 編譯器輸出 Ref2VA 六段式。
 
 > **【定案 2 核心引用】使用者原話**：  
 > 原話 1：「我是說這個劇情就直接重新寫分鏡，所謂的重新寫，**就是不考慮接續首幀的意思，每一個片段都是獨立去寫 ref2va**，頂多考慮站位以及角度等等，而不是像你這樣硬改」  
@@ -325,27 +332,27 @@ python scripts/storyboard/compile_layer2_to_h3.py \
 
 ### 6.1 送件前確定性自檢與顯存保護（`submit_h3_segments.py`）
 
-MiniMax H3 本機出片核心工具，內建 **階段 4 九宮格門禁**、**17 條 audit 事前自檢** 與 **4.20 GiB 顯存臨界點安全保護**：
+FreeVideo 可用時，可透過 adapter 提交 MiniMax H3 工作。可用模型、服務與 GPU 資源會依設備和版本變動：
 
 ```bash
 # 1. 乾跑驗證（安全檢查九宮格門禁、17 條 audit 自檢、參考圖 SHA256 與顯存狀態）
-python scripts/storyboard/submit_h3_segments.py --segments segments-ep01.json --output-dir videos/ --dry-run
+python scripts/storyboard/submit_h3_segments.py --segments segments-ep01.json --root-dir . --output-dir videos/ --dry-run
 
 # 2. 正式批次提交（自動上傳參考圖 SHA256 快取、掛載 LoRA、輪詢進度並下載成品）
-python scripts/storyboard/submit_h3_segments.py --segments segments-ep01.json --output-dir videos/
+python scripts/storyboard/submit_h3_segments.py --segments segments-ep01.json --root-dir . --output-dir videos/
 ```
 
-- **九宮格實體門禁**：未生成九宮格圖時直接拋出 Fatal Gate Error 並拒絕送件！
-- **17 條 audit 事前自檢**：送件前自動跑 `audit_refs_and_segments.py`，有任何 E14 重複運鏡、E15 中英混雜、E16 物理衝擊反饋缺失或多主體穿模時，直接拒絕送件！
-- **4.20 GiB (4300 MB) 顯存門禁**：提交前自動透過 `nvidia-smi` 查詢剩餘可用顯存，若不足 4300 MB 立即發出醒目警報並計算差額（避免 CUDA OOM 導致崩潰）。
+- 實際送件要求有效 stage 5 核准；hash 改變會失效。`--skip-stage-gate` 僅供 dry-run 除錯，實際送件仍必須通過 gate。
+- Dry-run 可檢查本機參考圖、提示詞與送件前條件，不證明 provider/model 端生成會成功。
+- GPU 預檢是即時診斷；不要把舊設備的顯存數值當成所有模型的固定硬門檻。
 
 ### 6.3 影片自動審查門禁（`verify_video_shot.py`）
 
 支援單鏡審查與分段級（Segment-Level）批次審查，自動校驗規格並產出報告：
 
 ```bash
-# 批次審查整個 Episode 的所有分段，自動串聯 color_qa.py 並輸出 qa-report.json
-python scripts/storyboard/verify_video_shot.py --segments segments-ep01.json --videos-dir videos/ --qa-report videos/qa-report.json
+# 批次審查整個 Episode 的所有分段並輸出 JSON/Markdown 報告
+python scripts/storyboard/verify_video_shot.py --segments segments-ep01.json --videos-dir videos/ --out-report videos/qa-report.md --out-json videos/qa-report.json
 
 # 單鏡/單場審查並回寫 Layer 2
 python scripts/storyboard/verify_video_shot.py --video videos/EP01-S01-seg01.mp4 --layer2 layer2/layer2-EP01-S01-a.json --write-back
@@ -371,28 +378,29 @@ python scripts/storyboard/verify_video_shot.py --video videos/EP01-S01-seg01.mp4
 
 ### 7.2 自動化配音、字幕與成片拼接（`assemble_episode.py`）
 
-一鍵執行階段 7 全鏈路後期交付：
+使用者要求組裝且素材與依賴可用時，可執行後期交付：
 
 ```bash
 # 智慧 TTS 配音、字幕燒錄與無縫拼接成片
 python scripts/storyboard/assemble_episode.py \
   --segments segments-ep01.json \
   --videos-dir videos/ \
-  --out-dir final/ \
-  --output final/ep01_final.mp4
+  --output final/ep01_final.mp4 \
+  --delivery-report final/delivery-ep01.md
 
 # 全鏈路閉環自檢
 python scripts/storyboard/assemble_episode.py --self-test
 ```
 
-- **智慧 TTS 雙重保障**：預設採用微軟 Edge-TTS 雲端高擬真人聲；遇 403 網路受阻自動無縫降級為 Windows 原生 SAPI（`System.Speech.Synthesis`），100% 離線可用。
+- **語音能力依環境而定**：TTS engine 可選 `auto`、`edge` 或 `sapi`；需檢查當前安裝、平台及服務連線，不承諾每個環境都能無縫離線降級。
+- 外部 `narration-epNN.md` 目前不會被組裝器解析。旁白稿可作為文字交付；要合成旁白時，先轉成組裝器支援的 inline line/narration 欄位，或交給其他剪輯工具處理。`--narration` 目前會明確回報不支援，不代表可讀取該 Markdown。
 - **Windows FFmpeg 冒號轉義**：自動將 Windows 絕對路徑中的磁碟機冒號轉義為 `C\:/...`，避免 FFmpeg 字幕濾鏡語法解析崩潰。
 - **音訊多軌精細混音**：利用 `adelay` 精確對齊分鏡對白起始秒數，配合 `amix` 將 H3 原生背景音壓低至 0.15 混音，確保人聲清晰乾淨。
 - **無縫拼接**：依據分段時間順序自動生成 Concat 協議列表，一鍵封裝最終交付成片。
 
 ### 7.3 交付檔案清單
 1. **成品影片**（`final/ep01_final.mp4`）：配音、混音、字幕燒錄無縫拼接成片。
-2. **旁白與字幕稿**（`narration-ep01.md`）：時間碼精確標註。
-3. **剪輯時間線**（`timeline-ep01.csv`）：由 `layer2_to_table.py --timeline` 產生。
+2. **旁白與字幕稿**（`narration-ep01.md`）：可獨立交付；組裝器不會直接讀取外部 Markdown 旁白稿。
+3. **剪輯時間線**（`timeline-ep01.csv`）：從編譯後 `segments-ep01.json` 執行 `layer2_to_table.py --timeline`，使用有效片長與量化後末鏡時間。Layer 2 直接匯出的表格只代表企劃名義秒數。
 4. **品質審查報告**（`videos/qa-report.json`）：分段規格、色差與畫風審查報告。
 5. **交付清單**：列出已生成檔案、規格核驗結果與各鏡狀態。

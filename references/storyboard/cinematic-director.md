@@ -1,6 +1,8 @@
 # 導演分鏡體系（cinematic-director-storyboard v2.0）— 本技能階段 4 的完整規範
 
-> **本 repo 的裁定**：色卡 HEX 只用於圖像模型與內部驗收；餵 H3／影片模型時改寫成「色名＋物體」（見 `../consistency.md` §0）。音色與情緒用文字描述（語速、停頓、氣息），不寫「聲帶閉合 45%」這類數值。九宮格只用於階段 2 關鍵幀。
+> **適用範圍**：本文包含通用導演方法與歷史模型／專案案例，具體工具能力、stage gate、H3 Ref2VA 編譯和工作流程以本 repo 的 `../../SKILL.md` 與 `../pipeline.md` 為準。不得把單一作品或舊模型測試數字當成普遍硬規則。需要圖片時，stage 4 構圖可由 Qwen、手繪或其他工具提供並按同一 shot 對應規範審核；純文字分鏡可直接交付 draft。
+
+> **本 repo 的裁定**：色卡 HEX 用於內部色彩記錄與驗收；餵 H3 時改寫成「色名＋物體」（見 `../consistency.md` §0）。Ref2VA 的場景圖是場景／畫風參考，不代表首幀鎖定。首幀、尾幀或續接模式只在指定模型和當前 adapter 確實支援時採用。音色與情緒以可聽描述為主，不寫不可驗證的生理數值。
 
 > 上游來源：E:\MinimaxH3\影片分鏡大師\cinematic-director-storyboard v2.0。
 > 本 repo 對應說明：《四維配音法》（four-dimensional-voice-acting）與《光影配色色卡》（lighting-color-palette-card）未收錄於本 repo。本 repo 的對應為：聲音 → `references/h3/audio-and-dialogue.md` + `references/h3/audio-pipeline.md`；光影配色 → `references/h3/lighting-and-color.md`。
@@ -91,19 +93,19 @@ flowchart TB
 2. **按需輸出三層產物**：
    - **Layer 1（人類導演審閱層）**：輸出 9 欄 Markdown 分鏡表或六要素光學卡片。
    - **Layer 2（結構化資料層 SSoT）**：輸出符合 [`templates/layer2-storyboard.schema.json`](./templates/layer2-storyboard.schema.json) 的 JSON 結構。
-   - **Layer 3（生成模型執行層）**：透過腳本或規則編譯為 `seedance-v8`（純自然語言動作段落 + 台詞定軌 + 鎖光句 + 尾韻微物理）、`minimax-h3`（官方三欄/六段 + `<d>` 對白 + 閉唇鎖）、`kling-fl2va`（首尾幀運動軌跡）或 `grid-9panel`（漫劇九宮格同空間鎖臉生圖 Prompt）。
+   - **Layer 3（生成模型執行層）**：依目標模型與 adapter 實際支援編譯；本 repo 的 MiniMax H3 Ref2VA CLI 使用官方六段式與 `<d>` 對白。其他模型的運鏡、首尾幀或九宮格輸入須依其媒體契約確認。
 
 ---
 
 ## 四、命令列輔助與自動化驗證工具 (CLI & Linter v2.0)
 
-本 Skill 配備零外部依賴的 Python 工具鏈（支援一鍵生成多模型提示詞與靜態合規檢查）：
+本 repo 的提示詞與靜態檢查以 Python 標準庫為主；部分圖片 review 需要 Pillow，影片 QA／組裝需要 FFmpeg 與 ffprobe。多模型生成需另有相容且可用的後端：
 
 ```bash
 # 1. 查看所有內建電影與漫劇預設配置 (懸疑密室 / 廢土史詩 / 王家衛綠金 / 武戲90度破盾 / 漫劇九宮格鎖臉)
 python scripts/storyboard/director_storyboard_assistant.py --list-presets
 
-# 2. 一鍵生成「懸疑密室」分鏡，並同時編譯為 Layer 1 導演卡、Seedance 2.0 自然流與 MiniMax H3 官方三欄格式
+# 2. 一鍵生成「懸疑密室」分鏡範例；不同模型輸出格式依其 adapter 契約
 python scripts/storyboard/director_storyboard_assistant.py --preset suspense_interrogation --target-model all
 
 # 3. 針對高速武戲生成「90度垂直無遮擋 + 24mm近距衝擊」之 Seedance 2.0 自然流 Prompt

@@ -1,6 +1,6 @@
 ---
 name: ai-comic-drama
-description: 在 Agent 內部端到端製作 AI 漫劇／動態漫／短劇，不需任何外部服務、自託管平台或 MCP。當使用者要把小說、故事、劇本或商品素材做成角色一致的漫劇影片，或要改編小說成漫劇劇本、寫分鏡、鏡頭表、角色設定圖、風格設定、圖像提示詞、影片提示詞、旁白文案時，使用本技能。涵蓋小說改編（保留分級、A/B/C 方案、分集、可拍劇本）、資產與一致性規範、導演分鏡（焦距物距、連戲）、風格鎖定錨、提示詞包，並以內建圖像與影片生成能力出圖、出片。
+description: 協助製作 AI 漫劇／動態漫／短劇，從小說改編、劇本與分鏡到提示詞和可選媒體生成。圖片或影片生成取決於目前 Agent 工具及已連線的相容後端；本技能不假設 Agent 內建影片生成能力。也可只交付文字劇本、分鏡或提示詞 draft。
 agent_created: true
 ---
 
@@ -8,9 +8,16 @@ agent_created: true
 
 ## Overview
 
-在 Agent 內部把「小說／故事 → 改編分集 → 資產與設定圖 → 漫劇劇本 → 導演分鏡 → 提示詞 → 圖 → 片」整條線跑完。
+依使用者指定的交付範圍，完成小說改編、劇本、導演分鏡、提示詞，或使用實際可用的圖片／影片工具生成媒體。文字規劃可獨立交付；媒體生成與後期需要相應工具、連線、模型或本機可執行檔案。
 
-**零外部依賴**：核心流程不需要自託管平台、MCP、API Key 或資料庫（FreeVideo 是選配，不裝也能走完）。寫作與分鏡由 Agent 完成；出圖、出片直接用內建的圖像與影片生成能力。所有中間產物落成檔案，存在專案目錄裡，可隨時續做或改稿。
+### 能力與依賴層級
+
+- **文字規劃**：Agent 可協助改編、劇本、分鏡與提示詞。按使用者目標停在相應 draft/approved 階段，不因完整 pipeline 而追加未要求的媒體。
+- **本機檢查與編譯**：Python 標準庫執行主要 JSON/提示詞工具；部分審核頁和九宮格工具需要 Pillow；影片檢查／組裝需要 FFmpeg/ffprobe。使用前依所跑命令檢查相應能力。
+- **圖片生成**：需目前 Agent 暴露的圖片工具，或使用者指定且可用的本機／遠端圖片後端。
+- **影片生成**：需目前 Agent 暴露的相容影片工具，或可連線的 provider/adapter。FreeVideo 是本 repo 支援的 adapter 選項，不代表每個 Agent 都內建影片生成。
+
+原稿與生成媒體的處理位置依所選工具而定，不能承諾全程在本機處理。沿用使用者已選的工具與既有授權，不為同一決策重複確認。
 
 ## 何時使用
 
@@ -22,17 +29,17 @@ agent_created: true
 ## 核心原則
 
 0. **小說不得直接當劇本用。** 吃進小說一律先走階段 1 改編（保留分級、A/B/C 方案、分集、因果債務），再改寫成漫劇劇本；原稿已是劇本或原創梗概才可略過解析。規範見 `references/adapt/novel-to-manju.md`。
-1. **先定調，再動筆。** 開工前先鎖定：集數與每集時長、題材模式與載體、畫風（從 `references/styles.md` 選一套風格鎖定錨）、畫面比例、語言、旁白或對白、交付到哪一步。**階段 0 必問兩項門禁：台詞政策（4 選 1）與原文體量反推片長公式**。缺的先問使用者，**一次問完，不要擠牙膏**。
-2. **一致性靠登記、參考鏈與驗收。** 角色／服裝／場景／道具／音色各有 ID、設定圖與固定描述片段；生物/怪獸設定圖（Creature Sheet）同等規格純底出圖；演員表依該場主角重要性排序。**階段 2 核心資產圖生成前必須詢問指定工具（推薦 Codex CLI），跨章節強制鎖定同一生圖引擎，嚴禁混用；本機 Qwen-Image 2.1 嚴格限定階段 4 鉛筆九宮格構圖審核**。有參考圖時外觀只在首次出現寫一次，沒有時逐字貼片段。設定板版面、驗收門、漂移修復見 `references/consistency.md`。
-3. **先分鏡，後生成。** 分鏡走導演分鏡體系（`references/storyboard/cinematic-director.md`），導入「分段級分鏡（7–10 秒/段）」；焦距與物距成對寫；分鏡表未驗證通過不出圖；出圖後先確認角色長相，再拿去生成影片。
-4. **生成前先問清楚，再動手。** 圖像與影片**都要**先問使用者：用哪個模型／工具、參數怎麼設、提示詞用中文還英文、先做幾鏡。**提示詞會隨模型不同而變**，確認後才依該模型改寫。詳見 `references/model-profiles.md`。
-5. **影片生成優先走 FreeVideo。** 本技能在使用者本機運行，建議搭配 FreeVideo（`http://127.0.0.1:8189`）讓 Agent 直接出片；連線與用法見 `references/freevideo.md`。FreeVideo 連不上才退回問模型的流程。
+1. **先確認交付範圍與已知資料。** 確認使用者要劇本、分鏡、提示詞、圖片或成片；沿用已提供的 brief、模型與參數，不重問。只有缺少且會阻礙當前交付的決策才詢問。台詞政策與原文體量估算依改編範圍選用，不強加到純分鏡請求。
+2. **一致性靠登記、參考鏈與驗收。** 可用角色／服裝／場景／道具 ID、固定描述與設定圖追蹤資產。沿用已選的生圖工具；若需換工具，先將候選輸出與已核准素材並排比較風格，再交使用者核准。設定板與分鏡構圖可由已連線的 Qwen、手繪或其他圖像工具提供；逐格需能對應 shot，並通過同一 stage-4 review。
+3. **先分鏡，後生成。** 分鏡走導演分鏡體系（`references/storyboard/cinematic-director.md`），焦距與物距成對寫。使用者只要文字分鏡時，分鏡 draft 本身即可交付，不要求出圖或影片；若要進入 H3 編譯，依 stage-4 gate 提供每鏡對應構圖圖並完成人工審核。
+4. **工具與參數只問未提供的部分。** 生成工具不同，提示詞與參數需依其實際介面調整。詳見 `references/model-profiles.md`。
+5. **FreeVideo 是可選 adapter。** 先確認目前工具有相容的影片能力；FreeVideo 在本機運行且已啟用時可用其 adapter，連線不可用時只能改用另一個實際可用且使用者接受的後端，否則交付停在文本／提示詞階段。
 6. **不假裝生成。** 沒有實際呼叫生成工具，就不得聲稱已產出圖片或影片。
-7. **H3 寫實／半寫實走守富定版骨架。** 用 MiniMax H3 且風格為寫實或半寫實（如 `styles.md` 的第 8 種、3D 真人感）時，影片提示詞一律 `【鏡頭——賣點】` → `【光線——色調】` → `【皮膚——通透白皙有真實肌理】` 三段，**皮膚段整段照抄**，只微調光色字眼。原文見 `references/h3/skin-realism-block.md`。**2D、水墨、Q 版、美漫等非寫實風格不用皮膚段**（它含 photorealistic skin，與這些風格的負面錨衝突），改照 `references/h3/scenarios-world-and-styles.md` 的對應風格寫法，畫面風格以設定板參考圖鎖定。FreeVideo 送官方三欄格式（`h3/prompt-formats.md`）。
-8. **工作紀律鐵律（先算先定再動手）**：**「先講秒數規劃 → 寫進檔案 → 跑完確定性自檢（E 0）→ 等使用者說『跑』才送 FreeVideo」**，嚴禁邊想邊送件燒時間。
-9. **階段斷點與 HTML 視覺化審核鐵律（強制中斷點）**：**每完成一個階段，Agent 必須執行 `python scripts/build_stage_review.py` 產出該階段 Cinema Editorial Studio 級別之 HTML 審核頁面（位於 `review/`），並主動停下等待使用者核准！** 使用者明確表達沒問題後才可推進到下一階段。嚴禁 Agent 擅自連續跨階段偷懶一條龍執行。
-10. **角色設定 v4 十一大章節門禁（階段 1 改編 P0 鐵律）**：在劇本改寫前，必須依據原著產出《完整角色設定文件 v4.0》（`adapt/character-bible.md`，對標《反派擺爛指南》角色設定 v4 十一大章節規範，外貌、標誌武器、表深層性格、核心能力、人物弧光、角色金句、登場服裝狀態機均需標註原著 `(Lxxx)` 行號依據；跨章節全文檢索查證真名，**嚴禁自創英文代號如 `BrownHairSlayer` 或張冠李戴套名**）。完成後必須通過 `scripts/adapt/validate_character_bible.py` 確定性驗證。
-11. **階段 4 鉛筆九宮格構圖物理防偷懶門禁**：資產圖生成後，**嚴禁跳過分鏡直接生成影片！** 必須先產出黑白鉛筆九宮格構圖圖檔（`images/grid-*.png` 或 `panels/panel-*.png`），並產出 `review/stage-4-storyboard.html` 供使用者確認走位、景深與滅點。`compile_layer2_to_h3.py` 與 `submit_h3_segments.py` 在代碼進入點設定實體硬性檢查，無九宮格圖時直接拋出 Fatal Gate Error 並終止執行！
+7. **依適用風格引用提示詞模板。** H3 寫實／半寫實可參考 `references/h3/skin-realism-block.md`；只在符合風格且不與原稿、角色設定或核准畫風衝突時採用，不能覆蓋角色已設定的膚色或外觀。2D、水墨、Q 版、美漫等依其風格指南撰寫。此 CLI 的 Ref2VA 輸出採六段式，見 `h3/prompt-formats.md`。
+8. **先規劃再執行生成**：要生成媒體時，先確認素材、規格與工具可用，再依使用者要求送件；使用者只要求文字交付時，停在該交付階段。
+9. **依範圍使用審核頁與狀態門禁**：需要正式跨階段或 H3 編譯／提交時使用 `review/project-state.json`。核准綁定輸入 hash；內容變更後須重審。每階段是否停下等待核准，依使用者要求與該交付的審核流程決定，不把完整製作流程強加給文字 draft。
+10. **角色設定與改編檢查依來源選用**：改編小說且需保持原著依據時，記錄角色來源與改編差異；既有劇本、原創故事或純分鏡任務不需建立不適用的 v4 角色檔。
+11. **階段 4 構圖審核**：要進入 H3 編譯，Layer 2 的每鏡須有可對應的有效構圖 PNG（九宮格或 `sketch_file`/panel），並由 `review/stage-4-storyboard.html` 審核。圖可由 Qwen、手繪或其他工具製作；所有來源使用相同 shot 對應、review 與 hash gate。純文字分鏡 draft 不受媒體生成限制。編譯需有效 stage 4 核准；實際送件需有效 stage 5 核准。
 12. **防偷懶物理穿模與罐頭詞禁令**：
     - **禁止同段/跨段複製貼上罐頭詞**（如「微風掠過衣擺，光影保持自然抖動」、「Then the motion transitions smoothly.」等，由 `validate_storyboard.py` 與 `audit_refs_and_segments.py` 確定性攔截）。
     - **禁止多主體碰撞擠壓**：單鏡嚴禁同時塞入主角＋路人＋道具＋巨獸等 4 方碰撞（實測會導致道具懸空吸附 3 秒、巨獸如布偶倒塌），必須拆解為主客觀分鏡。
@@ -49,19 +56,19 @@ agent_created: true
 | 1 改編 | 小說目錄清洗（`extract_chapter.py`）、**角色設定 v4 十一大章節**（`validate_character_bible.py`）、保留分級、分集架構 | `adapt/character-bible.md`、故事地圖、`series-outline` | `review/stage-1-adapt.html` |
 | 2 資產與設定圖 | 故事聖經→`assets.md`、**生圖工具詢問推薦（Codex CLI）與跨章節鎖定**、**生物純底設定圖**、**演員表主角優先排序** | `assets.md`、`images/` 設定板、**缺圖紅框攔截** | `review/stage-2-assets.html`（表格與圖片左右並排對照） |
 | 3 漫劇劇本 | 場景化改寫、時長與台詞預算審計（`estimate_duration.py --h3`）、HTML 註解元數據注入、交接 JSON、人工審核鎖（`sync_script.py`） | `script-ep01.md`、`handoff-ep01.json`、`adaptation-diff.md` | `review/stage-3-script.html` |
-| 4 導演分鏡 | **分段級分鏡（預設 10s/3 鏡，`handoff_to_skeleton.py`）**、焦距物距、**動作力學三要素**、**Qwen 鉛筆九宮格構圖審核** | `layer2/*.json`、`storyboard-ep01.md`、`grid-*.png`、`panels/` | `review/stage-4-storyboard.html`（**九宮格構圖必經斷點**） |
+| 4 導演分鏡 | 依內容編排分段、焦距物距與動作；需要構圖審核時可用 Qwen 九宮格、手繪或其他圖像工具 | `layer2/*.json`、`storyboard-ep01.md`、選用的對應 PNG | `review/stage-4-storyboard.html`（進 H3 編譯前需對應圖與人工核准） |
 | 5 提示詞包 | **H3 官方六段式批次編譯（`compile_layer2_to_h3.py`，含九宮格門禁檢查）**、服裝狀態機解析、LoRA 精確適配、`--check` 雙重對帳 | `prompts-ep01.md`、`segments-ep01.json` | `review/stage-5-prompts.html` |
-| 6 生成 | **主力定案：獨立 Ref2VA（四錨點連戲、一段一張角色圖防平均化）**；`submit_h3_segments.py`（**17 條 audit 自檢與九宮格門禁**）；`verify_video_shot.py` 影片批次審查 | `images/`、`videos/`、`qa-report.json` | `review/stage-6-generation.html` |
-| 7 組裝交付 | **`assemble_episode.py` 智慧配音、字幕燒錄與無縫拼接成片**、旁白稿、字幕、時間線、交付清單 | `final/ep01_final.mp4`、`narration-ep01.md`、`timeline-ep01.csv` | `review/stage-7-assembly.html` |
+| 6 生成（選用） | 僅在使用者要求且相容的影片工具／adapter 可用時生成；QA 技術結果與人工核准分開 | `videos/`、`qa-report.json` | `review/stage-6-generation.html` |
+| 7 組裝（選用） | 依實際可用音訊與影片素材組裝；可另產旁白稿與剪輯時間線 | `final/`、`narration-ep01.md`、compiled segments 匯出的有效時間線 | `review/stage-7-assembly.html` |
 
-**詳細做法、每階段模板與檢查點見 `references/pipeline.md`。** 每個階段完成後，必須產出對應 HTML 審核介面並停下等待確認，**使用者明確核准後才可進入下一階段**。
+**詳細做法、每階段模板與檢查點見 `references/pipeline.md`。** 正式階段核准以 `review/project-state.json` 為準；純文字草稿可按指定範圍交付，無需自動推進到媒體生成。
 
 ### 建議專案結構
 
 ```
 <專案名>/
 ├── project.md              # 定調 + 分集規劃
-├── source/                 # 原著小說（不外洩）
+├── source/                 # 專案原稿；送往外部工具時依工具資料處理方式確認
 ├── adapt/                  # 改編中間產物（character-bible.md、source.json、bible.json、故事地圖）
 ├── assets.md               # 風格錨 + 角色 / 場景 / 道具 / 音色聖經（ID、固定片段）
 ├── script-ep01.md          # 漫劇劇本（△ 場號制，無攝影機術語）
@@ -95,9 +102,11 @@ agent_created: true
 
 ## 階段 6 生成：怎麼做才穩
 
+以下 Ref2VA／FreeVideo 做法來自特定 H3 專案與 adapter 實測，供相似環境參考；生成模式、參考圖限制與節奏依目標模型、當前 adapter 及使用者指定調整。本文的 Ref2VA CLI 本身輸出 H3 Ref2VA 格式，不代表其他工具都支援相同輸入。
+
 **6.0 先確認工具（不可跳過）**
 
-先試連 FreeVideo（`references/freevideo.md`）；連得上，影片就走它，只需確認比例、時長、鏡數與提示詞語言。連不上或使用者指定別的工具，才用一張表問完：模型／工具、關鍵參數（比例、時長、解析度、音訊）、提示詞語言、生成範圍。問完才動工。
+只有使用者要求影片生成時才確認可用工具。沿用已提供的模型與參數；只詢問會阻礙當前生成工作的缺項。FreeVideo 是可選 adapter，並非 Agent 普遍內建的影片能力。
 
 > **提示詞依模型而異**——自然語言型、標籤堆疊型、中文原生型寫法完全不同。先寫一版模型無關的主提示詞，再依目標模型改寫。對照表見 `references/model-profiles.md`；**若用 MiniMax H3，改用 `references/minimax-h3.md` 的官方結構**（通用公式套不上去）。
 
