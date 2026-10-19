@@ -226,7 +226,7 @@ TEMPLATE_VERSION = "master-4view-v1"
 
 
 def parse_card_assets(text: str, style_lock: str = DEFAULT_STYLE_LOCK_3D) -> List[Dict[str, Any]]:
-    """解析 repo assets.md 範本的卡片格式（### C-xxx + `- **欄位**：\`值\``）。
+    """解析 repo assets.md 範本的卡片格式（### C-xxx 加「- **欄位**：值」條列）。
 
     角色描述優先取 **設定板描述**（母版中文槽位），其次 **固定描述片段**；**背面特徵** 併入描述。
     """
