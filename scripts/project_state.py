@@ -126,6 +126,12 @@ def _files_for_stage(root: Path, stage: int) -> list[Path]:
     for p in patterns.get(stage, []):
         if p.is_file() and not (stage == 2 and p.name.startswith("grid-")):
             files.append(p)
+    if stage == 5:
+        # A multi-episode project needs one combined segments file so the stage-6
+        # gate can confirm that every episode's clips exist, not just one episode.
+        combined = root / "segments-all.json"
+        if combined.is_file():
+            files.append(combined)
     if stage == 1:
         if (root / "source").exists():
             files.extend(p for p in (root / "source").rglob("*") if p.is_file())
