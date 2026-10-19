@@ -52,6 +52,11 @@ def validate_asset_list(items: List[Dict[str, Any]]) -> None:
             occupied[key] = filename
 
 
+def stale_character_prompts(items: List[Dict[str, Any]]) -> List[str]:
+    """export_asset_prompts.py 的角色項會帶 template 標記；沒有的是母版改版前匯出的舊檔。"""
+    return [str(i.get("filename") or i.get("name")) for i in items if i.get("type") == "character" and not i.get("template")]
+
+
 def resolve_codex_executable(explicit: str | None = None) -> str:
     candidate = explicit or ("codex.exe" if sys.platform.startswith("win") else "codex")
     found = shutil.which(candidate)
@@ -162,6 +167,8 @@ def main(argv: List[str] | None = None) -> int:
     try:
         prompts = load_prompts_map(args.prompts)
         validate_asset_list(prompts)
+        for stale in stale_character_prompts(prompts):
+            print(f"[警告] {stale} 是舊版角色提示詞（缺 template 標記），請先重跑 export_asset_prompts.py", file=sys.stderr)
         executable = resolve_codex_executable(args.codex_bin)
         validate_codex_cli(executable)
     except (OSError, ValueError, json.JSONDecodeError) as exc:

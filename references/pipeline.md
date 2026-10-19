@@ -127,7 +127,13 @@ python scripts/init_project.py my-drama --title "我的漫劇" --episodes 12
    - **詢問指定工具（推薦 Codex CLI）**：在出核心資產圖前，必須詢問使用者指定生圖工具（推薦本機 Codex CLI 或使用者授權之工具）。
    - **跨章節工具選擇**：若使用者要求跨章節風格一致，記錄已選工具及可重用的風格參考；依每個工具實際能力安排工作，不強制使用特定引擎。
    - Qwen、手繪或其他可用圖像工具可依任務製作設定圖或分鏡構圖圖；同一張圖是否可用於後續生成依目標模型能力判斷。
-6. **產出階段 2 HTML 並排審核頁面與斷點停下（P0 鐵律）**：
+6. **組裝角色設定板提示詞再生圖**：角色卡填好 `設定板描述`、`背面特徵`（`init_project.py` 範本已含），風格若選了 `styles.md` 非預設的一套，在「風格錨點」區寫 `style_index`（不寫＝母版 3D 漫劇寫實厚塗）。然後：
+   ```bash
+   python scripts/storyboard/export_asset_prompts.py --assets-md assets.md --out-json images/asset_prompts.json --out-md images/asset_prompts.md
+   python scripts/storyboard/run_codex_asset_gen.py --prompts images/asset_prompts.json --output-dir images
+   ```
+   角色提示詞用 ai-image-prompt 四視圖母版（構圖不改、含防呆句）；`--style N` 可臨時覆蓋 `style_index`。舊版匯出檔（缺 `template` 標記）runner 會警告，需重跑匯出。
+7. **產出階段 2 HTML 並排審核頁面與斷點停下（P0 鐵律）**：
    - 生成資產圖後，**必須執行**：
      ```bash
      python scripts/build_stage_review.py --stage 2

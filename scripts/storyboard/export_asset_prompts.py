@@ -217,7 +217,45 @@ def parse_assets_markdown(assets_path: pathlib.Path) -> List[Dict[str, Any]]:
             "style_lock": style_lock,
         })
 
+    return assets or parse_card_assets(text, style_lock)
+
+
+CARD_LABEL = re.compile(r"^-\s*\*\*(.+?)\*\*[：:]\s*(.*)$")
+CARD_TYPES = (("C-", "character"), ("CREATURE-", "creature"), ("S-", "scene"), ("P-", "prop"))
+TEMPLATE_VERSION = "master-4view-v1"
+
+
+def parse_card_assets(text: str, style_lock: str = DEFAULT_STYLE_LOCK_3D) -> List[Dict[str, Any]]:
+    """解析 repo assets.md 範本的卡片格式（### C-xxx + `- **欄位**：\`值\``）。
+
+    角色描述優先取 **設定板描述**（母版中文槽位），其次 **固定描述片段**；**背面特徵** 併入描述。
+    """
+    assets: List[Dict[str, Any]] = []
+    for m in re.finditer(r"^###\s+((?:C|CREATURE|S|P)-[\w-]+)[　 ]*(.*?)\s*$(.*?)(?=^#{1,3}\s|\Z)", text, re.MULTILINE | re.DOTALL):
+        aid, name, body = m.group(1), m.group(2).strip(), m.group(3)
+        fields: Dict[str, str] = {}
+        for line in body.splitlines():
+            lm = CARD_LABEL.match(line.strip())
+            if lm:
+                tick = re.search(r"`([^`]+)`", lm.group(2))
+                fields.setdefault(lm.group(1), tick.group(1).strip() if tick else lm.group(2).strip())
+        desc = fields.get("設定板描述") or next((v for k, v in fields.items() if k.startswith("固定描述")), "")
+        if not desc or desc.startswith("<"):
+            continue
+        if fields.get("背面特徵") and not fields["背面特徵"].startswith("<"):
+            desc += f"；背面特徵：{fields['背面特徵']}"
+        atype = next(t for prefix, t in CARD_TYPES if aid.startswith(prefix))
+        ref = next((v for k, v in fields.items() if k.startswith(("設定圖", "母版圖"))), "")
+        filename = pathlib.Path(ref).name if ref.endswith((".png", ".jpg")) else f"{atype}-{aid.split('-', 1)[1]}.png"
+        assets.append({"name": f"{aid} {name}".strip(), "type": atype, "filename": filename,
+                       "description": desc, "style_lock": style_lock})
     return assets
+
+
+def read_style_index(assets_path: pathlib.Path) -> Optional[int]:
+    """讀 assets.md「風格錨點」區的 `style_index`（styles.md 編號）；沒寫或填預設母版則回 None。"""
+    m = re.search(r"^-\s*\*\*style_index\*\*[：:]\s*`?(\d+)`?", assets_path.read_text(encoding="utf-8"), re.MULTILINE)
+    return int(m.group(1)) if m else None
 
 
 def compile_full_prompt(asset: Dict[str, Any], style: Optional[Dict[str, str]] = None) -> str:
@@ -263,8 +301,10 @@ def main():
 
     # 1. 尋找與載入資產檔案
     assets: List[Dict[str, Any]] = []
+    used_assets_md: Optional[pathlib.Path] = None
     if args.assets_md:
         p_assets = pathlib.Path(args.assets_md).resolve()
+        used_assets_md = p_assets
         assets = parse_assets_markdown(p_assets)
     elif args.bible_json:
         # 若傳入 bible.json，檢查同層或上層是否有 assets.md
@@ -273,6 +313,7 @@ def main():
         if not cand.exists():
             cand = p_bible.parent / "assets.md"
         if cand.exists():
+            used_assets_md = cand
             assets = parse_assets_markdown(cand)
     else:
         # 自動尋找當前目錄或常規目錄下的 assets.md
@@ -284,7 +325,8 @@ def main():
         ]
         for d in defaults:
             if d.exists():
-                assets = parse_assets_markdown(d.resolve())
+                used_assets_md = d.resolve()
+                assets = parse_assets_markdown(used_assets_md)
                 break
 
     if not assets:
@@ -304,9 +346,10 @@ def main():
 
     # 3. 組裝標準提示詞
     try:
-        style = load_style_anchor(args.style) if args.style else None
+        style_index = args.style or (read_style_index(used_assets_md) if used_assets_md else None)
+        style = load_style_anchor(style_index) if style_index else None
     except (OSError, ValueError) as exc:
-        print(f"[錯誤] --style {args.style}：{exc}", file=sys.stderr)
+        print(f"[錯誤] --style {style_index}：{exc}", file=sys.stderr)
         sys.exit(1)
     compiled_results = []
     for item in assets:
@@ -317,6 +360,8 @@ def main():
             "filename": item["filename"],
             "raw_description": item["description"],
             "full_prompt": full_prompt,
+            "template": TEMPLATE_VERSION if item["type"] == "character" else None,
+            "style_index": style_index if item["type"] == "character" else None,
         })
 
     # 4. 輸出列印或儲存
