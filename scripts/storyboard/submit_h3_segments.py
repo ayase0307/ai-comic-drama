@@ -330,7 +330,12 @@ def audit_segment_prompts(todo_segs: List[Dict[str, Any]]) -> Tuple[bool, List[s
                     errors.append(f"[{sid}] 模式 A 參考圖錯誤: {e}")
 
         # 模式 B: H3 提示詞 17 條自檢
-        l_res = lint_h3_prompt(prompt, nominal_duration=dur)
+        l_res = lint_h3_prompt(
+            prompt,
+            nominal_duration=dur,
+            rounding_mode=seg.get("metadata", {}).get("rounding_mode", "floor"),
+            authored_shots=seg.get("shots"),
+        )
         if not l_res.get("passed", True):
             for e in l_res.get("errors", []):
                 errors.append(f"[{sid}] 模式 B 提示詞錯誤: {e}")

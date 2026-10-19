@@ -123,9 +123,12 @@ def frames_for(s: float, rounding: str = "floor") -> int:
     rounding:
       - 'floor': 保守向下取整（如 7.0s -> 9 steps -> 158 幀），真實反映有效秒數可能縮水
       - 'round': 傳統四捨五入（如 7.0s -> 10 steps -> 175 幀）
+      - 'ceil': 向上取整，保留完整台詞窗與原編排停頓
     """
     raw_steps = (s * 24.0 - 5.0) / 17.0
-    if rounding == "round":
+    if rounding == "ceil":
+        n = max(1, math.ceil(raw_steps))
+    elif rounding == "round":
         n = max(1, round(raw_steps))
     else:
         n = max(1, int(math.floor(raw_steps)))
@@ -342,6 +345,7 @@ def lint_h3_prompt(
     prompt_text: str,
     nominal_duration: float = 7.0,
     rounding_mode: str = "floor",
+    authored_shots: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """對 H3 分段提示詞執行 13 條確定性工程自檢。
     支援 5–10 秒短分段與 15 秒段，動態計算 FreeVideo 取整有效秒數 D。
@@ -353,6 +357,11 @@ def lint_h3_prompt(
     if not clean_prompt:
         errors.append("[E: 空文本] 提示詞內容為空！")
         return {"passed": False, "errors": errors, "warnings": warnings, "details": {}}
+
+    # This adapter provides H3's six-section prose, not an independent negative
+    # prompt channel. A copied exclusion block must be rewritten before sending.
+    if re.search(r"\bnegative(?:[_\s]+prompt|\s+constraints)\s*:", clean_prompt, re.IGNORECASE):
+        errors.append("[E18: unsupported negative prompt block] 將負面清單改寫為正向可見狀態；不得把 negative constraints / negative_prompt 區塊送入 H3 正文。")
 
     # 計算真實有效時長 D
     eff_d = effective_duration(nominal_duration, rounding=rounding_mode)
@@ -384,6 +393,67 @@ def lint_h3_prompt(
     shot_headers = re.findall(r"\[Shot\s+(\d+)\](?:\s+At\s+(\d{2}):(\d{2}(?:\.\d+)?))?", detailed_desc, re.IGNORECASE)
     n_shots = len(shot_headers)
     details["shot_count"] = n_shots
+    authored_exception = False
+    authored_reason = ""
+    authored_timeline_end: Optional[float] = None
+    if authored_shots is not None:
+        if not isinstance(authored_shots, list) or not 1 <= len(authored_shots) <= 8:
+            authored_reason = "authored shot context must contain 1–8 shot objects"
+        elif len(authored_shots) != n_shots:
+            authored_reason = f"prompt has {n_shots} shots but authored context has {len(authored_shots)}"
+        else:
+            cursor = 0.0
+            try:
+                for index, shot in enumerate(authored_shots, start=1):
+                    if not isinstance(shot, dict):
+                        raise ValueError(f"shot {index} is not an object")
+                    start, end, duration = (float(shot[key]) for key in ("start_time", "end_time", "duration"))
+                    if not all(math.isfinite(value) for value in (start, end, duration)):
+                        raise ValueError(f"shot {index} has non-finite timing")
+                    if abs(start - cursor) > 1e-3:
+                        raise ValueError(f"shot {index} is not continuous (expected {cursor:.3f}s, got {start:.3f}s)")
+                    if end <= start or abs((end - start) - duration) > 1e-3:
+                        raise ValueError(f"shot {index} has inconsistent start/end/duration")
+                    cursor = end
+                authored_timeline_end = cursor
+                if abs(cursor - nominal_duration) > 1e-3 and abs(cursor - eff_d) > 1e-3:
+                    raise ValueError(
+                        f"authored timeline ends at {cursor:.3f}s, expected nominal {nominal_duration:.3f}s "
+                        f"or quantized {eff_d:.3f}s"
+                    )
+                declared = re.search(
+                    r"([0-9]+(?:\.[0-9]+)?)s\s+effective\s+from\s+([0-9]+(?:\.[0-9]+)?)s\s+target",
+                    clean_prompt,
+                    re.IGNORECASE,
+                )
+                if not declared:
+                    raise ValueError("prompt summary does not state effective and target durations")
+                declared_effective, declared_target = map(float, declared.groups())
+                if abs(declared_target - nominal_duration) > 1e-3 or abs(declared_effective - eff_d) > 1e-3:
+                    raise ValueError(
+                        f"prompt summary duration {declared_target:.3f}s target/{declared_effective:.3f}s effective "
+                        f"does not match expected {nominal_duration:.3f}s/{eff_d:.3f}s"
+                    )
+                prompt_cuts: List[float] = []
+                for header in shot_headers[1:]:
+                    if not header[1] or not header[2]:
+                        raise ValueError("prompt is missing a timestamp for an authored cut")
+                    prompt_cuts.append(float(header[1]) * 60.0 + float(header[2]))
+                authored_cuts = [float(shot["end_time"]) for shot in authored_shots[:-1]]
+                if len(prompt_cuts) != len(authored_cuts) or any(
+                    abs(prompt_time - authored_time) > 1e-3
+                    for prompt_time, authored_time in zip(prompt_cuts, authored_cuts)
+                ):
+                    raise ValueError("prompt cut timestamps do not match authored shot end times")
+                authored_exception = True
+            except (KeyError, TypeError, ValueError) as exc:
+                authored_reason = str(exc)
+
+    details["authored_shot_count_exception"] = authored_exception
+    if authored_timeline_end is not None:
+        details["authored_timeline_end_sec"] = round(authored_timeline_end, 3)
+    if authored_shots is not None and not authored_exception:
+        warnings.append(f"[W:E2 authored shots ignored] {authored_reason}; legacy shot-count limits remain in force.")
 
     if n_shots == 0:
         errors.append("[E2: 缺少鏡頭標籤] 未找到任何 [Shot N] 格式的鏡頭宣告！")
@@ -394,8 +464,14 @@ def lint_h3_prompt(
         if shot_indices != expected_indices:
             errors.append(f"[E2: 鏡頭序號不連續] 實際序號為 {shot_indices}，期望為 {expected_indices}")
 
-        # 檢查鏡頭數量與有效時長匹配
-        if eff_d < 10.0:
+        # Preserve a complete authored timeline only when its shot count and
+        # nominal/quantized duration can be verified against the compiled prompt.
+        if authored_exception:
+            warnings.append(
+                f"[W:E2 authored shot count] Preserving {n_shots} authored shots; "
+                f"continuous timeline ends at {authored_timeline_end:.3f}s and prompt effective duration is {eff_d:.3f}s."
+            )
+        elif eff_d < 10.0:
             if not (2 <= n_shots <= 6):
                 errors.append(f"[E2: 鏡頭數量不符] 時長 D={eff_d:.2f}s (<10s) 應為 2–6 鏡，實際為 {n_shots} 鏡！")
         else:
@@ -551,10 +627,34 @@ def lint_h3_prompt(
     # --------------------------------------------------------------------------
     # 規則 16 (E): 戰鬥衝擊鏡頭缺少物理反饋
     # --------------------------------------------------------------------------
-    combat_cues = ["whip", "strike", "swing", "smash", "punch", "slash", "crash", "tumble", "collide", "shatter"]
-    impact_feedback_cues = ["sparks", "debris", "recoil", "flinch", "dust", "smoke", "shatter", "knocked back", "tumbles", "shockwave", "blast"]
-    if any(re.search(rf"\b{cc}\b", detailed_desc, re.IGNORECASE) for cc in combat_cues):
-        has_impact_feedback = any(re.search(rf"\b{fc}\b", detailed_desc, re.IGNORECASE) for fc in impact_feedback_cues)
+    combat_patterns = (
+        r"\bwhips?\b", r"\bstrikes?\b", r"\bswings?\b", r"\bsmashes?\b",
+        r"\bpunch(?:es)?\b", r"\bslashes?\b", r"\bcrashes?\b", r"\btumbles?\b",
+        r"\bcollides?\b", r"\bshatters?\b",
+    )
+    impact_feedback_cues = (
+        r"\bsparks?\b", r"\bdebris\b", r"\brecoils?(?:ed|ing)?\b",
+        r"\bflinches?(?:ed|ing)?\b", r"\bdust\b", r"\bsmoke\b",
+        r"\bshatters?(?:ed|ing)?\b", r"\bknocked back\b",
+        r"\btumbles?(?:ed|ing)?\b", r"\bshockwave\b", r"\bblasts?\b",
+        r"\b(?:wrist|arm|hand|head|body)\s+jerks?\s+back\b",
+        r"\bhead\s+thrusts?\s+back\b",
+        r"\bdrives?\b.{0,100}\binto\s+(?:the\s+)?(?:.{0,40}\s+)?(?:wall|ground|floor)\b",
+        r"\bdrops?\s+to\s+(?:the\s+)?(?:ground|floor)\b",
+    )
+    executed_combat_desc = detailed_desc
+    non_executed_combat_patterns = (
+        r"\bchecks?\s+(?:his|her|their|the)\s+swing\b",
+        r"\b(?:finds?|has|sees?)\s+no\s+safe\s+path\s+to\s+strike\b",
+        r"\bno\s+safe\s+path\s+to\s+strike\b",
+        r"\b(?:does\s+not|doesn't|never)\s+(?:swing|strike|hit|smash|punch|slash|whip)\b",
+        r"\bwithout\s+(?:swinging|striking|hitting|smashing|punching|slashing|whipping)\b",
+        r"\bavoids?\s+(?:swinging|striking|hitting|smashing|punching|slashing|whipping)\b",
+    )
+    for pattern in non_executed_combat_patterns:
+        executed_combat_desc = re.sub(pattern, "", executed_combat_desc, flags=re.IGNORECASE)
+    if any(re.search(pattern, executed_combat_desc, re.IGNORECASE) for pattern in combat_patterns):
+        has_impact_feedback = any(re.search(cue, detailed_desc, re.IGNORECASE) for cue in impact_feedback_cues)
         if not has_impact_feedback:
             errors.append(
                 "[E16: 戰鬥衝擊缺少物理反饋] 檢測到戰鬥打擊動作，但未描述任何受擊反饋（如 sparks, dust, recoil, tumbles, shockwave 等）！"
@@ -832,7 +932,7 @@ def main():
     parser.add_argument("--fix-refs", action="store_true", help="搭配 --audit-refs，自動以演員表重寫並修復至 100%% 合規")
     parser.add_argument("--lint-h3", metavar="FILE_OR_DIR", help="對指定分段 JSON 或提示詞文本執行 13 條 H3 確定性自檢")
     parser.add_argument("--duration", type=float, default=7.0, help="分段目標名義秒數（預設: 7.0s）")
-    parser.add_argument("--rounding", choices=["floor", "round"], default="floor", help="17n+5 取整模式（預設 floor: 保守檢驗真實秒數縮水）")
+    parser.add_argument("--rounding", choices=["floor", "round", "ceil"], default="floor", help="17n+5 取整模式；JSON分段優先採 metadata.rounding_mode")
 
     args = parser.parse_args()
 
@@ -956,7 +1056,8 @@ def main():
             if args.lint_h3:
                 prompt_str = extract_prompt_from_seg(seg_data)
                 dur = float(seg_data.get("metadata", {}).get("target_duration_sec", args.duration))
-                lint_res = lint_h3_prompt(prompt_str, nominal_duration=dur, rounding_mode=args.rounding)
+                rounding_mode = (seg_data.get("metadata", {}) or {}).get("rounding_mode", args.rounding)
+                lint_res = lint_h3_prompt(prompt_str, nominal_duration=dur, rounding_mode=rounding_mode, authored_shots=seg_data.get("shots"))
                 if lint_res["passed"]:
                     print(f"  [PASS] H3 提示詞 13 條自檢通過 ({seg_id_label}: 名義 {dur}s -> 真實有效 {lint_res['details']['effective_duration_sec']}s)")
                 else:

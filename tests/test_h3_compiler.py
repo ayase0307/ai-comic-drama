@@ -130,16 +130,18 @@ class H3CompilerRegressionTests(unittest.TestCase):
             with self.subTest(anchor=anchor):
                 data = self.segment()
                 data["style_lock"]["anchor"] = anchor
-                prompt = self.compile(data)["h3_prompt"]
+                compiled = self.compile(data)
+                prompt = compiled["h3_prompt"]
                 for authored_value in (
                     anchor,
-                    data["style_lock"]["negative"],
                     "moonlight from camera left",
                     "Mira remains east of the table",
                     "the table stays between Mira and the door",
                     "rough ink wash on the stone wall",
                 ):
                     self.assertIn(authored_value, prompt)
+                self.assertEqual(compiled["metadata"]["qa_exclusions"], data["style_lock"]["negative"])
+                self.assertNotIn(data["style_lock"]["negative"], prompt)
                 self.assertNotIn("The target video is live-action cinematic", prompt)
                 self.assertNotIn("The target video is live-action", prompt)
 
@@ -235,7 +237,9 @@ class H3CompilerRegressionTests(unittest.TestCase):
         data["metadata"]["requires_audio"] = False
         compiled = self.compile(data)
         self.assertNotIn("sunlight", compiled["h3_prompt"].lower())
-        self.assertEqual(compiled["metadata"]["style_lock"], data["style_lock"])
+        expected_style = dict(data["style_lock"], negative="")
+        self.assertEqual(compiled["metadata"]["style_lock"], expected_style)
+        self.assertEqual(compiled["metadata"]["qa_exclusions"], data["style_lock"]["negative"])
         self.assertEqual(compiled["metadata"]["palette_preset"], "monochrome")
         self.assertIs(compiled["metadata"]["audio_required"], False)
         self.assertIs(compiled["metadata"]["requires_audio"], False)
@@ -287,6 +291,74 @@ class H3CompilerRegressionTests(unittest.TestCase):
         data["shots"][0] = self.shot("D1", 0, 3, "Mira raises one hand.", line=line)
         self.assertIn(f"<d>[Chinese] {line}</d>", self.compile(data)["h3_prompt"])
 
+    def test_dialogue_keeps_speaker_identity_and_exact_segment_window(self):
+        data = self.segment()
+        shot = self.shot("D1", 0, 9, "Mira raises one hand.", line="先別退，聽我說！")
+        shot["character_ids"] = ["C-MIRA"]
+        shot["dialogue_and_audio"]["speech_window"] = {
+            "start": 1.25,
+            "end": 2.5,
+            "unit": "segment_seconds",
+        }
+        data["shots"] = [shot]
+
+        prompt = self.compile(data)["h3_prompt"]
+
+        self.assertIn("speaker ID C-MIRA", prompt)
+        self.assertIn("segment_seconds 1.250–2.500", prompt)
+        self.assertIn("<d>[Chinese] 先別退，聽我說！</d>", prompt)
+
+    def test_offscreen_and_inner_voice_dialogue_never_becomes_visible_speech(self):
+        cases = [
+            ("C-guide", ["C-MIRA", "C-guide"], "The offscreen guide asks from beyond frame; only a hand is visible.", "the guide"),
+            ("C-doctor", ["C-MIRA"], "The doctor remains offscreen and never appears; no speaking mouth is visible.", "the doctor"),
+            ("E-unknown-voice", ["C-MIRA"], "An unseen inner voice speaks; no source or mouth is visible.", "the unseen inner voice"),
+        ]
+        for speaker, character_ids, action, label in cases:
+            with self.subTest(speaker=speaker):
+                data = self.segment()
+                shot = self.shot("V1", 0, 9, action, line="你聽得見嗎？")
+                shot["character_ids"] = character_ids
+                shot["dialogue_and_audio"].update({
+                    "speaker": speaker,
+                    "lips_closed_lock": True,
+                    "voice_4d_spec": "近距腦內聲，無可見聲源嘴部。" if speaker == "E-unknown-voice" else "",
+                    "speech_window": {"start": 0.5, "end": 2.0, "unit": "segment_seconds"},
+                })
+                shot["action_and_performance"]["action_stages_en"] = [action]
+                shot["action_and_performance"]["observable_expression_en"] = "Mira keeps her lips closed."
+                data["shots"] = [shot]
+
+                prompt = self.compile(data)["h3_prompt"]
+
+                self.assertIn(f"{label} (speaker ID {speaker})", prompt)
+                self.assertIn("do not show the speaker", prompt)
+                self.assertIn("visible characters' mouths stay closed", prompt)
+                self.assertIn("segment_seconds 0.500–2.000", prompt)
+                self.assertIn("<d>[Chinese] 你聽得見嗎？</d>", prompt)
+                self.assertNotIn(f"{speaker} speaks", prompt)
+                self.assertNotIn("<Subject 1> speaks", prompt)
+
+    def test_visible_back_only_speaker_respects_lip_closed_lock(self):
+        data = self.segment()
+        shot = self.shot("B1", 0, 9, "The driver stays turned away; the line is heard.", line="先送你回去。")
+        shot["character_ids"] = ["C-MIRA", "C-DRIVER"]
+        shot["dialogue_and_audio"].update({
+            "speaker": "C-DRIVER",
+            "lips_closed_lock": True,
+            "speech_window": {"start": 0.5, "end": 2.0, "unit": "segment_seconds"},
+        })
+        shot["composition_start"] = "The driver is visible only from behind; the mouth is out of view."
+        shot["action_and_performance"]["action_stages_en"] = ["The driver stays in a back view while speaking from offscreen."]
+        data["shots"] = [shot]
+
+        prompt = self.compile(data)["h3_prompt"]
+
+        self.assertIn("speaker ID C-DRIVER", prompt)
+        self.assertIn("no visible lip movement", prompt)
+        self.assertIn("segment_seconds 0.500–2.000", prompt)
+        self.assertIn("<d>[Chinese] 先送你回去。</d>", prompt)
+
     def test_null_speaker_is_valid_for_a_nondialogue_shot(self):
         data = self.segment()
         data["shots"][0]["dialogue_and_audio"]["speaker"] = None
@@ -308,6 +380,61 @@ class H3CompilerRegressionTests(unittest.TestCase):
         self.assertIn("At 00:10.000", compiled["h3_prompt"])
         self.assertIn("14.375s effective from 15.000s target", compiled["h3_prompt"])
         self.assertEqual(compiled["metadata"]["effective_duration_sec"], 14.375)
+
+    def test_floor_quantization_ceil_protects_speech_window_that_reaches_target(self):
+        data = self.segment()
+        data["metadata"]["target_duration_sec"] = 10.0
+        shot = self.shot("D1", 0.0, 10.0, "Mira raises one hand.", line="Stay right here.")
+        shot["dialogue_and_audio"]["speech_window"] = {
+            "start": 7.5,
+            "end": 10.0,
+            "unit": "segment_seconds",
+        }
+        data["shots"] = [shot]
+
+        compiled = self.compile(data)
+
+        self.assertAlmostEqual(compiler.effective_duration(10.0, "floor"), 9.417, places=3)
+        self.assertEqual(compiled["metadata"]["rounding_mode"], "ceil")
+        self.assertEqual(compiled["metadata"]["rounding_reason"], "dialogue-preserving")
+        self.assertEqual(compiled["metadata"]["effective_duration_sec"], 10.125)
+        self.assertEqual(compiled["shots"][0]["duration"], 10.125)
+        lint = compiler.lint_h3_prompt(
+            compiled["h3_prompt"],
+            nominal_duration=10.0,
+            rounding_mode=compiled["metadata"]["rounding_mode"],
+            authored_shots=compiled["shots"],
+        )
+        self.assertTrue(lint["passed"], lint["errors"])
+        self.assertNotIn("The final second holds still before the cut.", compiled["h3_prompt"])
+
+    def test_any_dialogue_segment_uses_ceil_to_preserve_authored_pauses(self):
+        data = self.segment()
+        data["metadata"]["target_duration_sec"] = 10.0
+        shot = self.shot("D1", 0.0, 10.0, "Mira raises one hand.", line="Stay right here.")
+        shot["dialogue_and_audio"]["speech_window"] = {
+            "start": 5.0,
+            "end": 9.0,
+            "unit": "segment_seconds",
+        }
+        data["shots"] = [shot]
+
+        compiled = self.compile(data)
+
+        self.assertEqual(compiled["metadata"]["rounding_mode"], "ceil")
+        self.assertEqual(compiled["metadata"]["rounding_reason"], "dialogue-preserving")
+        self.assertEqual(compiled["metadata"]["effective_duration_sec"], 10.125)
+
+    def test_no_dialogue_overrun_keeps_floor_quantization(self):
+        data = self.segment()
+        data["metadata"]["target_duration_sec"] = 10.0
+        data["shots"] = [self.shot("S1", 0.0, 10.0, "Mira waits by the table.")]
+
+        compiled = self.compile(data)
+
+        self.assertEqual(compiled["metadata"]["rounding_mode"], "floor")
+        self.assertAlmostEqual(compiled["metadata"]["effective_duration_sec"], 9.417, places=3)
+        self.assertAlmostEqual(compiled["shots"][0]["duration"], 9.417, places=3)
 
     def test_overlapping_and_gapped_source_timelines_are_rejected(self):
         for label, second_start in (("overlap", 2.5), ("gap", 3.5)):

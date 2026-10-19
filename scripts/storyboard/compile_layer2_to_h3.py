@@ -25,6 +25,7 @@ compile_layer2_to_h3.py — Layer 2 分鏡轉 H3 官方六段式 Prompt 與分�
 from __future__ import annotations
 
 import argparse
+import hashlib
 import io
 import json
 import math
@@ -114,6 +115,33 @@ MOTION_SYNONYMS = {
     "360": "camera trucks left while panning right",
 }
 
+# Exact natural-language phrases already used in approved Layer 2 files.
+# These map only their stated camera intent to the nearest supported H3 verb;
+# unrecognized phrases still fail closed below.
+SOURCE_CAMERA_MOTION_ALIASES = {
+    "locked tripod": "static",
+    "locked side camera": "static",
+    "locked camera as frame falls to black": "static",
+    "locked side camera with downward follow": "tilts down",
+    "slow pan following uncle's turn": "pans right",
+    "tilt from sun to luo": "tilts down",
+    "tilt up with the rising glow": "tilts up",
+    "tilt with beast's head movement": "tilts up",
+    "輕微穩定推近，保持單一主體": "dollies in",
+    "穩定的小幅推近，保持床軸同側": "dollies in",
+    "固定機位或沿南側短距離平移，禁止越過走廊軸線": "static",
+    "固定機位，僅微幅跟隨手部動作": "static",
+    "固定建立鏡位後小幅推近說話者": "dollies in",
+    "固定貼近牆面，不越過南側機位": "static",
+    "固定中景，留出字卡與空桌椅": "static",
+    "車內固定機位，隨車身可見地微震": "static",
+    "後座視點固定，輕微前移": "dollies in",
+    "穩定短推或定鏡，依台詞視線切主體": "static",
+    "穩定側向滑移，將右側海景留在視線方向": "trucks right",
+    "由右向左短跟拍洛年，保持南側軸線": "trucks left",
+    "由司機背影緩慢移向遠海，保持橋欄水平": "pans right",
+}
+
 DEFAULT_LIGHT_SOURCES = [
     "natural warm daylight and soft ambient illumination",
     "cold moonlight and dim fluorescent light",
@@ -129,6 +157,20 @@ DEFAULT_LIGHT_SOURCES = [
 NARRATOR_IDS = {"旁白", "narrator", "narration", "v.o.", "vo", "os", "o.s.", "畫外音", "旁白（v.o.）"}
 CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 TODO_RE = re.compile(r"^\[?TODO\]?[:：]?")
+CAMERA_HOLD_ACTION_RE = re.compile(
+    r"^(\s*(?:Stage\s+\d+\s*:\s*)?)The camera holds on (.+?)[.!]?$",
+    re.IGNORECASE,
+)
+
+
+def normalize_authored_camera_hold_action(stage: str) -> str:
+    """Keep a stated held composition without duplicating the camera clause."""
+    match = CAMERA_HOLD_ACTION_RE.match(stage.strip())
+    if not match:
+        return stage
+    prefix, subject = match.groups()
+    subject = subject.rstrip(" .!")
+    return f"{prefix}The view remains on {subject}."
 
 
 SHEET_PHRASES_RE = re.compile(
@@ -176,7 +218,9 @@ class AssetRegistry:
         self.characters: Dict[str, Dict[str, Any]] = {}
         self.locations: Dict[str, Dict[str, Any]] = {}
         self.props: Dict[str, Dict[str, Any]] = {}
+        self.bodydetails: Dict[str, Dict[str, Any]] = {}
         self.style: Dict[str, str] = {}
+        self.id_aliases: Dict[str, str] = {}
         bible_path = pathlib.Path(bible_path) if bible_path else None
         assets_path = pathlib.Path(assets_path) if assets_path else None
         if project_root:
@@ -233,6 +277,9 @@ class AssetRegistry:
                 "ref_img": char.get("reference_image") or char.get("image_path") or "",
                 "wardrobe_states": wardrobes if isinstance(wardrobes, dict) else {},
                 "is_creature": bool(char.get("is_creature", False)) or cid.startswith("CREATURE"),
+                "voice_only": bool(char.get("voice_only", False)),
+                "no_visual_reference": bool(char.get("no_visual_reference", False)) or bool(char.get("voice_only", False)),
+                "variants": char.get("variants") or char.get("visual_variants") or {},
             }
         for loc in data.get("locations", []) or []:
             if not isinstance(loc, dict):
@@ -248,6 +295,39 @@ class AssetRegistry:
                 "desc_zh": loc.get("description_zh") or loc.get("description", ""),
                 "ref_img": loc.get("reference_image") or loc.get("image_path") or "",
             }
+        aliases = data.get("id_aliases", {}) or {}
+        if isinstance(aliases, dict):
+            self.id_aliases = {str(alias): str(canonical) for alias, canonical in aliases.items()}
+        for prop in data.get("props", []) or []:
+            if not isinstance(prop, dict):
+                continue
+            pid = prop.get("id") or prop.get("prop_id")
+            if pid:
+                desc_en = prop.get("visual_prompt_en") or prop.get("desc_en") or prop.get("description_en") or ""
+                self.props[pid] = {
+                    "id": pid,
+                    "name": prop.get("name", pid),
+                    "desc_en": "" if CJK_RE.search(desc_en or "") else desc_en,
+                    "ref_img": prop.get("reference_image") or prop.get("image_path") or "",
+                }
+        for detail in data.get("bodydetails", []) or []:
+            if not isinstance(detail, dict):
+                continue
+            did = detail.get("id")
+            if did:
+                self.bodydetails[did] = {
+                    "id": did, "name": detail.get("name", did),
+                    "desc_en": detail.get("desc_en") or detail.get("visual_prompt_en") or "",
+                    "ref_img": detail.get("reference_image") or detail.get("image_path") or "",
+                    "source_id": detail.get("source_id", ""),
+                }
+        style = data.get("style", {}) or {}
+        if isinstance(style, dict):
+            for key in ("anchor", "negative", "lighting_lock_line"):
+                value = style.get(key)
+                if value:
+                    mapped_key = {"anchor": "style_anchor", "negative": "style_negative"}.get(key, key)
+                    self.style[mapped_key] = str(value)
 
     # ---------- assets.md ----------
     def _load_assets_md(self, path: pathlib.Path) -> None:
@@ -326,6 +406,7 @@ class AssetRegistry:
 
     # ---------- 查詢 ----------
     def get_character(self, cid_or_name: str, wardrobe_state: Optional[str] = None) -> Dict[str, Any]:
+        cid_or_name = self.id_aliases.get(cid_or_name, cid_or_name)
         found = None
         if cid_or_name in self.characters:
             found = dict(self.characters[cid_or_name])
@@ -339,7 +420,7 @@ class AssetRegistry:
             found = {"id": cid_or_name, "name": cid_or_name, "desc_en": "", "short_en": "", "desc_zh": "",
                      "ref_img": "", "wardrobe_states": {}, "is_creature": False, "unregistered": True}
         found["wardrobe_states"] = dict(found.get("wardrobe_states") or {})
-        if not found.get("ref_img"):
+        if not found.get("ref_img") and not found.get("no_visual_reference"):
             found["ref_img"] = self._guess_img("character", found["id"])
         if wardrobe_state and wardrobe_state in found["wardrobe_states"]:
             w_val = found["wardrobe_states"][wardrobe_state]
@@ -375,6 +456,196 @@ class AssetRegistry:
             rec["desc_en"] = "the location shown in the reference plate"
         return rec
 
+    def get_prop(self, pid: str) -> Dict[str, Any]:
+        pid = self.id_aliases.get(pid, pid)
+        rec = self.props.get(pid)
+        if not rec:
+            raise ValueError(f"Stage5 binding prop {pid!r} is not registered in the normalized Bible")
+        result = dict(rec)
+        if not result.get("ref_img"):
+            raise ValueError(f"Stage5 binding prop {pid!r} has no approved reference_image")
+        if not result.get("desc_en"):
+            raise ValueError(f"Stage5 binding prop {pid!r} has no English visual description")
+        return result
+
+    def get_bodydetail(self, did: str) -> Dict[str, Any]:
+        did = self.id_aliases.get(did, did)
+        rec = self.bodydetails.get(did)
+        if not rec:
+            raise ValueError(f"Stage5 binding bodydetail {did!r} is not registered in the normalized Bible")
+        result = dict(rec)
+        if not result.get("ref_img"):
+            raise ValueError(f"Stage5 binding bodydetail {did!r} has no approved reference_image")
+        return result
+
+
+def validate_stage5_binding(
+    layer2_data: Dict[str, Any], binding: Dict[str, Any], layer2_path: pathlib.Path,
+    project_root: pathlib.Path,
+) -> Dict[str, Any]:
+    """Verify a derived Stage5 binding against one immutable Layer2 source file."""
+    if not isinstance(binding, dict):
+        raise ValueError("Stage5 segment binding must be an object")
+    segment_id = str(layer2_data.get("segment_id") or layer2_data.get("scene_id") or "")
+    if binding.get("segment_id") != segment_id:
+        raise ValueError(f"Stage5 segment_id mismatch: {binding.get('segment_id')!r} != {segment_id!r}")
+    source = binding.get("source_layer2_path")
+    if not isinstance(source, str) or not source:
+        raise ValueError(f"Stage5 binding {segment_id} is missing source_layer2_path")
+    source_path = pathlib.Path(source)
+    if source_path.is_absolute():
+        raise ValueError(f"Stage5 source_layer2_path must be project-relative: {source}")
+    try:
+        expected = (pathlib.Path(project_root) / source_path).resolve().relative_to(pathlib.Path(project_root).resolve()).as_posix()
+        actual = pathlib.Path(layer2_path).resolve().relative_to(pathlib.Path(project_root).resolve()).as_posix()
+    except ValueError as exc:
+        raise ValueError(f"Stage5 Layer2 source path escapes project root: {source}") from exc
+    if os.path.normcase(expected) != os.path.normcase(actual):
+        raise ValueError(f"Stage5 source path mismatch: binding={expected!r}, input={actual!r}")
+    expected_sha = str(binding.get("source_sha256") or "").lower()
+    actual_sha = hashlib.sha256(pathlib.Path(layer2_path).read_bytes()).hexdigest()
+    if not re.fullmatch(r"[0-9a-f]{64}", expected_sha) or expected_sha != actual_sha:
+        raise ValueError(f"Stage5 source SHA256 mismatch for {segment_id}: expected {expected_sha or '<missing>'}, got {actual_sha}")
+    shot_ids = [str(shot.get("global_shot_id") or "") for shot in (layer2_data.get("shots", []) or [])]
+    if any(not sid for sid in shot_ids):
+        raise ValueError(f"Stage5 binding requires global_shot_id on every shot in {segment_id}")
+    if len(shot_ids) != len(set(shot_ids)):
+        raise ValueError(f"Layer2 contains duplicate global_shot_id in {segment_id}")
+    known = set(shot_ids)
+    for sid, override in (binding.get("shot_overrides", {}) or {}).items():
+        if sid not in known:
+            raise ValueError(f"Stage5 shot override does not resolve uniquely: {sid}")
+        if not isinstance(override, dict) or set(override) - {"action_stages_en", "observable_expression_en"}:
+            raise ValueError(f"Stage5 shot override {sid} may override only action_stages_en and observable_expression_en")
+    seen_refs = set()
+    for shot_binding in binding.get("shots", []) or []:
+        if not isinstance(shot_binding, dict):
+            raise ValueError(f"Stage5 shot binding in {segment_id} must be an object")
+        sid = shot_binding.get("global_shot_id")
+        if sid not in known or sid in seen_refs:
+            raise ValueError(f"Stage5 reference binding global_shot_id is missing, unknown, or duplicated: {sid!r}")
+        seen_refs.add(sid)
+        if not isinstance(shot_binding.get("reference_paths", {}), dict):
+            raise ValueError(f"Stage5 reference_paths for {sid} must be an object")
+    if seen_refs != known:
+        missing = sorted(known - seen_refs)
+        raise ValueError(f"Stage5 bindings are missing per-shot reference mapping(s): {', '.join(missing)}")
+    return binding
+
+
+def apply_stage5_binding(layer2_data: Dict[str, Any], binding: Dict[str, Any]) -> Dict[str, Any]:
+    """Apply permitted derived asset and English translation bindings in memory."""
+    data = json.loads(json.dumps(layer2_data, ensure_ascii=False))
+    refs = data.setdefault("asset_refs", {})
+    overrides = binding.get("asset_refs_override", {}) or {}
+    if not isinstance(overrides, dict):
+        raise ValueError("Stage5 asset_refs_override must be an object")
+    refs.update(json.loads(json.dumps(overrides, ensure_ascii=False)))
+    metadata_override = binding.get("metadata_override", {}) or {}
+    allowed_metadata = {"soundscape_en", "music_en", "lighting_lock_line"}
+    if not isinstance(metadata_override, dict) or set(metadata_override) - allowed_metadata:
+        raise ValueError("Stage5 metadata_override may contain only soundscape_en, music_en, and lighting_lock_line")
+    if any(not isinstance(value, str) for value in metadata_override.values()):
+        raise ValueError("Stage5 metadata_override values must be strings")
+    data.setdefault("metadata", {}).update(metadata_override)
+    if binding.get("scene_id"):
+        refs["scene_id"] = binding["scene_id"]
+    if binding.get("primary_character"):
+        refs["primary_character"] = binding["primary_character"]
+    shot_override_by_id = binding.get("shot_overrides", {}) or {}
+    shot_ref_by_id = {s["global_shot_id"]: s for s in (binding.get("shots", []) or [])}
+    source_shot_ids = [shot.get("global_shot_id") for shot in data.get("shots", []) or []]
+    if len(source_shot_ids) != len(set(source_shot_ids)):
+        raise ValueError("Layer2 has duplicate global_shot_id values")
+    unknown_override_ids = set(shot_override_by_id) - set(source_shot_ids)
+    unknown_ref_ids = set(shot_ref_by_id) - set(source_shot_ids)
+    if unknown_override_ids or unknown_ref_ids:
+        bad = sorted(unknown_override_ids | unknown_ref_ids)
+        raise ValueError(f"Stage5 global_shot_id does not resolve uniquely: {', '.join(bad)}")
+    for shot in data.get("shots", []) or []:
+        sid = shot.get("global_shot_id")
+        override = shot_override_by_id.get(sid, {})
+        if set(override) - {"action_stages_en", "observable_expression_en"}:
+            raise ValueError(f"Stage5 shot override {sid} may override only action_stages_en and observable_expression_en")
+        if override:
+            action = shot.setdefault("action_and_performance", {})
+            for key, value in override.items():
+                if key == "action_stages_en" and (not isinstance(value, list) or not all(isinstance(v, str) and v.strip() for v in value)):
+                    raise ValueError(f"Stage5 {sid}.action_stages_en must be a nonempty string list")
+                if key == "observable_expression_en" and not isinstance(value, str):
+                    raise ValueError(f"Stage5 {sid}.observable_expression_en must be a string")
+                action[key] = value
+        if sid in shot_ref_by_id:
+            shot["_stage5_reference_binding"] = shot_ref_by_id[sid]
+    data["_stage5_binding"] = binding
+    return data
+
+
+def _stage5_reference_path_map(binding: Dict[str, Any]) -> Tuple[Dict[str, str], Optional[str], List[Dict[str, Any]], Optional[str]]:
+    """Collect explicit per-shot paths; creature morphology variants remain shot-scoped."""
+    paths: Dict[str, str] = {}
+    scene_path: Optional[str] = None
+    scene_description: Optional[str] = binding.get("scene_description_en")
+    if binding.get("scene_reference"):
+        scene_path = str(binding["scene_reference"])
+    variants: Dict[Tuple[str, str], Dict[str, Any]] = {}
+    for shot_binding in binding.get("shots", []) or []:
+        grouped = shot_binding.get("reference_paths", {}) or {}
+        scene = grouped.get("scene")
+        if isinstance(scene, str):
+            candidate = scene
+            if scene_path and scene_path != candidate:
+                raise ValueError("Stage5 segment binds more than one scene reference path")
+            scene_path = candidate
+        elif isinstance(scene, list):
+            for entry in scene:
+                if isinstance(entry, dict) and entry.get("reference_image"):
+                    candidate = entry["reference_image"]
+                    if scene_path and scene_path != candidate:
+                        raise ValueError("Stage5 segment binds more than one scene reference path")
+                    scene_path = candidate
+                    desc = entry.get("desc_en") or entry.get("description_en")
+                    if desc:
+                        if scene_description and scene_description != desc:
+                            raise ValueError("Stage5 segment binds conflicting scene descriptions")
+                        scene_description = desc
+        for group in ("characters", "creatures", "props", "bodydetails"):
+            entries = grouped.get(group, []) or []
+            if isinstance(entries, dict):
+                entries = [{"id": key, "reference_image": value} for key, value in entries.items()]
+            elif isinstance(entries, str):
+                raise ValueError(f"Stage5 reference_paths.{group} must be an ID map or list")
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    raise ValueError(f"Stage5 reference_paths.{group} entries must be objects")
+                aid = entry.get("id")
+                image = entry.get("reference_image") or entry.get("path")
+                if not aid or not image:
+                    raise ValueError(f"Stage5 reference_paths.{group} entry requires id and reference_image")
+                variant = str(entry.get("variant") or "").strip() if group == "creatures" else ""
+                if variant:
+                    key = (str(aid), variant)
+                    current = variants.get(key)
+                    if current and current["path"] != image:
+                        raise ValueError(f"Stage5 creature {aid} variant {variant} has conflicting paths")
+                    if not current:
+                        current = {
+                            "id": str(aid), "variant": variant, "path": image,
+                            "description": entry.get("desc_en") or entry.get("description_en") or "",
+                            "shot_ids": [],
+                        }
+                        variants[key] = current
+                    sid = shot_binding.get("global_shot_id")
+                    if sid and sid not in current["shot_ids"]:
+                        current["shot_ids"].append(sid)
+                    if aid not in paths:
+                        paths[aid] = image
+                    continue
+                if aid in paths and paths[aid] != image:
+                    raise ValueError(f"Stage5 asset {aid} has conflicting bound reference paths")
+                paths[aid] = image
+    return paths, scene_path, list(variants.values()), scene_description
+
 
 # ==============================================================================
 # H3 六段式 Prompt 編譯核心
@@ -389,7 +660,10 @@ def format_timestamp(seconds: float) -> str:
 
 def map_camera_motion(raw_movement: str, shot_index: int = 0) -> str:
     """確保提取並映射為符合 H3 官方合法運鏡詞。"""
-    raw_lower = (raw_movement or "").lower().strip()
+    raw_lower = (raw_movement or "").lower().strip().replace("’", "'")
+
+    if raw_lower in SOURCE_CAMERA_MOTION_ALIASES:
+        return SOURCE_CAMERA_MOTION_ALIASES[raw_lower]
 
     # 1. 直接匹配複合運鏡
     for cm in COMPOUND_CAMERA_MOTIONS:
@@ -430,8 +704,68 @@ def _shot_speaker(s: Dict[str, Any]) -> Optional[str]:
 
 def _is_voiceover(s: Dict[str, Any]) -> bool:
     dlg = s.get("dialogue_and_audio", {}) or {}
-    spec = str(dlg.get("voice_4d_spec") or "") + str(dlg.get("audio_type") or "")
-    return is_narrator(dlg.get("speaker")) or "voiceover" in spec.lower() or "v.o" in spec.lower()
+    spec = " ".join(str(dlg.get(key) or "") for key in ("voice_4d_spec", "audio_type")).lower()
+    return (
+        is_narrator(dlg.get("speaker"))
+        or "voiceover" in spec
+        or "v.o" in spec
+        or any(term in spec for term in ("inner voice", "unseen voice", "off-screen voice", "offscreen voice", "腦內聲", "內心聲"))
+    )
+
+
+def _dialogue_visibility(s: Dict[str, Any]) -> str:
+    """Classify how authored dialogue may appear without inventing a speaking face."""
+    dlg = s.get("dialogue_and_audio", {}) or {}
+    if _is_voiceover(s):
+        return "offscreen"
+    searchable = [s.get("composition_start", "")]
+    for key in ("action_stages", "action_stages_en", "observable_expression", "observable_expression_en"):
+        value = (s.get("action_and_performance", {}) or {}).get(key, [])
+        searchable.extend(value if isinstance(value, list) else [value])
+    searchable.extend([dlg.get("voice_4d_spec", ""), dlg.get("audio_type", "")])
+    text = " ".join(str(part or "") for part in searchable).lower()
+    offscreen_terms = (
+        "offscreen", "off-screen", "beyond frame", "out of frame", "outside the frame",
+        "never appears", "no speaking mouth", "mouth is out of view", "mouth out of view",
+        "mouth remains unseen", "嘴部不可見", "不顯示聲源嘴部", "畫外", "鏡外", "不露臉",
+    )
+    if any(term in text for term in offscreen_terms):
+        return "offscreen"
+    # A locked mouth may still be in frame (for example, a back-only driver).
+    return "mouth_hidden" if dlg.get("lips_closed_lock") else "visible"
+
+
+def _dialogue_speaker_label(speaker: Optional[str], registry: AssetRegistry) -> str:
+    if not speaker:
+        return "the authored speaker"
+    if is_narrator(speaker):
+        return f"the narrator (speaker ID {speaker})"
+    normalized = speaker.lower()
+    special_labels = {
+        "e-unknown-voice": "the unseen inner voice",
+        "c-guide": "the guide",
+        "c-doctor": "the doctor",
+        "c-nurse": "the nurse",
+        "c-driver": "the driver",
+    }
+    label = special_labels.get(normalized)
+    if not label:
+        info = registry.characters.get(speaker, {})
+        label = str(info.get("name") or speaker)
+    return f"{label} (speaker ID {speaker})"
+
+
+def _speech_window_clause(dlg: Dict[str, Any]) -> str:
+    window = dlg.get("speech_window")
+    if not isinstance(window, dict) or window.get("start") is None or window.get("end") is None:
+        return ""
+    unit = str(window.get("unit") or "segment_seconds")
+    try:
+        start = float(window["start"])
+        end = float(window["end"])
+    except (TypeError, ValueError):
+        return ""
+    return f"Speech window: {unit} {start:.3f}–{end:.3f}. "
 
 
 def _focal_char(s: Dict[str, Any]) -> Optional[str]:
@@ -452,12 +786,17 @@ def compile_segment_h3(
     max_char_refs: int = 1,
     auto_lora: bool = True,
     rounding_mode: str = "floor",
+    stage5_binding: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """將單個 Layer 2 JSON 分鏡檔編譯為符合 H3 官方六段式規範的資料結構。
 
     主角參考圖：asset_refs.primary_character / metadata.primary_character 優先；
     否則取臉戲權重（景別越近權重越高）最重的角色。旁白與畫外音永不成為主體。
     """
+    if stage5_binding is not None and layer2_data.get("_stage5_binding") is not stage5_binding:
+        layer2_data = apply_stage5_binding(layer2_data, stage5_binding)
+    if stage5_binding is None:
+        stage5_binding = layer2_data.get("_stage5_binding")
     seg_id = layer2_data.get("segment_id") or layer2_data.get("scene_id", "SEG01")
     scene_id = layer2_data.get("scene_id", "SC01")
     metadata = layer2_data.get("metadata", {}) or {}
@@ -467,7 +806,16 @@ def compile_segment_h3(
     shots = layer2_data.get("shots", []) or []
     if not shots:
         raise ValueError(f"分鏡 {seg_id} 未包含任何 shots！")
-    eff_d = effective_duration(target_dur, rounding=rounding_mode)
+    contains_dialogue = any(
+        bool(
+            (shot.get("dialogue_and_audio", {}) or {}).get("has_dialogue")
+            or (shot.get("dialogue_and_audio", {}) or {}).get("line_verbatim")
+            or (shot.get("dialogue_and_audio", {}) or {}).get("speech_window")
+        )
+        for shot in shots
+    )
+    selected_rounding_mode = "ceil" if contains_dialogue else rounding_mode
+    eff_d = effective_duration(target_dur, rounding=selected_rounding_mode)
     # Treat authored shot timings as one continuous source timeline, then
     # adjust only the final shot to the effective H3 duration.
     shots = [dict(shot) for shot in shots]
@@ -496,7 +844,7 @@ def compile_segment_h3(
     # ---------- 角色與服裝 ----------
     asset_refs = layer2_data.get("asset_refs", {}) or {}
     costume_of: Dict[str, Optional[str]] = {}
-    for c in asset_refs.get("characters", []) or []:
+    for c in (asset_refs.get("characters", []) or []) + (asset_refs.get("creatures", []) or []):
         if isinstance(c, dict) and c.get("id"):
             costume_of[c["id"]] = c.get("costume_id") or c.get("wardrobe_state")
         elif isinstance(c, str):
@@ -514,7 +862,9 @@ def compile_segment_h3(
                 order.append(c)
             weight[c] = weight.get(c, 0) + SHOT_SIZE_WEIGHT.get(size, 1) * (1.0 if k == 0 else 0.3)
         speaker = _shot_speaker(s)
-        if speaker and not is_narrator(speaker):
+        speaker_record = registry.characters.get(speaker, {}) if speaker else {}
+        speaker_is_visual = not (speaker_record.get("no_visual_reference") or speaker_record.get("voice_only"))
+        if speaker and speaker_is_visual and not _is_voiceover(s):
             if speaker not in order:
                 order.append(speaker)
             weight[speaker] = weight.get(speaker, 0) + SHOT_SIZE_WEIGHT.get(size, 1)
@@ -530,15 +880,110 @@ def compile_segment_h3(
         ranked.insert(0, primary)
     elif primary:
         ranked.insert(0, primary)
-    selected = ranked[:max(1, max_char_refs)]
-    secondary = ranked[max(1, max_char_refs):]
+    no_visual_ids = set(asset_refs.get("no_visual_reference_ids", []) or [])
+    ref_path_map: Dict[str, str] = {}
+    bound_scene_path = None
+    bound_scene_description = None
+    creature_variants: List[Dict[str, Any]] = []
+    if stage5_binding:
+        ref_path_map, bound_scene_path, creature_variants, bound_scene_description = _stage5_reference_path_map(stage5_binding)
+        for shot_binding in stage5_binding.get("shots", []) or []:
+            paths = shot_binding.get("reference_paths", {}) or {}
+            chars = paths.get("characters", []) or []
+            if isinstance(chars, dict):
+                chars = [{"id": key, "reference_image": value} for key, value in chars.items()]
+            for entry in chars:
+                if isinstance(entry, dict) and entry.get("id") and entry.get("costume_id"):
+                    cid, costume_id = entry["id"], entry["costume_id"]
+                    current = costume_of.get(cid)
+                    if current and current != costume_id:
+                        raise ValueError(f"Stage5 character {cid} has conflicting costume bindings in one segment")
+                    costume_of[cid] = costume_id
+        variant_paths = [variant["path"] for variant in creature_variants]
+        for rel in ([bound_scene_path] if bound_scene_path else []) + list(ref_path_map.values()) + variant_paths:
+            path = pathlib.Path(rel)
+            if path.is_absolute():
+                raise ValueError(f"Stage5 reference image path must be project-relative: {rel}")
+            try:
+                (registry.project_root / path).resolve().relative_to(registry.project_root.resolve())
+            except ValueError as exc:
+                raise ValueError(f"Stage5 reference image path escapes project root: {rel}") from exc
+            if not registry.path_exists(rel):
+                raise ValueError(f"Stage5 bound reference image does not exist: {rel}")
+        for shot_binding in stage5_binding.get("shots", []) or []:
+            no_visual_ids.update(shot_binding.get("no_visual_reference_ids", []) or [])
+        # Stage5 refs are explicit, per-shot production bindings. Keep every image-bearing
+        # visible cast member and creature; the legacy one-image default is not applied.
+        visual_order: List[str] = []
+        explicit_visual_ids = {
+            cid for b in (stage5_binding.get("shots", []) or [])
+            for cid in (b.get("visual_subject_ids", []) or [])
+        }
+        for shot in shots:
+            bound_shot = next((b for b in stage5_binding.get("shots", []) or []
+                               if b.get("global_shot_id") == shot.get("global_shot_id")), {})
+            ids = bound_shot.get("visual_subject_ids") or shot.get("character_ids", []) or []
+            for cid in ids:
+                if not cid or cid in no_visual_ids or cid in visual_order:
+                    continue
+                info = registry.get_character(cid, wardrobe_state=costume_of.get(cid) or seg_wardrobe)
+                if info.get("no_visual_reference") or info.get("voice_only"):
+                    if cid in explicit_visual_ids or cid in ref_path_map:
+                        raise ValueError(f"Stage5 marks {cid} as visually present but the normalized Bible forbids a visual reference")
+                    continue
+                if cid:
+                    visual_order.append(cid)
+        for group in (asset_refs.get("characters", []) or [], asset_refs.get("creatures", []) or []):
+            for entry in group:
+                cid = entry.get("id") if isinstance(entry, dict) else entry
+                if cid and cid not in no_visual_ids and cid not in visual_order:
+                    visual_order.append(cid)
+        for cid in ref_path_map:
+            if cid in registry.characters and cid not in no_visual_ids and cid not in visual_order:
+                visual_order.append(cid)
+        if primary and primary in visual_order:
+            visual_order.remove(primary)
+            visual_order.insert(0, primary)
+        for cid in visual_order:
+            info = registry.get_character(cid, wardrobe_state=costume_of.get(cid) or seg_wardrobe)
+            if info.get("no_visual_reference") or info.get("voice_only"):
+                raise ValueError(f"Stage5 marks {cid} as visually present but the normalized Bible forbids a visual reference")
+            if not (ref_path_map.get(cid) or info.get("ref_img")):
+                raise ValueError(f"Stage5 visible character/creature {cid} has no approved reference image")
+        selected = visual_order
+        secondary = [cid for cid in ranked if cid not in selected]
+    else:
+        selected = [cid for cid in ranked if cid not in no_visual_ids][:max(1, max_char_refs)]
+        secondary = [cid for cid in ranked if cid not in selected]
+
+    first_variant_by_id: Dict[str, Dict[str, Any]] = {}
+    for variant in creature_variants:
+        first_variant_by_id.setdefault(variant["id"], variant)
 
     def char_info(cid: str) -> Dict[str, Any]:
-        return registry.get_character(cid, wardrobe_state=costume_of.get(cid) or seg_wardrobe)
+        info = registry.get_character(cid, wardrobe_state=costume_of.get(cid) or seg_wardrobe)
+        if cid in ref_path_map:
+            info["ref_img"] = ref_path_map[cid]
+        first_variant = first_variant_by_id.get(cid)
+        if first_variant:
+            variant_desc = first_variant.get("description")
+            if not variant_desc:
+                variants = info.get("variants", {}) or {}
+                variant_info = variants.get(first_variant["variant"], {}) if isinstance(variants, dict) else {}
+                if isinstance(variant_info, str):
+                    variant_desc = variant_info
+                elif isinstance(variant_info, dict):
+                    variant_desc = variant_info.get("desc_en") or variant_info.get("visual_prompt_en") or variant_info.get("description_en")
+            info["desc_en"] = variant_desc or f"the same {info.get('name', cid)} in its {first_variant['variant']} stage, matching the stage-specific reference"
+        return info
 
     # ---------- 場景 ----------
     location_id = asset_refs.get("scene_id", scene_id)
     loc_info = registry.get_location(location_id)
+    if stage5_binding and bound_scene_path:
+        loc_info["ref_img"] = bound_scene_path
+    if stage5_binding and bound_scene_description:
+        loc_info["desc_en"] = bound_scene_description
     ref2va = str((layer2_data.get("continuity_handshake", {}) or {}).get("mode", "")).upper() == "INDEPENDENT_REF2VA"
 
     reference_images: List[Dict[str, Any]] = [{
@@ -554,11 +999,14 @@ def compile_segment_h3(
     ]
 
     tag_of: Dict[str, str] = {}
+    subject_picture_no: Dict[str, int] = {}
     for k, cid in enumerate(selected, start=1):
         info = char_info(cid)
         tag_of[cid] = f"<Subject {k}>"
+        subject_picture_no[cid] = k + 1
         reference_images.append({
-            "id": info["id"], "type": "character", "description": info["desc_en"], "path": info["ref_img"],
+            "id": info["id"], "type": "creature" if info.get("is_creature") else "character",
+            "description": info["desc_en"], "path": info["ref_img"],
             "is_primary_character": k == 1,
             **({"costume_id": costume_of.get(cid)} if costume_of.get(cid) else {}),
         })
@@ -580,8 +1028,93 @@ def compile_segment_h3(
         w_desc = w.get("desc_en") if isinstance(w, dict) else ""
         secondary_short[cid] = info["short_en"] + (f", {w_desc}" if w_desc else "")
 
+    # Stage5 supplementary props/body details are Pictures after the subject sequence.
+    # They inform object or localized-detail appearance without becoming face Subjects.
+    variant_picture_by_shot: Dict[str, List[Tuple[int, str]]] = {}
+    if stage5_binding:
+        supplementary: List[Tuple[str, Dict[str, Any]]] = []
+        prop_ids: List[str] = []
+        detail_ids: List[str] = []
+        for entry in asset_refs.get("props", []) or []:
+            aid = entry.get("id") if isinstance(entry, dict) else entry
+            if aid and aid not in prop_ids:
+                prop_ids.append(aid)
+        for entry in asset_refs.get("bodydetails", []) or []:
+            aid = entry.get("id") if isinstance(entry, dict) else entry
+            if aid and aid not in detail_ids:
+                detail_ids.append(aid)
+        for aid in ref_path_map:
+            if aid in registry.props and aid not in prop_ids:
+                prop_ids.append(aid)
+            if aid in registry.bodydetails and aid not in detail_ids:
+                detail_ids.append(aid)
+        for aid in prop_ids:
+            info = registry.get_prop(aid)
+            info["ref_img"] = ref_path_map.get(aid, info["ref_img"])
+            supplementary.append(("prop", info))
+        for aid in detail_ids:
+            info = registry.get_bodydetail(aid)
+            info["ref_img"] = ref_path_map.get(aid, info["ref_img"])
+            supplementary.append(("bodydetail", info))
+        for kind, info in supplementary:
+            reference_images.append({
+                "id": info["id"], "type": kind, "description": info.get("desc_en") or info.get("name", info["id"]),
+                "path": info["ref_img"],
+            })
+            if not info.get("desc_en"):
+                notes.append(f"{info['id']} 缺英文固定描述片段")
+            else:
+                pic_no = len(reference_images)
+                subject_def_lines.append(f"<Picture {pic_no}> is a supplementary {kind} reference for {info['desc_en']}; use only for that object/detail.")
+                retention_lines.append(f"<Picture {pic_no}> ({kind} reference): preserve only the registered visual details of {info['id']}.")
+        for variant in creature_variants:
+            info = registry.get_character(variant["id"])
+            desc = variant.get("description")
+            if not desc:
+                variants = info.get("variants", {}) or {}
+                variant_info = variants.get(variant["variant"], {}) if isinstance(variants, dict) else {}
+                if isinstance(variant_info, str):
+                    desc = variant_info
+                elif isinstance(variant_info, dict):
+                    desc = variant_info.get("desc_en") or variant_info.get("visual_prompt_en") or variant_info.get("description_en")
+            desc = desc or f"{info.get('name', variant['id'])} in the {variant['variant']} stage"
+            if first_variant_by_id.get(variant["id"]) is variant:
+                pic_no = subject_picture_no.get(variant["id"])
+                if pic_no is None:
+                    raise ValueError(f"Stage5 creature variant {variant['id']} has no canonical Subject reference")
+                targets = ", ".join(variant["shot_ids"])
+                subject_def_lines.append(
+                    f"The canonical creature Subject uses <Picture {pic_no}> for its {variant['variant']} stage only "
+                    f"in {targets}; switch to the explicitly scoped stage Picture for other listed forms."
+                )
+                retention_lines.append(
+                    f"<Picture {pic_no}> is the {variant['variant']} morphology of {variant['id']}; preserve it only in {targets}."
+                )
+                for sid in variant["shot_ids"]:
+                    variant_picture_by_shot.setdefault(sid, []).append((pic_no, variant["variant"]))
+                continue
+            reference_images.append({
+                "id": f"{variant['id']}@{variant['variant']}", "type": "creature_variant",
+                "description": desc, "path": variant["path"], "canonical_id": variant["id"],
+                "variant": variant["variant"], "shot_ids": list(variant["shot_ids"]),
+            })
+            pic_no = len(reference_images)
+            targets = ", ".join(variant["shot_ids"])
+            subject_def_lines.append(
+                f"<Picture {pic_no}> is the {variant['variant']} stage of {info.get('name', variant['id'])}: {desc}. "
+                f"Use it only for the listed shots ({targets}); do not apply it to other stages."
+            )
+            retention_lines.append(
+                f"<Picture {pic_no}> (shot-scoped creature stage reference): preserve this morphology only in {targets}."
+            )
+            for sid in variant["shot_ids"]:
+                variant_picture_by_shot.setdefault(sid, []).append((pic_no, variant["variant"]))
+
     # ---------- 風格與光線 ----------
-    anchor = _clean(style_lock.get("anchor")) or registry.style.get("style_anchor", "") or "cinematic film look"
+    if stage5_binding:
+        anchor = registry.style.get("style_anchor", "") or "cinematic film look"
+    else:
+        anchor = _clean(style_lock.get("anchor")) or registry.style.get("style_anchor", "") or "cinematic film look"
     lighting_line = (_clean(metadata.get("lighting_lock_line")) or _clean(style_lock.get("lighting_lock_line"))
                      or registry.style.get("lighting_lock_line", "") or "natural ambient light")
     lighting_line_clean, _ = strip_hex(palette_names(lighting_line))
@@ -590,13 +1123,24 @@ def compile_segment_h3(
 
     continuity = style_lock.get("continuity_anchors", {}) or {}
     authored_anchors = [f"{key}: {continuity[key]}" for key in ("lighting", "axis", "blocking", "texture") if continuity.get(key)]
-    if style_lock.get("anchor"):
-        authored_anchors.insert(0, f"style anchor: {style_lock['anchor']}")
-    negative = _clean(style_lock.get("negative")) or _clean(registry.style.get("style_negative"))
-    if negative:
-        authored_anchors.append(f"negative constraints: {negative}")
+    if anchor:
+        authored_anchors.insert(0, f"style anchor: {anchor}")
+    negative = (_clean(registry.style.get("style_negative")) if stage5_binding
+                else (_clean(style_lock.get("negative")) or _clean(registry.style.get("style_negative"))))
+    # Asset-design exclusions belong to editorial QA, not an SD-style negative
+    # prompt block inside H3's generated prose. The positive style anchor above
+    # describes the desired rendered appearance.
     authored_anchors.append(f"lighting lock: {lighting_line_clean}")
     retention_lines.append("Continuity anchors: " + "; ".join(authored_anchors))
+
+    effective_style_lock = dict(style_lock)
+    effective_style_lock["negative"] = ""
+    if stage5_binding:
+        effective_style_lock.update({
+            "anchor": anchor,
+            "negative": "",
+            "lighting_lock_line": lighting_line_clean,
+        })
 
     mood = _clean(metadata.get("mood_en")) or _clean(metadata.get("summary_en"))
     focus = "<Subject 1>" if selected else "the scene"
@@ -618,6 +1162,25 @@ def compile_segment_h3(
         det_header += f" Color palette: {metadata['palette_preset']}."
     det_lines = [det_header]
     tail_hold = style_lock.get("tail_freeze_hold", True)
+    final_shot_start = float(shots[-1].get("start_time", 0))
+    final_second_start = max(final_shot_start, eff_d - 1.0)
+    final_second_has_dialogue = False
+    for shot in shots:
+        dlg = shot.get("dialogue_and_audio", {}) or {}
+        window = dlg.get("speech_window")
+        if not window:
+            if dlg.get("has_dialogue") and shot is shots[-1]:
+                final_second_has_dialogue = True
+            continue
+        try:
+            speech_start = float(window.get("start", 0))
+            speech_end = float(window.get("end", 0))
+        except (TypeError, ValueError):
+            continue
+        if speech_start < eff_d and speech_end > final_second_start:
+            final_second_has_dialogue = True
+            break
+    tail_hold = tail_hold and not final_second_has_dialogue
     used_motion: set = set()
     for idx, s in enumerate(shots, start=1):
         cam = s.get("camera_optics", {}) or {}
@@ -648,7 +1211,8 @@ def compile_segment_h3(
             act.get("observable_expression_en") or act.get("observable_expression") or ""]
         if any("TODO" in str(x) for x in raw_fields):
             notes.append(f"未完成：{s.get('shot_id')} 的動作或表情仍有 TODO")
-        stages = [TODO_RE.sub("", x).strip() for x in (act.get("action_stages_en") or act.get("action_stages") or []) if isinstance(x, str)]
+        stages = [normalize_authored_camera_hold_action(TODO_RE.sub("", x).strip())
+                  for x in (act.get("action_stages_en") or act.get("action_stages") or []) if isinstance(x, str)]
         stages = [x for x in stages if x]
         if len(stages) >= 3:
             action = ", then ".join(stages)
@@ -664,12 +1228,19 @@ def compile_segment_h3(
         dlg = s.get("dialogue_and_audio", {}) or {}
         if dlg.get("has_dialogue") and dlg.get("line_verbatim"):
             line = dlg["line_verbatim"].strip()
-            if _is_voiceover(s):
-                speech = f"; an off-screen narrator says <d>[Chinese] {line}</d> while lips on screen stay closed"
+            spk = dlg.get("speaker")
+            identity = _dialogue_speaker_label(spk, registry)
+            window = _speech_window_clause(dlg)
+            speaker_record = registry.characters.get(spk, {}) if spk else {}
+            visibility = "offscreen" if (speaker_record.get("no_visual_reference") or speaker_record.get("voice_only")) else _dialogue_visibility(s)
+            if visibility == "offscreen":
+                delivery = f"The line is heard from {identity}; do not show the speaker, no visible lip movement, and visible characters' mouths stay closed. "
+            elif visibility == "mouth_hidden":
+                delivery = f"{identity} delivers the line with no visible lip movement. "
             else:
-                spk = dlg.get("speaker")
                 who = tag_of.get(spk) or (secondary_short.get(spk) if spk else None) or focal
-                speech = f"; then {who} speaks <d>[Chinese] {line}</d>"
+                delivery = f"{identity} is the visible speaking character ({who}). "
+            speech = f"; {window}{delivery}<d>[Chinese] {line}</d>"
         else:
             speech = "; lips stay closed"
 
@@ -678,6 +1249,10 @@ def compile_segment_h3(
         if blocking.get("anchor_objects"):
             blocking_bits.append("anchor objects: " + ", ".join(blocking["anchor_objects"]))
         blocking_clause = f" Blocking: {'; '.join(bit for bit in blocking_bits if bit)}." if any(blocking_bits) else ""
+        stage_refs = ""
+        global_shot_id = s.get("global_shot_id")
+        for picture_no, variant_name in variant_picture_by_shot.get(global_shot_id, []):
+            stage_refs += f" Stage-specific reference: use <Picture {picture_no}> for the creature's {variant_name} morphology in this shot only."
 
         if idx == 1 and ref2va:
             head = f"[Shot 1] The scene opens with <Picture 1> as a scene/style reference for spatial guidance: {shot_size}{optics} of {focal}, as {mclause}."
@@ -692,7 +1267,7 @@ def compile_segment_h3(
             if final_state:
                 tail += " End state: " + json.dumps(final_state, ensure_ascii=False, sort_keys=True) + "."
         action = action[:1].upper() + action[1:]
-        body = f"{head} {action}." + (f" Expression: {expr}" if expr else "") + blocking_clause + f"{speech}.{tail}"
+        body = f"{head} {action}." + (f" Expression: {expr}" if expr else "") + blocking_clause + stage_refs + f"{speech}.{tail}"
         det_lines.append(sanitize_english_text(body))
 
     detailed_block = "detailed_description:\n" + "\n".join(det_lines)
@@ -737,6 +1312,8 @@ def compile_segment_h3(
             loras = [l for l in loras if "realism" not in l.get("name", "").lower()]
 
     missing = [r["path"] for r in reference_images if not registry.path_exists(r["path"])]
+    if stage5_binding and missing:
+        raise ValueError(f"Stage5 has missing bound reference image(s): {', '.join(missing)}")
     return {
         "segment_id": seg_id,
         "scene_id": scene_id,
@@ -745,8 +1322,11 @@ def compile_segment_h3(
             "aspect_ratio": aspect,
             "target_duration_sec": target_dur,
             "effective_duration_sec": round(eff_d, 3),
+            "rounding_mode": selected_rounding_mode,
+            "rounding_reason": "dialogue-preserving" if contains_dialogue else metadata.get("rounding_reason", "configured"),
             "shots_count": n_shots,
-            "style_lock": style_lock,
+            "style_lock": effective_style_lock,
+            "qa_exclusions": negative,
             "palette_preset": metadata.get("palette_preset", ""),
         },
         "reference_images": reference_images,
@@ -782,6 +1362,25 @@ def load_layer2_files(sources: List[str]) -> List[pathlib.Path]:
         return segment_sort_key(name)
 
     return sorted(list(set(found)), key=sort_key)
+
+
+def load_stage5_bindings(path: pathlib.Path) -> Dict[str, Dict[str, Any]]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise ValueError(f"Cannot read Stage5 bindings {path}: {exc}") from exc
+    segments = payload.get("segments") if isinstance(payload, dict) else None
+    if not isinstance(segments, list):
+        raise ValueError("Stage5 bindings must contain a segments array")
+    result: Dict[str, Dict[str, Any]] = {}
+    for binding in segments:
+        if not isinstance(binding, dict) or not binding.get("segment_id"):
+            raise ValueError("Each Stage5 binding must be an object with segment_id")
+        sid = str(binding["segment_id"])
+        if sid in result:
+            raise ValueError(f"Duplicate Stage5 binding segment_id: {sid}")
+        result[sid] = binding
+    return result
 
 
 def render_markdown_package(
@@ -875,6 +1474,7 @@ def main() -> int:
     )
     parser.add_argument("--layer2", nargs="+", required=True, help="Layer 2 分鏡 JSON 檔案路徑或目錄（支援傳入多檔）")
     parser.add_argument("--bible", type=pathlib.Path, default=None, help="Story Bible JSON 路徑（選填）")
+    parser.add_argument("--bindings", type=pathlib.Path, default=None, help="核准原 Layer2 的 Stage5 video-bindings.json（選填）")
     parser.add_argument("--assets", type=pathlib.Path, default=None, help="assets.md 路徑（選填）")
     parser.add_argument("--episode", type=str, default=None, help="集號（例如 EP01，選填）")
     parser.add_argument("--output-md", type=pathlib.Path, default=None, help="輸出 Markdown 提示詞包路徑（例如 prompts-ep01.md）")
@@ -897,6 +1497,33 @@ def main() -> int:
         return 1
 
     registry = AssetRegistry(bible_path=args.bible, assets_path=args.assets, project_root=args.project_root)
+    bindings_by_segment: Dict[str, Dict[str, Any]] = {}
+    if args.bindings:
+        if not args.bible:
+            print("[錯誤] 使用 --bindings 時必須同時以 --bible 指定 normalized video-bible.json", file=sys.stderr)
+            return 1
+        try:
+            bindings_by_segment = load_stage5_bindings(args.bindings)
+            input_ids = []
+            parsed_inputs: Dict[pathlib.Path, Dict[str, Any]] = {}
+            for path in layer2_files:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                sid = str(data.get("segment_id") or data.get("scene_id") or "")
+                if sid in input_ids:
+                    raise ValueError(f"Duplicate input segment_id: {sid}")
+                input_ids.append(sid)
+                parsed_inputs[path] = data
+                if sid not in bindings_by_segment:
+                    raise ValueError(f"No Stage5 binding for input segment {sid}")
+                validate_stage5_binding(data, bindings_by_segment[sid], path, args.project_root)
+            extras = set(bindings_by_segment) - set(input_ids)
+            if extras:
+                raise ValueError(f"Stage5 bindings contain segments outside this compile input: {', '.join(sorted(extras))}")
+        except Exception as exc:
+            print(f"[錯誤] Stage5 bindings rejected: {exc}", file=sys.stderr)
+            return 1
+    else:
+        parsed_inputs = {}
 
     print("=" * 75)
     print(f"🎬 正在執行 Layer 2 ➔ H3 官方六段式批次編譯器")
@@ -906,13 +1533,20 @@ def main() -> int:
     compiled_results: List[Dict[str, Any]] = []
     for p in layer2_files:
         try:
-            with p.open("r", encoding="utf-8") as f:
-                l2_data = json.load(f)
+            if args.bindings:
+                l2_data = parsed_inputs[p]
+                stage5_binding = bindings_by_segment[str(l2_data.get("segment_id") or l2_data.get("scene_id") or "")]
+                l2_data = apply_stage5_binding(l2_data, stage5_binding)
+            else:
+                with p.open("r", encoding="utf-8") as f:
+                    l2_data = json.load(f)
+                stage5_binding = None
             seg_res = compile_segment_h3(
                 l2_data,
                 registry=registry,
                 max_char_refs=args.max_char_refs,
                 auto_lora=args.auto_lora,
+                stage5_binding=stage5_binding,
             )
             compiled_results.append(seg_res)
             print(f"  ✅ 成功編譯段落: {seg_res['segment_id']} ({len(seg_res['shots'])} 鏡, {seg_res['metadata']['target_duration_sec']}s)")
@@ -964,7 +1598,12 @@ def main() -> int:
             # 模式 A: 參考圖序對
             refs_res = audit_refs_and_subjects(seg)
             # 模式 B: H3 提示詞 13 條自檢
-            lint_res = lint_h3_prompt(seg["h3_prompt"], nominal_duration=dur)
+            lint_res = lint_h3_prompt(
+                seg["h3_prompt"],
+                nominal_duration=dur,
+                rounding_mode=seg.get("metadata", {}).get("rounding_mode", "floor"),
+                authored_shots=seg.get("shots"),
+            )
 
             passed = refs_res["passed"] and lint_res["passed"]
             status_label = "✅ PASS" if passed else "❌ FAIL"
