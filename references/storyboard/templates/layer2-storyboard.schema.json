@@ -603,6 +603,8 @@
           "description": "Overrides planned_final_state when actual generated video frame is inspected"
         }
       }
-    }
+    },
+    "overall_soundscape": { "type": "string", "description": "Authored diegetic ambience and soundscape for the full segment; preserve silence explicitly when needed." },
+    "non_diegetic_music": { "type": "string", "description": "Authored music direction for the full segment; use an explicit no-music value when silent." }
   }
 }

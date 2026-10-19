@@ -5,7 +5,7 @@ submit_h3_segments.py — MiniMax H3 批次分段影片送件與進度管理工�
 
 用途：
 讀取 compile_layer2_to_h3.py 輸出的 segments-epXX.json，安全對接本機 FreeVideo (/freevideo/agent/v1)，
-支援事前乾跑檢查 (--dry-run)、4.20 GiB 顯存臨界點保護與診斷、參考圖 SHA256 增量上傳快取、
+支援事前乾跑檢查 (--dry-run)、本機經驗性顯存提醒、參考圖 SHA256 增量上傳快取、
 h3_loras 自動掛載、非同步輪詢與自動下載至 videos/。
 
 【安全鐵律】
@@ -29,9 +29,13 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import time
+import uuid
 from typing import Any, Dict, List, Optional, Tuple
 import urllib.request
+import urllib.error
+from urllib.parse import urljoin, urlsplit
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -41,6 +45,10 @@ if hasattr(sys.stderr, "reconfigure"):
 CURRENT_DIR = Path(__file__).resolve().parent
 if str(CURRENT_DIR) not in sys.path:
     sys.path.insert(0, str(CURRENT_DIR))
+SCRIPTS_DIR = CURRENT_DIR.parent
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+from project_state import require_approved, sha256_file, stage_snapshot
 
 try:
     from audit_refs_and_segments import audit_refs_and_subjects, lint_h3_prompt
@@ -50,7 +58,60 @@ except ImportError:
 
 
 DEFAULT_API_URL = "http://127.0.0.1:8189/freevideo/agent/v1"
-SAFE_VRAM_MB = 4300  # 4.20 GiB MiniMax H3 臨界啟動安全顯存
+SAFE_VRAM_MB = 4300  # 本機經驗性提醒值，不是 H3 跨環境硬性規格
+POLL_TIMEOUT_SECONDS = 1800
+
+
+def _origin(url: str) -> Tuple[str, str, Optional[int]]:
+    parsed = urlsplit(url)
+    return parsed.scheme.lower(), (parsed.hostname or "").lower(), parsed.port
+
+
+class SameOriginRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Allow redirects only within the API origin; never forward credentials elsewhere."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if _origin(req.full_url) != _origin(newurl):
+            return None
+        redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+        authorization = req.get_header("Authorization")
+        if redirected is not None and authorization:
+            redirected.add_unredirected_header("Authorization", authorization)
+        return redirected
+
+
+def load_job_ledger(path: Path) -> Dict[str, Any]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def save_job_ledger(path: Path, ledger: Dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(json.dumps(ledger, ensure_ascii=False, indent=2), encoding="utf-8")
+    temporary.replace(path)
+
+
+def record_job(path: Path, *, project: str, api_scope: str, batch_id: str,
+               segment_id: str, job_id: str, status: str = "waiting") -> None:
+    ledger = load_job_ledger(path)
+    scope = (str(Path(project).resolve()), api_scope.rstrip("/"))
+    if ledger and (ledger.get("project"), ledger.get("api_scope")) != scope:
+        # Do not silently mix ownership scopes in one ledger.
+        raise RuntimeError("job ledger project/API scope mismatch")
+    if not ledger:
+        ledger = {"project": scope[0], "api_scope": scope[1], "jobs": []}
+    jobs = ledger.setdefault("jobs", [])
+    entry = next((item for item in jobs if item.get("id") == job_id), None)
+    if entry is None:
+        entry = {"id": job_id, "batch_id": batch_id, "segment_id": segment_id}
+        jobs.append(entry)
+    entry["status"] = status
+    entry["updated_at"] = time.time()
+    save_job_ledger(path, ledger)
 
 
 def get_gpu_vram() -> Optional[Tuple[int, int]]:
@@ -101,25 +162,31 @@ def call_api(api_url: str, token: str, method: str, path: str, body: Optional[Di
             "Content-Type": "application/json; charset=utf-8"
         }
     )
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    opener = urllib.request.build_opener(
+        urllib.request.ProxyHandler({}), SameOriginRedirectHandler()
+    )
     with opener.open(req, timeout=timeout) as r:
         return json.loads(r.read().decode("utf-8"))
 
 
-def download_file(token: str, base_url: str, rel_or_abs_url: str, out_path: Path, timeout: int = 900) -> None:
+def download_file(token: str, api_url: str, rel_or_abs_url: str, out_path: Path, timeout: int = 900) -> None:
     """從 FreeVideo 下載產生的影片檔案。"""
     if rel_or_abs_url.startswith("http://") or rel_or_abs_url.startswith("https://"):
         full_url = rel_or_abs_url
     else:
-        full_url = base_url.rstrip("/") + "/" + rel_or_abs_url.lstrip("/")
-    
-    req = urllib.request.Request(
-        full_url,
-        headers={"Authorization": "Bearer " + token}
+        full_url = urljoin(api_url.rstrip("/") + "/", rel_or_abs_url)
+    headers = {}
+    if _origin(full_url) == _origin(api_url):
+        headers["Authorization"] = "Bearer " + token
+    req = urllib.request.Request(full_url, headers=headers)
+    opener = urllib.request.build_opener(
+        urllib.request.ProxyHandler({}), SameOriginRedirectHandler()
     )
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = out_path.with_name(out_path.name + ".download.tmp")
     with opener.open(req, timeout=timeout) as r:
-        out_path.write_bytes(r.read())
+        temporary.write_bytes(r.read())
+    temporary.replace(out_path)
 
 
 def load_media_cache(cache_file: Path) -> Dict[str, str]:
@@ -143,8 +210,9 @@ def upload_reference_image(api_url: str, token: str, img_path: Path, cache: Dict
     
     data_bytes = img_path.read_bytes()
     sha = hashlib.sha256(data_bytes).hexdigest()
-    if sha in cache:
-        return cache[sha]
+    cache_key = api_url.rstrip("/") + "::" + sha
+    if cache_key in cache:
+        return cache[cache_key]
     
     b64 = base64.b64encode(data_bytes).decode("ascii")
     payload = {
@@ -156,14 +224,28 @@ def upload_reference_image(api_url: str, token: str, img_path: Path, cache: Dict
     if not remote_file_id:
         raise RuntimeError(f"上傳參考圖 {img_path.name} 失敗，API 未回傳 file id")
     
-    cache[sha] = remote_file_id
+    cache[cache_key] = remote_file_id
     save_media_cache(cache_file, cache)
     print(f"   [+] 成功上傳新參考圖: {img_path.name} -> {remote_file_id}")
     return remote_file_id
 
 
-def cancel_stale_jobs(api_url: str, token: str) -> None:
-    """取消所有伺服器上殘留的 seg- 孤兒任務。"""
+def cancel_stale_jobs(api_url: str, token: str, ledger_path: Optional[Path] = None,
+                      project_root: Optional[Path] = None) -> None:
+    """Cancel only jobs whose IDs are recorded for this project and API scope."""
+    if ledger_path is None or not ledger_path.is_file():
+        print("ℹ️ 沒有本機送件 ledger；不會取消任何伺服器任務。")
+        return
+    ledger = load_job_ledger(ledger_path)
+    expected_project = str(Path(project_root or ledger.get("project", "")).resolve()) if (project_root or ledger.get("project")) else ""
+    if (not ledger or ledger.get("api_scope", "").rstrip("/") != api_url.rstrip("/")
+            or (expected_project and ledger.get("project") != expected_project)):
+        print("⚠️ 本機 job ledger 的專案/API scope 不符；不會取消任何任務。")
+        return
+    owned_ids = {str(item.get("id")) for item in ledger.get("jobs", []) if item.get("id")}
+    if not owned_ids:
+        print("ℹ️ 本機 ledger 沒有可取消任務。")
+        return
     try:
         resp = call_api(api_url, token, "GET", "/jobs")
         jobs = resp.get("jobs", [])
@@ -171,11 +253,8 @@ def cancel_stale_jobs(api_url: str, token: str) -> None:
         print(f"❌ 查詢任務失敗: {e}")
         return
 
-    targets = [
-        j for j in jobs
-        if j.get("status") in ("running", "waiting")
-        and str((j.get("spec") or {}).get("ref", "")).startswith("seg-")
-    ]
+    targets = [j for j in jobs if str(j.get("id")) in owned_ids
+               and j.get("status") in ("running", "waiting")]
     if not targets:
         print("✅ 目前沒有殘留的 seg- 孤兒任務。")
         return
@@ -185,61 +264,58 @@ def cancel_stale_jobs(api_url: str, token: str) -> None:
         jid = j.get("id")
         try:
             call_api(api_url, token, "POST", f"/jobs/{jid}/cancel", {})
-            print(f"  - 已取消任務: {jid} ({j.get('status')}) {j.get('label')}")
+            for entry in ledger.get("jobs", []):
+                if str(entry.get("id")) == str(jid):
+                    entry["status"] = "cancel_requested"
+                    entry["updated_at"] = time.time()
+            save_job_ledger(ledger_path, ledger)
+            print(f"  - 已送出取消請求: {jid} ({j.get('status')}) {j.get('label')}")
         except Exception as e:
             print(f"  - 取消任務 {jid} 失敗: {e}")
     print("✅ 孤兒任務清理完畢。")
 
 
-def verify_stage4_gate(root_dir: Path, skip_gate: bool = False) -> bool:
-    """階段 4 九宮格門禁：嚴防未審核九宮格分鏡即送件生成影片。"""
+def verify_stage5_gate(root_dir: Path, segments_path: Path, skip_gate: bool = False, dry_run: bool = False) -> bool:
+    """要求當前批次 segments 與其參考圖均在有效 stage-5 核准快照內。"""
     if skip_gate:
-        print("⚠️ [警告] 已顯式指定 --skip-stage-gate，跳過階段 4 九宮格分鏡門禁。")
-        return True
-
-    # 1. 檢查 images/grid-*.png 或 panels/panel-*.png
-    has_grids = bool(list((root_dir / "images").glob("grid-*.png"))) or bool(list(root_dir.glob("grid-*.png")))
-    has_panels = bool(list((root_dir / "panels").glob("panel-*.png"))) or bool(list(root_dir.glob("panel-*.png")))
-
-    # 2. 檢查 review/stage-4-storyboard.html 或 project-state.json
-    has_review_html = (root_dir / "review" / "stage-4-storyboard.html").exists()
-    state_file = root_dir / "review" / "project-state.json"
-    state_approved = False
-    if state_file.exists():
-        try:
-            with state_file.open("r", encoding="utf-8") as f:
-                st = json.load(f)
-            s4_info = st.get("stages", {}).get("stage-4", {})
-            if s4_info.get("status") in ("approved", "completed"):
-                state_approved = True
-        except Exception:
-            pass
-
-    if not (has_grids or has_panels or state_approved or has_review_html):
-        print("\n" + "=" * 78, file=sys.stderr)
-        print("❌ [Fatal Gate Error - 階段 4 九宮格分鏡門禁阻斷]", file=sys.stderr)
-        print("=" * 78, file=sys.stderr)
-        print("偵測到專案尚未完成「階段 4 鉛筆手繪九宮格分鏡構圖確認」！", file=sys.stderr)
-        print("嚴禁在未生成九宮格構圖審核圖（images/grid-*.png 或 panels/panel-*.png）的情況下偷懶直接呼叫 FreeVideo 生成影片！", file=sys.stderr)
-        print("\n處置要求：", file=sys.stderr)
-        print("  1. 請先執行 python scripts/storyboard/qwen_storyboard_grid.py 產出九宮格草圖。", file=sys.stderr)
-        print("  2. 執行 python scripts/build_stage_review.py 產出 review/stage-4-storyboard.html 並取得核准。", file=sys.stderr)
-        print("  3. 若在單元測試或特殊除錯環境需繞過，請顯式傳入 --skip-stage-gate。\n", file=sys.stderr)
-        print("=" * 78 + "\n", file=sys.stderr)
+        if dry_run:
+            print("⚠️ [debug] --skip-stage-gate 僅於 --dry-run 可用。")
+            return True
+        print("❌ --skip-stage-gate 僅允許 dry-run；實際送件必須有 stage-5 核准。", file=sys.stderr)
+        return False
+    ok, detail = require_approved(root_dir, 5)
+    if not ok:
+        print(f"❌ [Stage 5 Gate] {detail}", file=sys.stderr)
+        return False
+    try:
+        rel = segments_path.resolve().relative_to(root_dir.resolve()).as_posix()
+    except ValueError:
+        print("❌ segments 檔必須位於專案中，並列入 stage-5 核准快照。", file=sys.stderr)
+        return False
+    approved = {item["path"]: item["sha256"] for item in stage_snapshot(root_dir, 5)["artifacts"]}
+    if rel not in approved or approved[rel] != sha256_file(segments_path):
+        print("❌ 指定 segments 檔不在有效 stage-5 核准快照中，或核准後內容已變更。", file=sys.stderr)
         return False
     return True
+
+
+def verify_stage4_gate(root_dir: Path, skip_gate: bool = False) -> bool:
+    """舊名稱相容層：送件現在要求 stage-5，圖檔存在不會解鎖送件。"""
+    candidates = sorted(root_dir.glob("segments-ep*.json"))
+    return not skip_gate and len(candidates) == 1 and verify_stage5_gate(root_dir, candidates[0])
 
 
 def audit_segment_prompts(todo_segs: List[Dict[str, Any]]) -> Tuple[bool, List[str]]:
     """送件前執行 audit_refs_and_segments 17 條確定性審查，杜絕劣質與錯誤 Prompt 浪費顯存。"""
     if audit_refs_and_subjects is None or lint_h3_prompt is None:
-        return True, []
+        return False, ["提示詞審查依賴 audit_refs_and_segments 不可用；fail closed，請修復環境後重試。"]
 
     errors: List[str] = []
     for idx, seg in enumerate(todo_segs, 1):
         sid = seg.get("segment_id") or seg.get("group") or seg.get("id") or f"seg_{idx}"
         prompt = seg.get("h3_prompt") or seg.get("prompt", "")
-        if not prompt:
+        if not str(prompt).strip():
+            errors.append(f"[{sid}] 缺少 H3 prompt，拒絕送件")
             continue
 
         dur = 7.0
@@ -262,7 +338,7 @@ def audit_segment_prompts(todo_segs: List[Dict[str, Any]]) -> Tuple[bool, List[s
     return len(errors) == 0, errors
 
 
-def main() -> int:
+def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         description="submit_h3_segments.py — MiniMax H3 批次分段影片送件工具"
     )
@@ -275,9 +351,11 @@ def main() -> int:
     parser.add_argument("--cancel-stale", action="store_true", help="清理伺服器殘留的孤兒分段任務")
     parser.add_argument("--force", action="store_true", help="若目標影片已存在，強制重新送件覆蓋")
     parser.add_argument("--root-dir", type=Path, default=Path("."), help="專案根目錄 (用以解析相對路徑參考圖)")
-    parser.add_argument("--skip-stage-gate", action="store_true", help="強制跳過階段 4 九宮格分鏡門禁檢查（僅限測試或除錯）")
+    parser.add_argument("--skip-stage-gate", action="store_true", help="僅供 --dry-run 除錯；實際送件永遠要求有效 stage-5 核准")
+    parser.add_argument("--poll-timeout", type=int, default=POLL_TIMEOUT_SECONDS,
+                        help="每個 FreeVideo job 最長等待秒數；逾時保留 ledger 並回傳失敗")
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     # 1. 檢查 FreeVideo 令牌
     token = find_token()
@@ -285,7 +363,7 @@ def main() -> int:
     if args.cancel_stale:
         if not token:
             sys.exit("❌ 錯誤: 未找到 FreeVideo 令牌，無法執行 --cancel-stale。")
-        cancel_stale_jobs(args.api_url, token)
+        cancel_stale_jobs(args.api_url, token, args.output_dir / "_fv-job-ledger.json", args.root_dir)
         return 0
 
     if not args.segments:
@@ -294,13 +372,11 @@ def main() -> int:
     if not args.segments.exists():
         sys.exit(f"❌ 錯誤: 分段檔不存在: {args.segments}")
 
-    # 執行階段 4 九宮格硬性門禁檢查
-    if not verify_stage4_gate(args.root_dir, skip_gate=args.skip_stage_gate):
-        return 1
-
     # 讀取分段列表
     with args.segments.open("r", encoding="utf-8") as f:
         data = json.load(f)
+    if not verify_stage5_gate(args.root_dir, args.segments, skip_gate=args.skip_stage_gate, dry_run=args.dry_run):
+        return 1
 
     if isinstance(data, list):
         raw_segs = data
@@ -342,7 +418,7 @@ def main() -> int:
     print(f"輸出目錄: {args.output_dir.resolve()}")
     print(f"品質設定: {args.quality}")
 
-    # 2. 顯存檢測與安全臨界點診斷
+    # 2. 顯存資訊僅做本機經驗性提醒，不以固定值判定可否執行。
     vram_info = get_gpu_vram()
     if vram_info:
         free_mb, total_mb = vram_info
@@ -350,10 +426,10 @@ def main() -> int:
         print(f"GPU 顯存: 剩餘 {free_mb} MB ({free_gib:.2f} GiB) / 總量 {total_mb} MB")
         if free_mb < SAFE_VRAM_MB:
             diff_mb = SAFE_VRAM_MB - free_mb
-            print(f"⚠️ 【顯存安全臨界警告】剩餘顯存低於 MiniMax H3 安全臨界點 4.20 GiB (4300 MB)！")
-            print(f"   不足差額: {diff_mb} MB。建議關閉占用顯存之程式，否則可能引發 FreeVideo 422 崩潰。")
+            print(f"⚠️ 本機經驗性顯存警告：剩餘低於約 4.20 GiB ({SAFE_VRAM_MB} MB)；這不是所有 H3 執行環境的硬規格。")
+            print(f"   低於本機提醒值約 {diff_mb} MB；可先降低其他 GPU 負載，仍須以實際服務回應判斷。")
         else:
-            print(f"✅ 顯存安全: 充足 (高於 4.20 GiB 臨界點)")
+            print("ℹ️ 高於本機經驗提醒值，不代表服務或模型必然可執行。")
     else:
         print("ℹ️ 未檢測到 nvidia-smi，跳過 GPU 顯存即時監控。")
 
@@ -409,7 +485,7 @@ def main() -> int:
         print("\n" + "-" * 70)
         print("🔍 乾跑 (Dry-Run) 檢查完成：")
         if all_refs_ok:
-            print("✅ 所有分段之秒數設定與本地參考圖全部核驗存在！具備實機送件資格。")
+            print("✅ 本地參考檔與提示詞檢查通過；尚未提交任務，也未驗證服務模型或 VRAM 是否可執行。")
             return 0
         else:
             print("❌ 存在缺失的參考圖檔案！請檢查路徑後再試。")
@@ -425,8 +501,22 @@ def main() -> int:
     args.output_dir.mkdir(parents=True, exist_ok=True)
     cache_file = args.output_dir / "_fv-ref-map.json"
     cache = load_media_cache(cache_file)
-
-    server_base = "http://127.0.0.1:8189"
+    ledger_path = args.output_dir / "_fv-job-ledger.json"
+    project_root = args.root_dir.resolve()
+    batch_id = f"{args.segments.stem}-{uuid.uuid4().hex}"
+    prior_ledger = load_job_ledger(ledger_path)
+    if prior_ledger and (prior_ledger.get("project") != str(project_root)
+                         or prior_ledger.get("api_scope", "").rstrip("/") != args.api_url.rstrip("/")):
+        print("❌ 輸出目錄中的 job ledger 屬於另一個 project/API scope；請指定新的 --output-dir。", file=sys.stderr)
+        return 1
+    if not prior_ledger:
+        try:
+            save_job_ledger(ledger_path, {
+                "project": str(project_root), "api_scope": args.api_url.rstrip("/"), "jobs": [],
+            })
+        except OSError as exc:
+            print(f"❌ 無法預先建立 job ledger，拒絕送件: {type(exc).__name__}", file=sys.stderr)
+            return 1
 
     print("\n🚀 開始調用 FreeVideo Agent API 進行批次影片生成...")
     stats = {"succeeded": 0, "failed": 0, "skipped": 0}
@@ -492,6 +582,10 @@ def main() -> int:
             job_resp = call_api(args.api_url, token, "POST", "/jobs", body)
             job = job_resp.get("job", {})
             jid = job.get("id")
+            if not jid:
+                raise RuntimeError("API 未回傳 job ID；無法安全追蹤此次送件")
+            record_job(ledger_path, project=str(project_root), api_scope=args.api_url,
+                       batch_id=batch_id, segment_id=str(sid), job_id=str(jid), status=job.get("status", "waiting"))
             print(f"  [+] 成功建立任務: {jid} | 標籤: {job.get('label')}")
         except Exception as e:
             print(f"  ❌ 建立任務失敗: {e}")
@@ -499,24 +593,41 @@ def main() -> int:
             continue
 
         # 輪詢進度
-        t0 = time.time()
+        deadline = time.monotonic() + max(1, args.poll_timeout)
         while job.get("status") not in ("succeeded", "failed", "cancelled", "interrupted"):
-            time.sleep(3)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                job["status"] = "timeout"
+                print(f"  ⏱️ 輪詢逾時；job {jid} 保留於本機 ledger，未取消服務端任務。")
+                break
             try:
-                poll_resp = call_api(args.api_url, token, "GET", f"/jobs/{jid}?wait=25")
+                time.sleep(min(3, remaining))
+                wait_seconds = max(1, min(25, int(remaining)))
+                poll_resp = call_api(args.api_url, token, "GET", f"/jobs/{jid}?wait={wait_seconds}",
+                                    timeout=wait_seconds + 5)
                 job = poll_resp.get("job", {})
+                record_job(ledger_path, project=str(project_root), api_scope=args.api_url,
+                           batch_id=batch_id, segment_id=str(sid), job_id=str(jid), status=job.get("status", "unknown"))
+            except KeyboardInterrupt:
+                job["status"] = "interrupted"
+                record_job(ledger_path, project=str(project_root), api_scope=args.api_url,
+                           batch_id=batch_id, segment_id=str(sid), job_id=str(jid), status="interrupted")
+                print(f"  ⏸️ 輪詢中斷；job {jid} 保留於本機 ledger，未取消服務端任務。")
+                break
             except Exception as e:
                 print(f"  [?] 輪詢例外: {e}")
                 continue
 
         status = job.get("status")
-        elapsed_min = (time.time() - t0) / 60.0
+        elapsed_min = 0.0
 
         if status == "succeeded":
             video_url = (job.get("result") or {}).get("video", {}).get("url")
             if video_url:
                 try:
-                    download_file(token, server_base, video_url, out_mp4)
+                    download_file(token, args.api_url, video_url, out_mp4)
+                    record_job(ledger_path, project=str(project_root), api_scope=args.api_url,
+                               batch_id=batch_id, segment_id=str(sid), job_id=str(jid), status="downloaded")
                     size_mb = out_mp4.stat().st_size / 1048576.0
                     print(f"  ✅ 生成成功並已下載: {out_mp4.name} ({size_mb:.2f} MB, 耗時: {elapsed_min:.1f} 分鐘)")
                     stats["succeeded"] += 1
@@ -532,6 +643,12 @@ def main() -> int:
             if err.get("next"):
                 print(f"     💡 建議處置: {err.get('next')}")
             stats["failed"] += 1
+            record_job(ledger_path, project=str(project_root), api_scope=args.api_url,
+                       batch_id=batch_id, segment_id=str(sid), job_id=str(jid), status=str(status))
+        if status in ("timeout", "interrupted"):
+            # Stop this batch immediately; remote job is still tracked and is
+            # never implicitly cancelled by an interruption or deadline.
+            break
 
     print("\n" + "=" * 70)
     print(f"🎉 批次送件結束: 成功: {stats['succeeded']} | 失敗: {stats['failed']} | 跳過: {stats['skipped']}")

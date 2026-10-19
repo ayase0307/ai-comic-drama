@@ -2,10 +2,11 @@
 """Layer 2 分鏡 JSON 轉 Markdown 分鏡表與時間軸 CSV，可選做結構檢查。
 
 用法：
-    python scripts/storyboard/layer2_to_table.py <layer2.json | 目錄 | 多個檔> [--md out.md] [--timeline out.csv] [--check]
+    python scripts/storyboard/layer2_to_table.py <layer2.json | segments.json | 目錄 | 多個檔> [--md out.md] [--timeline out.csv] [--check]
 
 未指定 --md、--timeline、--check 時，Markdown 印到標準輸出。
-目錄會讀取其中的 layer2-*.json；多個輸入會合併輸出。
+目錄會讀取其中的 layer2-*.json，找不到時讀取 segments-*.json；多個輸入會合併輸出。
+編譯器 segments-*.json 會展開 segments[].shots，CSV 使用量化後有效時間；原 Layer 2 輸入仍輸出企劃名義時間。
 
 --check 檢查項目：
 - 必要欄位與型別（對照 layer2-storyboard.schema.json，含 action_stages 不超過 5 個）
@@ -47,7 +48,9 @@ def collect_files(inputs: list[str]) -> list[Path]:
             if path.is_dir():
                 found = sorted(path.glob("layer2-*.json"))
                 if not found:
-                    print(f"[警告] 目錄 {path} 內沒有 layer2-*.json", file=sys.stderr)
+                    found = sorted(path.glob("segments-*.json"))
+                if not found:
+                    print(f"[警告] 目錄 {path} 內沒有 layer2-*.json 或 segments-*.json", file=sys.stderr)
                 files.extend(found)
             else:
                 files.append(path)
@@ -77,6 +80,64 @@ def check_one(data: Any) -> list[str]:
     except (KeyError, TypeError, IndexError) as exc:
         errors.append(f"無法做秒數與時間檢查（結構缺漏）：{exc!r}")
     errors += find_todo(data)
+    return errors
+
+
+def expand_segments(data: Any) -> tuple[list[dict], bool]:
+    """Return source Layer 2 documents or normalize compiled segment collections for delivery timelines."""
+    if not isinstance(data, dict) or not isinstance(data.get("segments"), list):
+        return [data], False
+    compiled = []
+    for segment in data["segments"]:
+        if not isinstance(segment, dict) or not isinstance(segment.get("shots"), list):
+            raise ValueError("compiled segments entry must contain a shots list")
+        meta = dict(segment.get("metadata") or {})
+        style_lock = meta.get("style_lock") or {}
+        meta.setdefault("pacing_profile", "compiled")
+        meta.setdefault("lighting_lock_line", style_lock.get("lighting_lock_line", ""))
+        compiled.append({
+            "project_id": data.get("project_id", "compiled"),
+            "scene_id": segment.get("scene_id", segment.get("segment_id", "compiled")),
+            "segment_id": segment.get("segment_id", "compiled"),
+            "source_scene_id": segment.get("scene_id", ""),
+            "metadata": meta,
+            "style_lock": style_lock,
+            "shots": segment["shots"],
+            "continuity_handshake": {},
+            "_compiled_timeline": True,
+        })
+    return compiled, True
+
+
+def check_compiled_timeline(data: dict) -> list[str]:
+    """Validate the timing contract of a compiled segments collection without Layer 2 schema rules."""
+    errors = []
+    segments = data.get("segments")
+    if not isinstance(segments, list) or not segments:
+        return ["compiled segments 集合不可為空"]
+    for segment in segments:
+        sid = segment.get("segment_id", "compiled")
+        shots = segment.get("shots")
+        meta = segment.get("metadata") or {}
+        if not isinstance(shots, list) or not shots:
+            errors.append(f"{sid}: shots 不可為空")
+            continue
+        try:
+            effective = float(meta["effective_duration_sec"])
+            cursor = 0.0
+            for shot in shots:
+                start = float(shot["start_time"])
+                end = float(shot["end_time"])
+                duration = float(shot["duration"])
+                if abs(start - cursor) > CONTINUITY_TOLERANCE_SEC:
+                    errors.append(f"{sid}: {shot.get('shot_id', '?')} 起點 {start} 與前鏡終點 {cursor} 不連續")
+                if end <= start or abs((end - start) - duration) > CONTINUITY_TOLERANCE_SEC:
+                    errors.append(f"{sid}: {shot.get('shot_id', '?')} start/end/duration 不一致")
+                cursor = end
+            if abs(cursor - effective) > CONTINUITY_TOLERANCE_SEC:
+                errors.append(f"{sid}: 最後鏡頭終點 {cursor:.3f} 與有效時長 {effective:.3f} 不一致")
+        except (KeyError, TypeError, ValueError) as exc:
+            errors.append(f"{sid}: 無法檢查 compiled timeline：{exc!r}")
     return errors
 
 
@@ -157,7 +218,9 @@ def render_md(data: dict) -> str:
         *review_summary_lines(data),
         f"- 段落：`{data['segment_id']}`（來源場景 `{source}`）",
         *overflow_lines(data),
-        f"- 比例：{meta['aspect_ratio']}　時長：{meta['target_duration_sec']} 秒　節奏：{meta['pacing_profile']}",
+        f"- 比例：{meta['aspect_ratio']}　時長：{meta['target_duration_sec']} 秒"
+        + (f"（有效 {meta['effective_duration_sec']} 秒）" if data.get("_compiled_timeline") else "")
+        + f"　節奏：{meta['pacing_profile']}",
         f"- 光線鎖：{meta['lighting_lock_line']}",
         f"- 風格錨點：{style.get('anchor', '—')}",
         f"- 負向：{style.get('negative', '—')}",
@@ -219,7 +282,13 @@ def main() -> int:
             print(f"[錯誤] {path.name} 讀取失敗：{exc}", file=sys.stderr)
             failed = True
             continue
-        if args.check:
+        try:
+            expanded, is_compiled = expand_segments(data)
+        except ValueError as exc:
+            print(f"[錯誤] {path.name} compiled segments 格式錯誤：{exc}", file=sys.stderr)
+            failed = True
+            continue
+        if args.check and not is_compiled:
             errors = check_one(data)
             if errors:
                 failed = True
@@ -228,19 +297,29 @@ def main() -> int:
                     print(f"  - {err}")
             else:
                 print(f"[通過] {path.name}")
-        docs.append(data)
+        elif args.check:
+            errors = check_compiled_timeline(data)
+            if errors:
+                failed = True
+                print(f"[失敗] {path.name}")
+                for err in errors:
+                    print(f"  - {err}")
+            else:
+                print(f"[通過] {path.name}: compiled timeline timing checks")
+        docs.extend(expanded)
 
     renderable = []
     for data in docs:
         try:
-            render_md(data)
+            if args.md:
+                render_md(data)
             timeline_rows(data)
             renderable.append(data)
         except (KeyError, TypeError) as exc:
             print(f"[錯誤] 缺少欄位，無法產出表格：{exc}（請先加 --check 查看）", file=sys.stderr)
             failed = True
 
-    md_text = "\n---\n\n".join(render_md(d) for d in renderable)
+    md_text = "\n---\n\n".join(render_md(d) for d in renderable) if args.md or not args.timeline else ""
     if args.md and renderable:
         args.md.write_text(md_text, encoding="utf-8")
         print(f"已寫入 {args.md}")

@@ -43,6 +43,10 @@ if hasattr(sys.stderr, "reconfigure"):
 CURRENT_DIR = pathlib.Path(__file__).resolve().parent
 if str(CURRENT_DIR) not in sys.path:
     sys.path.insert(0, str(CURRENT_DIR))
+SCRIPTS_DIR = CURRENT_DIR.parent
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+from project_state import require_approved, stage4_artifacts, stage_snapshot
 
 from audit_refs_and_segments import (
     COMPOUND_CAMERA_MOTIONS,
@@ -66,20 +70,6 @@ from speech_utils import count_speech_chars, normalize_speech
 # ==============================================================================
 # 官方運鏡動詞標準庫與智慧映射
 # ==============================================================================
-
-OFFICIAL_MOTION_FALLBACKS = [
-    "static",
-    "trucks left",
-    "trucks right",
-    "dollies in",
-    "dollies out",
-    "pans left",
-    "pans right",
-    "tilts up",
-    "tilts down",
-    "trucks left while panning right",
-    "trucks right while panning left",
-]
 
 MOTION_SYNONYMS = {
     "static": "holds a steady static shot",
@@ -397,7 +387,7 @@ def format_timestamp(seconds: float) -> str:
     return f"{mm:02d}:{ss:06.3f}"
 
 
-def map_camera_motion(raw_movement: str, shot_index: int) -> str:
+def map_camera_motion(raw_movement: str, shot_index: int = 0) -> str:
     """確保提取並映射為符合 H3 官方合法運鏡詞。"""
     raw_lower = (raw_movement or "").lower().strip()
 
@@ -419,9 +409,10 @@ def map_camera_motion(raw_movement: str, shot_index: int) -> str:
         if re.search(rf"\b{om}\b", raw_lower):
             return om
 
-    # 4. 輪流提供合規官方運鏡動詞（避免鏡頭重複運鏡）
-    fallback = OFFICIAL_MOTION_FALLBACKS[shot_index % len(OFFICIAL_MOTION_FALLBACKS)]
-    return fallback
+    # 4. Unknown movement is rejected; never substitute an unrelated motion.
+    if not raw_lower or raw_lower in {"unknown", "n/a", "none"}:
+        return "static"
+    raise ValueError(f"不支援的 camera movement: {raw_movement!r}")
 
 
 def sanitize_english_text(text: str) -> str:
@@ -477,6 +468,29 @@ def compile_segment_h3(
     if not shots:
         raise ValueError(f"分鏡 {seg_id} 未包含任何 shots！")
     eff_d = effective_duration(target_dur, rounding=rounding_mode)
+    # Treat authored shot timings as one continuous source timeline, then
+    # adjust only the final shot to the effective H3 duration.
+    shots = [dict(shot) for shot in shots]
+    if len(shots) == 1 and not ("start_time" in shots[0] and "end_time" in shots[0]):
+        shots[0].update(start_time=0.0, end_time=target_dur, duration=target_dur)
+    tolerance = 1e-3
+    cursor = 0.0
+    for index, shot in enumerate(shots, start=1):
+        start, end, duration = (float(shot.get(key, 0)) for key in ("start_time", "end_time", "duration"))
+        if abs(start - cursor) > tolerance:
+            raise ValueError(f"shot timeline gap/overlap at shot {index}: expected {cursor:.3f}, got {start:.3f}")
+        if end <= start or abs((end - start) - duration) > tolerance:
+            raise ValueError(f"shot {index} has inconsistent start/end/duration")
+        cursor = end
+    if abs(cursor - target_dur) > tolerance:
+        raise ValueError(f"source shot duration {cursor:.3f}s does not match target {target_dur:.3f}s")
+    shots[-1]["end_time"] = round(eff_d, 3)
+    shots[-1]["duration"] = round(eff_d - float(shots[-1]["start_time"]), 3)
+    if shots[-1]["duration"] < 0.5:
+        raise ValueError("effective duration leaves the final shot below 0.5s")
+    cuts = [float(shot["end_time"]) for shot in shots[:-1]]
+    if cuts and (cuts[0] < 2.0 or any(b - a < 2.0 for a, b in zip(cuts, cuts[1:])) or eff_d - cuts[-1] < 2.0):
+        raise ValueError("source timeline cannot satisfy H3 cut bounds; revise the storyboard cuts")
     notes: List[str] = []
 
     # ---------- 角色與服裝 ----------
@@ -499,6 +513,11 @@ def compile_segment_h3(
             if c not in order:
                 order.append(c)
             weight[c] = weight.get(c, 0) + SHOT_SIZE_WEIGHT.get(size, 1) * (1.0 if k == 0 else 0.3)
+        speaker = _shot_speaker(s)
+        if speaker and not is_narrator(speaker):
+            if speaker not in order:
+                order.append(speaker)
+            weight[speaker] = weight.get(speaker, 0) + SHOT_SIZE_WEIGHT.get(size, 1)
     for c in costume_of:
         if not is_narrator(c) and c not in order:
             order.append(c)
@@ -511,9 +530,6 @@ def compile_segment_h3(
         ranked.insert(0, primary)
     elif primary:
         ranked.insert(0, primary)
-    if not ranked:
-        raise ValueError(f"分鏡 {seg_id} 沒有任何可綁參考圖的角色（旁白不算）。請在 asset_refs.characters 或 shots[].character_ids 指定角色。")
-
     selected = ranked[:max(1, max_char_refs)]
     secondary = ranked[max(1, max_char_refs):]
 
@@ -523,12 +539,19 @@ def compile_segment_h3(
     # ---------- 場景 ----------
     location_id = asset_refs.get("scene_id", scene_id)
     loc_info = registry.get_location(location_id)
+    ref2va = str((layer2_data.get("continuity_handshake", {}) or {}).get("mode", "")).upper() == "INDEPENDENT_REF2VA"
 
     reference_images: List[Dict[str, Any]] = [{
         "id": loc_info["id"], "type": "scene", "description": loc_info["desc_en"], "path": loc_info["ref_img"],
     }]
-    subject_def_lines = [f"<Picture 1> is the establishing background plate of {loc_info['desc_en']}."]
-    retention_lines = ["<Picture 1> (first frame): fully_preserved - the architectural layout, spatial perspective, and lighting atmosphere are retained."]
+    subject_def_lines = [
+        f"<Picture 1> is a scene/style reference for {loc_info['desc_en']}; use it as visual guidance."
+        if ref2va else f"<Picture 1> is the establishing background plate of {loc_info['desc_en']}."
+    ]
+    retention_lines = [
+        "<Picture 1> (scene reference): retain relevant architectural layout, spatial perspective, and lighting atmosphere as visual guidance."
+        if ref2va else "<Picture 1> (first frame): fully_preserved - the architectural layout, spatial perspective, and lighting atmosphere are retained."
+    ]
 
     tag_of: Dict[str, str] = {}
     for k, cid in enumerate(selected, start=1):
@@ -565,44 +588,35 @@ def compile_segment_h3(
     if not any(re.search(rf"\b{lt}\b", lighting_line_clean, re.IGNORECASE) for lt in LIGHT_SOURCE_TERMS):
         lighting_line_clean += " with soft ambient light"
 
-    retention_lines.append(
-        f"Continuity anchors: lighting locked to '{lighting_line_clean}'; camera keeps the 180-degree axis; "
-        f"clothing and surface textures stay consistent."
-    )
+    continuity = style_lock.get("continuity_anchors", {}) or {}
+    authored_anchors = [f"{key}: {continuity[key]}" for key in ("lighting", "axis", "blocking", "texture") if continuity.get(key)]
+    if style_lock.get("anchor"):
+        authored_anchors.insert(0, f"style anchor: {style_lock['anchor']}")
+    negative = _clean(style_lock.get("negative")) or _clean(registry.style.get("style_negative"))
+    if negative:
+        authored_anchors.append(f"negative constraints: {negative}")
+    authored_anchors.append(f"lighting lock: {lighting_line_clean}")
+    retention_lines.append("Continuity anchors: " + "; ".join(authored_anchors))
 
     mood = _clean(metadata.get("mood_en")) or _clean(metadata.get("summary_en"))
+    focus = "<Subject 1>" if selected else "the scene"
     summary_block = (
-        f"summary:\n[reference generation] A {target_dur:.1f}s {aspect} segment in {len(shots)} shots opening on <Picture 1>"
-        + (f", {mood}." if mood else ", centred on <Subject 1>.")
+        f"summary:\n[reference generation] A {target_dur:.1f}s {aspect} segment ({eff_d:.3f}s effective from {target_dur:.3f}s target) "
+        f"in {len(shots)} shots opening on <Picture 1>"
+        + (f", {mood}." if mood else f", centred on {focus}.")
     )
     retention_block = "retention_analysis:\n" + "\n".join(retention_lines)
 
     # ---------- 切點 ----------
     n_shots = len(shots)
-    cut_timestamps: List[float] = []
-    if n_shots > 1:
-        t = 0.0
-        raw_cuts = []
-        for s in shots[:-1]:
-            t += float(s.get("duration", 2.5))
-            raw_cuts.append(t)
-        if n_shots == 2:
-            cut_timestamps = [round(min(max(raw_cuts[0], 2.0), eff_d - 2.05), 3)]
-        else:
-            min_first = 2.0
-            max_last = max(min_first + 2.0 * (n_shots - 2), eff_d - 2.05)
-            # 依原始比例分配，但夾在 E4 允許範圍內
-            cut_timestamps = []
-            prev = 0.0
-            for i, rc in enumerate(raw_cuts):
-                lo = prev + 2.0 if i else min_first
-                hi = max_last - 2.0 * (n_shots - 2 - i)
-                c = round(min(max(rc * eff_d / target_dur, lo), hi), 3)
-                cut_timestamps.append(c)
-                prev = c
+    # Keep authored cut points exactly; only the final shot end is quantized.
+    cut_timestamps = [round(float(shot["end_time"]), 3) for shot in shots[:-1]]
 
     # ---------- 逐鏡 ----------
-    det_lines = [f"The target video is {anchor} ({aspect}), illuminated by {lighting_line_clean}."]
+    det_header = f"The target video follows the authored visual style ({aspect}), illuminated by {lighting_line_clean}."
+    if metadata.get("palette_preset"):
+        det_header += f" Color palette: {metadata['palette_preset']}."
+    det_lines = [det_header]
     tail_hold = style_lock.get("tail_freeze_hold", True)
     used_motion: set = set()
     for idx, s in enumerate(shots, start=1):
@@ -637,42 +651,54 @@ def compile_segment_h3(
         stages = [TODO_RE.sub("", x).strip() for x in (act.get("action_stages_en") or act.get("action_stages") or []) if isinstance(x, str)]
         stages = [x for x in stages if x]
         if len(stages) >= 3:
-            action = f"{stages[0]}, then {', '.join(stages[1:-1])}, as {stages[-1]}"
+            action = ", then ".join(stages)
         elif len(stages) == 2:
             action = f"{stages[0]}, then {stages[1]}"
         elif stages:
-            action = f"{stages[0]}, then holds the pose"
+            action = stages[0]
         else:
-            action = f"{focal} moves through the planned blocking, then settles"
             notes.append(f"{s.get('shot_id')} 缺動作力學三要素")
+            raise ValueError(f"shot {s.get('shot_id', idx)} is missing authored action stages")
         expr = TODO_RE.sub("", act.get("observable_expression_en") or act.get("observable_expression") or "").strip()
 
         dlg = s.get("dialogue_and_audio", {}) or {}
         if dlg.get("has_dialogue") and dlg.get("line_verbatim"):
             line = dlg["line_verbatim"].strip()
             if _is_voiceover(s):
-                speech = f"; an off-screen narrator says <d>{line}</d> while lips on screen stay closed"
+                speech = f"; an off-screen narrator says <d>[Chinese] {line}</d> while lips on screen stay closed"
             else:
                 spk = dlg.get("speaker")
                 who = tag_of.get(spk) or (secondary_short.get(spk) if spk else None) or focal
-                speech = f"; then {who} speaks <d>{line}</d>"
+                speech = f"; then {who} speaks <d>[Chinese] {line}</d>"
         else:
             speech = "; lips stay closed"
 
-        if idx == 1:
+        blocking = s.get("spatial_blocking", {}) or {}
+        blocking_bits = [blocking.get("blocking_desc", "")]
+        if blocking.get("anchor_objects"):
+            blocking_bits.append("anchor objects: " + ", ".join(blocking["anchor_objects"]))
+        blocking_clause = f" Blocking: {'; '.join(bit for bit in blocking_bits if bit)}." if any(blocking_bits) else ""
+
+        if idx == 1 and ref2va:
+            head = f"[Shot 1] The scene opens with <Picture 1> as a scene/style reference for spatial guidance: {shot_size}{optics} of {focal}, as {mclause}."
+        elif idx == 1:
             head = f"[Shot 1] The shot begins from <Picture 1>: {shot_size}{optics} of {focal}, as {mclause}."
         else:
             head = (f"[Shot {idx}] At {format_timestamp(cut_timestamps[idx - 2])}, the shot cuts to a "
                     f"{shot_size}{optics} of {focal}, as {mclause}.")
         tail = " The final second holds still before the cut." if (idx == n_shots and tail_hold) else ""
+        if idx == n_shots and layer2_data.get("segment_end_state"):
+            final_state = layer2_data["segment_end_state"].get("planned_final_state") or {}
+            if final_state:
+                tail += " End state: " + json.dumps(final_state, ensure_ascii=False, sort_keys=True) + "."
         action = action[:1].upper() + action[1:]
-        body = f"{head} {action}." + (f" Expression: {expr}" if expr else "") + f"{speech}.{tail}"
+        body = f"{head} {action}." + (f" Expression: {expr}" if expr else "") + blocking_clause + f"{speech}.{tail}"
         det_lines.append(sanitize_english_text(body))
 
     detailed_block = "detailed_description:\n" + "\n".join(det_lines)
 
     # ---------- 音效與配樂 ----------
-    foley = _clean(metadata.get("soundscape_en"))
+    foley = _clean(layer2_data.get("overall_soundscape")) or _clean(metadata.get("soundscape_en"))
     if not foley:
         parts = []
         for s in shots:
@@ -680,20 +706,12 @@ def compile_segment_h3(
             f = _clean(d.get("foley_and_ambience_en")) or _clean(d.get("foley_and_ambience"))
             if f:
                 parts.append(f)
-        foley = "; ".join(parts) or "room tone matching the location, cloth rustle and footsteps"
+        foley = "; ".join(parts)
     soundscape_block = "overall_soundscape:\n" + foley
 
-    music = _clean(metadata.get("music_en"))
+    music = _clean(layer2_data.get("non_diegetic_music")) or _clean(metadata.get("music_en"))
     if not music:
-        beats = {s.get("dramatic_beat_type") for s in shots}
-        if "Combat_Impact" in beats:
-            music = "percussive drums with sharp hits on each impact"
-        elif "Suspense_Delay" in beats:
-            music = "low sustained strings, sparse and tense"
-        elif "Dramatic_Core" in beats:
-            music = "a solo melodic instrument over soft strings"
-        else:
-            music = "soft ambient score, unobtrusive"
+        music = ""
     music_block = "non_diegetic_music:\n" + music
 
     full_h3_prompt = (
@@ -723,15 +741,19 @@ def compile_segment_h3(
         "segment_id": seg_id,
         "scene_id": scene_id,
         "metadata": {
+            **metadata,
             "aspect_ratio": aspect,
             "target_duration_sec": target_dur,
             "effective_duration_sec": round(eff_d, 3),
             "shots_count": n_shots,
+            "style_lock": style_lock,
+            "palette_preset": metadata.get("palette_preset", ""),
         },
         "reference_images": reference_images,
         "h3_prompt": full_h3_prompt,
         "h3_loras": loras,
         "shots": shots,
+        "segment_end_state": layer2_data.get("segment_end_state"),
         "compile_notes": notes + [f"參考圖不存在: {p}" for p in missing],
     }
 
@@ -807,40 +829,41 @@ def render_markdown_package(
     return "\n".join(md_lines) + "\n"
 
 
-def verify_stage4_gate(project_root: pathlib.Path, skip_gate: bool = False) -> bool:
-    """階段 4 九宮格分鏡構圖門禁：嚴防 Agent 偷懶跳過九宮格直接編譯與生成影片。"""
+def verify_stage4_gate(project_root: pathlib.Path, skip_gate: bool = False, layer2_files: Optional[List[pathlib.Path]] = None) -> bool:
+    """要求有效 stage-4 人工核准，且核准快照涵蓋目前分鏡與對應草圖。"""
     if skip_gate:
         print("⚠️ [警告] 已顯式指定 --skip-stage-gate，跳過階段 4 九宮格門禁檢查。")
         return True
+    try:
+        matched, errors = stage4_artifacts(project_root)
+        ok, detail = require_approved(project_root, 4)
+        snapshot = stage_snapshot(project_root, 4)
+        approved_paths = {item["path"] for item in snapshot["artifacts"]}
+    except Exception as exc:
+        matched, errors, ok, detail, approved_paths = [], [f"核准快照無法驗證: {exc}"], False, str(exc), set()
 
-    # 1. 檢查是否存在九宮格總圖或單格草圖
-    has_grids = bool(list((project_root / "images").glob("grid-*.png"))) or bool(list(project_root.glob("grid-*.png")))
-    has_panels = bool(list((project_root / "panels").glob("panel-*.png"))) or bool(list(project_root.glob("panel-*.png")))
+    unapproved_input = []
+    if layer2_files is not None:
+        for path in layer2_files:
+            try:
+                rel = path.resolve().relative_to(project_root.resolve()).as_posix()
+            except ValueError:
+                unapproved_input.append(str(path))
+                continue
+            if rel not in approved_paths:
+                unapproved_input.append(rel)
 
-    # 2. 檢查 project-state.json
-    state_file = next((p for p in (project_root / "project-state.json", project_root / "review" / "project-state.json") if p.exists()),
-                      project_root / "project-state.json")
-    state_approved = False
-    if state_file.exists():
-        try:
-            with state_file.open("r", encoding="utf-8") as f:
-                st = json.load(f)
-            s4_info = st.get("stages", {}).get("stage-4", {})
-            if s4_info.get("status") in ("approved", "completed"):
-                state_approved = True
-        except Exception:
-            pass
-
-    if not (has_grids or has_panels or state_approved):
+    if errors or not matched or not ok or unapproved_input:
         print("\n" + "=" * 78, file=sys.stderr)
         print("❌ [Fatal Gate Error - 階段 4 九宮格分鏡門禁阻斷]", file=sys.stderr)
         print("=" * 78, file=sys.stderr)
-        print("偵測到專案尚未完成「階段 4 鉛筆手繪九宮格分鏡構圖確認」！", file=sys.stderr)
-        print("嚴禁在未生成九宮格構圖審核圖（images/grid-*.png 或 panels/panel-*.png）的情況下偷懶跳步直接編譯！", file=sys.stderr)
-        print("\n處置要求：", file=sys.stderr)
-        print("  1. 請先執行 python scripts/storyboard/qwen_storyboard_grid.py 或產出九宮格構圖。", file=sys.stderr)
-        print("  2. 執行 python scripts/build_stage_review.py 產出 review/stage-4-storyboard.html 供審核。", file=sys.stderr)
-        print("  3. 若在單元測試或特殊除錯環境需繞過，請顯式傳入 --skip-stage-gate。\n", file=sys.stderr)
+        print("stage-4 必須完成人工核准，且目前 Layer 2 與其有效對應構圖圖檔須和核准快照一致。", file=sys.stderr)
+        print(f"狀態：{detail}", file=sys.stderr)
+        for error in errors:
+            print(f"  - {error}", file=sys.stderr)
+        for path in unapproved_input:
+            print(f"  - 編譯輸入不在 stage-4 快照中: {path}", file=sys.stderr)
+        print("請重建並審核 stage-4。compile debug 可顯式 --skip-stage-gate。\n", file=sys.stderr)
         print("=" * 78 + "\n", file=sys.stderr)
         return False
     return True
@@ -865,13 +888,12 @@ def main() -> int:
 
     args = parser.parse_args()
 
-    # 執行階段 4 九宮格硬性門禁檢查
-    if not verify_stage4_gate(args.project_root, skip_gate=args.skip_stage_gate):
-        return 1
-
     layer2_files = load_layer2_files(args.layer2)
     if not layer2_files:
         print(f"[錯誤] 找不到任何 Layer 2 分鏡檔案: {args.layer2}", file=sys.stderr)
+        return 1
+    # 執行階段 4 審核快照與構圖檔門禁
+    if not verify_stage4_gate(args.project_root, skip_gate=args.skip_stage_gate, layer2_files=layer2_files):
         return 1
 
     registry = AssetRegistry(bible_path=args.bible, assets_path=args.assets, project_root=args.project_root)
@@ -966,12 +988,8 @@ def main() -> int:
                 print(f"    [警告] {w}")
             total_warnings += len(refs_res["warnings"]) + len(lint_res["warnings"])
             for note in seg.get("compile_notes", []):
-                if note.startswith(("參考圖不存在", "未完成")):
-                    print(f"    [編譯錯誤] {note}")
-                    total_errors += 1
-                else:
-                    print(f"    [編譯提醒] {note}")
-                    total_warnings += 1
+                print(f"    [編譯提醒] {note}")
+                total_warnings += 1
 
         print("\n" + "=" * 75)
         print(f"📊 雙重審查總結: 錯誤數: {total_errors} | 警告數: {total_warnings}")

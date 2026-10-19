@@ -43,6 +43,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -342,6 +343,54 @@ def compute_file_sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+def atomic_write_json(path: Path, payload: Dict[str, Any]) -> None:
+    """Write a complete report beside its target, then replace it atomically."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def atomic_write_text(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        tmp.write_text(content, encoding="utf-8")
+        tmp.replace(path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def find_exact_segment_video(video_dir: Path, segment_id: str) -> Tuple[Optional[Path], bool]:
+    """Return a unique exact segment filename; substring matches are ambiguous."""
+    allowed = {segment_id.casefold(), f"seg-{segment_id}".casefold()}
+    matches = [p for p in video_dir.glob("*.mp4") if p.stem.casefold() in allowed]
+    if len(matches) == 1:
+        return matches[0], False
+    return None, len(matches) > 1
+
+
+def segment_requires_audio(segment_spec: Dict[str, Any], metadata: Optional[Dict[str, Any]] = None) -> bool:
+    meta = segment_spec.get("metadata") or metadata or {}
+    if segment_spec.get("audio_required") is False or meta.get("audio_required") is False:
+        return False
+    if any(meta.get(key) is True for key in ("audio_required", "requires_audio", "has_dialogue")):
+        return True
+    def spoken_text(value: Any) -> bool:
+        text = str(value or "").strip()
+        return bool(text) and text not in {"（無台詞）", "(無台詞)", "無台詞"}
+
+    return any(
+        (shot.get("dialogue_and_audio") or {}).get("has_dialogue") is True
+        or spoken_text((shot.get("dialogue_and_audio") or {}).get("line_verbatim"))
+        or spoken_text(shot.get("narration"))
+        for shot in segment_spec.get("shots", [])
+    )
+
+
 # ==============================================================================
 # 單鏡影片審查主程序
 # ==============================================================================
@@ -359,7 +408,7 @@ def verify_single_shot(
         expected_duration = float(shot_spec.get("duration", 3.0))
     expected_aspect = (segment_meta or {}).get("aspect_ratio", "16:9")
     dlg = shot_spec.get("dialogue_and_audio", {})
-    has_dialogue = bool(dlg.get("has_dialogue", False))
+    audio_required = segment_requires_audio({"shots": [shot_spec]}, segment_meta)
 
     aspect_map = {
         "16:9": 16.0 / 9.0,
@@ -389,8 +438,8 @@ def verify_single_shot(
 
     # 音訊流檢驗
     audio_warning = None
-    if has_dialogue and not has_audio:
-        audio_warning = "分鏡註記包含台詞 (has_dialogue=True)，但影片無音訊軌道 (NO_AUDIO_STREAM_FOR_DIALOGUE)"
+    if audio_required and not has_audio:
+        audio_warning = "分鏡規格要求音訊，但影片無音訊軌道 (NO_AUDIO_STREAM_FOR_DIALOGUE)"
 
     # 3. 抽取首、中、尾 3 幀進行深入分析
     t_head = min(0.1, actual_duration * 0.1) if actual_duration > 0.3 else 0.0
@@ -450,7 +499,8 @@ def verify_single_shot(
             contact_sheet_file = str(cs_path)
 
     # 總體判定：時長符合、彩度未污染、無九宮格殘留
-    passed = duration_ok and chroma_ok and not grid_detected
+    audio_ok = not audio_required or has_audio
+    passed = duration_ok and aspect_ok and chroma_ok and not grid_detected and audio_ok
 
     issues: List[str] = []
     if not duration_ok:
@@ -468,10 +518,13 @@ def verify_single_shot(
 
     return {
         "shot_id": shot_id,
-        "video_file": str(video_path),
+        "video_file": str(video_path.resolve()),
         "video_sha256": video_sha256,
         "passed": passed,
-        "review_status": "approved" if passed else "rejected",
+        "review_status": "pending_review",
+        "technical_status": "passed" if passed else "failed",
+        "aspect_ratio_check": {"ok": aspect_ok, "expected": expected_aspect, "actual": actual_aspect_val},
+        "audio_check": {"required": audio_required, "present": has_audio, "ok": audio_ok},
         "specs": {
             "duration": actual_duration,
             "expected_duration": expected_duration,
@@ -606,7 +659,12 @@ def verify_single_segment(
         if generate_contact_sheet(video_path, actual_duration, cs_path):
             contact_sheet_file = str(cs_path)
 
-    passed = duration_ok and chroma_ok and not grid_detected
+    audio_required = segment_requires_audio(segment_spec, seg_meta)
+    audio_ok = not audio_required or has_audio
+    audio_warning = None
+    if audio_required and not has_audio:
+        audio_warning = "NO_AUDIO_STREAM_FOR_DIALOGUE: 分段規格要求音訊，但影片沒有音訊流"
+    passed = duration_ok and aspect_ok and chroma_ok and not grid_detected and audio_ok
 
     issues: List[str] = []
     if not duration_ok:
@@ -617,17 +675,20 @@ def verify_single_segment(
         issues.append(chroma_warning)
     if grid_warning:
         issues.append(grid_warning)
+    if audio_warning:
+        issues.append(audio_warning)
 
     sha_hash = compute_file_sha256(video_path)
     return {
         "shot_id": sid,
         "segment_id": sid,
         "is_segment": True,
-        "video_file": str(video_path),
+        "video_file": str(video_path.resolve()),
         "video_sha256": sha_hash,
         "file_hash_sha256": sha_hash,
         "passed": passed,
-        "review_status": "approved" if passed else "rejected",
+        "review_status": "pending_review",
+        "technical_status": "passed" if passed else "failed",
         "specs": {
             "expected_duration": expected_duration,
             "duration": actual_duration,
@@ -651,6 +712,7 @@ def verify_single_segment(
             "ok": aspect_ok,
             "note": aspect_note,
         },
+        "audio_check": {"required": audio_required, "present": has_audio, "ok": audio_ok},
         "technical_specs": specs,
         "color_analysis": {
             "c_head": round(c_head, 2),
@@ -718,7 +780,7 @@ def render_markdown_report(
     total_count = len(results)
     passed_count = sum(1 for r in results if r["passed"])
     rejected_count = total_count - passed_count
-    overall_status = "APPROVED (通過)" if rejected_count == 0 else "REJECTED (退稿)"
+    overall_status = "TECHNICAL CHECK PASSED · HUMAN REVIEW PENDING" if rejected_count == 0 else "TECHNICAL CHECK FAILED"
 
     lines: List[str] = [
         f"# 影片自動審查與分鏡差異檢驗報告",
@@ -737,7 +799,7 @@ def render_markdown_report(
     ]
 
     for r in results:
-        status_tag = "✅ APPROVED" if r["passed"] else "❌ REJECTED"
+        status_tag = "✅ TECHNICAL PASS · HUMAN REVIEW PENDING" if r["passed"] else "❌ TECHNICAL FAIL"
         dur_str = f"{r['specs']['expected_duration']:.1f}s / {r['specs']['duration']:.1f}s"
         res_str = f"{r['specs']['width']}x{r['specs']['height']} @ {r['specs']['fps']}fps"
         chroma_str = f"{r['color_analysis']['mean_chroma']:.1f}"
@@ -848,9 +910,7 @@ def write_back_review_to_layer2(
         shot["video_file"] = matched_res["video_file"]
         shot["status"] = "video_done"
 
-        # 2. 更新 review 區塊
-        rev = shot.get("review") or {}
-        old_revision = rev.get("revision", 0)
+        # 技術 QA 不得改寫分鏡的人工核准/鎖定狀態。
         passed = matched_res["passed"]
 
         note_parts = [
@@ -861,13 +921,12 @@ def write_back_review_to_layer2(
         if matched_res["issues"]:
             note_parts.append(f"退稿原因: {'; '.join(matched_res['issues'])}")
 
-        shot["review"] = {
-            "review_status": "approved" if passed else "rejected",
-            "revision": old_revision + 1,
-            "locked": bool(passed),
-            "reviewer_note": f"[verify_video_shot 自動審核] {'; '.join(note_parts)}",
-            "updated_at": now_iso,
-            "shot_hash": matched_res["video_sha256"][:8],
+        shot["technical_review"] = {
+            "technical_status": "passed" if passed else "failed",
+            "review_status": "pending_review",
+            "note": f"[verify_video_shot 技術檢查] {'; '.join(note_parts)}",
+            "checked_at": now_iso,
+            "video_sha256": matched_res["video_sha256"],
         }
 
     # 3. 更新 segment_end_state.observed_final_state (落實 Observed > Planned 覆蓋鐵律)
@@ -881,14 +940,14 @@ def write_back_review_to_layer2(
             "tail_chroma": last_inspected_result["color_analysis"]["c_tail"],
             "tail_mean_lab": last_inspected_result["color_analysis"]["tail_mean_lab"],
             "video_sha256": last_inspected_result["video_sha256"],
-            "status": "APPROVED" if last_inspected_result["passed"] else "REJECTED",
+            "status": "TECHNICAL_PASS" if last_inspected_result["passed"] else "TECHNICAL_FAIL",
+            "human_review_status": "pending_review",
         })
         end_state["observed_final_state"] = obs_state
         data["segment_end_state"] = end_state
 
-    # 安全覆寫檔案
-    with layer2_path.open("w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    # 安全原子覆寫；既有 review 區塊保持原樣。
+    atomic_write_json(layer2_path, data)
 
     return data
 
@@ -903,7 +962,7 @@ def run_self_test() -> bool:
     print("【verify_video_shot】啟動自動審核器單元測試與自檢模式 (Self-Test)")
     print("=" * 70)
 
-    with tempfile.TemporaryDirectory() as tmp_dir_str:
+    with tempfile.TemporaryDirectory(dir=Path.cwd()) as tmp_dir_str:
         tmp_dir = Path(tmp_dir_str)
         print(f"[*] 建立測試暫存目錄: {tmp_dir}")
 
@@ -923,6 +982,7 @@ def run_self_test() -> bool:
                 {
                     "shot_id": "SH01_NORMAL",
                     "duration": 3.0,
+                    "review": {"review_status": "approved", "locked": True, "revision": 4},
                     "camera_optics": {"shot_size": "MS", "focal_length": "35mm", "movement": "Pan", "pov_routing": "objective"},
                     "spatial_blocking": {"blocking_desc": "Center standing"},
                     "action_and_performance": {"action_stages": ["Stand still"], "observable_expression": "Neutral"},
@@ -1071,14 +1131,19 @@ def run_self_test() -> bool:
         updated_data = write_back_review_to_layer2(layer2_file, [res1, res2, res3, res4])
         s0_rev = updated_data["shots"][0].get("review", {})
         end_obs = updated_data.get("segment_end_state", {}).get("observed_final_state", {})
-        print(f"  - Shot 0 review_status: {s0_rev.get('review_status')} (預期: approved)")
-        print(f"  - Shot 0 revision: {s0_rev.get('revision')} (預期: 1)")
+        technical_review = updated_data["shots"][0].get("technical_review", {})
+        print(f"  - Existing human review lock retained: {s0_rev.get('review_status') == 'approved' and s0_rev.get('locked') is True}")
+        print(f"  - Technical status: {technical_review.get('technical_status')} (human review remains pending)")
         print(f"  - observed_final_state tail_chroma: {end_obs.get('tail_chroma')}")
-        if s0_rev.get("review_status") != "approved" or not end_obs.get("tail_chroma") is not None:
+        if (s0_rev.get("review_status") != "approved" or s0_rev.get("locked") is not True
+                or technical_review.get("technical_status") != "passed"
+                or technical_review.get("review_status") != "pending_review"
+                or end_obs.get("human_review_status") != "pending_review"
+                or end_obs.get("tail_chroma") is None):
             print("  ❌ 失敗: 回寫 Layer 2 結構不正確！")
             all_tests_passed = False
         else:
-            print("  ✅ 成功回寫 Layer 2 shots[].review 與 segment_end_state.observed_final_state！")
+            print("  ✅ 技術 QA 已回寫，人工核准鎖保持原狀！")
 
         # 測試 6：Contact Sheet 拼圖生成驗證
         cs_file = Path(res1["contact_sheet_file"]) if res1.get("contact_sheet_file") else None
@@ -1143,27 +1208,43 @@ def main() -> int:
 
         results: List[Dict[str, Any]] = []
         unproduced: List[str] = []
+        expected_segments: List[str] = []
+        duplicate_segments: List[str] = []
+        mismatched_segments: List[str] = []
+        errors: List[Dict[str, str]] = []
+        seen_segments = set()
 
-        for seg in raw_list:
+        for index, seg in enumerate(raw_list, 1):
             sid = seg.get("segment_id") or seg.get("group") or seg.get("id")
             if not sid:
+                errors.append({"index": str(index), "error": "segment missing segment_id/group/id"})
                 continue
-            # 尋找對應的影片檔
-            cand_files = [
-                v_dir / f"{sid}.mp4",
-                v_dir / f"{sid.lower()}.mp4",
-                v_dir / f"seg-{sid}.mp4",
-            ]
-            found_v = next((p for p in cand_files if p.exists()), None)
-            if not found_v:
-                # 模糊比對
-                found_v = next((p for p in v_dir.glob("*.mp4") if sid.lower() in p.stem.lower()), None)
-
-            if found_v and found_v.exists():
+            sid = str(sid)
+            expected_segments.append(sid)
+            if sid.casefold() in seen_segments:
+                duplicate_segments.append(sid)
+                continue
+            seen_segments.add(sid.casefold())
+            found_v, ambiguous = find_exact_segment_video(v_dir, sid)
+            if ambiguous:
+                mismatched_segments.append(sid)
+            elif found_v is None:
+                unproduced.append(sid)
+                continue
+            try:
                 res = verify_single_segment(seg, found_v, contact_sheet_dir=contact_dir)
                 results.append(res)
-            else:
-                unproduced.append(sid)
+            except Exception as exc:
+                errors.append({"segment_id": sid, "error": str(exc)})
+                results.append({
+                    "shot_id": sid, "segment_id": sid, "is_segment": True,
+                    "video_file": str(found_v.resolve()), "video_sha256": compute_file_sha256(found_v),
+                    "file_hash_sha256": compute_file_sha256(found_v), "passed": False,
+                    "review_status": "pending_review", "technical_status": "failed",
+                    "specs": {"expected_duration": 0, "duration": 0, "width": 0, "height": 0, "fps": 0},
+                    "color_analysis": {"mean_chroma": 0}, "grid_check": {"detected": False},
+                    "issues": [f"QA_ERROR: {exc}"],
+                })
 
         continuity_warnings = check_inter_shot_continuity(results)
         report_md = render_markdown_report(results, {"project_id": args.segments.stem, "segment_id": "BATCH"}, continuity_warnings)
@@ -1173,8 +1254,7 @@ def main() -> int:
             report_md += ", ".join(f"`{u}`" for u in unproduced) + "\n"
 
         if args.out_report:
-            args.out_report.parent.mkdir(parents=True, exist_ok=True)
-            args.out_report.write_text(report_md, encoding="utf-8")
+            atomic_write_text(args.out_report, report_md)
             print(f"[+] Markdown 審查報表已寫入: {args.out_report}")
         else:
             print("\n" + report_md + "\n")
@@ -1183,16 +1263,26 @@ def main() -> int:
             args.out_json.parent.mkdir(parents=True, exist_ok=True)
             payload = {
                 "results": results,
+                "expected_segments": expected_segments,
+                "source_segments_file": str(args.segments.resolve()),
+                "source_segments_sha256": compute_file_sha256(args.segments),
+                "episode": (seg_data.get("episode") or seg_data.get("episode_id")
+                            if isinstance(seg_data, dict) else None) or
+                           (re.search(r"ep\d+", args.segments.stem, re.IGNORECASE).group(0).lower()
+                            if re.search(r"ep\d+", args.segments.stem, re.IGNORECASE) else None),
                 "unproduced_segments": unproduced,
+                "duplicate_segments": duplicate_segments,
+                "mismatched_segments": mismatched_segments,
+                "errors": errors,
+                "review_status": "pending_review",
                 "continuity_warnings": continuity_warnings,
                 "generated_at": datetime.now(timezone.utc).isoformat()
             }
-            with args.out_json.open("w", encoding="utf-8") as f:
-                json.dump(payload, f, ensure_ascii=False, indent=2)
+            atomic_write_json(args.out_json, payload)
             print(f"[+] 結構化 JSON 審查報告已寫入: {args.out_json}")
 
         has_rejected = any(not r["passed"] for r in results)
-        return 1 if (has_rejected or not results) else 0
+        return 1 if (has_rejected or not results or unproduced or duplicate_segments or mismatched_segments or errors) else 0
 
     # =========================================================================
     # 模式 2：--layer2-dir 批次目錄審查
@@ -1210,21 +1300,36 @@ def main() -> int:
 
         results: List[Dict[str, Any]] = []
         unproduced: List[str] = []
+        expected_segments: List[str] = []
+        duplicate_segments: List[str] = []
+        mismatched_segments: List[str] = []
+        errors: List[Dict[str, str]] = []
+        source_inputs = [
+            {"path": str(lf.resolve()), "sha256": compute_file_sha256(lf)}
+            for lf in l2_files
+        ]
+        seen_segments = set()
 
         for lf in l2_files:
             with lf.open("r", encoding="utf-8") as f:
                 ldata = json.load(f)
-            sid = ldata.get("metadata", {}).get("segment_id") or lf.stem.replace("layer2-", "")
-            cand_files = [v_dir / f"{sid}.mp4", v_dir / f"{sid.lower()}.mp4"]
-            found_v = next((p for p in cand_files if p.exists()), None)
+            sid = str(ldata.get("metadata", {}).get("segment_id") or lf.stem.replace("layer2-", ""))
+            expected_segments.append(sid)
+            if sid.casefold() in seen_segments:
+                duplicate_segments.append(sid)
+                continue
+            seen_segments.add(sid.casefold())
+            found_v, ambiguous = find_exact_segment_video(v_dir, sid)
+            if ambiguous:
+                mismatched_segments.append(sid)
+                continue
             if not found_v:
-                found_v = next((p for p in v_dir.glob("*.mp4") if sid.lower() in p.stem.lower()), None)
-
-            if found_v and found_v.exists():
-                res = verify_single_segment(ldata, found_v, ldata.get("metadata"), contact_sheet_dir=contact_dir)
-                results.append(res)
-            else:
                 unproduced.append(sid)
+                continue
+            try:
+                results.append(verify_single_segment(ldata, found_v, ldata.get("metadata"), contact_sheet_dir=contact_dir))
+            except Exception as exc:
+                errors.append({"segment_id": sid, "error": str(exc)})
 
         continuity_warnings = check_inter_shot_continuity(results)
         report_md = render_markdown_report(results, {"project_id": args.layer2_dir.parent.name, "segment_id": "BATCH"}, continuity_warnings)
@@ -1234,8 +1339,7 @@ def main() -> int:
             report_md += ", ".join(f"`{u}`" for u in unproduced) + "\n"
 
         if args.out_report:
-            args.out_report.parent.mkdir(parents=True, exist_ok=True)
-            args.out_report.write_text(report_md, encoding="utf-8")
+            atomic_write_text(args.out_report, report_md)
             print(f"[+] Markdown 審查報表已寫入: {args.out_report}")
         else:
             print("\n" + report_md + "\n")
@@ -1244,16 +1348,21 @@ def main() -> int:
             args.out_json.parent.mkdir(parents=True, exist_ok=True)
             payload = {
                 "results": results,
+                "expected_segments": expected_segments,
+                "source_inputs": source_inputs,
                 "unproduced_segments": unproduced,
+                "duplicate_segments": duplicate_segments,
+                "mismatched_segments": mismatched_segments,
+                "errors": errors,
+                "review_status": "pending_review",
                 "continuity_warnings": continuity_warnings,
                 "generated_at": datetime.now(timezone.utc).isoformat()
             }
-            with args.out_json.open("w", encoding="utf-8") as f:
-                json.dump(payload, f, ensure_ascii=False, indent=2)
+            atomic_write_json(args.out_json, payload)
             print(f"[+] 結構化 JSON 審查報告已寫入: {args.out_json}")
 
         has_rejected = any(not r["passed"] for r in results)
-        return 1 if (has_rejected or not results) else 0
+        return 1 if (has_rejected or not results or unproduced or duplicate_segments or mismatched_segments or errors) else 0
 
     # =========================================================================
     # 模式 3：單個 --layer2 審查模式 (向後相容)
@@ -1322,8 +1431,7 @@ def main() -> int:
     report_md = render_markdown_report(results, layer2_data, continuity_warnings)
 
     if args.out_report:
-        args.out_report.parent.mkdir(parents=True, exist_ok=True)
-        args.out_report.write_text(report_md, encoding="utf-8")
+        atomic_write_text(args.out_report, report_md)
         print(f"[+] Markdown 審查報表已寫入: {args.out_report}")
     else:
         print("\n" + report_md + "\n")

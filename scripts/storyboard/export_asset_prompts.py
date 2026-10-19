@@ -238,7 +238,10 @@ def main():
                 break
 
     if not assets:
-        print("[警告] 未能從指定或預設路徑解析到任何資產設定！請指定 --assets-md。", file=sys.stderr)
+        if args.bible_json:
+            print("[錯誤] --bible-json 目前只用來尋找關聯的 assets.md，不直接解析資產；請提供 assets.md 或使用 --assets-md 指定。", file=sys.stderr)
+        else:
+            print("[警告] 未能解析到任何資產設定！請提供 assets.md 或使用 --assets-md 指定。", file=sys.stderr)
         sys.exit(1)
 
     # 2. 過濾

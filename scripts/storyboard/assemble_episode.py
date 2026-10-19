@@ -23,8 +23,10 @@ from __future__ import annotations
 import argparse
 import asyncio
 import csv
+import hashlib
 import io
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -32,7 +34,10 @@ import subprocess
 import sys
 import tempfile
 import time
+import struct
 from typing import Any, Dict, List, Optional, Tuple
+import wave
+from unittest.mock import patch
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -132,7 +137,117 @@ def synthesize_speech(text: str, out_wav: Path, engine: str = "auto", speaker: s
 
 def escape_ffmpeg_path(path: Path) -> str:
     """將 Windows 檔案路徑轉換為適用於 FFmpeg subtitles 濾鏡之跳脫字串 (C\\:/path/to/file)。"""
-    return str(path.resolve()).replace("\\", "/").replace(":", "\\:")
+    return str(path.resolve()).replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
+
+
+def probe_video_specs(video_path: Path) -> Dict[str, Any]:
+    """Read stream presence and duration without decoding the media."""
+    result = subprocess.run([
+        "ffprobe", "-v", "error", "-show_entries",
+        "format=duration:stream=codec_type,width,height", "-of", "json", str(video_path),
+    ], capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if result.returncode != 0:
+        raise RuntimeError(f"ffprobe 無法讀取 {video_path.name}: {result.stderr[:400]}")
+    info = json.loads(result.stdout)
+    streams = info.get("streams", [])
+    try:
+        duration = float(info.get("format", {}).get("duration", 0) or 0)
+    except (TypeError, ValueError):
+        duration = 0.0
+    return {
+        "has_video": any(s.get("codec_type") == "video" for s in streams),
+        "has_audio": any(s.get("codec_type") == "audio" for s in streams),
+        "duration": duration,
+    }
+
+
+def probe_audio_duration(audio_path: Path) -> float:
+    """Return decoded audio stream duration, rejecting missing/invalid audio."""
+    result = subprocess.run([
+        "ffprobe", "-v", "error", "-show_entries", "format=duration:stream=codec_type,duration",
+        "-of", "json", str(audio_path),
+    ], capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if result.returncode != 0:
+        raise RuntimeError(f"ffprobe 無法讀取 TTS 音訊: {result.stderr[:300]}")
+    info = json.loads(result.stdout)
+    audio_streams = [s for s in info.get("streams", []) if s.get("codec_type") == "audio"]
+    if not audio_streams:
+        raise RuntimeError("TTS 檔案沒有 audio stream")
+    raw_duration = audio_streams[0].get("duration") or (info.get("format") or {}).get("duration")
+    duration = float(raw_duration or 0)
+    if not math.isfinite(duration) or duration <= 0:
+        raise RuntimeError("TTS 音訊時長無效")
+    return duration
+
+
+def validate_video_decode(video_path: Path) -> Dict[str, Any]:
+    """Decode every frame and audio packet; a probe alone does not prove validity."""
+    specs = probe_video_specs(video_path)
+    if not specs["has_video"]:
+        return {"decode_ok": False, "duration": specs["duration"], "error": "no video stream"}
+    result = subprocess.run([
+        "ffmpeg", "-v", "error", "-xerror", "-i", str(video_path), "-f", "null", "-",
+    ], capture_output=True, text=True, encoding="utf-8", errors="replace")
+    return {
+        "decode_ok": result.returncode == 0,
+        "duration": specs["duration"],
+        "has_audio": specs["has_audio"],
+        "error": result.stderr[:500] if result.returncode else "",
+    }
+
+
+def compute_file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def atomic_write_json(path: Path, payload: Dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        temp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        temp.replace(path)
+    finally:
+        temp.unlink(missing_ok=True)
+
+
+def expected_segment_duration(segment: Dict[str, Any]) -> float:
+    metadata = segment.get("metadata") or {}
+    candidates = [metadata.get("effective_duration_sec"), metadata.get("target_duration_sec"), segment.get("seconds")]
+    for candidate in candidates:
+        try:
+            value = float(candidate)
+            if value > 0:
+                return value
+        except (TypeError, ValueError):
+            continue
+    shots = segment.get("shots") or []
+    try:
+        total = sum(float(shot.get("duration", 0) or 0) for shot in shots)
+        if total > 0:
+            return total
+    except (TypeError, ValueError):
+        pass
+    raise ValueError(f"分段 {segment.get('segment_id') or segment.get('id') or '?'} 沒有有效的預期時長")
+
+
+def timeline_segment_id(row: Dict[str, Any]) -> str:
+    explicit = row.get("segment_id") or row.get("segment") or row.get("group")
+    if explicit:
+        return str(explicit)
+    shot_id = str(row.get("shot_id", ""))
+    match = re.match(r"^(.*?)-SH\d+$", shot_id, re.IGNORECASE)
+    if not match:
+        raise ValueError(f"timeline row {shot_id!r} lacks segment_id and does not end with -SH<number>")
+    return match.group(1)
+
+
+def source_input_record(path: Path) -> Dict[str, str]:
+    resolved = path.resolve()
+    return {"path": str(resolved), "sha256": compute_file_sha256(resolved)}
 
 
 def sec_to_srt_time(sec: float) -> str:
@@ -160,7 +275,8 @@ def process_single_segment(
     tts_engine: str = "auto",
     bg_volume: float = 0.15,
     burn_subtitles: bool = True,
-    temp_dir: Optional[Path] = None
+    temp_dir: Optional[Path] = None,
+    audio_required: bool = False,
 ) -> Tuple[bool, str]:
     """針對單個分段執行 TTS 生成、adelay 混音與字幕燒錄。"""
     t_dir = temp_dir or (out_video.parent / "tmp_audio")
@@ -171,33 +287,59 @@ def process_single_segment(
     srt_lines = []
     tts_tracks: List[Tuple[Path, int]] = []  # (wav_path, delay_ms)
 
+    tts_failures: List[str] = []
     for idx, item in enumerate(lines_info, 1):
         line_text = item.get("subtitle") or item.get("line_verbatim") or item.get("text") or ""
         if not line_text:
             continue
         start_sec = float(item.get("start", 0.0))
         end_sec = float(item.get("end", start_sec + 2.5))
-        if end_sec <= start_sec:
-            end_sec = start_sec + 2.5
+        if start_sec < 0 or end_sec <= start_sec or end_sec > seg_duration + 1e-6:
+            return False, f"台詞 #{idx} 時間窗口無效或超出分段時長"
 
         srt_lines.append(f"{idx}\n{sec_to_srt_time(start_sec)} --> {sec_to_srt_time(end_sec)}\n{line_text}\n")
 
         # 準備 TTS 音訊
-        if audio_mode == "tts_replace":
+        if audio_mode in {"tts_replace", "narration_only"}:
             wav_path = t_dir / f"{in_video.stem}_line_{idx:02d}.wav"
+            wav_path.unlink(missing_ok=True)
             speaker = item.get("speaker", "")
             try:
-                eng_used = synthesize_speech(line_text, wav_path, engine=tts_engine, speaker=speaker)
+                synthesize_speech(line_text, wav_path, engine=tts_engine, speaker=speaker)
+                if not wav_path.exists() or wav_path.stat().st_size == 0:
+                    raise RuntimeError("TTS 沒有產生有效音訊檔")
+                actual_audio_duration = probe_audio_duration(wav_path)
+                if actual_audio_duration > end_sec - start_sec + 0.02 or start_sec + actual_audio_duration > seg_duration + 0.02:
+                    raise RuntimeError(
+                        f"TTS 時長 {actual_audio_duration:.3f}s 超出台詞窗口 {end_sec - start_sec:.3f}s "
+                        f"或分段結尾 {seg_duration:.3f}s；不會截斷/加速語音"
+                    )
                 delay_ms = max(0, int(start_sec * 1000))
                 tts_tracks.append((wav_path, delay_ms))
             except Exception as e:
-                print(f"   [!] 台詞 #{idx} 語音合成失敗: {e}")
+                tts_failures.append(f"台詞 #{idx}「{line_text}」合成失敗: {e}")
+
+    if tts_failures:
+        return False, "；".join(tts_failures)
 
     srt_file.write_text("\n".join(srt_lines), encoding="utf-8")
 
     # 2. 構建 FFmpeg 濾鏡鏈
-    has_tts = len(tts_tracks) > 0 and audio_mode == "tts_replace"
+    has_tts = len(tts_tracks) > 0 and audio_mode in {"tts_replace", "narration_only"}
     has_sub = len(srt_lines) > 0 and burn_subtitles
+    try:
+        source_specs = probe_video_specs(in_video)
+    except Exception as exc:
+        return False, f"無法讀取來源影片規格: {exc}"
+    if not source_specs.get("has_video"):
+        return False, f"來源影片沒有 video stream: {in_video}"
+    if abs(float(source_specs.get("duration", 0)) - seg_duration) > 0.1:
+        return False, f"來源影片時長 {source_specs.get('duration', 0):.3f}s 與預期分段 {seg_duration:.3f}s 相差超過 0.1s"
+    has_native_audio = bool(source_specs.get("has_audio"))
+    if audio_required and audio_mode == "native_sub" and not has_native_audio:
+        return False, "分鏡要求音訊，但來源影片沒有音訊流"
+    if audio_required and audio_mode in {"tts_replace", "narration_only"} and not tts_tracks:
+        return False, "分鏡要求音訊，但沒有成功生成任何 TTS 音軌"
 
     cmd = ["ffmpeg", "-y", "-i", str(in_video)]
     for wav_p, _ in tts_tracks:
@@ -209,37 +351,71 @@ def process_single_segment(
         sub_style = "FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2"
         v_filter = f"subtitles='{esc_srt}':force_style='{sub_style}'"
 
-    # 音訊混合構建
+    # 原生音軌降音量只會降低其中的語音與環境音；不會分離或移除原生人聲。
     filter_complex_parts = []
     if v_filter:
         filter_complex_parts.append(f"[0:v]{v_filter}[vout]")
 
     if has_tts:
-        # [0:a] 壓低音量
-        filter_complex_parts.append(f"[0:a]volume={bg_volume}[bg]")
-        mix_inputs = ["[bg]"]
+        mix_inputs = []
+        mix_native_audio = has_native_audio and audio_mode == "tts_replace"
+        if mix_native_audio:
+            filter_complex_parts.append(f"[0:a]volume={bg_volume}[native]" )
+            mix_inputs.append("[native]")
         for i, (_, delay_ms) in enumerate(tts_tracks, 1):
             filter_complex_parts.append(f"[{i}:a]adelay={delay_ms}|{delay_ms}[v{i}]")
             mix_inputs.append(f"[v{i}]")
-        
         mix_str = "".join(mix_inputs)
-        filter_complex_parts.append(f"{mix_str}amix=inputs={len(mix_inputs)}:duration=first[aout]")
+        mix_duration = "longest"
+        filter_complex_parts.append(
+            f"{mix_str}amix=inputs={len(mix_inputs)}:duration={mix_duration}[mixed];"
+            f"[mixed]apad,atrim=duration={seg_duration:.6f}[aout]"
+        )
+    elif has_native_audio:
+        filter_complex_parts.append(f"[0:a]apad,atrim=duration={seg_duration:.6f}[aout]")
 
     if filter_complex_parts:
         cmd.extend(["-filter_complex", ";".join(filter_complex_parts)])
         cmd.extend(["-map", "[vout]" if v_filter else "0:v"])
-        cmd.extend(["-map", "[aout]" if has_tts else "0:a"])
+        if has_tts:
+            cmd.extend(["-map", "[aout]"])
+        elif has_native_audio:
+            cmd.extend(["-map", "[aout]"])
+        else:
+            cmd.append("-an")
     else:
-        cmd.extend(["-c", "copy"])
+        cmd.extend(["-map", "0:v"])
+        if has_native_audio:
+            cmd.extend(["-map", "0:a"])
+        else:
+            cmd.append("-an")
 
     if filter_complex_parts:
-        cmd.extend(["-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k"])
+        cmd.extend(["-c:v", "libx264", "-pix_fmt", "yuv420p"])
+        if has_tts or has_native_audio:
+            cmd.extend(["-c:a", "aac", "-b:a", "192k"])
+    else:
+        cmd.extend(["-c:v", "copy"])
+        if has_native_audio:
+            cmd.extend(["-c:a", "copy"])
 
-    cmd.append(str(out_video))
+    staging_video = out_video.with_name(f".{out_video.stem}.{os.getpid()}.tmp{out_video.suffix}")
+    staging_video.unlink(missing_ok=True)
+    cmd.append(str(staging_video))
 
     res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
-    if res.returncode != 0:
+    if res.returncode != 0 or not staging_video.exists() or staging_video.stat().st_size == 0:
+        staging_video.unlink(missing_ok=True)
         return False, f"FFmpeg 處理分段 {in_video.name} 失敗: {res.stderr[:400]}"
+    try:
+        output_specs = probe_video_specs(staging_video)
+    except Exception as exc:
+        staging_video.unlink(missing_ok=True)
+        return False, f"無法驗證處理後分段: {exc}"
+    if not output_specs.get("has_video") or abs(float(output_specs.get("duration", 0)) - seg_duration) > 0.1:
+        staging_video.unlink(missing_ok=True)
+        return False, f"處理後分段時長 {output_specs.get('duration', 0):.3f}s 未落在預期 {seg_duration:.3f}s ±0.1s"
+    staging_video.replace(out_video)
     return True, "成功"
 
 
@@ -250,25 +426,35 @@ def process_single_segment(
 def concat_videos(video_list: List[Path], out_video: Path) -> Tuple[bool, str]:
     """使用 FFmpeg concat 協議無縫拼接分段影片成片。"""
     out_video.parent.mkdir(parents=True, exist_ok=True)
-    list_file = out_video.parent / f"concat_{out_video.stem}.txt"
-    lines = [f"file '{v.name}'" for v in video_list]
-    list_file.write_text("\n".join(lines), encoding="utf-8")
+    list_file = out_video.parent / f"concat_{out_video.stem}_{os.getpid()}.txt"
+
+    def concat_quote(path: Path) -> str:
+        value = path.resolve().as_posix()
+        if "\n" in value or "\r" in value:
+            raise ValueError("影片路徑不得包含換行字元")
+        return "'" + value.replace("'", "'\\''") + "'"
+
+    lines = [f"file {concat_quote(v)}" for v in video_list]
+    list_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    staging_video = out_video.with_name(f".{out_video.stem}.{os.getpid()}.concat{out_video.suffix}")
+    staging_video.unlink(missing_ok=True)
 
     cmd = [
-        "ffmpeg", "-y", "-f", "concat", "-safe", "0",
-        "-i", str(list_file.name),
+        "ffmpeg", "-y", "-hide_banner", "-f", "concat", "-safe", "0",
+        "-i", str(list_file.resolve()),
         "-c", "copy",
-        str(out_video.name)
+        str(staging_video.resolve())
     ]
-    # 在目錄中執行以支援相對路徑
     res = subprocess.run(cmd, cwd=str(out_video.parent), capture_output=True, text=True, encoding="utf-8", errors="replace")
     try:
         list_file.unlink()
     except Exception:
         pass
 
-    if res.returncode != 0:
+    if res.returncode != 0 or not staging_video.exists() or staging_video.stat().st_size == 0:
+        staging_video.unlink(missing_ok=True)
         return False, f"拼接失敗: {res.stderr[:400]}"
+    staging_video.replace(out_video)
     return True, "成功"
 
 
@@ -277,12 +463,12 @@ def concat_videos(video_list: List[Path], out_video: Path) -> Tuple[bool, str]:
 # ==============================================================================
 
 def run_self_test() -> bool:
-    """自動建立測試短片，跑通 TTS ➔ 混音 ➔ 字幕轉義燒錄 ➔ Concat 拼接全鏈路驗證。"""
+    """離線合成測試音與短片，驗證混音、字幕燒錄、拼接，不呼叫雲端或系統 TTS。"""
     print("\n" + "=" * 70)
     print("🧪 啟動 assemble_episode 階段 7 全鏈路自動化自檢 (--self-test)")
     print("=" * 70)
 
-    with tempfile.TemporaryDirectory() as td:
+    with tempfile.TemporaryDirectory(dir=Path.cwd()) as td:
         t_path = Path(td)
         vid1 = t_path / "test_seg01.mp4"
         vid2 = t_path / "test_seg02.mp4"
@@ -309,17 +495,30 @@ def run_self_test() -> bool:
         out_seg1 = t_path / "proc_seg01.mp4"
         out_seg2 = t_path / "proc_seg02.mp4"
 
-        ok1, msg1 = process_single_segment(vid1, out_seg1, lines1, 4.0, audio_mode="tts_replace", tts_engine="auto")
+        def synthetic_tts(text: str, out_wav: Path, engine: str = "auto", speaker: str = "") -> str:
+            out_wav.parent.mkdir(parents=True, exist_ok=True)
+            sample_rate = 16000
+            samples = [int(7000 * math.sin(2 * math.pi * 440 * n / sample_rate)) for n in range(sample_rate // 2)]
+            with wave.open(str(out_wav), "wb") as wav_file:
+                wav_file.setnchannels(1)
+                wav_file.setsampwidth(2)
+                wav_file.setframerate(sample_rate)
+                wav_file.writeframes(b"".join(struct.pack("<h", sample) for sample in samples))
+            return "offline-synthetic-tone"
+
+        with patch(__name__ + ".synthesize_speech", side_effect=synthetic_tts):
+            ok1, msg1 = process_single_segment(vid1, out_seg1, lines1, 4.0, audio_mode="tts_replace", tts_engine="sapi")
         if not ok1:
             print(f"❌ 分段 1 處理失敗: {msg1}")
             return False
-        print("✅ 成功完成分段 1 智慧 TTS 配音、混音與字幕燒錄")
+        print("✅ 成功完成分段 1 離線合成測試音、混音與字幕燒錄")
 
-        ok2, msg2 = process_single_segment(vid2, out_seg2, lines2, 4.0, audio_mode="tts_replace", tts_engine="auto")
+        with patch(__name__ + ".synthesize_speech", side_effect=synthetic_tts):
+            ok2, msg2 = process_single_segment(vid2, out_seg2, lines2, 4.0, audio_mode="tts_replace", tts_engine="sapi")
         if not ok2:
             print(f"❌ 分段 2 處理失敗: {msg2}")
             return False
-        print("✅ 成功完成分段 2 智慧 TTS 配音、混音與字幕燒錄")
+        print("✅ 成功完成分段 2 離線合成測試音、混音與字幕燒錄")
 
         # 3. 測試 Concat 拼接
         final_mp4 = t_path / "final_test_ep.mp4"
@@ -359,44 +558,84 @@ def main() -> int:
     parser.add_argument("--bg-volume", type=float, default=0.15, help="壓低原生 H3 背景音量 (預設 0.15)")
     parser.add_argument("--no-burn-subtitles", action="store_true", help="關閉字幕硬字幕燒錄")
     parser.add_argument("--delivery-report", type=Path, help="輸出階段 7 交付清單 Markdown 檔案")
+    parser.add_argument("--manifest", type=Path, help="輸出機器可讀交付 JSON（預設 delivery-<output>.json）")
     parser.add_argument("--self-test", action="store_true", help="執行全鏈路合成短片單元自檢")
 
     args = parser.parse_args()
+
+    if args.narration:
+        parser.error("--narration 外部 Markdown 尚未支援；narration_only 僅讀取 segments 中 shots[].narration")
 
     if args.self_test:
         success = run_self_test()
         return 0 if success else 1
 
+    # Invalidate any prior success claim before reading or processing this run's inputs.
+    # The prior final file remains intact until a fully validated candidate replaces it.
+    manifest_file = args.manifest or (args.output.parent / f"delivery-{args.output.stem}.json")
+    atomic_write_json(manifest_file, {
+        "schema_version": 1,
+        "delivery_status": "in_progress",
+        "review_status": "pending_review",
+        "expected_segments": [],
+        "assembled_segments": [],
+        "expected_segment_count": 0,
+        "assembled_segment_count": 0,
+        "final_video": str(args.output.resolve()),
+        "final_sha256": None,
+        "final_decode_ok": False,
+        "final_duration_seconds": None,
+        "errors": [],
+    })
+
     # 1. 收集分段與台詞資料
     # 支援 segments.json、timeline.csv 或 layer2-dir
     segments_data: List[Dict[str, Any]] = []
+    source_inputs: List[Dict[str, str]] = []
+    source_segments_file: Optional[Path] = None
+    episode: Optional[str] = None
 
     if args.segments and args.segments.exists():
         with args.segments.open("r", encoding="utf-8") as f:
             raw = json.load(f)
         segments_data = raw if isinstance(raw, list) else raw.get("segments", [raw])
+        source_segments_file = args.segments.resolve()
+        source_inputs.append(source_input_record(source_segments_file))
+        if isinstance(raw, dict):
+            episode = raw.get("episode") or raw.get("episode_id")
+        episode_match = re.search(r"ep\d+", args.segments.stem, re.IGNORECASE)
+        episode = episode or (episode_match.group(0).lower() if episode_match else None)
 
     elif args.layer2_dir and args.layer2_dir.exists():
         for lf in sorted(args.layer2_dir.glob("layer2-*.json")):
             with lf.open("r", encoding="utf-8") as f:
                 segments_data.append(json.load(f))
+            source_inputs.append(source_input_record(lf))
 
     elif args.timeline and args.timeline.exists():
         # 從 timeline.csv 讀取
+        source_inputs.append(source_input_record(args.timeline))
         with args.timeline.open("r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
-            # 依 scene/segment 分組
-            current_seg: Optional[Dict[str, Any]] = None
             for row in reader:
-                sid = row.get("shot_id", "")
-                parts = sid.split("-")
-                seg_id = f"{parts[0]}-{parts[1]}" if len(parts) >= 2 else sid
-                if not current_seg or current_seg["segment_id"] != seg_id:
-                    current_seg = {"segment_id": seg_id, "shots": []}
-                    segments_data.append(current_seg)
-                current_seg["shots"].append(row)
+                try:
+                    seg_id = timeline_segment_id(row)
+                except ValueError as exc:
+                    parser.error(f"{exc}; refusing ambiguous grouping")
+                segment = next((item for item in segments_data if item["segment_id"] == seg_id), None)
+                if segment is None:
+                    segment = {"segment_id": seg_id, "shots": []}
+                    segments_data.append(segment)
+                segment["shots"].append(row)
+            for segment in segments_data:
+                segment["seconds"] = sum(float(shot.get("duration", 0) or 0) for shot in segment["shots"])
     else:
         parser.error("請提供 --segments, --layer2-dir, --timeline 或 --self-test！")
+
+    if not episode:
+        source_label = args.layer2_dir.name if args.layer2_dir else args.timeline.stem if args.timeline else ""
+        episode_match = re.search(r"ep\d+", source_label, re.IGNORECASE)
+        episode = episode_match.group(0).lower() if episode_match else None
 
     print("\n" + "=" * 70)
     print("🎬 AI 漫劇階段 7 組裝與交付工具 (assemble_episode)")
@@ -410,23 +649,60 @@ def main() -> int:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     temp_dir = args.output.parent / "temp_assemble"
     temp_dir.mkdir(parents=True, exist_ok=True)
-
+    manifest_file = args.manifest or (args.output.parent / f"delivery-{args.output.stem}.json")
+    expected_segments: List[str] = []
+    duplicate_segments: List[str] = []
+    seen_segment_ids = set()
+    for idx, seg in enumerate(segments_data, 1):
+        sid = str(seg.get("segment_id") or seg.get("group") or seg.get("id") or f"seg_{idx}")
+        expected_segments.append(sid)
+        if sid.casefold() in seen_segment_ids:
+            duplicate_segments.append(sid)
+        seen_segment_ids.add(sid.casefold())
+    manifest: Dict[str, Any] = {
+        "schema_version": 1,
+        "delivery_status": "in_progress",
+        "review_status": "pending_review",
+        "expected_segments": expected_segments,
+        "assembled_segments": [],
+        "expected_segment_count": len(expected_segments),
+        "assembled_segment_count": 0,
+        "final_video": str(args.output.resolve()),
+        "final_sha256": None,
+        "final_decode_ok": False,
+        "final_duration_seconds": None,
+        "errors": [],
+        "source_inputs": source_inputs,
+    }
+    if source_segments_file:
+        manifest["source_segments_file"] = str(source_segments_file)
+        manifest["source_segments_sha256"] = source_inputs[0]["sha256"]
+        manifest["episode"] = episode
+    atomic_write_json(manifest_file, manifest)
     processed_videos: List[Path] = []
+    segment_records: List[Dict[str, Any]] = []
     missing_segments: List[str] = []
+    mismatched_segments: List[str] = []
+    processing_failures: List[Dict[str, str]] = []
+    planned_durations: List[float] = []
 
     for idx, seg in enumerate(segments_data, 1):
-        sid = seg.get("segment_id") or seg.get("group") or seg.get("id") or f"seg_{idx}"
+        sid = str(seg.get("segment_id") or seg.get("group") or seg.get("id") or f"seg_{idx}")
+        try:
+            seg_dur = expected_segment_duration(seg)
+        except ValueError as exc:
+            processing_failures.append({"segment_id": sid, "error": str(exc)})
+            continue
         
         # 尋找原始影片
-        cand_files = [
-            args.videos_dir / f"{sid}.mp4",
-            args.videos_dir / f"{sid.lower()}.mp4",
-            args.videos_dir / f"seg-{sid}.mp4",
-        ]
-        found_in = next((p for p in cand_files if p.exists()), None)
-        if not found_in:
-            found_in = next((p for p in args.videos_dir.glob("*.mp4") if sid.lower() in p.stem.lower()), None)
+        allowed_stems = {sid.casefold(), f"seg-{sid}".casefold()}
+        exact_matches = [p for p in args.videos_dir.glob("*.mp4") if p.stem.casefold() in allowed_stems]
+        found_in = exact_matches[0] if len(exact_matches) == 1 else None
 
+        if len(exact_matches) > 1:
+            mismatched_segments.append(sid)
+            print(f"  ❌ 分段 [{sid}] 對應到多個影片檔，請明確整理檔名")
+            continue
         if not found_in or not found_in.exists():
             print(f"  ⚠️ 分段 #{idx:02d} [{sid}] 缺失對應之 MP4 影片檔案！")
             missing_segments.append(sid)
@@ -437,15 +713,31 @@ def main() -> int:
         shots = seg.get("shots", [])
         for s in shots:
             dlg = s.get("dialogue_and_audio", {})
-            text = dlg.get("line_verbatim") or s.get("subtitle") or s.get("narration") or ""
-            if text and text != "（無台詞）":
+            if args.audio_mode == "narration_only":
+                text = s.get("narration") or ""
+            else:
+                text = dlg.get("line_verbatim") or s.get("subtitle") or s.get("narration") or ""
+            if text and str(text).strip() not in {"（無台詞）", "(無台詞)", "無台詞"}:
                 st = float(s.get("start_time") or s.get("start") or 0.0)
                 et = float(s.get("end_time") or s.get("end") or (st + float(s.get("duration", 2.5))))
                 spk = dlg.get("speaker") or s.get("speaker") or ""
                 lines_info.append({"start": st, "end": et, "subtitle": text, "speaker": spk})
 
         out_seg_v = temp_dir / f"proc_{sid}.mp4"
-        seg_dur = float(seg.get("metadata", {}).get("effective_duration_sec") or seg.get("seconds", 8.0))
+        planned_durations.append(seg_dur)
+        dialogue_required = any(
+            (shot.get("dialogue_and_audio") or {}).get("has_dialogue") is True
+            or any(str(value or "").strip() not in {"", "（無台詞）", "(無台詞)", "無台詞"} for value in (
+                (shot.get("dialogue_and_audio") or {}).get("line_verbatim"),
+                shot.get("subtitle"), shot.get("narration"), shot.get("line_verbatim"),
+            ))
+            for shot in shots
+        )
+        if args.audio_mode == "narration_only":
+            dialogue_required = True
+            if not lines_info:
+                processing_failures.append({"segment_id": sid, "error": "narration_only 需要 inline shots[].narration；本分段沒有旁白"})
+                continue
 
         print(f"  [+] 處理分段 #{idx:02d} [{sid}] (台詞: {len(lines_info)} 句)...")
         ok, msg = process_single_segment(
@@ -454,22 +746,84 @@ def main() -> int:
             tts_engine=args.tts_engine,
             bg_volume=args.bg_volume,
             burn_subtitles=not args.no_burn_subtitles,
-            temp_dir=temp_dir
+            temp_dir=temp_dir,
+            audio_required=dialogue_required,
         )
         if ok and out_seg_v.exists():
             processed_videos.append(out_seg_v)
+            segment_records.append({
+                "segment_id": sid,
+                "source_video_file": str(found_in.resolve()),
+                "source_video_sha256": compute_file_sha256(found_in),
+                "processed_video_file": str(out_seg_v.resolve()),
+                "processed_video_sha256": compute_file_sha256(out_seg_v),
+            })
         else:
             print(f"     ❌ 處理失敗: {msg}")
+            processing_failures.append({"segment_id": sid, "error": msg})
+
+    if missing_segments or duplicate_segments or mismatched_segments or processing_failures or len(processed_videos) != len(expected_segments):
+        errors = []
+        if missing_segments:
+            errors.append("unproduced segments: " + ", ".join(missing_segments))
+        if duplicate_segments:
+            errors.append("duplicate segment IDs: " + ", ".join(duplicate_segments))
+        if mismatched_segments:
+            errors.append("ambiguous video mappings: " + ", ".join(mismatched_segments))
+        errors.extend(f"{item['segment_id']}: {item['error']}" for item in processing_failures)
+        manifest.update({
+            "delivery_status": "failed", "assembled_segments": segment_records,
+            "assembled_segment_count": len(segment_records), "errors": errors,
+            "unproduced_segments": missing_segments,
+            "duplicate_segments": duplicate_segments,
+            "mismatched_segments": mismatched_segments,
+        })
+        atomic_write_json(manifest_file, manifest)
+        print("❌ 未處理全部且唯一的預期分段，未建立新交付成片")
+        return 1
 
     # 3. 拼接成片
     if not processed_videos:
-        sys.exit("❌ 錯誤: 沒有成功處理的任何分段影片，無法拼接成片！")
+        manifest.update({"delivery_status": "failed", "errors": ["沒有可組裝的影片分段"]})
+        atomic_write_json(manifest_file, manifest)
+        print("❌ 錯誤: 沒有成功處理的任何分段影片，無法拼接成片！")
+        return 1
 
     print(f"\n🔗 開始將 {len(processed_videos)} 個已配音字幕分段無縫拼接為成片...")
-    concat_ok, concat_msg = concat_videos(processed_videos, args.output)
+    candidate = args.output.with_name(f".{args.output.stem}.{os.getpid()}.candidate{args.output.suffix}")
+    candidate.unlink(missing_ok=True)
+    concat_ok, concat_msg = concat_videos(processed_videos, candidate)
 
     if not concat_ok:
-        sys.exit(f"❌ 拼接成片失敗: {concat_msg}")
+        candidate.unlink(missing_ok=True)
+        manifest.update({"delivery_status": "failed", "assembled_segments": segment_records,
+                         "assembled_segment_count": len(segment_records), "errors": [concat_msg]})
+        atomic_write_json(manifest_file, manifest)
+        print(f"❌ 拼接成片失敗: {concat_msg}")
+        return 1
+
+    decode_report = validate_video_decode(candidate)
+    expected_duration = sum(planned_durations)
+    duration_ok = abs(float(decode_report.get("duration", 0)) - expected_duration) <= 0.5
+    count_ok = len(segment_records) == len(expected_segments)
+    if not decode_report.get("decode_ok") or not duration_ok or not count_ok:
+        candidate.unlink(missing_ok=True)
+        errors = []
+        if not decode_report.get("decode_ok"):
+            errors.append(f"final decode failed: {decode_report.get('error', '')}")
+        if not duration_ok:
+            errors.append(f"final duration {decode_report.get('duration', 0):.3f}s does not match planned {expected_duration:.3f}s")
+        if not count_ok:
+            errors.append(f"assembled {len(segment_records)} of {len(expected_segments)} expected segments")
+        manifest.update({"delivery_status": "failed", "assembled_segments": segment_records,
+                         "assembled_segment_count": len(segment_records), "errors": errors,
+                         "final_duration_seconds": decode_report.get("duration")})
+        atomic_write_json(manifest_file, manifest)
+        print("❌ 成片完整解碼、時長或分段數驗證失敗；保留既有輸出")
+        return 1
+
+    candidate.replace(args.output)
+    final_hash = compute_file_sha256(args.output)
 
     size_mb = args.output.stat().st_size / 1048576.0
     print(f"🎉 成片拼接完成！輸出: {args.output.name} ({size_mb:.2f} MB)")
@@ -483,20 +837,34 @@ def main() -> int:
         f"- **交付時間**：`{time.strftime('%Y-%m-%d %H:%M:%S')}`",
         f"- **配音模式**：`{args.audio_mode}` (TTS 引擎: `{args.tts_engine}`)",
         f"- **字幕燒錄**：`{'是' if not args.no_burn_subtitles else '否'}`",
-        f"- **已包含分段數**：`{len(processed_videos)}` 段",
+        f"- **技術狀態**：`complete`；人工審核：`pending_review`",
+        f"- **成片 SHA256**：`{final_hash}`",
+        f"- **完整解碼**：`{decode_report['decode_ok']}`；時長：`{decode_report['duration']:.3f}s`",
+        f"- **已包含分段數**：`{len(processed_videos)}/{len(expected_segments)}` 段",
+        f"- **原生音訊處理**：若存在，依音量係數降低整條原生音軌；不代表已分離背景音與原生人聲。",
         f"",
         f"## 分段明細",
         f"",
     ]
     for pv in processed_videos:
         report_lines.append(f"- ✅ `{pv.name.replace('proc_', '')}`")
-    if missing_segments:
-        report_lines.append(f"\n## ⚠️ 未完成／缺失分段")
-        for ms in missing_segments:
-            report_lines.append(f"- ❌ `{ms}`")
-
-    report_file.write_text("\n".join(report_lines), encoding="utf-8")
+    report_tmp = report_file.with_name(f".{report_file.name}.{os.getpid()}.tmp")
+    report_tmp.write_text("\n".join(report_lines), encoding="utf-8")
+    report_tmp.replace(report_file)
+    manifest.update({
+        "delivery_status": "complete", "review_status": "pending_review",
+        "assembled_segments": segment_records,
+        "assembled_segment_count": len(segment_records),
+        "final_video": str(args.output.resolve()), "final_sha256": final_hash,
+        "final_decode_ok": bool(decode_report["decode_ok"]),
+        "final_duration_seconds": decode_report["duration"],
+        "expected_duration_seconds": expected_duration,
+        "audio_mode": args.audio_mode,
+        "native_audio_handling": "retained_at_bg_volume; native speech is not separated from ambience",
+    })
+    atomic_write_json(manifest_file, manifest)
     print(f"📄 交付清單報表已寫入: {report_file.name}")
+    print(f"📦 機器可讀交付 manifest 已寫入: {manifest_file.name}")
 
     return 0
 

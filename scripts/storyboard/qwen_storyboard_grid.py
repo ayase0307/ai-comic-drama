@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import io
 import json
 import math
 import os
@@ -30,10 +29,14 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from PIL import Image, ImageDraw, ImageFont
 
-# 確保 Windows 終端以 UTF-8 輸出，避免繁體中文字元編碼異常
+# Prefer in-place stream reconfiguration. Replacing sys.stdout/stderr with new
+# TextIOWrapper instances can let the wrapper's destructor close the shared
+# underlying stream when this module is imported alongside other tools.
 if sys.platform.startswith("win"):
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 
 # ==============================================================================
@@ -435,13 +438,26 @@ def process_storyboard_segment(
         raise ValueError("Layer 2 JSON 中未包含任何 shots 鏡頭資料！")
 
     panels_dir = out_dir / "panels"
-    panels_dir.mkdir(parents=True, exist_ok=True)
 
     sha256_map: Dict[str, str] = {}
     total_shots = len(shots)
 
     print(f"\n[開始分鏡處理] 專案: {layer2_data.get('project_id')} | 場次: {layer2_data.get('scene_id')} | 段落: {layer2_data.get('segment_id')}")
     print(f"總鏡頭數: {total_shots} 鏡 | 目標輸出目錄: {panels_dir}")
+
+    if dry_run:
+        for idx, shot in enumerate(shots, start=1):
+            shot_id = shot.get("shot_id", f"SH{idx:02d}")
+            panel_path = panels_dir / f"panel-{idx:02d}-{shot_id}.png"
+            review_info = shot.get("review", {})
+            locked = review_info.get("locked", False) or review_info.get("review_status") == "approved"
+            if locked and not panel_path.exists():
+                raise ValueError(f"已核准/鎖定鏡頭 {shot_id} 缺少分鏡圖，拒絕重新生成或略過")
+            action = "保留既有圖" if locked else ("計畫生成" if generate_all or redraw_shot_id == shot_id else "僅檢查")
+            print(f"  [DRY RUN] #{idx:02d} {shot_id}: {action}")
+        return layer2_data, sha256_map
+
+    panels_dir.mkdir(parents=True, exist_ok=True)
 
     for idx, shot in enumerate(shots, start=1):
         shot_id = shot.get("shot_id", f"SH{idx:02d}")
@@ -455,6 +471,8 @@ def process_storyboard_segment(
         review_info = shot.get("review", {})
         is_locked = review_info.get("locked", False)
         review_status = review_info.get("review_status", "draft")
+        if redraw_shot_id == shot_id and (is_locked or review_status == "approved"):
+            raise ValueError(f"已核准/鎖定鏡頭 {shot_id} 不可重繪；請先由人工解除核准鎖")
 
         if redraw_shot_id:
             if shot_id == redraw_shot_id:
@@ -464,7 +482,9 @@ def process_storyboard_segment(
                 should_generate = False
                 skip_reason = "非重繪指定鏡頭（局部重繪保護其餘格完全不觸碰）"
         elif generate_all:
-            if panel_path.exists() and (is_locked or review_status == "approved"):
+            if is_locked or review_status == "approved":
+                if not panel_path.exists():
+                    raise ValueError(f"已核准/鎖定鏡頭 {shot_id} 缺少分鏡圖，拒絕重生")
                 should_generate = False
                 skip_reason = f"已審核通過且鎖定 ({review_status}, locked={is_locked})，自動跳過防止重抽"
             else:
@@ -492,10 +512,6 @@ def process_storyboard_segment(
         print(f"\n-> [#格號 {idx:02d}] 正在為鏡頭 {shot_id} 生成黑白鉛筆分鏡草圖...")
         print(f"   景別焦段: {shot.get('camera_optics', {}).get('shot_size')} {shot.get('camera_optics', {}).get('focal_length')} | 時長: {shot.get('duration')}s")
         print(f"   Prompt 長度: {len(prompt)} 字元")
-
-        if dry_run:
-            print("   [DRY RUN] 略過實際呼叫 FreeVideo API。")
-            continue
 
         # 呼叫 FreeVideo 生圖
         t_start = time.time()
@@ -554,7 +570,8 @@ def convert_to_color_keyframes(
         raise ValueError("Layer 2 JSON 中未包含任何 shots 鏡頭資料！")
 
     keyframes_dir = out_dir / "keyframes"
-    keyframes_dir.mkdir(parents=True, exist_ok=True)
+    if not dry_run:
+        keyframes_dir.mkdir(parents=True, exist_ok=True)
     panels_dir = out_dir / "panels"
 
     print(f"\n[開始轉繪全彩關鍵幀首幀] 目標: {target_shot} | 目標輸出目錄: {keyframes_dir}")
@@ -1039,12 +1056,13 @@ def main():
         out_dir = pathlib.Path(args.out_dir).resolve()
     else:
         out_dir = layer2_files[0].parent
-    out_dir.mkdir(parents=True, exist_ok=True)
+    if not args.dry_run:
+        out_dir.mkdir(parents=True, exist_ok=True)
 
     client = FreeVideoClient()
 
     # 3. 檢查連線 (若需要生圖)
-    need_conn = (args.generate_all or args.redraw_shot or args.to_color_keyframe) and not args.assemble_only
+    need_conn = (args.generate_all or args.redraw_shot or args.to_color_keyframe) and not args.assemble_only and not args.dry_run
     if need_conn:
         check_gpu_vram(verbose=True)
         print("[連線初始化] 正在檢查 FreeVideo 伺服器並握手...")
@@ -1076,8 +1094,9 @@ def main():
                 seed=args.seed,
                 dry_run=args.dry_run,
             )
-            with l2_path.open("w", encoding="utf-8") as f:
-                json.dump(l2_data, f, ensure_ascii=False, indent=2)
+            if not args.dry_run:
+                with l2_path.open("w", encoding="utf-8") as f:
+                    json.dump(l2_data, f, ensure_ascii=False, indent=2)
 
         if args.to_color_keyframe and not args.assemble_only:
             print(f"\n{STYLE_CONSISTENCY_WARNING}\n")
@@ -1089,11 +1108,12 @@ def main():
                 seed=args.seed,
                 dry_run=args.dry_run,
             )
-            with l2_path.open("w", encoding="utf-8") as f:
-                json.dump(l2_data, f, ensure_ascii=False, indent=2)
+            if not args.dry_run:
+                with l2_path.open("w", encoding="utf-8") as f:
+                    json.dump(l2_data, f, ensure_ascii=False, indent=2)
 
         # 單檔自適應拼版
-        if (args.assemble_grid or args.assemble_only) and args.grid_mode in ("auto", "compact", "3x3"):
+        if not args.dry_run and (args.assemble_grid or args.assemble_only) and args.grid_mode in ("auto", "compact", "3x3"):
             assemble_adaptive_grid(
                 layer2_data=l2_data,
                 out_dir=out_dir,
@@ -1104,7 +1124,7 @@ def main():
                 json.dump(l2_data, f, ensure_ascii=False, indent=2)
 
     # 5. 跨段整集拼版 (episode-pages 或 segment-rep)
-    if (args.assemble_grid or args.assemble_only) and args.grid_mode in ("episode-pages", "segment-rep"):
+    if not args.dry_run and (args.assemble_grid or args.assemble_only) and args.grid_mode in ("episode-pages", "segment-rep"):
         ep_tag = args.episode or "ALL"
         print(f"\n[執行跨段整集拼版] 模式: {args.grid_mode} | 涵蓋分段數: {len(layer2_files)}")
         assemble_episode_grids(
