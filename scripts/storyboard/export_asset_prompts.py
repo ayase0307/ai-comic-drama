@@ -106,21 +106,52 @@ def load_style_anchor(index: int, styles_md: pathlib.Path = STYLES_MD) -> Dict[s
     return {"name": m.group(1).strip(), "anchor": anchor.group(1), "negative": negative.group(1) if negative else ""}
 
 
+STYLE_PRESETS = {
+    "master": {
+        "name": "3D 漫劇寫實厚塗（母版預設）",
+        "line": MASTER_STYLE_3D,
+        "quality": MASTER_QUALITY_3D,
+    },
+    "semi-real": {
+        "name": "UE5 半寫實東亞 CG",
+        "line": (
+            "Photorealistic-stylized East Asian 3D CG character concept sheet (Unreal Engine 5 / Korean-Chinese "
+            "next-gen CG cinema aesthetic, realistic East Asian facial bone structure and eye proportions, delicate "
+            "subsurface-scattering pore skin texture; STRICTLY NO Pixar style, NO Disney cartoon style, NO Western "
+            "cartoon proportions, NO exaggerated oversized eyes, NO freckles)。"
+        ),
+        "quality": "8K超高清，电影级半写实CG渲染，毛孔级皮肤质感与次表面散射。",
+    },
+}
+STYLE_CHOICES = "master（母版3D厚塗，預設）／semi-real（UE5半寫實）／1–11（styles.md 編號）"
+NUMBERED_STYLE_NOTE = "背景以上述四格共用的浅灰纯色背景为准，忽略风格词里的场景背景、粒子与氛围元素。"
+
+
+def resolve_style(token: Optional[str]) -> Dict[str, str]:
+    """把風格選擇（master／semi-real／styles.md 編號）解析成 {name, line, quality}。"""
+    key = (str(token).strip().lower() if token else "") or "master"
+    if key in STYLE_PRESETS:
+        return {**STYLE_PRESETS[key], "key": key}
+    if key.isdigit():
+        a = load_style_anchor(int(key))
+        neg = f" 避免：{a['negative']}。" if a["negative"] else ""
+        return {"key": key, "name": a["name"], "line": f"{a['anchor']}。{NUMBERED_STYLE_NOTE}",
+                "quality": neg.strip()}
+    raise ValueError(f"未知風格 {token!r}；可選：{STYLE_CHOICES}")
+
+
 def build_character_prompt(subject_desc: str, style: Optional[Dict[str, str]] = None, project_lock: str = "") -> str:
-    """母版五段式角色設定板提示詞。style=None 用母版 3D 寫實厚塗；否則用 styles.md 錨取代渲染與膚質句。"""
-    if style:
-        style_part = f"风格：{style['anchor']}。"
-        quality = MASTER_QUALITY_TAIL + (f" 避免：{style['negative']}。" if style["negative"] else "")
-    else:
-        style_part = f"风格：{MASTER_STYLE_3D}"
-        quality = MASTER_QUALITY_3D + MASTER_QUALITY_TAIL
-        if project_lock and project_lock != DEFAULT_STYLE_LOCK_3D:
-            quality += f" 专案风格锁：{project_lock}"
+    """母版五段式角色設定板提示詞：構圖與防呆不變，風格句與畫質句依所選風格替換。"""
+    style = style or resolve_style(None)
+    quality = (style["quality"] + MASTER_QUALITY_TAIL) if style["quality"] else MASTER_QUALITY_TAIL
+    if style.get("key") == "master" and project_lock and project_lock != DEFAULT_STYLE_LOCK_3D:
+        quality += f" 专案风格锁：{project_lock}"
+    back_rule = "" if "背面特徵" in subject_desc else f"背面：{MASTER_BACK_RULE}\n"
     return (
         f"构图：{MASTER_COMPOSITION}{MASTER_GUARDS}\n"
-        f"{style_part}\n"
+        f"风格：{style['line']}\n"
         f"角色：{subject_desc}\n"
-        f"背面：{MASTER_BACK_RULE}\n"
+        f"{back_rule}"
         f"画质：{quality}"
     )
 
@@ -252,10 +283,10 @@ def parse_card_assets(text: str, style_lock: str = DEFAULT_STYLE_LOCK_3D) -> Lis
     return assets
 
 
-def read_style_index(assets_path: pathlib.Path) -> Optional[int]:
-    """讀 assets.md「風格錨點」區的 `style_index`（styles.md 編號）；沒寫或填預設母版則回 None。"""
-    m = re.search(r"^-\s*\*\*style_index\*\*[：:]\s*`?(\d+)`?", assets_path.read_text(encoding="utf-8"), re.MULTILINE)
-    return int(m.group(1)) if m else None
+def read_style_index(assets_path: pathlib.Path) -> Optional[str]:
+    """讀 assets.md「風格錨點」區的 `style_index`（master／semi-real／styles.md 編號）；沒寫回 None。"""
+    m = re.search(r"^-\s*\*\*style_index\*\*[：:]\s*`?([\w-]+)`?", assets_path.read_text(encoding="utf-8"), re.MULTILINE)
+    return m.group(1) if m else None
 
 
 def compile_full_prompt(asset: Dict[str, Any], style: Optional[Dict[str, str]] = None) -> str:
@@ -291,7 +322,7 @@ def main():
     parser.add_argument("--out-json", type=str, default=None, help="匯出組裝好的 Prompt 清單為 JSON")
     parser.add_argument("--out-md", type=str, default=None, help="匯出組裝好的 Prompt 清單為 Markdown")
     parser.add_argument("--filter", type=str, default=None, help="過濾特定名稱或類別 (如 character, scene, ye-weishan)")
-    parser.add_argument("--style", type=int, default=None, help="角色設定板風格：styles.md 的編號 1–11；不給則用母版 3D 漫劇寫實厚涂")
+    parser.add_argument("--style", type=str, default=None, help=f"角色設定板風格：{STYLE_CHOICES}；不給則讀 assets.md 的 style_index，再不然用 master")
     parser.add_argument("--no-gate", action="store_true", help="略過門禁警告輸出 (僅回傳純數據)")
 
     args = parser.parse_args()
@@ -347,7 +378,7 @@ def main():
     # 3. 組裝標準提示詞
     try:
         style_index = args.style or (read_style_index(used_assets_md) if used_assets_md else None)
-        style = load_style_anchor(style_index) if style_index else None
+        style = resolve_style(style_index)
     except (OSError, ValueError) as exc:
         print(f"[錯誤] --style {style_index}：{exc}", file=sys.stderr)
         sys.exit(1)
@@ -361,7 +392,7 @@ def main():
             "raw_description": item["description"],
             "full_prompt": full_prompt,
             "template": TEMPLATE_VERSION if item["type"] == "character" else None,
-            "style_index": style_index if item["type"] == "character" else None,
+            "style": style["key"] if item["type"] == "character" else None,
         })
 
     # 4. 輸出列印或儲存

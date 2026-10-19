@@ -12,11 +12,27 @@ class CharacterPromptTests(unittest.TestCase):
         self.assertIn("无文字，无水印", p)
 
     def test_style_option_replaces_render_and_skin_but_keeps_composition(self):
-        style = ex.load_style_anchor(6)
+        style = ex.resolve_style("6")
         p = ex.compile_full_prompt({"type": "character", "description": "黑发女剑客"}, style)
         self.assertIn(ex.MASTER_COMPOSITION, p)
-        self.assertIn(style["anchor"], p)
+        self.assertIn(ex.load_style_anchor(6)["anchor"], p)
+        self.assertIn(ex.NUMBERED_STYLE_NOTE, p)
         self.assertNotIn("次表面散射", p)
+
+    def test_semi_real_preset_keeps_master_layout(self):
+        p = ex.compile_full_prompt({"type": "character", "description": "x"}, ex.resolve_style("semi-real"))
+        self.assertIn(ex.MASTER_COMPOSITION, p)
+        self.assertIn("Unreal Engine 5", p)
+        self.assertNotIn("高级3D漫剧写实厚涂", p)
+
+    def test_unknown_style_token_raises(self):
+        with self.assertRaises(ValueError):
+            ex.resolve_style("watercolor")
+
+    def test_back_rule_not_duplicated_when_desc_has_back_features(self):
+        p = ex.compile_full_prompt({"type": "character", "description": "x；背面特徵：后领高"})
+        self.assertNotIn(ex.MASTER_BACK_RULE, p)
+        self.assertIn(ex.MASTER_BACK_RULE, ex.compile_full_prompt({"type": "character", "description": "x"}))
 
     def test_unknown_style_index_raises(self):
         with self.assertRaises(ValueError):
@@ -49,7 +65,7 @@ class CardFormatTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             f = pathlib.Path(td) / "assets.md"
             f.write_text(CARD, encoding="utf-8")
-            self.assertEqual(ex.read_style_index(f), 6)
+            self.assertEqual(ex.read_style_index(f), "6")
             self.assertEqual(len(ex.parse_assets_markdown(f)), 1)
 
     def test_runner_flags_prompts_without_template_marker(self):
