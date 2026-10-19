@@ -360,7 +360,7 @@ def validate_storyboard_data(data: dict, original_script_dialogues: list = None)
             # 遠景人物崩壞警告：多名角色同框且未標註背影/剪影
             shot_text = f"{' '.join(stages)} {expr} {s.get('spatial_blocking', {}).get('blocking_desc', '')}"
             has_multiple_chars = (
-                len(s.get("characters", [])) > 1
+                len(s.get("character_ids", [])) > 1
                 or any(k in shot_text for k in ["兩人", "两人", "眾人", "众人", "群戲", "群戏", "雙方", "双方", "對峙", "对峙"])
                 or bool(re.search(r"(@[^\s,，。]+.*@[^\s,，。]+)", shot_text))
             )
@@ -372,6 +372,14 @@ def validate_storyboard_data(data: dict, original_script_dialogues: list = None)
                     f"[{sid}] 💡 H3 遠景人物提醒：H3 遠景多人同框容易不照參考圖（臉崩），"
                     f"建議改用「一鏡一臉特寫」演反應，或用「背影（不露臉）」演群戲走位。"
                 )
+
+        # Check 5b（僅警告）：同框主要人物 >2。依據是上游「三人以上同框易漂移」，H3 上尚未量化 2 人 vs 1 人的差別。
+        n_chars = len([c for c in s.get("character_ids", []) if c and "旁白" not in str(c)])
+        if n_chars > 2:
+            warnings.append(
+                f"[{sid}] 同框主要人物 {n_chars} 人 (>2)：多人同框易串臉，建議拆成單人反應鏡或讓多出的人不露臉"
+                "（骨架階段會把整場角色填進每鏡，可於細化後再看）。"
+            )
 
         # Check 6: 偽精確度與醫學解剖學黑名單掃描
         raw_shot_str = json.dumps(s, ensure_ascii=False)
