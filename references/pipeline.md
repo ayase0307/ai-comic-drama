@@ -14,7 +14,7 @@
 
 | 項目 | 選項／說明 |
 |---|---|
-| 集數與每集時長 | 單集 60–120 秒最常見；小說改編預設 90–120 秒 |
+| 集數與每集時長 | 單集 60–120 秒最常見；小說改編預設 90–120 秒。**秒數是預估起點、不是硬上限**：集數依因果單元（目標／阻礙／選擇／代價／鉤子）切，每集可在目標 ±15% 內視為正常；超出時走「接受（寫入 `accepted_duration_seconds`）／於場次邊界拆集／刪非因果內容」三選一，不用壓縮分鏡硬塞 |
 | 原稿類型與用途 | 小說／網文／故事梗概／已有劇本；依當前任務確認需要的來源與處理方式 |
 | `genre_mode` | `xuanhuan_revenge`／`romance_emotional`／`mystery_thriller`／`comedy_slice_of_life`／`wuxia_action`／`healing_literary` |
 | `target_medium` | `motion_comic` 動態漫／`ai_animation` AI 動畫漫劇／`live_action_short_drama` 真人短劇 |
@@ -127,7 +127,8 @@ python scripts/init_project.py my-drama --title "我的漫劇" --episodes 12
    - **詢問指定工具（推薦 Codex CLI）**：在出核心資產圖前，必須詢問使用者指定生圖工具（推薦本機 Codex CLI 或使用者授權之工具）。
    - **跨章節工具選擇**：若使用者要求跨章節風格一致，記錄已選工具及可重用的風格參考；依每個工具實際能力安排工作，不強制使用特定引擎。
    - Qwen、手繪或其他可用圖像工具可依任務製作設定圖或分鏡構圖圖；同一張圖是否可用於後續生成依目標模型能力判斷。
-6. **組裝角色設定板提示詞再生圖**：角色卡填好 `設定板描述`、`背面特徵`（`init_project.py` 範本已含），**風格要在階段 0 與使用者確認後**寫進「風格錨點」區的 `style_index`：`master`（母版 3D 漫劇寫實厚塗，偏插畫感）／`semi-real`（UE5 半寫實東亞，更接近真人質感）／`1`–`11`（`styles.md` 編號）。沒寫時匯出預設 `master`，不要讓它默默成為預設，開工前先問。然後：
+6. **組裝角色設定板提示詞再生圖**：角色卡填好 `設定板描述`、`背面特徵`（`init_project.py` 範本已含），**問風格的方式（P0）**：依題材從 `references/styles.md`「角色設定板預設風格」的推薦挑 2–3 個，附上樣圖（`assets/styles/sheet-*.jpg`）與一句話差別，一次問一個問題；**全片風格鎖與設定板風格合併成同一個選擇**，不要分開問。沒有選定時 `export_asset_prompts.py` 會停下報錯，不會默默套預設。
+   **風格要在階段 0 與使用者確認後**寫進「風格錨點」區的 `style_index`：`master`（母版 3D 漫劇寫實厚塗，偏插畫感）／`semi-real`（UE5 半寫實東亞，更接近真人質感）／`1`–`11`（`styles.md` 編號）。沒寫時匯出預設 `master`，不要讓它默默成為預設，開工前先問。然後：
    ```bash
    python scripts/storyboard/export_asset_prompts.py --assets-md assets.md --out-json images/asset_prompts.json --out-md images/asset_prompts.md
    python scripts/storyboard/run_codex_asset_gen.py --prompts images/asset_prompts.json --output-dir images
@@ -150,7 +151,7 @@ python scripts/init_project.py my-drama --title "我的漫劇" --episodes 12
 - **劇本管戲，分鏡管拍**：劇本用中文場號制（`第XX集｜標題`、`M-N 場景名 時/內外`、`人物：`、`△` 動作行、`角色名（括注）：對白`），**正文不出現攝影機術語**與模型提示詞。
 - **100% 視聽外化**：心理活動轉成動作、道具、空間位階、言行不一；內心獨白 ≤ 單集對白行的 15%。
 - 每場寫清「進場極性 → 衝突行動 → 資訊變化 → 出場極性」。單場核心互動角色預設 ≤ 3 人；多人混戰、複雜物理給「原版／AI 簡化」雙案。
-- 對白單句 > 28 字警告、> 35 字阻斷（字幕可讀性）；整集時長在目標 ±15%。
+- 對白單句 > 28 字警告、> 35 字阻斷（字幕可讀性）；整集時長與目標（或 `accepted_duration_seconds`）的偏差在審核頁「時長對帳」呈現；階段 3 就要核准偏差，不要拖到階段 4。
 - 產出：`script-epNN.md`、`handoff-epNN.json`（符合 `adapt/templates/handoff.schema.json`）、`adaptation-diff.md`（改編差異對帳）。
 
 **人工審核鎖與劇本雙向同步（`sync_script.py`）**：
@@ -241,8 +242,10 @@ python scripts/adapt/compare_adaptation.py --source adapt/source.json --script s
 
 ```bash
 # 1. 產生 Layer 2 骨架（預設 10s/3 鏡、動作力學三要素模板、INDEPENDENT_REF2VA 四大連戲錨點）
-#    單集時自動讀 handoff 的 target_duration_seconds 把總長壓到目標（對白鏡保留字數÷4，只縮放動作鏡），
-#    並保證每段秒數 >= 2×鏡數+0.5，避免階段 5 才爆 E4 切點錯誤。--target-total-sec 0 可關閉。
+#    預設（--duration-policy report）只回報自然總長與目標（優先讀 accepted_duration_seconds）的偏差，不改鏡頭秒數，
+#    並把壓縮前秒數寫進 metadata.natural_duration_sec 供審核頁對帳。
+#    使用者明確要求硬性片長時才加 --duration-policy fit：把總長壓/拉到目標（對白鏡保留字數÷4，只縮放動作鏡，
+#    單鏡 ≤ 15s，每段 >= 2×鏡數+0.5 以免階段 5 爆 E4 切點錯誤）；fit 會讓動作鏡變短，易有預告片節奏。
 python scripts/storyboard/handoff_to_skeleton.py handoff-ep01.json --out-dir layer2/ --max-segment-sec 10.0 --max-shots 3
 
 # 2. 靜態校驗與企劃時間表匯出

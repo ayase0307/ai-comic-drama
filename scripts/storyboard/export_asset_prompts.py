@@ -378,6 +378,10 @@ def main():
     # 3. 組裝標準提示詞
     try:
         style_index = args.style or (read_style_index(used_assets_md) if used_assets_md else None)
+        if not style_index and any(a["type"] == "character" for a in assets):
+            print("[錯誤] 尚未選定角色設定板風格：請先與使用者確認（見 pipeline.md 階段 2 第 6 步），"
+                  f"再寫入 assets.md 的 style_index 或加 --style。可選：{STYLE_CHOICES}", file=sys.stderr)
+            sys.exit(2)
         style = resolve_style(style_index)
     except (OSError, ValueError) as exc:
         print(f"[錯誤] --style {style_index}：{exc}", file=sys.stderr)

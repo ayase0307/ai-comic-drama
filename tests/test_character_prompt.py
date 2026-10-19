@@ -76,5 +76,34 @@ class CardFormatTests(unittest.TestCase):
         self.assertEqual(r.stale_character_prompts(items), ["a.png"])
 
 
+CARD_NO_STYLE = CARD.replace("- **style_index**：`6`" + chr(10), "")
+
+
+class StyleGateTests(unittest.TestCase):
+    def _run(self, text, *extra):
+        import contextlib, io, tempfile, pathlib
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as td:
+            f = pathlib.Path(td) / "assets.md"
+            f.write_text(text, encoding="utf-8")
+            err, out = io.StringIO(), io.StringIO()
+            with mock.patch("sys.argv", ["x", "--assets-md", str(f), "--no-gate", *extra]),                  contextlib.redirect_stderr(err), contextlib.redirect_stdout(out):
+                try:
+                    ex.main()
+                    code = 0
+                except SystemExit as e:
+                    code = e.code
+            return code, err.getvalue()
+
+    def test_missing_style_stops_character_export(self):
+        code, err = self._run(CARD_NO_STYLE)
+        self.assertEqual(code, 2)
+        self.assertIn("尚未選定角色設定板風格", err)
+
+    def test_explicit_style_passes_gate(self):
+        code, _ = self._run(CARD_NO_STYLE, "--style", "master")
+        self.assertEqual(code, 0)
+
+
 if __name__ == "__main__":
     unittest.main()
