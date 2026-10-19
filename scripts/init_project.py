@@ -23,6 +23,8 @@ import json
 import re
 from pathlib import Path
 
+from project_state import initial_state
+
 PROJECT_TEMPLATE = """# {title}
 
 ## 設定
@@ -130,52 +132,52 @@ SCRIPTS_DIR = Path(__file__).resolve().parent  # 技能的 scripts 目錄（絕�
 
 
 def flow_hint(root: Path) -> str:
-    """下一步指引：八階段嚴格斷點與 HTML 審核流程；指令與路徑均使用絕對路徑。"""
+    """Generate a stage-targeted workflow using parser-verified CLI options."""
     storyboard = SCRIPTS_DIR / "storyboard"
     adapt = SCRIPTS_DIR / "adapt"
     build_review = SCRIPTS_DIR / "build_stage_review.py"
     handoff = root / "handoff-ep01.json"
     layer2 = root / "layer2"
 
-    return f"""下一步（八階段流程與 HTML 斷點審核機制）：
-  【重要鐵律】每完成一個階段，必須執行 python "{build_review}" 產出該階段 HTML 審核頁（位於 review/）供確認，取得使用者明確核准後才可推進至下一階段！
-  
-  階段 0 定調：
-    - 填寫 project.md，確定台詞政策（4選1）與原文秒數反推門禁。
-    - 生成審核頁：python "{build_review}" --stage 0
-  
-  階段 1 改編（角色設定 v4 門禁）：
-    - 依原著改寫 adapt/character-bible.md（遵循十一大章節，外貌/武器/能力均附 Lxxx 行號依據，跨章節查證真名嚴禁英文假名）。
-    - 跑確定性驗證：python "{adapt / 'validate_character_bible.py'}" --bible adapt/character-bible.md --json adapt/bible.json
-    - 生成審核頁：python "{build_review}" --stage 1
-  
-  階段 2 資產與設定圖：
-    - 詢問推薦生圖工具（推薦 Codex CLI），出齊角色設定板、場景母版圖與生物純底三視圖。
-    - 生成審核頁（左側角色表格＋右側產出圖片並排對照）：python "{build_review}" --stage 2
-    - 【斷點】開啟 review/stage-2-assets.html 供審核，確認畫風與臉型完全一致後才推進！
-  
-  階段 3 漫劇劇本：
-    - 撰寫劇本（只寫戲，不寫鏡頭術語）並產出 handoff-ep01.json。
-    - 執行驗證：python "{adapt / 'check_continuity.py'}" adapt/bible.json handoff-ep01.json
-    - 生成審核頁：python "{build_review}" --stage 3
-  
-  階段 4 導演分鏡與九宮格構圖：
-    - 生成分鏡骨架：python "{storyboard / 'handoff_to_skeleton.py'}" "{handoff}" --out-dir "{layer2}"
-    - 精修分鏡並執行 validate_storyboard.py 驗證（防範罐頭詞與多主體穿模）。
-    - 產出鉛筆手繪九宮格草圖：python "{storyboard / 'qwen_storyboard_grid.py'}"
-    - 生成審核頁：python "{build_review}" --stage 4
-    - 【斷點】開啟 review/stage-4-storyboard.html 審核構圖走位與滅點，確認無誤後才允許編譯！
-  
-  階段 5 提示詞包：
-    - 編譯 H3 六段式 Prompt：python "{storyboard / 'compile_layer2_to_h3.py'}" --layer2 "{layer2}" --bible adapt/bible.json --check
-  
-  階段 6 生成：
-    - 送件至 FreeVideo：python "{storyboard / 'submit_h3_segments.py'}" --segments segments-ep01.json --dry-run
-    - 生成審核頁：python "{build_review}" --stage 6
-  
-  階段 7 組裝交付：
-    - 語音合成、字幕燒錄與最終成片：python "{storyboard / 'assemble_episode.py'}" --episode EP01
-    - 生成最終驗收頁：python "{build_review}" --stage 7"""
+    return f"""使用方式（從指定交付目標開始，不要求跑完整出片流程）：
+  專案目錄：Set-Location -LiteralPath "{root}"
+  先依使用者要求選擇要交付的階段。若使用者只要文字劇本或分鏡，可交付 draft，不必生成圖片/影片；已提供的 brief、模型、參數沿用，不重問。文字規劃、圖片生成、影片生成是不同能力層，只有目前 Agent/本機後端確實提供相應工具時才執行媒體生成。
+
+  完整生成路徑前置（stage 0–3；逐階段審核，不可跳過未完成的前置核准）：
+    - Stage 0 定調：完成 project.md；產生 review 頁：python "{build_review}" --project-dir "{root}" --stage 0
+    - 使用者核准 stage 0 後記錄：python "{build_review}" --project-dir "{root}" --approve-stage 0
+    - Stage 1 改編：準備 adapt/source.json、adapt/bible.json、角色設定與故事大綱（適用時）；產生 review 頁：python "{build_review}" --project-dir "{root}" --stage 1
+    - 使用者核准 stage 1 後記錄：python "{build_review}" --project-dir "{root}" --approve-stage 1
+    - Stage 2 資產：準備 assets.md 與所需角色/場景設定圖；產生 review 頁：python "{build_review}" --project-dir "{root}" --stage 2
+    - 使用者核准 stage 2 後記錄：python "{build_review}" --project-dir "{root}" --approve-stage 2
+    - Stage 3 劇本：準備 script-ep01.md、handoff-ep01.json 與 adaptation-diff.md；產生 review 頁：python "{build_review}" --project-dir "{root}" --stage 3
+    - 使用者核准 stage 3 後記錄：python "{build_review}" --project-dir "{root}" --approve-stage 3
+    - 只要求文字 draft 時，可在指定交付階段停止；不得代替使用者記錄核准，也不必為了完整流程生成圖片/影片。
+
+  分鏡（stage 4）：
+    - 建立/整理 Layer 2：python "{storyboard / 'handoff_to_skeleton.py'}" "{handoff}" --out-dir "{layer2}"
+    - 結構檢查與企劃時間表：python "{storyboard / 'layer2_to_table.py'}" "{layer2}" --check --md storyboard-ep01.md --timeline timeline-plan-ep01.csv
+    - 構圖圖可用已連線的 Qwen 工具、手繪或其他可用圖像工具；每張圖需對應 shot_id，放在該鏡 sketch_file 或 panels/panel-NN-SHOT.png，再由 review 頁檢查。Qwen 3x3 可選：python "{storyboard / 'qwen_storyboard_grid.py'}" --layer2-dir "{layer2}" --generate-all --assemble-grid
+    - 產生審核頁：python "{build_review}" --project-dir "{root}" --stage 4
+    - 只有使用者明確核准該 review 後才記錄：python "{build_review}" --project-dir "{root}" --approve-stage 4
+    - 分鏡文字 draft 可在此交付，不需為了取得分鏡而送生成任務。
+
+  H3 提示詞（stage 5）：
+    - 僅在 stage 4 有效核准且對應 Layer 2/構圖圖未變更時編譯。Ref2VA 使用 H3 六段式；場景圖是場景/畫風參考，不自動視為首幀。
+    - python "{storyboard / 'compile_layer2_to_h3.py'}" --layer2 "{layer2}" --bible "{root / 'adapt' / 'bible.json'}" --project-root "{root}" --episode EP01 --output-md "{root / 'prompts-ep01.md'}" --output-segments "{root / 'segments-ep01.json'}" --check
+    - 審核及核准：python "{build_review}" --project-dir "{root}" --stage 5；使用者明確核准後執行 `--approve-stage 5`。修改輸入會使核准失效並要求重審。
+
+  影片生成（stage 6，可選）：
+    - FreeVideo 是可用 adapter，不代表目前環境一定有影片生成能力。先確認使用者要求出片且相容工具可用；FreeVideo 本機連線可用時先 dry-run：python "{storyboard / 'submit_h3_segments.py'}" --segments "{root / 'segments-ep01.json'}" --root-dir "{root}" --output-dir "{root / 'videos'}" --dry-run
+    - 真正送件要求有效 stage 5 核准；`--skip-stage-gate` 只供 dry-run 除錯，不可用於實際送件。
+    - QA：python "{storyboard / 'verify_video_shot.py'}" --segments "{root / 'segments-ep01.json'}" --videos-dir "{root / 'videos'}" --out-report "{root / 'videos' / 'qa-report.md'}" --out-json "{root / 'videos' / 'qa-report.json'}"
+    - QA 技術通過不等於人工核准；在 stage 6 review 核准前不可當作已通過交付。
+
+  組裝交付（stage 7，可選）：
+    - 由編譯後 segments 檢查並匯出實際時間線：python "{storyboard / 'layer2_to_table.py'}" "{root / 'segments-ep01.json'}" --check --timeline "{root / 'timeline-ep01.csv'}"
+    - python "{storyboard / 'assemble_episode.py'}" --segments "{root / 'segments-ep01.json'}" --videos-dir "{root / 'videos'}" --output "{root / 'final' / 'ep01_final.mp4'}" --delivery-report "{root / 'final' / 'delivery-ep01.md'}"
+
+  審核狀態唯一存於 review/project-state.json。每階段核准綁定輸入 hash；輸入改變即需重新審核。"""
 
 
 def slugify_project(name: str) -> str:
@@ -291,41 +293,13 @@ def handoff_stub(project_id: str, episode: int) -> dict:
 
 def initial_project_state(title: str, project_id: str) -> dict:
     """初始化 8 個階段之狀態檔，供 build_stage_review.py 驅動斷點審核。"""
-    stage_titles = {
-        0: "階段 0：專案定調與門禁",
-        1: "階段 1：改編與角色設定 v4",
-        2: "階段 2：資產與設定圖審核",
-        3: "階段 3：漫劇劇本與交接",
-        4: "階段 4：分鏡與鉛筆九宮格構圖",
-        5: "階段 5：H3 六段式提示詞包",
-        6: "階段 6：影片片段生成審查",
-        7: "階段 7：配音字幕與成片驗收",
-    }
-    stage_files = {
-        0: "stage-0-pitch.html",
-        1: "stage-1-adapt.html",
-        2: "stage-2-assets.html",
-        3: "stage-3-script.html",
-        4: "stage-4-storyboard.html",
-        5: "stage-5-prompts.html",
-        6: "stage-6-generation.html",
-        7: "stage-7-assembly.html",
-    }
-    return {
-        "project_id": project_id,
-        "title": title,
-        "current_stage": 0,
-        "stages": {
-            f"stage-{i}": {
-                "id": f"stage-{i}",
-                "title": stage_titles.get(i, f"階段 {i}"),
-                "status": "pending",
-                "review_html": f"review/{stage_files.get(i, f'stage-{i}.html')}",
-                "notes": "尚未執行"
-            }
-            for i in range(8)
-        }
-    }
+    state = initial_state(title, project_id)
+    for i in range(8):
+        state["stages"][f"stage-{i}"].update({
+            "review_html": f"review/stage-{i}.html",
+            "notes": "尚未執行",
+        })
+    return state
 
 
 def load_character_bible_template(title: str) -> str:

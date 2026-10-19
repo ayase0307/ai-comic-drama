@@ -43,6 +43,18 @@ import re
 import struct
 import sys
 from typing import Any, Dict, List, Optional, Tuple
+from project_state import (
+    approve_stage as state_approve_stage,
+    load_state as state_load,
+    mark_awaiting_review,
+    require_approved,
+    save_state as state_save,
+    stage4_artifacts,
+    stage6_errors,
+    stage7_errors,
+    stage_key,
+    stage_validation_errors,
+)
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -115,37 +127,20 @@ def rel_img_src(project_dir: Path, img_path_str: str) -> Tuple[str, Optional[Pat
 # ==============================================================================
 
 def state_file_path(project_dir: Path) -> Path:
-    return project_dir / "project-state.json"
+    return project_dir / "review" / "project-state.json"
 
 
 def load_project_state(project_dir: Path) -> Dict[str, Any]:
-    sp = state_file_path(project_dir)
-    if sp.exists():
-        try:
-            return json.loads(sp.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-    stages = {}
-    for k, m in STAGE_META.items():
-        stages[str(k)] = {
-            "stage": k,
-            "name": m["name"],
-            "status": "locked" if k > 0 else "in_progress",
-            "html_file": f"review/{m['file']}",
-            "updated_at": None,
-            "approved_at": None,
-            "user_note": None,
-        }
-    return {
-        "project_dir": str(project_dir.resolve()),
-        "current_stage": 0,
-        "stages": stages,
-    }
+    state = state_load(project_dir)
+    for k, meta in STAGE_META.items():
+        entry = state["stages"][stage_key(k)]
+        entry.setdefault("html_file", f"review/{meta['file']}")
+        entry.setdefault("name", meta["name"])
+    return state
 
 
 def save_project_state(project_dir: Path, state: Dict[str, Any]) -> None:
-    sp = state_file_path(project_dir)
-    sp.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    state_save(project_dir, state)
 
 
 def check_stage_prerequisite(project_dir: Path, target_stage: int, allow_bypass: bool = False) -> Tuple[bool, str]:
@@ -153,19 +148,13 @@ def check_stage_prerequisite(project_dir: Path, target_stage: int, allow_bypass:
     if allow_bypass or target_stage <= 0:
         return True, "OK"
     state = load_project_state(project_dir)
-    stages = state.get("stages", {})
-    for prev in range(0, target_stage):
-        st = stages.get(str(prev), {}).get("status", "locked")
+    ok, detail = require_approved(project_dir, target_stage - 1)
+    if not ok:
+        prev = next((i for i in range(target_stage) if not require_approved(project_dir, i)[0]), 0)
+        st = state.get("stages", {}).get(stage_key(prev), {}).get("status", "locked")
         html_rel = STAGE_META[prev]["file"]
-        if st != "approved":
-            return (
-                False,
-                f"❌ [階段斷點門禁阻斷] 前置「{STAGE_META[prev]['name']}」狀態為 `{st}`（尚未取得使用者明確確認通過）！\n"
-                f"   👉 規範要求：每完成一階段必須先執行 `build_stage_review.py --project-dir \"{project_dir}\" --stage {prev}`\n"
-                f"      將產出的 `review/{html_rel}` 交給使用者審閱，等使用者明確回覆「沒問題／通過」後，\n"
-                f"      再執行 `build_stage_review.py --project-dir \"{project_dir}\" --approve-stage {prev} --user-note \"...\"` 解鎖下一關！\n"
-                f"   ⛔ 嚴禁跳過階段確認或從資產圖直接跳去生影片！"
-            )
+        return (False, f"❌ [階段斷點門禁阻斷] 前置「{STAGE_META[prev]['name']}」無有效核准（狀態 `{st}`）：{detail}\n"
+                f"   請重建並審核 `review/{html_rel}`，再由使用者明確核准。")
     return True, "OK"
 
 
@@ -1008,7 +997,7 @@ def wrap_studio_html(
     meta = STAGE_META[stage]
     stages_state = state.get("stages", {})
     title = project_title(project_dir)
-    cur_info = stages_state.get(str(stage), {})
+    cur_info = stages_state.get(stage_key(stage), {})
     cur_status = cur_info.get("status", "in_progress")
     is_approved = cur_status == "approved"
     stage_title = meta["name"].split("｜", 1)[-1]
@@ -1016,7 +1005,8 @@ def wrap_studio_html(
     # 側欄：八階段
     nav_items = []
     for k in range(8):
-        st = stages_state.get(str(k), {}).get("status", "locked")
+        st_info = stages_state.get(stage_key(k), {})
+        st = st_info.get("status", "locked")
         is_cur = k == stage
         exists = (project_dir / "review" / STAGE_META[k]["file"]).exists() or is_cur
         label, key = STATUS_LABEL.get(st, STATUS_LABEL["locked"])
@@ -1256,6 +1246,11 @@ def build_stage_1(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
 
 def build_stage_2(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[str], str]:
     """階段 2：將階段 1 的詳細角色設定表格與階段 2 產出的角色/異獸/場景圖片左右並排展示！"""
+    manifest_path = project_dir / "assets" / "reference-manifest.json"
+    if manifest_path.is_file():
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if manifest.get("assets"):
+            return build_manifest_asset_review(project_dir, state, manifest)
     errors: List[str] = []
     char_bible_md = project_dir / "adapt" / "character-bible.md"
     bible_json_path = project_dir / "adapt" / "bible.json"
@@ -1422,6 +1417,68 @@ def build_stage_2(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
     return len(errors) == 0, errors, html_out
 
 
+def build_manifest_asset_review(project_dir: Path, state: Dict[str, Any], manifest: dict) -> Tuple[bool, List[str], str]:
+    """Use the explicit production image list, including variants, props and optional assets."""
+    errors = []
+    if not (project_dir / "assets.md").is_file():
+        errors.append("缺少 assets.md 資產聖經")
+    cards = []
+    ready = required = 0
+    design_path = project_dir / "assets" / "character-design-v2.json"
+    designs = json.loads(design_path.read_text(encoding="utf-8")).get("assets", []) if design_path.is_file() else []
+    design_by_path = {item.get("target_path"): item for item in designs}
+    for asset in manifest["assets"]:
+        raw = asset.get("target_path", "")
+        name = asset.get("display_name_zh") or asset.get("entry_id") or asset.get("stable_id") or raw
+        needed = asset.get("required", asset.get("priority") != "optional")
+        required += bool(needed)
+        src, real = rel_img_src(project_dir, raw)
+        valid = bool(raw and real and real.is_file() and get_png_dimensions(real))
+        if valid:
+            ready += 1
+            dims = get_png_dimensions(real)
+            approval_label = {
+                "approved_by_user": "使用者已核准",
+                "excluded_from_current_shots": "反向圖延後／本輪不用",
+            }.get(asset.get("approval_status"), "已收到／待核准")
+            visual = (f'<div class="asset-img-box"><img loading="lazy" src="{src}" alt="{html.escape(name)}">'
+                      f'<div class="asset-meta-bar"><code>{html.escape(raw)}</code>'
+                      f'<span class="tag-badge">{dims[0]}×{dims[1]} · {approval_label}</span></div></div>')
+        else:
+            visual = f'<div class="missing-box">{"缺少必需圖" if needed else "可選圖未提供"}：{html.escape(raw)}</div>'
+            if needed:
+                errors.append(f"缺少必需資產圖片：{raw}")
+        source = asset.get("canonical_source_id") or asset.get("source_id") or ""
+        requirements = asset.get("requirements") or asset.get("invariants") or []
+        notes = asset.get("technical_review_notes") or []
+        if isinstance(notes, str):
+            notes = [notes]
+        spec = (f'<p><strong>{html.escape(str(source))}</strong></p>'
+                f'<p>{"必需" if needed else "可選"} · {html.escape(asset.get("review_disposition", "待審"))}</p>'
+                + ''.join(f'<p>{html.escape(str(v))}</p>' for v in requirements + notes)
+                + f'<p>原文依據：{html.escape(str(asset.get("source_refs", "見角色設定文件")))}</p>'
+                + '<details><summary>完整外觀與造型提示</summary><p>'
+                + html.escape(asset.get("prompt", asset.get("prompt_en", ""))) + '</p></details>')
+        design = design_by_path.get(raw)
+        if design:
+            spec = md_table_to_html(["| 項目 | 設定 |", "|---|---|",
+                                    f"| 原著年齡／外貌／性格 | {design.get('novel_facts_zh', '')} |",
+                                    f"| 改編造型 | {design.get('adaptation_design_zh', '')} |",
+                                    f"| 服裝狀態 | {design.get('wardrobe_state_id', '')} |",
+                                    f"| 原著依據 | {design.get('source_refs', '')} |"])+spec
+        cards.append(f'<article class="sbs-card"><div class="sbs-header"><h3 class="sbs-title">{html.escape(name)}</h3></div>'
+                     f'<div class="sbs-body"><div class="sbs-spec">{spec}</div><div class="sbs-visual">{visual}</div></div></article>')
+    intro = ('<p>圖片存在與人工核准分開記錄。無形體聲音不要求圖片；可選條目不造成缺圖阻斷。'
+             '人物、服裝與原著依據另見 <a href="../assets/character-design-v2.md">人物設定</a>。'
+             '檢查結論見 <a href="asset-intake-review.html">本批資產驗收</a>。</p>')
+    page = wrap_studio_html(project_dir, 2, state, "逐項核對實際收到的角色、服裝、生物、場景與道具圖；點圖放大。",
+                           [("圖單條目",str(len(manifest["assets"])),"gold"),("必需圖",str(required),"cyan"),
+                            ("實際收到",str(ready),"emerald" if not errors else "rose")],
+                           intro+'<div class="side-by-side-list">'+''.join(cards)+'</div>',
+                           ["逐圖核對人物身份、外觀、服裝、表情與原著依據", "核對場景多角度幾何與光向，停用不一致角度", "生物與道具形態符合各段需要", "圖像須由使用者明確核准後才鎖定"])
+    return not errors, errors, page
+
+
 def build_stage_3(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[str], str]:
     errors: List[str] = []
     scripts = sorted(project_dir.glob("script-ep*.md"))
@@ -1495,14 +1552,10 @@ def build_stage_4(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
     if not l2_files:
         return False, ["找不到任何 `layer2/layer2-*.json` 分鏡檔案！"], ""
 
-    # 強制檢查九宮格構圖檔案是否存在！(防止跳過九宮格直接跑去生影片)
-    grid_files = sorted((project_dir / "images").glob("grid-*.png")) if (project_dir / "images").exists() else []
-    panel_files = sorted((project_dir / "panels").glob("panel-*.png")) if (project_dir / "panels").exists() else []
-    if not grid_files and not panel_files:
-        errors.append(
-            "❌ [階段 4 九宮格強制門禁阻斷] 找不到任何分鏡九宮格拼版圖 (`images/grid-*.png`) 或單格草圖 (`panels/panel-*.png`)！\n"
-            "   👉 嚴禁在生成資產圖後跳過九宮格分鏡確認直接去生影片！請先執行 `qwen_storyboard_grid.py` 產出九宮格草圖。"
-        )
+    matched_sketches, sketch_errors = stage4_artifacts(project_dir)
+    errors.extend(sketch_errors)
+    grid_files = [p for p in matched_sketches if p.name.startswith("grid-")]
+    panel_files = [p for p in matched_sketches if p.name.startswith("panel-")]
 
     # 執行 validate_storyboard.py 驗證所有 layer2 檔案
     from validate_storyboard import validate_storyboard_data, check_cross_segment_slop  # noqa: E402
@@ -1523,7 +1576,7 @@ def build_stage_4(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
     if grid_files:
         g_boxes = []
         for gf in grid_files:
-            src_rel, _ = rel_img_src(project_dir, f"images/{gf.name}")
+            src_rel, _ = rel_img_src(project_dir, gf.relative_to(project_dir).as_posix())
             dims = get_png_dimensions(gf)
             dim_str = f"{dims[0]}×{dims[1]} px" if dims else "PNG"
             g_boxes.append(
@@ -1531,7 +1584,7 @@ def build_stage_4(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
                 f'  <img src="{src_rel}" alt="{html.escape(gf.name)}">'
                 f'  <div class="asset-meta-bar">'
                 f'    <span class="tag-badge gold">九宮格構圖總覽</span>'
-                f'    <code>images/{html.escape(gf.name)}</code>'
+                    f'    <code>{html.escape(gf.relative_to(project_dir).as_posix())}</code>'
                 f'    <span class="tag-badge emerald">{dim_str}</span>'
                 f'  </div>'
                 f'</div>'
@@ -1719,23 +1772,28 @@ def build_stage_5(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
 
 
 def build_stage_6(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[str], str]:
-    errors: List[str] = []
+    errors: List[str] = stage6_errors(project_dir)
     videos = sorted((project_dir / "videos").glob("*.mp4")) if (project_dir / "videos").exists() else []
     if not videos:
-        return False, ["`videos/` 目錄下尚無任何生成的 `.mp4` 影片檔案！"], ""
+        errors.append("`videos/` 目錄下尚無任何生成的 `.mp4` 影片檔案！")
+        return False, errors, ""
 
     qa_path = project_dir / "videos" / "qa-report.json"
     qa_map: Dict[str, Any] = {}
     if qa_path.exists():
         qdata = json.loads(qa_path.read_text(encoding="utf-8"))
         for item in qdata.get("results", []):
-            qa_map[Path(item.get("video", "")).stem] = item
+            video_name = item.get("video_file", "")
+            if video_name:
+                qa_map[Path(video_name).stem] = item
+            if item.get("segment_id"):
+                qa_map[str(item["segment_id"])] = item
 
     cards: List[str] = []
     for vp in videos:
         v_rel = f"../videos/{vp.name}"
         q_item = qa_map.get(vp.stem, {})
-        q_pass = q_item.get("passed", True)
+        q_pass = q_item.get("passed") is True
         cards.append(
             f'<article class="sbs-card">'
             f'  <div class="sbs-header">'
@@ -1772,10 +1830,11 @@ def build_stage_6(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
 
 
 def build_stage_7(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[str], str]:
-    errors: List[str] = []
+    errors: List[str] = stage7_errors(project_dir)
     finals = sorted((project_dir / "final").glob("*.mp4")) if (project_dir / "final").exists() else []
     if not finals:
-        return False, ["`final/` 目錄下尚無最終組裝成片 `.mp4`！請先執行 `assemble_episode.py`。"], ""
+        errors.append("`final/` 目錄下尚無最終組裝成片 `.mp4`！請先執行 `assemble_episode.py`。")
+        return False, errors, ""
 
     v_cards = []
     for fp in finals:
@@ -1826,7 +1885,9 @@ def run_self_test() -> bool:
     print("🧪 啟動 build_stage_review.py 八階段斷點門禁與 HTML 產生器自檢 (--self-test)")
     print("=" * 75)
 
-    with tempfile.TemporaryDirectory() as tmp:
+    test_tmp_root = SCRIPTS_DIR.parent / "tmp"
+    test_tmp_root.mkdir(exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=test_tmp_root) as tmp:
         pdir = Path(tmp)
         (pdir / "source").mkdir()
         (pdir / "adapt").mkdir()
@@ -1852,8 +1913,11 @@ def run_self_test() -> bool:
             return False
         (pdir / "review").mkdir(exist_ok=True)
         (pdir / "review" / STAGE_META[0]["file"]).write_text(html0, encoding="utf-8")
-        st["stages"]["0"]["status"] = "approved"
-        save_project_state(pdir, st)
+        mark_awaiting_review(pdir, st, 0)
+        if not state_approve_stage(pdir, 0, "self-test"):
+            print("  ❌ Stage 0 approval snapshot failed")
+            return False
+        st = load_project_state(pdir)
         print("  ✅ Stage 0 HTML 生成與簽核鎖測試通過！")
 
         # 3. 測試 Stage 4 無九宮格草圖時必被攔截
@@ -1892,7 +1956,7 @@ def run_self_test() -> bool:
             encoding="utf-8",
         )
         passed4, errs4, _ = build_stage_4(pdir, st)
-        has_grid_err = any("九宮格強制門禁阻斷" in e for e in errs4)
+        has_grid_err = any("缺少有效且對應" in e for e in errs4)
         print(f"[Test 2] Stage 4 缺少九宮格圖 (`images/grid-*.png`) 硬性阻斷測試: blocked={has_grid_err} (預期: True)")
         if not has_grid_err:
             print("  ❌ 未攔截缺少九宮格:", errs4)
@@ -1910,7 +1974,7 @@ def main() -> int:
     parser.add_argument("--approve-stage", type=int, choices=range(8), help="使用者明確確認沒問題後，標記該階段為 approved 解鎖下一關")
     parser.add_argument("--user-note", type=str, default="使用者確認通過", help="搭配 --approve-stage 記錄使用者簽核備註")
     parser.add_argument("--require-approved", type=int, choices=range(8), help="供下游腳本檢查指定前置階段是否已 approved")
-    parser.add_argument("--force-unlock-prev", action="store_true", help="遷移舊專案時初始化前置階段狀態")
+    parser.add_argument("--force-unlock-prev", action="store_true", help="相容舊 CLI；不會授予核准，使用時明確拒絕並要求逐階段重審")
     parser.add_argument("--self-test", action="store_true", help="執行內建自檢")
     args = parser.parse_args()
 
@@ -1929,11 +1993,12 @@ def main() -> int:
 
     # 1. 下游腳本檢查前置階段是否已通過
     if args.require_approved is not None:
-        st_info = state.get("stages", {}).get(str(args.require_approved), {})
-        if st_info.get("status") != "approved":
+        ok, detail = require_approved(project_dir, args.require_approved)
+        st_info = state.get("stages", {}).get(stage_key(args.require_approved), {})
+        if not ok:
             print(
-                f"❌ [階段斷點門禁阻斷] 「{STAGE_META[args.require_approved]['name']}」尚未完成使用者 HTML 審核簽核 "
-                f"(當前狀態: `{st_info.get('status', 'locked')}`)！\n"
+                f"❌ [階段斷點門禁阻斷] 「{STAGE_META[args.require_approved]['name']}」尚未完成有效使用者 HTML 審核簽核 "
+                f"(當前狀態: `{st_info.get('status', 'locked')}`，{detail})！\n"
                 f"   請先完成階段 {args.require_approved} 並產出 `review/{STAGE_META[args.require_approved]['file']}` 交由使用者確認。",
                 file=sys.stderr,
             )
@@ -1951,13 +2016,19 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 1
-        state["stages"][str(s_idx)]["status"] = "approved"
-        state["stages"][str(s_idx)]["approved_at"] = now_iso()
-        state["stages"][str(s_idx)]["user_note"] = args.user_note
+        if s_idx > 0:
+            ok, msg = require_approved(project_dir, s_idx - 1)
+            if not ok:
+                print(f"❌ 無法簽核：前置階段已失效或未核准：{msg}", file=sys.stderr)
+                return 2
+        if not state_approve_stage(project_dir, s_idx, args.user_note):
+            print("❌ 無法簽核：該階段尚未產生可用審核快照，或審核後輸入/產物已變更；請重建審核頁。", file=sys.stderr)
+            return 2
+        state = load_project_state(project_dir)
         if s_idx + 1 in STAGE_META:
             state["current_stage"] = s_idx + 1
-            if state["stages"][str(s_idx + 1)]["status"] == "locked":
-                state["stages"][str(s_idx + 1)]["status"] = "in_progress"
+            if state["stages"][stage_key(s_idx + 1)]["status"] == "locked":
+                state["stages"][stage_key(s_idx + 1)]["status"] = "in_progress"
         save_project_state(project_dir, state)
         print(f"✅ 已記錄使用者簽核：「{STAGE_META[s_idx]['name']}」狀態更新為 `approved`！")
         if s_idx + 1 in STAGE_META:
@@ -1968,10 +2039,8 @@ def main() -> int:
     if args.stage is not None:
         s_idx = args.stage
         if args.force_unlock_prev:
-            for prev in range(0, s_idx):
-                state["stages"][str(prev)]["status"] = "approved"
-                state["stages"][str(prev)]["approved_at"] = now_iso()
-                state["stages"][str(prev)]["user_note"] = "既有專案遷移解鎖"
+            print("❌ --force-unlock-prev 不再授予核准。請逐階段產生審核頁並由使用者核准；舊狀態會以 draft 遷移。", file=sys.stderr)
+            return 2
 
         ok_pre, msg_pre = check_stage_prerequisite(project_dir, s_idx)
         if not ok_pre:
@@ -1996,10 +2065,7 @@ def main() -> int:
             print("=" * 75, file=sys.stderr)
             return 1
 
-        state["current_stage"] = s_idx
-        state["stages"][str(s_idx)]["status"] = "awaiting_user_approval"
-        state["stages"][str(s_idx)]["updated_at"] = now_iso()
-        save_project_state(project_dir, state)
+        mark_awaiting_review(project_dir, state, s_idx)
 
         out_html = project_dir / "review" / STAGE_META[s_idx]["file"]
         print("\n" + "=" * 75)
