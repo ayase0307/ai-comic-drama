@@ -66,14 +66,63 @@ DEFAULT_STYLE_LOCK_3D = (
     "STRICTLY NO Pixar style, NO Disney cartoon style, NO exaggerated oversized cartoon eyes, NO freckles"
 )
 
-CHARACTER_TURNAROUND_TEMPLATE = (
-    "Photorealistic-stylized East Asian 3D CG character concept sheet (Unreal Engine 5 / Korean-Chinese next-gen CG cinema aesthetic, "
-    "realistic East Asian facial bone structure and eye proportions, delicate subsurface-scattering pore skin texture; "
-    "STRICTLY NO Pixar style, NO Disney cartoon style, NO Western cartoon proportions, NO exaggerated oversized eyes, NO freckles). "
-    "Character turn-around model sheet showing 4 views horizontally aligned against a seamless flat neutral medium-grey background: "
-    "from left to right, extreme close-up of face showing fine East Asian eyes and smooth skin, full-body front view, full-body 90-degree profile side view, full-body back view. "
-    "Subject: {subject_desc}"
+# 角色設定板以 ai-image-prompt「3D 漫劇寫實厚涂四視圖母版」為準（段 1 構圖一字不改）。
+# 風格選擇：預設母版 3d-realistic；`--style N` 改用 references/styles.md 第 N 套錨（取代母版渲染與膚質句）。
+DEFAULT_STYLE_KEY = "3d-realistic"
+STYLES_MD = pathlib.Path(__file__).resolve().parents[2] / "references" / "styles.md"
+
+MASTER_COMPOSITION = (
+    "16:9横版人物设定图，画面左侧为超大人物脸部胸像正面特写，占据画面约40%，"
+    "画面右侧水平并排3张完整全身立绘，依次为正面全身、45°侧面全身、背面全身。"
+    "三张全身立绘身高比例一致，头顶及脚底统一对齐，完整展示人物服装、身材与鞋履，统一浅灰色摄影棚背景。"
 )
+# 母版「最容易崩的五處」與四視圖專屬坑的防呆句
+MASTER_GUARDS = (
+    "胸像只画头到肩，右缘与右侧三格之间留一条窄缝、互不重叠。"
+    "正面全身脸朝镜头；侧面全身脸朝画面右侧约45°，鼻尖越过脸颊轮廓线、能看到一侧耳朵；背面全身完全背对镜头。"
+    "中性站姿，双臂自然下垂、略微离开身体，三个全身视图站姿相同。"
+    "四格共用同一个浅灰色纯色背景，没有环境、没有道具、没有投影；均匀平光，四格照度一致。"
+    "所有视图在同一焦平面，全部清晰，没有景深虚化。"
+)
+MASTER_STYLE_3D = (
+    "高级3D漫剧写实厚涂，电影级CG渲染。冷白皮瓷白水光肌，皮肤细腻通透、有真实次表面散射与自然高光，"
+    "精致立体的东方五官；不要皮克斯／迪士尼卡通风、不要夸张大眼、不要雀斑。"
+)
+MASTER_BACK_RULE = "背面视图至少清楚呈现三项可辨识特征（后领、露背范围或后背剪裁、发型背影、腰带结构、裙摆走向）。"
+MASTER_QUALITY_3D = "8K超高清，电影级3D漫剧写实厚涂渲染，皮肤细腻通透，具有真实次表面散射与自然高光。"
+MASTER_QUALITY_TAIL = "所有人物视图清晰锐利，服饰细节一致，完整全身构图，无文字，无水印。四格画的都是同一个角色，画面里没有其他人物。"
+
+
+def load_style_anchor(index: int, styles_md: pathlib.Path = STYLES_MD) -> Dict[str, str]:
+    """從 styles.md 讀第 index 套風格的鎖定錨與負面錨。"""
+    text = styles_md.read_text(encoding="utf-8")
+    m = re.search(rf"^## {index}\.\s*(.+?)\n(.*?)(?=^## \d+\.|\Z)", text, re.DOTALL | re.MULTILINE)
+    if not m:
+        raise ValueError(f"styles.md 找不到第 {index} 套風格")
+    anchor = re.search(r"\*\*風格鎖定錨\*\*：`([^`]+)`", m.group(2))
+    negative = re.search(r"\*\*負面錨\*\*：`([^`]+)`", m.group(2))
+    if not anchor:
+        raise ValueError(f"styles.md 第 {index} 套缺少風格鎖定錨")
+    return {"name": m.group(1).strip(), "anchor": anchor.group(1), "negative": negative.group(1) if negative else ""}
+
+
+def build_character_prompt(subject_desc: str, style: Optional[Dict[str, str]] = None, project_lock: str = "") -> str:
+    """母版五段式角色設定板提示詞。style=None 用母版 3D 寫實厚塗；否則用 styles.md 錨取代渲染與膚質句。"""
+    if style:
+        style_part = f"风格：{style['anchor']}。"
+        quality = MASTER_QUALITY_TAIL + (f" 避免：{style['negative']}。" if style["negative"] else "")
+    else:
+        style_part = f"风格：{MASTER_STYLE_3D}"
+        quality = MASTER_QUALITY_3D + MASTER_QUALITY_TAIL
+        if project_lock and project_lock != DEFAULT_STYLE_LOCK_3D:
+            quality += f" 专案风格锁：{project_lock}"
+    return (
+        f"构图：{MASTER_COMPOSITION}{MASTER_GUARDS}\n"
+        f"{style_part}\n"
+        f"角色：{subject_desc}\n"
+        f"背面：{MASTER_BACK_RULE}\n"
+        f"画质：{quality}"
+    )
 
 CREATURE_TURNAROUND_TEMPLATE = (
     "Photorealistic-stylized 3D CG creature concept sheet, cinematic creature design, "
@@ -171,13 +220,13 @@ def parse_assets_markdown(assets_path: pathlib.Path) -> List[Dict[str, Any]]:
     return assets
 
 
-def compile_full_prompt(asset: Dict[str, Any]) -> str:
+def compile_full_prompt(asset: Dict[str, Any], style: Optional[Dict[str, str]] = None) -> str:
     """根據資產類型編譯完整標準 Prompt。"""
     atype = asset.get("type", "character")
     desc = asset.get("description", "")
 
     if atype == "character":
-        return CHARACTER_TURNAROUND_TEMPLATE.format(subject_desc=desc)
+        return build_character_prompt(desc, style, asset.get("style_lock", ""))
     elif atype == "creature":
         return CREATURE_TURNAROUND_TEMPLATE.format(subject_desc=desc)
     elif atype == "scene":
@@ -204,6 +253,7 @@ def main():
     parser.add_argument("--out-json", type=str, default=None, help="匯出組裝好的 Prompt 清單為 JSON")
     parser.add_argument("--out-md", type=str, default=None, help="匯出組裝好的 Prompt 清單為 Markdown")
     parser.add_argument("--filter", type=str, default=None, help="過濾特定名稱或類別 (如 character, scene, ye-weishan)")
+    parser.add_argument("--style", type=int, default=None, help="角色設定板風格：styles.md 的編號 1–11；不給則用母版 3D 漫劇寫實厚涂")
     parser.add_argument("--no-gate", action="store_true", help="略過門禁警告輸出 (僅回傳純數據)")
 
     args = parser.parse_args()
@@ -253,9 +303,14 @@ def main():
         ]
 
     # 3. 組裝標準提示詞
+    try:
+        style = load_style_anchor(args.style) if args.style else None
+    except (OSError, ValueError) as exc:
+        print(f"[錯誤] --style {args.style}：{exc}", file=sys.stderr)
+        sys.exit(1)
     compiled_results = []
     for item in assets:
-        full_prompt = compile_full_prompt(item)
+        full_prompt = compile_full_prompt(item, style)
         compiled_results.append({
             "name": item["name"],
             "type": item["type"],
