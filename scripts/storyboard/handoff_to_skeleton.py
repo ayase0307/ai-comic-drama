@@ -449,8 +449,9 @@ def min_segment_sec(n_shots: int) -> float:
     return MIN_CUT_GAP_SEC * n_shots + 0.5
 
 
-def fit_total_duration(results: list[tuple[str, dict]], target_total: float) -> list[str]:
-    """把骨架總長壓/拉到 target_total：對白鏡維持字數 ÷ 4 的下限，只縮放動作鏡；
+def fit_total_duration(results: list[tuple[str, dict]], target_total: float,
+                       max_segment_sec: float = DEFAULT_MAX_SEGMENT_SEC) -> list[str]:
+    """（僅 --duration-policy fit 使用，會改變敘事節奏）把骨架總長壓到 target_total（不拉長）：對白鏡維持字數 ÷ 4 的下限，只縮放動作鏡；
     以 0.5 秒為單位取整，並確保每段鏡數符合 E4 切點最短秒數。回傳警告訊息。"""
     notes: list[str] = []
     shots = [(seg, sh) for _, seg in results for sh in seg["shots"]]
@@ -465,6 +466,10 @@ def fit_total_duration(results: list[tuple[str, dict]], target_total: float) -> 
 
     fixed = sum(floor_of(sh) for _, sh in shots)
     current = sum(float(sh["duration"]) for _, sh in shots)
+    if target_total >= current:
+        notes.append(f"目標 {target_total}s 不低於自然總長 {current:.1f}s：fit 只壓縮不拉長"
+                     "（拉長會讓段落超過 H3 單次上限與 E2 鏡數規則），未調整。")
+        return notes
     if target_total < fixed:
         notes.append(f"目標總長 {target_total}s 低於對白與最短動作鏡下限 {fixed}s，請刪減台詞或鏡頭。")
     flex_cur = sum(float(sh["duration"]) - floor_of(sh) for _, sh in shots)
@@ -472,7 +477,7 @@ def fit_total_duration(results: list[tuple[str, dict]], target_total: float) -> 
     ratio = (flex_tgt / flex_cur) if flex_cur > 0 else 0.0
     for _, sh in shots:
         f = floor_of(sh)
-        sh["duration"] = max(f, _round_half(f + (float(sh["duration"]) - f) * ratio))
+        sh["duration"] = min(MAX_SHOT_SEC, max(f, _round_half(f + (float(sh["duration"]) - f) * ratio)))
 
     # 段落 E4 最短秒數：不足就從最長鏡借秒
     for seg_id, seg in results:
@@ -492,19 +497,21 @@ def fit_total_duration(results: list[tuple[str, dict]], target_total: float) -> 
         while abs(diff) >= 0.5 and i < len(cand) * 4:
             seg, sh = cand[i % len(cand)]
             seg_tot = sum(x["duration"] for x in seg["shots"])
-            if step > 0 or (sh["duration"] - 0.5 >= floor_of(sh)
+            if (step > 0 and sh["duration"] + step <= MAX_SHOT_SEC) or (step < 0 and sh["duration"] - 0.5 >= floor_of(sh)
                             and seg_tot - 0.5 >= min_segment_sec(len(seg["shots"]))):
                 sh["duration"] += step
                 diff -= step
             i += 1
 
-    for _, seg in results:
+    for seg_id, seg in results:
         t = 0.0
         for sh in seg["shots"]:
             sh["start_time"] = round(t, 2)
             t += sh["duration"]
             sh["end_time"] = round(t, 2)
         seg["metadata"]["target_duration_sec"] = round(t, 2)
+        if t > max_segment_sec + 1e-6:
+            notes.append(f"{seg_id}: 拉長後 {t:g}s 超過單段建議上限 {max_segment_sec:g}s，請拆段或改用 report 模式。")
     total = sum(seg["metadata"]["target_duration_sec"] for _, seg in results)
     notes.append(f"骨架總長由 {current:.1f}s 調整為 {total:.1f}s（目標 {target_total}s）。")
     return notes
@@ -583,9 +590,12 @@ def main() -> int:
     ap.add_argument("--max-shots", type=int, default=DEFAULT_MAX_SHOTS,
                     help="單段最大鏡頭數（預設 3 鏡，每段建議 2–3 節拍）")
     ap.add_argument("--force", action="store_true", help="覆寫已存在的骨架檔")
+    ap.add_argument("--duration-policy", choices=("report", "fit"), default="report",
+                    help="report（預設）：只回報自然總長與目標的偏差，不改鏡頭秒數；"
+                         "fit：把總長壓/拉到目標（會把動作鏡擠成預告片節奏，僅在使用者明確要求硬性片長時用）")
     ap.add_argument("--target-total-sec", type=float, default=None,
-                    help="整集目標總秒數；預設讀 handoff episodes[].target_duration_seconds（單集且未用 --scene 時），"
-                         "填 0 則不調整。對白鏡保留字數÷4 下限，只縮放動作鏡")
+                    help="整集目標總秒數；預設讀 handoff episodes[].accepted_duration_seconds，沒有再讀 target_duration_seconds"
+                         "（單集且未用 --scene 時）。report 模式只用來算偏差；fit 模式才縮放動作鏡（對白鏡保留字數÷4 下限）")
     args = ap.parse_args()
 
     try:
@@ -613,10 +623,19 @@ def main() -> int:
     target_total = args.target_total_sec
     episodes = handoff.get("episodes", [])
     if target_total is None and not args.scene and len(episodes) == 1:
-        target_total = episodes[0].get("target_duration_seconds")
+        ep0 = episodes[0]
+        target_total = ep0.get("accepted_duration_seconds") or ep0.get("target_duration_seconds")
+    natural = sum(float(sh["duration"]) for _, seg in results for sh in seg["shots"])
+    for _, seg in results:  # 保留壓縮前的自然秒數，審核頁才看得到真實偏差
+        seg["metadata"]["natural_duration_sec"] = seg["metadata"]["target_duration_sec"]
     if target_total:
-        for note in fit_total_duration(results, float(target_total)):
-            warn(note)
+        drift = (natural - float(target_total)) / float(target_total)
+        if args.duration_policy == "fit":
+            for note in fit_total_duration(results, float(target_total), args.max_segment_sec):
+                warn(note)
+        elif abs(drift) > 0.15:
+            warn(f"自然總長 {natural:g}s，對目標 {float(target_total):g}s 偏差 {drift:+.0%}（未壓縮）。"
+                 "請在階段 3/4 決定：接受並寫入 accepted_duration_seconds、於場次邊界拆集，或刪去非因果鏡頭。")
 
     try:
         rows = write_skeletons(results, args.out_dir, args.force)

@@ -46,7 +46,7 @@ def evaluate_adaptation(
 
     target_sec = None
     if episodes:
-        target_sec = sum(ep.get("target_duration_seconds", 90) for ep in episodes)
+        target_sec = sum((ep.get("accepted_duration_seconds") or ep.get("target_duration_seconds", 90)) for ep in episodes)
 
     dur_res = estimate_script_duration(script_text, genre_mode=genre_mode, target_seconds=target_sec, h3_mode=h3_mode)
     cont_res = (

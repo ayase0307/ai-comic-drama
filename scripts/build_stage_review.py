@@ -33,6 +33,7 @@ build_stage_review.py — 八階段強制斷點狀態機與高設計感 HTML 視
 from __future__ import annotations
 
 import argparse
+import contextlib
 from datetime import datetime
 import html
 import io
@@ -927,6 +928,43 @@ video{display:block;width:100%;border-radius:var(--r);background:#000}
   .gate-head,.gate-foot{padding:14px}
   .gate-foot .btn{width:100%}
 }
+/* ---------- 時長對帳（目標 vs 實際，長出來不是錯，要讓人看見並決定） ---------- */
+.budget{display:flex;flex-direction:column;gap:18px}
+.bud-row{display:grid;grid-template-columns:4.5em minmax(0,1fr) minmax(8em,15em);gap:6px 14px;align-items:center}
+.bud-ep{font:600 15px/1 var(--mono)}
+.bud-track{position:relative;display:flex;height:30px;background:var(--sunk);border-radius:4px}
+.bud-seg{display:grid;place-items:center;min-width:2px;overflow:hidden;background:var(--shell-2);color:#fff;
+  font:500 11px/1 var(--mono);border-right:2px solid var(--surface)}
+.bud-seg:nth-child(even){background:var(--indigo)}
+.bud-seg:first-child{border-radius:4px 0 0 4px}
+.bud-seg.est{background:repeating-linear-gradient(-45deg,var(--indigo) 0 6px,#3A6293 6px 12px)}
+.bud-target{position:absolute;top:-6px;bottom:-6px;border-left:2px dashed var(--seal);pointer-events:none}
+.bud-target::after{content:attr(data-label);position:absolute;top:-16px;left:-1.2em;font:500 10.5px/1 var(--mono);color:var(--seal);white-space:nowrap}
+.bud-note{font-size:13px;line-height:1.5;color:var(--ink-2)}
+.bud-note b{font:600 14px/1.3 var(--mono);display:block}
+.bud-note.over b{color:var(--amber)} .bud-note.under b{color:var(--indigo)} .bud-note.ok b{color:var(--jade)}
+.bud-legend{font-size:12.5px;color:var(--ink-3);margin:0}
+
+/* ---------- 逐鏡分鏡卡 ---------- */
+.shot-line{display:flex;height:10px;border-radius:3px;overflow:hidden;margin:0 0 4px;gap:2px}
+.shot-line i{display:block;background:var(--ink-2)}
+.shot-line i.core{background:var(--seal)} .shot-line i.impact{background:var(--amber-fill)} .shot-line i.react{background:var(--indigo)}
+.shot-ticks{display:flex;gap:2px;margin:0 0 6px;font:500 11px/1 var(--mono);color:var(--ink-3)}
+.shot-ticks span{overflow:hidden;white-space:nowrap}
+.shot{display:grid;grid-template-columns:4.6em minmax(0,1fr);gap:4px 14px;padding:14px 0;border-top:1px solid var(--rule)}
+.shot-id{font:600 13px/1.3 var(--mono)} .shot-id b{display:block;font-size:20px;color:var(--ink)}
+.shot-id span{color:var(--ink-3)}
+.shot-tags{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px}
+.shot-act{margin:0 0 8px;padding:0;list-style:none;counter-reset:a}
+.shot-act li{position:relative;padding-left:1.6em;margin:2px 0;color:var(--ink-2);line-height:1.6}
+.shot-act li::before{counter-increment:a;content:counter(a);position:absolute;left:0;top:.2em;width:1.2em;height:1.2em;border-radius:50%;
+  background:var(--surface-2);border:1px solid var(--rule-2);font:600 11px/1.1em var(--mono);text-align:center;color:var(--ink-2)}
+.shot-expr{margin:0 0 6px;color:var(--ink-3);font-size:14px}
+.shot-say{display:inline-flex;gap:8px;align-items:baseline;background:var(--amber-wash);border-radius:4px;padding:5px 10px;font:400 16px/1.6 var(--hand);color:#4A3200}
+.shot-say b{font:700 12.5px/1 var(--sans)}
+.shot-mute{font-size:13px;color:var(--ink-3)}
+.sbs-visual .qa-box{background:var(--surface);color:var(--ink);padding:6px 14px 10px;border-radius:var(--r)}
+@media (max-width:720px){.bud-row{grid-template-columns:3.6em minmax(0,1fr)}.bud-note{grid-column:1/-1}.shot{grid-template-columns:1fr}.shot-id b{display:inline;margin-right:8px}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
 @media print{.rail,.mbar{display:none}.shell{display:block}.sbs-visual{position:static;max-height:none}}
 """
@@ -1155,6 +1193,151 @@ def render_issues(errors: List[str]) -> str:
 # ==============================================================================
 # 各階段驗證與 HTML 內容建構器 (Stage 0 ~ Stage 7)
 # ==============================================================================
+
+DURATION_BAND = 0.15  # 與 estimate_duration.py 的 ±15% 一致
+_STEP_NUM = re.compile(r"^[①②③④⑤]\s*")
+
+
+def _num(v: Any) -> float:
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def episode_targets(project_dir: Path) -> Dict[str, Dict[str, Any]]:
+    """從 handoff-ep*.json 讀每集目標秒數與劇本預估區間：{EP01: {target, est_min, est_max}}。"""
+    out: Dict[str, Dict[str, Any]] = {}
+    for hp in sorted(project_dir.glob("handoff-ep*.json")):
+        try:
+            data = json.loads(hp.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        for ep in data.get("episodes", []):
+            eid = str(ep.get("episode_id", "")).upper()
+            if not eid:
+                continue
+            est = [s.get("estimated_duration_seconds") for s in ep.get("scenes", [])]
+            est = [e for e in est if isinstance(e, dict)]
+            accepted = _num(ep.get("accepted_duration_seconds"))
+            out[eid] = {
+                "accepted": bool(accepted),
+                "original": _num(ep.get("target_duration_seconds")),
+                "target": accepted or _num(ep.get("target_duration_seconds")),
+                "est_min": sum(_num(e.get("min")) for e in est),
+                "est_max": sum(_num(e.get("max")) for e in est),
+            }
+    return out
+
+
+def render_budget(rows: List[Dict[str, Any]], legend: str) -> str:
+    """時長對帳條：每集一條，色塊寬度＝實際秒數，虛線＝原定目標。
+    超出目標用琥珀色提示「請決定要不要拆集」，不當成錯誤——因果完整優先於硬塞秒數。
+    rows: {label, target, parts:[(名稱, 秒數)], estimated:bool}"""
+    if not rows:
+        return ""
+    scale = max(max(r["target"], sum(s for _, s in r["parts"])) for r in rows) * 1.06 or 1.0
+    out: List[str] = []
+    for r in rows:
+        total = sum(s for _, s in r["parts"])
+        tgt = r["target"]
+        segs = "".join(
+            f'<div class="bud-seg{" est" if r.get("estimated") else ""}" style="width:{s / scale * 100:.2f}%" '
+            f'title="{html.escape(n)} · {s:g}s">{html.escape(n.rsplit("-", 1)[-1]) if s / scale > 0.05 else ""}</div>'
+            for n, s in r["parts"] if s > 0
+        )
+        marker = (f'<div class="bud-target" style="left:{tgt / scale * 100:.2f}%" data-label="{"已接受" if r.get("accepted") else "目標"} {tgt:g}s"></div>'
+                  if tgt else "")
+        lo, hi = r.get("range", (total, total))
+        if not tgt:
+            cls, head, tip = "", f"{total:g}s", "未設定目標秒數"
+        else:
+            drift = (total - tgt) / tgt
+            if lo > tgt * (1 + DURATION_BAND) if r.get("range") else drift > DURATION_BAND:
+                cls, tip = "over", "超出目標：確認是否為因果需要；若是，考慮於場次邊界拆成上下集，而非壓縮分鏡"
+            elif hi < tgt * (1 - DURATION_BAND) if r.get("range") else drift < -DURATION_BAND:
+                cls, tip = "under", "低於目標：確認是否漏掉因果交代或收尾留白"
+            else:
+                cls, tip = "ok", "落在目標 ±15% 內"
+            head = f"{total:g}s（{drift:+.0%}）"
+        out.append(
+            f'<div class="bud-row"><div class="bud-ep">{html.escape(r["label"])}</div>'
+            f'<div class="bud-track">{segs}{marker}</div>'
+            f'<div class="bud-note {cls}"><b>{head}</b>{tip}</div></div>'
+        )
+    return (f'<section class="section-panel"><h2 class="md-h2">時長對帳</h2>'
+            f'<div class="budget">{"".join(out)}</div><p class="bud-legend">{html.escape(legend)}</p></section>')
+
+
+_BEAT_CLS = (("core", "core"), ("impact", "impact"), ("react", "react"))
+
+
+def render_shots(shots: List[Dict[str, Any]]) -> str:
+    """分段內逐鏡卡：上方按秒數比例的節拍條，下方每鏡一張卡（鏡頭規格、動作三步、表情、台詞）。"""
+    total = sum(_num(s.get("duration")) for s in shots) or 1.0
+    bar, ticks, cards = [], [], []
+    for sh in shots:
+        dur = _num(sh.get("duration"))
+        beat = str(sh.get("dramatic_beat_type", ""))
+        cls = next((c for k, c in _BEAT_CLS if k in beat.lower()), "")
+        w = dur / total * 100
+        bar.append(f'<i class="{cls}" style="width:{w:.2f}%" title="{html.escape(beat)}"></i>')
+        ticks.append(f'<span style="width:{w:.2f}%">{html.escape(str(sh.get("shot_id", "")))}</span>')
+        cam = sh.get("camera_optics", {})
+        tags = "".join(
+            f'<span class="tag-badge{extra}">{html.escape(str(v))}</span>'
+            for v, extra in ((cam.get("shot_size"), " gold"), (cam.get("focal_length"), ""),
+                             (cam.get("physical_distance"), ""), (cam.get("movement"), ""), (beat, " emerald"))
+            if v
+        )
+        act = sh.get("action_and_performance", {})
+        steps = "".join(f"<li>{inline_md(_STEP_NUM.sub('', s))}</li>" for s in act.get("action_stages", []))
+        dlg = sh.get("dialogue_and_audio", {})
+        say = (f'<span class="shot-say"><b>{html.escape(str(dlg.get("speaker", "")))}</b>{html.escape(str(dlg.get("line_verbatim", "")))}</span>'
+               if dlg.get("has_dialogue") else '<span class="shot-mute">閉唇無台詞</span>')
+        expr = f'<p class="shot-expr">{inline_md(act.get("observable_expression", ""))}</p>' if act.get("observable_expression") else ""
+        cards.append(
+            f'<div class="shot"><div class="shot-id"><b>{html.escape(str(sh.get("shot_id", "")))}</b><span>{dur:g}s</span></div>'
+            f'<div><div class="shot-tags">{tags}</div><ol class="shot-act">{steps}</ol>{expr}{say}</div></div>'
+        )
+    return (f'<div class="shot-line">{"".join(bar)}</div><div class="shot-ticks">{"".join(ticks)}</div>{"".join(cards)}')
+
+
+def qa_panel(item: Dict[str, Any]) -> str:
+    """影片 QA：純量欄位轉成規格條目（布林標通過／未過），巢狀資料收進可展開的原始 JSON。"""
+    if not item:
+        return '<p class="md-p">尚未執行 verify_video_shot.py</p>'
+    pairs, rest = [], {}
+    for k, v in item.items():
+        if isinstance(v, bool):
+            tone = "emerald" if v else "rose"
+            pairs.append((html.escape(k), f'<span class="tag-badge {tone}">{"通過" if v else "未通過"}</span>'))
+        elif isinstance(v, (str, int, float)):
+            pairs.append((html.escape(k), html.escape(str(v))))
+        else:
+            rest[k] = v
+    raw = (f'<details class="fold"><summary><span>原始資料</span>{icon("chevron")}</summary><div class="fold-body">'
+           f'<pre class="prompt"><code>{html.escape(json.dumps(rest, ensure_ascii=False, indent=2))}</code></pre></div></details>'
+           if rest else "")
+    return _kv_html(pairs) + raw
+
+
+def predicted_skeleton_seconds(project_dir: Path) -> Dict[str, float]:
+    """直接用骨架產生器的估時（對白字數÷4、動作拍 2.5s）預測各集分鏡總秒數，
+    讓階段 3 就看得到階段 4 大概會長多少。handoff 無法轉換時略過該檔。"""
+    from handoff_to_skeleton import convert_handoff  # noqa: E402
+    out: Dict[str, float] = {}
+    for hp in sorted(project_dir.glob("handoff-ep*.json")):
+        try:
+            with contextlib.redirect_stderr(io.StringIO()):  # 骨架的切段提醒不屬於審核頁
+                results = convert_handoff(json.loads(hp.read_text(encoding="utf-8")), None)
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        for _, seg in results:
+            eid = str(seg.get("scene_id", "")).split("-")[0].upper()
+            out[eid] = out.get(eid, 0.0) + sum(_num(sh.get("duration")) for sh in seg.get("shots", []))
+    return out
+
 
 def build_stage_0(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[str], str]:
     errors: List[str] = []
@@ -1531,7 +1714,20 @@ def build_stage_3(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
         ("總場次數", f"{total_scenes} 場", "cyan"),
         ("結構與連戲校驗", "PASS" if not errors else "FAIL", "emerald" if not errors else "rose"),
     ]
-    body = f'<div class="side-by-side-list">{"".join(sbs_items)}</div>'
+    budget_rows = []
+    predicted = predicted_skeleton_seconds(project_dir)
+    for eid, t in episode_targets(project_dir).items():
+        mid = (t["est_min"] + t["est_max"]) / 2
+        row = {"label": eid, "target": t["target"], "accepted": t["accepted"], "estimated": True}
+        if predicted.get(eid):
+            budget_rows.append({**row, "parts": [(f"{eid} 預測分鏡", round(predicted[eid], 1))]})
+        elif mid:
+            budget_rows.append({**row, "parts": [(f"{eid} 預估中位數", round(mid, 1))], "range": (t["est_min"], t["est_max"])})
+    budget = render_budget(
+        budget_rows,
+        "斜紋＝依骨架估時預測的分鏡總長（與階段 4 同一套算法，台詞 ÷ 4 字/秒、動作拍 2.5s），這只是骨架下限，導演細化後通常更長（《噩盡島》骨架約 81–94s，細化後 129–185s）。超出目標不算錯：請在此決定接受（寫入 accepted_duration_seconds）、於場次邊界拆集，或回頭刪去非因果內容。",
+    )
+    body = budget + f'<div class="side-by-side-list">{"".join(sbs_items)}</div>'
     checklist = [
         "劇本正文採用中文場號制（人物、△ 動作行、對白），無混入攝影機術語",
         "台詞字數符合 4 字/秒預算、單句精簡有力，說話秒數佔比 ≤ 60%",
@@ -1606,23 +1802,10 @@ def build_stage_4(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
         lighting = meta.get("lighting_lock_line", "")
         shots = d.get("shots", [])
 
-        shot_rows = [
-            "| 鏡號 (`shot_id`) | 秒數 | 景別 / 焦距 / 物距 / 運鏡 | 動作力學三要素（①施力點 ➔ ②傳導路徑 ➔ ③受擊與環境反饋） | 微表情與台詞 |",
-            "|---|---|---|---|---|",
-        ]
         panel_boxes: List[str] = []
         for sh in shots:
             sh_id = sh.get("shot_id", "")
             sh_dur = sh.get("duration", 0)
-            cam = sh.get("camera_optics", {})
-            cam_str = f"**{cam.get('shot_size', '')}** · `{cam.get('focal_length', '')}` · `{cam.get('physical_distance', '')}` · `{cam.get('movement', '')}`"
-            act = sh.get("action_and_performance", {})
-            stages_str = " <br>➔ ".join(act.get("action_stages", []))
-            expr = act.get("observable_expression", "")
-            dlg = sh.get("dialogue_and_audio", {})
-            dlg_str = f"💬 **{dlg.get('speaker', '')}**：「{dlg.get('line_verbatim', '')}」" if dlg.get("has_dialogue") else "🔒 *閉唇無台詞*"
-            shot_rows.append(f"| `{sh_id}` | `{sh_dur}s` | {cam_str} | {stages_str} | {expr}<br>{dlg_str} |")
-
             # 尋找對應單格草圖
             for cand_panel in (
                 project_dir / "panels" / f"panel-{seg_id}-{sh_id}.png",
@@ -1664,7 +1847,7 @@ def build_stage_4(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
             f'    <span class="tag-badge">光影鎖：{html.escape(lighting[:45])}</span>'
             f'  </div>'
             f'  <div class="sbs-body">'
-            f'    <div class="sbs-spec">{md_table_to_html(shot_rows)}</div>'
+            f'    <div class="sbs-spec">{render_shots(shots)}</div>'
             f'    <div class="sbs-visual">{right_visual}</div>'
             f'  </div>'
             f'</article>'
@@ -1675,7 +1858,17 @@ def build_stage_4(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
         ("九宮格拼版圖", f"{len(grid_files)} 張 (單格 {len(panel_files)} 張)", "emerald" if (grid_files or panel_files) else "rose"),
         ("防偷懶與物理門禁", "PASS (0 罐頭詞)" if not errors else f"FAIL ({len(errors)} 錯)", "emerald" if not errors else "rose"),
     ]
-    body = grid_gallery_html + f'<div class="side-by-side-list">{"".join(seg_cards)}</div>'
+    by_ep: Dict[str, List[Tuple[str, float]]] = {}
+    for p, d in all_l2_data:
+        eid = str(d.get("scene_id", "")).split("-")[0].upper() or "未知集"
+        seg_id = d.get("segment_id") or p.stem.replace("layer2-", "")
+        by_ep.setdefault(eid, []).append((str(seg_id), _num(d.get("metadata", {}).get("target_duration_sec"))))
+    targets = episode_targets(project_dir)
+    budget = render_budget(
+        [{"label": eid, "target": targets.get(eid, {}).get("target", 0), "accepted": targets.get(eid, {}).get("accepted", False), "parts": parts} for eid, parts in sorted(by_ep.items())],
+        "每個色塊是一個分段（寬度＝秒數），虛線＝目標（已接受則為接受秒數）。分鏡後變長是正常的；若明顯超出，請在此決定：接受、於場次邊界拆集，或刪去非因果鏡頭。",
+    )
+    body = budget + grid_gallery_html + f'<div class="side-by-side-list">{"".join(seg_cards)}</div>'
     checklist = [
         "已檢視黑白鉛筆九宮格構圖（`images/grid-*.png`），確認每鏡人物站位、景別遠近與動作張力符合預期",
         "無任何單鏡同時塞入「主角＋路人＋道具＋巨獸」四方複雜碰撞（已拆分為慢動作感知特寫 ➔ 90度純粹打擊 ➔ 受擊翻滾）",
@@ -1806,7 +1999,7 @@ def build_stage_6(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
             f'    </div>'
             f'    <div class="sbs-visual">'
             f'      <h4 class="md-h4">自動品質審查數據 (verify_video_shot.py)</h4>'
-            f'      <pre class="prompt"><code>{html.escape(json.dumps(q_item, ensure_ascii=False, indent=2) if q_item else "尚未執行 verify_video_shot.py")}</code></pre>'
+            f'      <div class="qa-box">{qa_panel(q_item)}</div>'
             f'    </div>'
             f'  </div>'
             f'</article>'

@@ -126,6 +126,7 @@
           },
           "title": { "type": "string" },
           "target_duration_seconds": { "type": "integer", "minimum": 15 },
+          "accepted_duration_seconds": { "type": "integer", "minimum": 15 },
           "episode_goal": { "type": "string" },
           "obstacle": { "type": "string" },
           "choice_and_cost": { "type": "string" },

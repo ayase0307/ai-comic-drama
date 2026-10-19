@@ -180,10 +180,10 @@ def estimate_script_duration(
                 f"[DURATION_OVER_BUDGET] 預估時長區間 [{total_min}s, {total_max}s] 超出目標 {target_seconds}s (+15% 上限 {allowed_high}s)"
             )
             compression_advice = [
-                "1. 優先刪除重複解說與背景重述台詞",
-                "2. 合併重複的旁觀震驚反應節拍",
-                "3. 壓縮非核心過場支線",
-                "4. 將長句對白精簡為短句（嚴禁刪除 MUST_KEEP 核心因果事件）",
+                "先判斷超出的是「因果必要」還是「冗餘」，再三選一：",
+                "A. 冗餘 → 刪重複解說、合併重複反應節拍、精簡長句（嚴禁刪 MUST_KEEP 核心因果事件）",
+                "B. 因果必要 → 於場次邊界拆成上下集（每集都要有自己的目標、阻礙與結尾鉤子），不要壓縮分鏡",
+                "C. 因果必要且不宜拆 → 接受實際長度，並在 handoff 該集寫入 accepted_duration_seconds",
             ]
         elif total_max < allowed_low:
             budget_status = "UNDER_BUDGET"

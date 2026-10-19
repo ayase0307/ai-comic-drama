@@ -214,6 +214,23 @@ class StageReviewGateTests(unittest.TestCase):
         self.assertTrue(errors)
 
 
+class BudgetPanelTests(unittest.TestCase):
+    def test_over_target_is_flagged_but_not_an_error(self):
+        out = review.render_budget([{"label": "EP01", "target": 90, "parts": [("EP01-S01-a", 100), ("EP01-S01-b", 30)]}], "x")
+        self.assertIn("bud-note over", out)
+        self.assertIn("+44%", out)
+
+    def test_within_band_is_ok_and_shots_render(self):
+        out = review.render_budget([{"label": "EP01", "target": 90, "parts": [("a", 95)]}], "x")
+        self.assertIn("bud-note ok", out)
+        shots = [{"shot_id": "SH01", "duration": 3, "dramatic_beat_type": "Dramatic_Core",
+                  "action_and_performance": {"action_stages": ["①施力點：握刀"]},
+                  "dialogue_and_audio": {"has_dialogue": False}}]
+        html_out = review.render_shots(shots)
+        self.assertIn("SH01", html_out)
+        self.assertIn("閉唇無台詞", html_out)
+
+
 if __name__ == "__main__":
     unittest.main()
 
