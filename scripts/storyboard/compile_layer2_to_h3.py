@@ -527,6 +527,13 @@ def validate_stage5_binding(
         seen_refs.add(sid)
         if not isinstance(shot_binding.get("reference_paths", {}), dict):
             raise ValueError(f"Stage5 reference_paths for {sid} must be an object")
+        face_ids = shot_binding.get("face_subject_ids")
+        if face_ids is not None:
+            if not isinstance(face_ids, list) or not all(isinstance(v, str) and v.strip() for v in face_ids):
+                raise ValueError(f"Stage5 face_subject_ids for {sid} must be a list of non-empty strings")
+        crop_note = shot_binding.get("crop_note_en")
+        if crop_note is not None and (not isinstance(crop_note, str) or not crop_note.strip()):
+            raise ValueError(f"Stage5 crop_note_en for {sid} must be a non-empty string")
     if seen_refs != known:
         missing = sorted(known - seen_refs)
         raise ValueError(f"Stage5 bindings are missing per-shot reference mapping(s): {', '.join(missing)}")
@@ -885,6 +892,10 @@ def compile_segment_h3(
     bound_scene_path = None
     bound_scene_description = None
     creature_variants: List[Dict[str, Any]] = []
+    # Single readable face (Stage5 face_subject_ids): see the bindings branch below.
+    face_subject_ids: List[str] = []
+    crop_notes: List[str] = []
+    single_face_mode = False
     if stage5_binding:
         ref_path_map, bound_scene_path, creature_variants, bound_scene_description = _stage5_reference_path_map(stage5_binding)
         for shot_binding in stage5_binding.get("shots", []) or []:
@@ -919,12 +930,29 @@ def compile_segment_h3(
             cid for b in (stage5_binding.get("shots", []) or [])
             for cid in (b.get("visual_subject_ids", []) or [])
         }
+        # Single readable face: a shot binding may name the characters whose faces are
+        # actually readable (face_subject_ids). Everyone else who appears in the shot
+        # stays in frame but is described rather than referenced, so H3 keeps one
+        # identity instead of averaging several faces into one.
+        face_subject_ids: List[str] = []
+        crop_notes: List[str] = []
+        for shot_binding in stage5_binding.get("shots", []) or []:
+            for cid in (shot_binding.get("face_subject_ids", []) or []):
+                if cid not in face_subject_ids:
+                    face_subject_ids.append(cid)
+            note = _clean(shot_binding.get("crop_note_en") or "")
+            if note and note not in crop_notes:
+                crop_notes.append(note)
+        single_face_mode = bool(face_subject_ids)
         for shot in shots:
             bound_shot = next((b for b in stage5_binding.get("shots", []) or []
                                if b.get("global_shot_id") == shot.get("global_shot_id")), {})
             ids = bound_shot.get("visual_subject_ids") or shot.get("character_ids", []) or []
             for cid in ids:
                 if not cid or cid in no_visual_ids or cid in visual_order:
+                    continue
+                if single_face_mode and cid not in face_subject_ids:
+                    # visible but never face-readable: text only, no reference image
                     continue
                 info = registry.get_character(cid, wardrobe_state=costume_of.get(cid) or seg_wardrobe)
                 if info.get("no_visual_reference") or info.get("voice_only"):
@@ -933,13 +961,30 @@ def compile_segment_h3(
                     continue
                 if cid:
                     visual_order.append(cid)
+        if single_face_mode:
+            for cid in face_subject_ids:
+                if cid in no_visual_ids:
+                    raise ValueError(f"Stage5 lists {cid} as a readable face but marks it as having no visual reference")
+                if cid not in visual_order:
+                    visual_order.append(cid)
+            human_faces = [cid for cid in visual_order
+                           if not registry.get_character(cid, wardrobe_state=costume_of.get(cid) or seg_wardrobe).get("is_creature")]
+            if len(human_faces) > 1:
+                notes.append(
+                    "Stage5 face_subject_ids 宣告了多張可辨識人臉，H3 可能把不同角色平均成同一張臉（混臉風險）"
+                )
         for group in (asset_refs.get("characters", []) or [], asset_refs.get("creatures", []) or []):
             for entry in group:
                 cid = entry.get("id") if isinstance(entry, dict) else entry
                 if cid and cid not in no_visual_ids and cid not in visual_order:
+                    if single_face_mode and cid not in face_subject_ids:
+                        # cropped out of frame: keep as a text-only secondary subject
+                        continue
                     visual_order.append(cid)
         for cid in ref_path_map:
             if cid in registry.characters and cid not in no_visual_ids and cid not in visual_order:
+                if single_face_mode and cid not in face_subject_ids:
+                    continue
                 visual_order.append(cid)
         if primary and primary in visual_order:
             visual_order.remove(primary)
@@ -1027,6 +1072,16 @@ def compile_segment_h3(
         w = (info.get("wardrobe_states", {}).get(costume_of.get(cid) or "", {}) or {})
         w_desc = w.get("desc_en") if isinstance(w, dict) else ""
         secondary_short[cid] = info["short_en"] + (f", {w_desc}" if w_desc else "")
+
+    if single_face_mode:
+        holders = [cid for cid in face_subject_ids if cid in selected]
+        if holders:
+            names = ", ".join((registry.get_character(cid).get("name") or cid) for cid in holders)
+            verb = "carries" if len(holders) == 1 else "carry"
+            line = f"{names} {verb} the readable face in this segment"
+            if crop_notes:
+                line += ". " + " ".join(crop_notes)
+            retention_lines.append(line)
 
     # Stage5 supplementary props/body details are Pictures after the subject sequence.
     # They inform object or localized-detail appearance without becoming face Subjects.
