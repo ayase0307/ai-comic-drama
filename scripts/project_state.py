@@ -173,6 +173,19 @@ def _files_for_stage(root: Path, stage: int) -> list[Path]:
             except (OSError, json.JSONDecodeError):
                 continue
             seg_id = data.get("segment_id") or layer.stem.removeprefix("layer2-")
+            for shot in data.get("shots", []):
+                generation = shot.get("sketch_generation")
+                metadata = shot.get("metadata")
+                raw_grid = (generation.get("grid_file") if isinstance(generation, dict) else None)
+                raw_grid = raw_grid or (metadata.get("grid_file") if isinstance(metadata, dict) else None)
+                raw_grid = raw_grid or shot.get("grid_file")
+                if isinstance(raw_grid, str) and raw_grid.strip():
+                    grid_path = Path(raw_grid.strip())
+                    candidates = (
+                        _resolve(root, grid_path),
+                        grid_path.resolve() if grid_path.is_absolute() else (layer.parent / grid_path).resolve(),
+                    )
+                    files.extend(path for path in candidates if path.is_file())
             for grid in (root / "images" / f"grid-{seg_id}.png", root / "layer2" / f"grid-{seg_id}.png"):
                 if grid.is_file():
                     files.append(grid)
@@ -253,9 +266,29 @@ def stage4_artifacts(root: Path) -> tuple[list[Path], list[str]]:
         if not isinstance(shots, list) or not shots:
             errors.append(f"{layer.name}: 沒有 shots")
             continue
-        grid = next((p for p in (root / "images" / f"grid-{seg_id}.png", layer.parent / f"grid-{seg_id}.png") if _valid_png(p)), None)
-        if grid:
-            matched.append(grid)
+        # A segment may reference one or more outsourced overview grids. Keep
+        # those images in the artifact set, but never let a grid stand in for
+        # the required per-shot sketch below.
+        legacy_grids = [root / "images" / f"grid-{seg_id}.png", layer.parent / f"grid-{seg_id}.png"]
+        grid_candidates = list(legacy_grids)
+        has_explicit_mapping = False
+        for shot in shots:
+            has_explicit_mapping = has_explicit_mapping or bool(shot.get("sketch_file"))
+            generation = shot.get("sketch_generation")
+            metadata = shot.get("metadata")
+            raw_grid = generation.get("grid_file") if isinstance(generation, dict) else None
+            raw_grid = raw_grid or (metadata.get("grid_file") if isinstance(metadata, dict) else None)
+            raw_grid = raw_grid or shot.get("grid_file")
+            if isinstance(raw_grid, str) and raw_grid.strip():
+                has_explicit_mapping = True
+                grid_path = Path(raw_grid.strip())
+                grid_candidates.extend((
+                    _resolve(root, grid_path),
+                    grid_path.resolve() if grid_path.is_absolute() else (layer.parent / grid_path).resolve(),
+                ))
+        valid_legacy_grid = next((p for p in legacy_grids if _valid_png(p)), None)
+        matched.extend(p for p in grid_candidates if _valid_png(p))
+        if valid_legacy_grid and not has_explicit_mapping:
             continue
         for index, shot in enumerate(shots, start=1):
             shot_id = str(shot.get("shot_id") or f"SH{index:02d}")

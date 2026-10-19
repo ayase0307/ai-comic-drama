@@ -11,7 +11,7 @@ build_stage_review.py — 八階段強制斷點狀態機與高設計感 HTML 視
    - 階段 1 (`stage-1-adaptation.html`)：《完整角色設定文件 v4.0》十一章節完整卡片 + 故事地圖與分集大綱
    - 階段 2 (`stage-2-assets.html`)：【核心重點】角色設定表格 × 產出設定圖片 左右並排（Side-by-Side）審核藝廊（含 Lightbox 全螢幕放大、缺圖紅燈攔截）
    - 階段 3 (`stage-3-script.html`)：漫劇劇本 × 原著對照 × H3 台詞預算進度條審核台
-   - 階段 4 (`stage-4-storyboard.html`)：【必經斷點】Qwen 黑白鉛筆九宮格構圖 (`images/grid-*.png`) × 導演分鏡表（含動作力學三要素與綁定服裝圖縮圖）並排確認台
+   - 階段 4 (`stage-4-storyboard.html`)：【必經斷點】黑白分鏡九宮格/單格構圖 × 導演分鏡表（含動作力學三要素與綁定服裝圖縮圖）並排確認台
    - 階段 5 (`stage-5-prompts.html`)：H3 六段式提示詞 × `<Picture 1..N>` 實際參考圖縮圖 × LoRA 對帳中心
    - 階段 6 (`stage-6-videos.html`)：HTML5 影片播放器 × 九宮格草圖 × 角色設定圖 × QA 指標並排驗收室
    - 階段 7 (`stage-7-final.html`)：最終成片劇院放映室與全階段簽核總覽
@@ -1805,34 +1805,79 @@ def build_stage_4(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
         panel_boxes: List[str] = []
         for sh in shots:
             sh_id = sh.get("shot_id", "")
+            global_shot_id = sh.get("global_shot_id") or sh_id
             sh_dur = sh.get("duration", 0)
+
             # 尋找對應單格草圖
-            for cand_panel in (
+            sketch_file = sh.get("sketch_file")
+            panel_candidates: List[Path] = []
+            if isinstance(sketch_file, str) and sketch_file.strip():
+                sketch_path = Path(sketch_file.strip())
+                if sketch_path.is_absolute():
+                    panel_candidates.append(sketch_path)
+                else:
+                    panel_candidates.extend((project_dir / sketch_path, p.parent / sketch_path))
+            panel_candidates.extend((
                 project_dir / "panels" / f"panel-{seg_id}-{sh_id}.png",
                 project_dir / "panels" / f"panel-{sh_id}.png",
-            ):
+            ))
+            for cand_panel in panel_candidates:
                 if cand_panel.exists():
-                    src_rel, _ = rel_img_src(project_dir, f"panels/{cand_panel.name}")
+                    try:
+                        panel_rel = cand_panel.resolve().relative_to(project_dir.resolve()).as_posix()
+                    except ValueError:
+                        panel_rel = str(cand_panel.resolve())
+                    src_rel, _ = rel_img_src(project_dir, panel_rel)
                     panel_boxes.append(
                         f'<div class="thumb-item">'
-                        f'  <img src="{src_rel}" alt="{html.escape(sh_id)}">'
-                        f'  <div class="thumb-caption"><code>{html.escape(sh_id)}</code> ({sh_dur}s)</div>'
+                        f'  <img src="{src_rel}" alt="{html.escape(str(global_shot_id))}">'
+                        f'  <div class="thumb-caption"><code>{html.escape(str(global_shot_id))}</code> ({sh_dur}s)</div>'
                         f'</div>'
                     )
                     break
 
         # 尋找該段對應的九宮格圖
         seg_grid_html = ""
-        for gf in grid_files:
-            if seg_id.lower() in gf.stem.lower() or scene_id.lower() in gf.stem.lower() or seg_id.split("-")[0].lower() in gf.stem.lower():
-                src_rel, _ = rel_img_src(project_dir, f"images/{gf.name}")
-                seg_grid_html = (
-                    f'<div class="asset-img-box">'
-                    f'  <img src="{src_rel}" alt="{html.escape(gf.name)}">'
-                    f'  <div class="asset-meta-bar"><span class="tag-badge gold">對應九宮格</span><code>images/{html.escape(gf.name)}</code></div>'
-                    f'</div>'
-                )
-                break
+        explicit_grids: List[Path] = []
+        valid_grid_paths = {path.resolve() for path in grid_files}
+        for sh in shots:
+            generation = sh.get("sketch_generation")
+            grid_file = generation.get("grid_file") if isinstance(generation, dict) else None
+            if not isinstance(grid_file, str) or not grid_file.strip():
+                continue
+            grid_path = Path(grid_file.strip())
+            candidates = [grid_path] if grid_path.is_absolute() else [project_dir / grid_path, p.parent / grid_path]
+            for candidate in candidates:
+                resolved = candidate.resolve()
+                if resolved in valid_grid_paths:
+                    if resolved not in {item.resolve() for item in explicit_grids}:
+                        explicit_grids.append(resolved)
+                    break
+        if explicit_grids:
+            grid_paths = explicit_grids
+        else:
+            # Preserve the legacy segment-named grid layout for older projects.
+            grid_paths = [
+                gf for gf in grid_files
+                if seg_id.lower() in gf.stem.lower()
+                or scene_id.lower() in gf.stem.lower()
+                or seg_id.split("-")[0].lower() in gf.stem.lower()
+            ][:1]
+        grid_boxes = []
+        for gf in grid_paths:
+            try:
+                grid_rel = gf.resolve().relative_to(project_dir.resolve()).as_posix()
+            except ValueError:
+                grid_rel = str(gf.resolve())
+            src_rel, _ = rel_img_src(project_dir, grid_rel)
+            grid_boxes.append(
+                f'<div class="asset-img-box">'
+                f'  <img src="{src_rel}" alt="{html.escape(gf.name)}">'
+                f'  <div class="asset-meta-bar"><span class="tag-badge gold">對應九宮格</span><code>{html.escape(grid_rel)}</code></div>'
+                f'</div>'
+            )
+        if grid_boxes:
+            seg_grid_html = f'<div class="grid-gallery">{"".join(grid_boxes)}</div>'
 
         right_visual = seg_grid_html
         if panel_boxes:
@@ -1877,7 +1922,7 @@ def build_stage_4(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
     ]
     html_out = wrap_studio_html(
         project_dir, 4, state,
-        "必經斷點：將 Qwen 鉛筆分鏡九宮格草圖與導演分鏡表（景別、焦距物距、動作力學三要素）並排確認，確認無誤後才可進入提示詞編譯與影片生成。",
+        "必經斷點：將黑白分鏡九宮格/單格草圖與導演分鏡表（景別、焦距物距、動作力學三要素）並排確認，確認無誤後才可進入提示詞編譯與影片生成。",
         kpis, body, checklist
     )
     return len(errors) == 0, errors, html_out
@@ -1902,7 +1947,12 @@ def build_stage_5(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
             dur = float(seg.get("metadata", {}).get("target_duration_sec", 7.0))
             prompt_str = extract_prompt_from_seg(seg)
             r_res = audit_refs_and_subjects(seg)
-            l_res = lint_h3_prompt(prompt_str, nominal_duration=dur)
+            l_res = lint_h3_prompt(
+                prompt_str,
+                nominal_duration=dur,
+                rounding_mode=seg.get("metadata", {}).get("rounding_mode", "floor"),
+                authored_shots=seg.get("shots"),
+            )
             if not r_res["passed"]:
                 errors.extend(f"{sid}: {e}" for e in r_res["errors"])
             if not l_res["passed"]:
@@ -1966,11 +2016,7 @@ def build_stage_5(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
 
 def build_stage_6(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[str], str]:
     errors: List[str] = stage6_errors(project_dir)
-    videos = sorted((project_dir / "videos").glob("*.mp4")) if (project_dir / "videos").exists() else []
-    if not videos:
-        errors.append("`videos/` 目錄下尚無任何生成的 `.mp4` 影片檔案！")
-        return False, errors, ""
-
+    videos: List[Path] = []
     qa_path = project_dir / "videos" / "qa-report.json"
     qa_map: Dict[str, Any] = {}
     if qa_path.exists():
@@ -1979,19 +2025,30 @@ def build_stage_6(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
             video_name = item.get("video_file", "")
             if video_name:
                 qa_map[Path(video_name).stem] = item
+                video_path = Path(video_name)
+                if not video_path.is_absolute():
+                    video_path = project_dir / video_path
+                video_path = video_path.resolve()
+                if video_path.is_relative_to(project_dir.resolve()) and video_path.is_file():
+                    videos.append(video_path)
             if item.get("segment_id"):
                 qa_map[str(item["segment_id"])] = item
 
+    videos = sorted(set(videos))
+    if not videos:
+        errors.append("QA 報告中尚無可播放的專案影片檔案！")
+        return False, errors, ""
+
     cards: List[str] = []
     for vp in videos:
-        v_rel = f"../videos/{vp.name}"
+        v_rel = "../" + vp.relative_to(project_dir.resolve()).as_posix()
         q_item = qa_map.get(vp.stem, {})
         q_pass = q_item.get("passed") is True
         cards.append(
             f'<article class="sbs-card">'
             f'  <div class="sbs-header">'
             f'    <h3 class="sbs-title">🎞️ 影片片段：`{html.escape(vp.name)}`</h3>'
-            f'    <span class="tag-badge {"emerald" if q_pass else "rose"}">{"QA PASS" if q_pass else "QA FAIL"}</span>'
+            f'    <span class="tag-badge {"emerald" if q_pass else "rose"}">{"技術 QA PASS" if q_pass else "技術 QA FAIL"}</span>'
             f'  </div>'
             f'  <div class="sbs-body">'
             f'    <div class="sbs-spec">'
@@ -2016,7 +2073,7 @@ def build_stage_6(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
     ]
     html_out = wrap_studio_html(
         project_dir, 6, state,
-        "直接於瀏覽器內播放生成的各段影片，並對照自動品質審查指標。",
+        "直接於瀏覽器內播放生成的各段影片，並對照自動技術審查指標。技術 QA 通過不代表人物、光影、表演或台詞已通過人工審核。",
         kpis, body, checklist
     )
     return len(errors) == 0, errors, html_out
