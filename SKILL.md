@@ -52,6 +52,8 @@ agent_created: true
     - **失敗目錄**：`h3d catalog --check` 會用已實測的失敗模式掃提示詞；`enforce=error` 直接擋，其餘警告必須改稿或 `h3d ack` 明確接受（ack 綁提示詞 hash 與目錄版本，並納入 stage-5 快照）。
     - **訊息即證據**：`duration_drift`、`PARTIAL`、`已有 waiting 的 job` 這些字樣都代表「現在不能繼續」，處置方式寫在 `references/tooling.md` §4。
 
+14. **創作 lens 只給建議**：`references/craft/` 下的爆款方法論、荒木、McKee、McCloud 等 lens 會把報告寫到 `review/craft/stage-N-*.md`，審查頁會顯示，但不會改變任何門禁或核准狀態。詳見 `references/craft/README.md`。
+
 ---
 
 ## 八階段流程與 HTML 斷點

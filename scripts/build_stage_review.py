@@ -1027,6 +1027,26 @@ STUDIO_JS = r"""
 
 
 
+def craft_lens_panel(project_dir: Path, stage: int) -> str:
+    """Advisory craft-lens reports (review/craft/stage-N-*.md). Display only; never affects gates."""
+    craft_dir = project_dir / "review" / "craft"
+    if not craft_dir.is_dir():
+        return ""
+    reports = sorted(craft_dir.glob(f"stage-{stage}-*.md"))
+    if not reports:
+        return ""
+    parts = []
+    for rp in reports:
+        try:
+            parts.append(render_markdown_block(rp.read_text(encoding="utf-8")))
+        except (OSError, UnicodeDecodeError):
+            continue
+    if not parts:
+        return ""
+    return ('<section class="section-panel"><h2>創作 lens 建議（不擋關）</h2>'
+            + "".join(parts) + "</section>")
+
+
 def wrap_studio_html(
     project_dir: Path,
     stage: int,
@@ -1126,6 +1146,7 @@ def wrap_studio_html(
         f'</section>'
     )
 
+    body_html = body_html + craft_lens_panel(project_dir, stage)
     body_html = iconize(body_html)
 
     return f"""<!DOCTYPE html>
