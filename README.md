@@ -10,7 +10,8 @@
 
 ![Claude Skill](https://img.shields.io/badge/Claude-Agent%20Skill-7c3aed?logo=anthropic&logoColor=white)
 ![MiniMax H3](https://img.shields.io/badge/MiniMax-H3%20ready-f59e0b)
-![Python](https://img.shields.io/badge/Python-3.8%2B-3776ab?logo=python&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.10%2B-3776ab?logo=python&logoColor=white)
+![Offline checks](https://github.com/ayase0307/ai-comic-drama/actions/workflows/offline-checks.yml/badge.svg)
 ![Tiered dependencies](https://img.shields.io/badge/dependencies-tiered-22c55e)
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 ![PRs welcome](https://img.shields.io/badge/PRs-welcome-ec4899)
@@ -51,6 +52,17 @@
 
 ```bash
 git clone https://github.com/ayase0307/ai-comic-drama.git ~/.claude/skills/ai-comic-drama
+# 或用 skills CLI（支援 Claude Code / Codex / OpenClaw 等）
+npx skills add ayase0307/ai-comic-drama
+```
+
+> 需求：**Python 3.10+**；影片 QA／組裝另需 FFmpeg。純文字規劃與提示詞編譯只需要標準庫。
+
+裝好後先跑一次自檢，確認這台機器能做什麼：
+
+```bash
+python scripts/h3d.py doctor          # GPU 顯存、ffmpeg（含 -vsync 回歸）、服務 port
+python scripts/h3d.py status --root . # 階段門禁／依賴帳本／送件帳本／失敗目錄
 ```
 
 把要處理的原稿放入新專案的 `source/` 後，再對 Agent 說：
@@ -120,6 +132,8 @@ python "$skillRoot/scripts/storyboard/assemble_episode.py" --segments segments-e
 ```
 
 `review/project-state.json` 是唯一階段狀態來源；核准會綁定輸入 hash，內容變更後須重審。Compiler 要求 stage 4 核准，實際提交要求 stage 5 核准；dry-run 可用於預檢。影片 QA 的技術通過結果不會自動成為人工核准。
+
+> 上面這串長指令都有單一入口版本：`h3d compile／submit／collect／resume／qa／assemble／deps／catalog／status`，對照表與錯誤訊息處置見 [`references/tooling.md`](references/tooling.md)。
 
 ### 依賴能力
 
