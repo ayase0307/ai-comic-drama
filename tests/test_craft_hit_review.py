@@ -1,0 +1,50 @@
+import json
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "craft"))
+import hit_review  # noqa: E402
+
+
+class HitReviewTest(unittest.TestCase):
+    def test_self_test(self):
+        self.assertTrue(hit_review.self_test())
+
+    def test_clean_episode_is_advisory_and_writes_report(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp)
+            h = {"episodes": [{"episode_id": "EP01", "title": "舉報系統", "act_out_type": "revelation_twist",
+                               "scenes": [{"scene_id": "S01", "estimated_duration_seconds": 20, "dramatic_turn": "反轉",
+                                           "dialogue": [{"text": "你是誰？", "start": 1.0}]}]}]}
+            (p / "handoff-ep01.json").write_text(json.dumps(h, ensure_ascii=False), encoding="utf-8")
+            out = hit_review.run(p, 3, "EP01", None, None)
+            text = out.read_text(encoding="utf-8")
+            self.assertEqual(out, p / "review" / "craft" / "stage-3-hit-ep01.md")
+            self.assertNotIn("❌", text.split("## Agent 審查")[0])
+            self.assertIn("## Agent 審查", text)
+
+    def test_missing_inputs_do_not_raise(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(hit_review.main(["--project-dir", tmp, "--stage", "3"]), 0)
+            self.assertEqual(hit_review.main(["--project-dir", tmp, "--stage", "0"]), 0)
+
+
+class CraftPanelTest(unittest.TestCase):
+    def test_stage_review_shows_craft_reports_without_gating(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+        import build_stage_review as bsr
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp)
+            self.assertEqual(bsr.craft_lens_panel(p, 0), "")
+            (p / "review" / "craft").mkdir(parents=True)
+            (p / "review" / "craft" / "stage-0-hit-ep01.md").write_text("# 測試報告\n\n內容ZZZ", encoding="utf-8")
+            html_out = bsr.craft_lens_panel(p, 0)
+            self.assertIn("不擋關", html_out)
+            self.assertIn("ZZZ", html_out)
+            self.assertEqual(bsr.craft_lens_panel(p, 3), "")
+
+
+if __name__ == "__main__":
+    unittest.main()
