@@ -45,6 +45,12 @@ agent_created: true
     - **禁止多主體碰撞擠壓**：單鏡嚴禁同時塞入主角＋路人＋道具＋巨獸等 4 方碰撞（實測會導致道具懸空吸附 3 秒、巨獸如布偶倒塌），必須拆解為主客觀分鏡。
     - **禁止無參考圖路人單獨佔據中近景或特寫主鏡**：防止 H3 失去風格鎖定而漂移至真人恐怖片。
     - **精確 LoRA 匹配**：LoRA 綁定採精確複合詞匹配，杜絕「刺耳火星」誤掛刀劍 LoRA 或「家具砸擊」誤掛拳擊 LoRA。
+13. **四道確定性檢查是交付的一部分，不是可選建議**（操作細節見 `references/tooling.md`）：
+    - **時長量子**：H3 把秒數向上取到 `17n+5` 影格。一律用 `metadata.frames` 送件，回讀服務端 `frames` 與下載後 ffprobe 長度；不符即取消並隔離，不得把漂移的片子拿去 QA。
+    - **證據分級**：任何「通過」都要說明憑什麼——`measured`（本機量過）／`sourced`（文件或競品）／`inferred`（推論）。沒有成片只有 `UNVERIFIED`；階段 6 閘門要求 `VERIFIED`。禁止把 `TECHNICAL CHECK PASSED` 當成「可以開拍」。
+    - **依賴帳本**：改動後跑 `h3d deps --record` 再 `--status`，以 segment 為單位列出 `prompt_stale`／`video_older_than_prompt`／`video_missing`；不要用「整個階段重簽」代替逐段判斷。
+    - **失敗目錄**：`h3d catalog --check` 會用已實測的失敗模式掃提示詞；`enforce=error` 直接擋，其餘警告必須改稿或 `h3d ack` 明確接受（ack 綁提示詞 hash 與目錄版本，並納入 stage-5 快照）。
+    - **訊息即證據**：`duration_drift`、`PARTIAL`、`已有 waiting 的 job` 這些字樣都代表「現在不能繼續」，處置方式寫在 `references/tooling.md` §4。
 
 ---
 

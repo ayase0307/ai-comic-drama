@@ -76,6 +76,17 @@ python scripts/h3d.py deps --root . --status --strict
 
 > ack 的定位是「人看過並接受」，不是「讓 gate 閉嘴」。沒有 ack 就送不出去，這是刻意的。
 
+### (e) 切點標記（選用，非官方語法）
+
+`h3d compile ... --embed-cut-markers` 會在提示詞寫入：
+
+- `<cutoff>`：段落末鏡（表示這是最後一個可截斷點）
+- `<scenetrans>`：跨場景的首鏡
+
+同時在 `metadata.cut_marker_tokens` 記下是否嵌入與規格。**預設關閉**，因為這是本專案約定
+（官方對這兩個 token 的語義我沒有可核對的來源）；要交給剪輯／拼接工具時再開。
+結構化的切點時間一直都在 `metadata.cut_markers`，不需要開這個旗標也能用。
+
 ## 3. Provider 能力表
 
 `scripts/storyboard/providers/freevideo.json` 宣告 fps、frames 區間、支援比例、參考圖／音訊／LoRA 上限，

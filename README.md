@@ -26,6 +26,7 @@
 | | |
 |---|---|
 | 🧩 **分層工作流程** | 文字規劃可獨立完成；圖片與影片生成依目前 Agent 工具或可用後端，不假設內建影片能力。 |
+| 🧭 **單一入口 `h3d`** | `h3d doctor／compile／submit／collect／resume／qa／deps／catalog／ack／status`：一條指令走完產線，`status` 一次看階段門禁、依賴帳本、送件帳本與失敗目錄。 |
 | 📑 **小說切章與 6 重清洗** | `extract_chapter.py` 大檔目錄掃描（`--list`）、單章抽取與 Pandoc 6 重自動清洗。 |
 | ⏱️ **台詞預算與 H3 實戰審計** | `estimate_duration.py` Unicode P 類別統一計字、`--novel` 體量反推門禁（四大台詞政策試算）與 `--h3` 實戰台詞預算審計（4字/秒、單句 ≤15 字、說話佔比 ≤60%）。 |
 | 📝 **劇本 HTML 註解與雙向同步** | `sync_script.py` 支援 Markdown 註解元數據注入、從零建立 handoff、多場景自動擴展與 `--prune-extra` 修剪。 |
@@ -34,8 +35,9 @@
 | 🖼️ **構圖審核** | Qwen 九宮格為可用選項；手繪或其他工具輸出的 shot 對應 PNG 也可使用同一審核門。 |
 | 🔒 **單鏡局部修改與審核鎖** | `patch_shot.py` 單鏡景別秒數修改與自動時間軸重算；`sync_script.py` 場景審核狀態保護防誤改。 |
 | ⚡ **H3 官方六段式批次編譯** | `compile_layer2_to_h3.py` 一鍵產出 `prompts-epXX.md` 與 `segments-epXX.json`、防混臉單圖排序、切點時間保護（$D - \text{末切點} \ge 2.05s$）、LoRA 適配與 `--check` 雙重對帳。 |
+| 🎯 **切點標記（選用）** | `compile --embed-cut-markers` 在提示詞寫入 `<cutoff>`（段末）與 `<scenetrans>`（跨場景首鏡），並在 `metadata.cut_marker_tokens` 記錄規格；預設關閉，因為那是本專案約定、不是官方語法。 |
 | 🚀 **批次送件預檢** | `submit_h3_segments.py` 提供 `--dry-run`、參考圖檢查、可用 GPU 診斷與非同步任務處理；實際需求依模型與後端而異。 |
-| 🛡️ **批次自動審查門禁** | `verify_video_shot.py` 修復分段總時長精確對齊、支援 `--segments` 批次掃描、防灰階線稿滲透、防九宮格分屏線殘留、串聯 `color_qa.py` 匯總輸出 `qa-report.json`。 |
+| 🛡️ **批次自動審查門禁** | `verify_video_shot.py` 修復分段總時長精確對齊、支援 `--segments` 批次掃描、防灰階線稿滲透、防九宮格分屏線殘留，並輸出**證據分級**（`VERIFIED／PARTIAL／UNVERIFIED`）串聯 `color_qa.py` 匯總 `qa-report.json`。 |
 | 🎬 **配音字幕與成片組裝** | `assemble_episode.py` 可選字幕／配音與 FFmpeg 組裝；**旁白／畫外音走外部 TTS**（引擎由 `tts_doctor.py` 盤點：VoiceStudio／Fish Audio／自帶 API），畫內對白保留 H3 口型。外部 narration Markdown 需先轉成支援的 inline 欄位或交給剪輯工具。 |
 | ⚖️ **多維程式對帳（P0）** | `audit_refs_and_segments.py` 嚴查參考圖陣列、主體定義、說話者代號與台詞字數預算（模式 A 序對 + 模式 B 13 條自檢）。 |
 | 🎨 **11 種風格鎖定錨** | 主流漫劇風格蒸餾成可貼的錨定詞，每種附同角色樣圖。 |
