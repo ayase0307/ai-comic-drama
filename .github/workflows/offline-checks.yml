@@ -34,3 +34,22 @@ jobs:
         run: python scripts/doctor.py --json
       - name: Run offline regression suite
         run: python scripts/run_offline_checks.py
+
+  windows:
+    # 這個 skill 主要在使用者的 Windows 上跑（路徑分隔、CRLF、ffmpeg 參數、顯存查詢），
+    # 只跑單元測試，避免與 ubuntu 的 self-test 重複佔時間。
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install ffmpeg
+        run: choco install ffmpeg -y --no-progress
+      - name: Unit tests (Windows)
+        shell: pwsh
+        run: |
+          $env:PYTHONUTF8 = "1"
+          $env:PYTHONIOENCODING = "utf-8"
+          python -m unittest discover -s tests
