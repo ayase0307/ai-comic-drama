@@ -49,6 +49,11 @@ import sys
 import tempfile
 from typing import Any, Dict, List, Optional, Tuple
 
+try:  # 以 scripts/storyboard 為 sys.path 執行（CLI 慣例）
+    import evidence as evidence_mod
+except ImportError:  # pragma: no cover - 套件匯入路徑
+    from . import evidence as evidence_mod
+
 # 確保 Windows 終端以 UTF-8 輸出，避免繁體中文字元編碼異常
 if sys.platform.startswith("win"):
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
@@ -771,8 +776,13 @@ def render_markdown_report(
     results: List[Dict[str, Any]],
     segment_data: Optional[Dict[str, Any]] = None,
     continuity_warnings: Optional[List[str]] = None,
+    evidence: Optional[Dict[str, Any]] = None,
 ) -> str:
-    """產出包含規格、色度、九宮格、分鏡對照與 VLM 審核指引的 Markdown 審查報表。"""
+    """產出包含規格、色度、九宮格、分鏡對照與 VLM 審核指引的 Markdown 審查報表。
+
+    `evidence` 為證據分級摘要（見 evidence.py）；有給就多印一行，
+    讓「TECHNICAL PASS」不會被誤讀成「這段可以用了」。
+    """
     segment_id = (segment_data or {}).get("segment_id", "UNKNOWN_SEGMENT")
     project_id = (segment_data or {}).get("project_id", "UNKNOWN_PROJECT")
     now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -780,7 +790,20 @@ def render_markdown_report(
     total_count = len(results)
     passed_count = sum(1 for r in results if r["passed"])
     rejected_count = total_count - passed_count
-    overall_status = "TECHNICAL CHECK PASSED · HUMAN REVIEW PENDING" if rejected_count == 0 else "TECHNICAL CHECK FAILED"
+    overall_status = (
+        "NO GENERATED MEDIA · NOTHING VERIFIED" if total_count == 0
+        else ("TECHNICAL CHECK PASSED · HUMAN REVIEW PENDING" if rejected_count == 0
+              else "TECHNICAL CHECK FAILED")
+    )
+    # 有證據分級時，總體結論由 verdict 決定——不允許「標題說 PASSED、下一行說 PARTIAL」
+    if evidence:
+        verdict = evidence.get("verdict")
+        if verdict == evidence_mod.UNVERIFIED:
+            overall_status = "NO GENERATED MEDIA · NOTHING VERIFIED"
+        elif verdict == evidence_mod.PARTIAL:
+            overall_status = "TECHNICAL CHECK PARTIAL · NOT READY TO SHOOT"
+        elif rejected_count:
+            overall_status = "TECHNICAL CHECK FAILED"
 
     lines: List[str] = [
         f"# 影片自動審查與分鏡差異檢驗報告",
@@ -789,6 +812,10 @@ def render_markdown_report(
         f"- **片段編號**：`{segment_id}`",
         f"- **審查時間**：`{now_str}`",
         f"- **總體結論**：**{overall_status}**（通過: {passed_count} / 退稿: {rejected_count} / 總鏡數: {total_count}）",
+    ]
+    if evidence:
+        lines.append(evidence_mod.render_line(evidence))
+    lines += [
         f"",
         f"---",
         f"",
@@ -1227,8 +1254,12 @@ def main() -> int:
             seen_segments.add(sid.casefold())
             found_v, ambiguous = find_exact_segment_video(v_dir, sid)
             if ambiguous:
+                # 同段有兩個候選檔（例如 EP01-S01.mp4 與 seg-EP01-S01.mp4）：
+                # 既不算產出、也不能進驗證（會拿 None 去 resolve 而崩潰）。
                 mismatched_segments.append(sid)
-            elif found_v is None:
+                unproduced.append(sid)
+                continue
+            if found_v is None:
                 unproduced.append(sid)
                 continue
             try:
@@ -1246,11 +1277,25 @@ def main() -> int:
                     "issues": [f"QA_ERROR: {exc}"],
                 })
 
+        results = evidence_mod.grade_results(results)
         continuity_warnings = check_inter_shot_continuity(results)
-        report_md = render_markdown_report(results, {"project_id": args.segments.stem, "segment_id": "BATCH"}, continuity_warnings)
+        segment_evidence = evidence_mod.media_evidence(
+            results,
+            unproduced,
+            structural_issues=(
+                [f"duplicate:{sid}" for sid in duplicate_segments]
+                + [f"ambiguous:{sid}" for sid in mismatched_segments]
+                + [f"error:{item.get('segment_id') or item.get('index')}" for item in errors]
+            ),
+            expected_total=len(expected_segments),
+            continuity_warnings=continuity_warnings,
+        )
+        report_md = render_markdown_report(results, {"project_id": args.segments.stem, "segment_id": "BATCH"},
+                                           continuity_warnings, evidence=segment_evidence)
 
         if unproduced:
-            report_md += f"\n\n### ⚠️ 尚未生成影片之分段 ({len(unproduced)} 段)\n"
+            report_md += f"\n\n### ⚠️ 尚未生成影片之分段 ({len(unproduced)} 段，狀態一律 UNVERIFIED)\n"
+            report_md += "這些分段沒有任何可量測的媒體，不得視為通過；請先產出影片再審。\n\n"
             report_md += ", ".join(f"`{u}`" for u in unproduced) + "\n"
 
         if args.out_report:
@@ -1266,6 +1311,7 @@ def main() -> int:
                 "expected_segments": expected_segments,
                 "source_segments_file": str(args.segments.resolve()),
                 "source_segments_sha256": compute_file_sha256(args.segments),
+                "evidence": segment_evidence,
                 "episode": (seg_data.get("episode") or seg_data.get("episode_id")
                             if isinstance(seg_data, dict) else None) or
                            (re.search(r"ep\d+", args.segments.stem, re.IGNORECASE).group(0).lower()
@@ -1331,11 +1377,25 @@ def main() -> int:
             except Exception as exc:
                 errors.append({"segment_id": sid, "error": str(exc)})
 
+        results = evidence_mod.grade_results(results)
         continuity_warnings = check_inter_shot_continuity(results)
-        report_md = render_markdown_report(results, {"project_id": args.layer2_dir.parent.name, "segment_id": "BATCH"}, continuity_warnings)
+        segment_evidence = evidence_mod.media_evidence(
+            results,
+            unproduced,
+            structural_issues=(
+                [f"duplicate:{sid}" for sid in duplicate_segments]
+                + [f"ambiguous:{sid}" for sid in mismatched_segments]
+                + [f"error:{item.get('segment_id') or item.get('index')}" for item in errors]
+            ),
+            expected_total=len(expected_segments),
+            continuity_warnings=continuity_warnings,
+        )
+        report_md = render_markdown_report(results, {"project_id": args.layer2_dir.parent.name, "segment_id": "BATCH"},
+                                           continuity_warnings, evidence=segment_evidence)
 
         if unproduced:
-            report_md += f"\n\n### ⚠️ 尚未生成影片之分段 ({len(unproduced)} 段)\n"
+            report_md += f"\n\n### ⚠️ 尚未生成影片之分段 ({len(unproduced)} 段，狀態一律 UNVERIFIED)\n"
+            report_md += "這些分段沒有任何可量測的媒體，不得視為通過；請先產出影片再審。\n\n"
             report_md += ", ".join(f"`{u}`" for u in unproduced) + "\n"
 
         if args.out_report:
@@ -1350,6 +1410,7 @@ def main() -> int:
                 "results": results,
                 "expected_segments": expected_segments,
                 "source_inputs": source_inputs,
+                "evidence": segment_evidence,
                 "unproduced_segments": unproduced,
                 "duplicate_segments": duplicate_segments,
                 "mismatched_segments": mismatched_segments,
@@ -1425,10 +1486,24 @@ def main() -> int:
             sys.exit("錯誤: 未指定 --shot 或 --video，且 Layer 2 中所有 shots 均無有效的 video_file！")
 
     # 跨鏡連貫性檢驗
+    results = evidence_mod.grade_results(results)
     continuity_warnings = check_inter_shot_continuity(results)
+    # 模式 3 只掃有 video_file 的鏡頭；沒片子的鏡頭也必須進 unproduced，
+    # 否則「3 鏡只有 1 鏡有片」會變成 VERIFIED。
+    missing_shots = [
+        str(shot.get("shot_id") or index)
+        for index, shot in enumerate(shots, 1)
+        if not shot.get("video_file")
+    ]
+    single_evidence = evidence_mod.media_evidence(
+        results,
+        unproduced=missing_shots,
+        expected_total=max(len(shots), len(results) + len(missing_shots)),
+        continuity_warnings=continuity_warnings,
+    )
 
     # 產生 Markdown 報表
-    report_md = render_markdown_report(results, layer2_data, continuity_warnings)
+    report_md = render_markdown_report(results, layer2_data, continuity_warnings, evidence=single_evidence)
 
     if args.out_report:
         atomic_write_text(args.out_report, report_md)
@@ -1441,6 +1516,7 @@ def main() -> int:
         payload = {
             "results": results,
             "continuity_warnings": continuity_warnings,
+            "evidence": single_evidence,
             "generated_at": datetime.now(timezone.utc).isoformat()
         }
         with args.out_json.open("w", encoding="utf-8") as f:

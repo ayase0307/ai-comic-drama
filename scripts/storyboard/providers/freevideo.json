@@ -1,0 +1,24 @@
+{
+  "provider": "freevideo",
+  "label": "FreeVideo（本機 MiniMax H3 agent API）",
+  "updated": "2026-10-20",
+  "notes": "source=measured 是「本機真的量過」，違反即硬擋；docs=文件或考證，assumed=未驗證，兩者只警告。frames 的權威常數在 h3_spec.py，本檔只鏡像。",
+  "fps": {"value": 24, "source": "measured"},
+  "frames": {
+    "min": 124,
+    "max": 362,
+    "quantum": "17n+5",
+    "source": "docs",
+    "note": "124–362 來自 SlavaSexton 對官方文件的考證；量子 17n+5 與 24fps 為本機實測"
+  },
+  "aspects": {
+    "value": ["16:9", "9:16", "2.39:1", "1:1", "4:3"],
+    "source": "docs",
+    "note": "本機只實測過 16:9 與 9:16；其餘與 layer2 schema／verify 的 aspect 表對齊，避免誤擋合法分鏡"
+  },
+  "max_reference_images": {"value": 6, "source": "docs"},
+  "max_audio_references": {"value": 1, "source": "assumed"},
+  "max_loras": {"value": 4, "source": "assumed"},
+  "qualities": {"value": ["light", "plus"], "source": "measured"},
+  "forbidden_top_level_fields": {"value": ["task"], "source": "measured"}
+}

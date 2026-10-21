@@ -21,5 +21,12 @@ jobs:
           python -m pip install Pillow
       - name: Verify environment report
         run: python scripts/check_environment.py --json
+      - name: h3d entrypoint smoke
+        run: |
+          python scripts/h3d.py --list
+          python scripts/h3d.py catalog --list
+          python scripts/h3d.py catalog --acks
+      - name: Environment doctor (advisory)
+        run: python scripts/doctor.py --json
       - name: Run offline regression suite
         run: python scripts/run_offline_checks.py

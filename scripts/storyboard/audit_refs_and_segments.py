@@ -31,6 +31,12 @@ import pathlib
 import re
 import sys
 from typing import Any, Dict, List, Optional, Tuple
+from pathlib import Path
+
+try:  # 以 scripts/storyboard 為 sys.path 執行（CLI 慣例）
+    import h3_spec
+except ImportError:  # pragma: no cover - 套件匯入路徑
+    from . import h3_spec
 
 # 確保 Windows 終端輸出 UTF-8
 if hasattr(sys.stdout, "reconfigure"):
@@ -120,24 +126,20 @@ REWRITE_NEGATIVE_PHRASES = {
 
 def frames_for(s: float, rounding: str = "floor") -> int:
     """計算 FreeVideo / MiniMax H3 遵循的 17n+5 幀數規格。
+
     rounding:
       - 'floor': 保守向下取整（如 7.0s -> 9 steps -> 158 幀），真實反映有效秒數可能縮水
       - 'round': 傳統四捨五入（如 7.0s -> 10 steps -> 175 幀）
       - 'ceil': 向上取整，保留完整台詞窗與原編排停頓
+
+    實作已集中到 `h3_spec.py`（單一真值來源）；這裡只保留向後相容的入口。
     """
-    raw_steps = (s * 24.0 - 5.0) / 17.0
-    if rounding == "ceil":
-        n = max(1, math.ceil(raw_steps))
-    elif rounding == "round":
-        n = max(1, round(raw_steps))
-    else:
-        n = max(1, int(math.floor(raw_steps)))
-    return 17 * n + 5
+    return h3_spec.frames_for(s, rounding=rounding)
 
 
 def effective_duration(s: float, rounding: str = "floor") -> float:
     """計算 FreeVideo 取整後的真實有效秒數 D = frames_for(s) / 24.0。"""
-    return frames_for(s, rounding=rounding) / 24.0
+    return h3_spec.seconds_for_frames(h3_spec.frames_for(s, rounding=rounding))
 
 
 # ==============================================================================
@@ -159,12 +161,45 @@ def extract_prompt_from_seg(seg_data: Dict[str, Any]) -> str:
     return ""
 
 
-def audit_refs_and_subjects(seg_data: Dict[str, Any]) -> Dict[str, Any]:
+def _image_size(project_root: pathlib.Path, rel_path: str) -> Optional[Tuple[int, int]]:
+    """讀取圖片像素尺寸；讀不到就回 None（不阻擋流程）。"""
+    try:
+        from PIL import Image  # Pillow 為選用依賴，缺少時跳過尺寸檢查
+    except Exception:
+        return None
+    candidate = pathlib.Path(rel_path)
+    if not candidate.is_absolute():
+        candidate = pathlib.Path(project_root) / candidate
+    try:
+        with Image.open(candidate) as img:
+            return int(img.width), int(img.height)
+    except Exception:
+        return None
+
+
+# 群眾／路人類描述：這些人沒有參考圖，H3 會用唯一一張臉的造型去補，
+# 造成背景長出穿同款衣服的複製人（本專案 EP01-S01-a 實測：火山島上長出整群白襯衫學生）。
+_CROWD_CUES = (
+    "tourists", "visitors", "crowd", "onlookers", "pedestrians", "passersby",
+    "bystanders", "commuters", "shoppers", "people in the background",
+    "群眾", "路人", "遊客", "人潮", "圍觀", "行人", "人群", "群演", "觀光客",
+)
+# 可接受的人群寫法：不可辨識、沒有臉、剪影、失焦——這些不會被補成複製臉。
+_NON_IDENTIFIABLE_CUES = (
+    "out of focus", "blurred", "indistinct", "no facial detail",
+    "without facial detail", "unrecognizable", "unrecognisable", "silhouette",
+    "silhouetted", "背景虛化", "失焦", "剪影", "不辨識", "看不清臉",
+    "不見臉", "看不到臉", "無臉", "看不清楚五官", "不可辨識", "個體無法分辨",
+)
+
+
+def audit_refs_and_subjects(seg_data: Dict[str, Any], project_root: Optional[Path] = None) -> Dict[str, Any]:
     """模式 A 審查：
     1. 檢查 reference_images 與 subject_definitions / retention_analysis 的對應關係。
     2. 驗證 <Picture 1> 為場景，<Subject k> 嚴格對應 <Picture k+1>。
     3. 檢查是否有缺圖、多餘圖、生物主角是否在前 5 名。
     4. 檢查同段是否掛載超過 1 張角色圖（混臉警告）。
+    5. E19–E26：複製人防線、官方 (Sx) 綁定、旁白外部化與環境音欄位分工。
     """
     errors: List[str] = []
     warnings: List[str] = []
@@ -177,17 +212,74 @@ def audit_refs_and_subjects(seg_data: Dict[str, Any]) -> Dict[str, Any]:
 
     prompt_text = extract_prompt_from_seg(seg_data)
 
+    # ---------- E19：未錨定的在場人物（複製人主因） ----------
+    unanchored = [str(c) for c in (seg_data.get("unanchored_in_frame_characters") or [])]
+    if unanchored:
+        errors.append(
+            f"[E19: 未錨定在場人物] 下列角色出現在畫面中，卻沒有自己的參考圖："
+            f"{', '.join(unanchored)}。H3 只有一張臉可用時，會把這張臉複製給他們"
+            f"（本專案 2026-10-19 實測 4/4 段出現複製人）。"
+            f"請改掛該角色自己的單視角裁切參考圖（背面／側身）並在 stage5 綁定 "
+            f"identity_anchor_ids，或把該角色移出畫面。"
+        )
+
+    # ---------- E20：多視圖板參考圖（會被複製成背景人海） ----------
+    for ref in ref_images:
+        if not isinstance(ref, dict) or ref.get("type") not in ("character", "creature"):
+            continue
+        is_panel_lookup = ref.get("reference_view") == "panel"
+        panel_label = str(ref.get("panel_label_en") or "").strip()
+        if is_panel_lookup:
+            # 整板查表是官方 ComfyUI 允許的用法：獨立編號、逐格描述、鏡頭指向某一格。
+            # 但必須真的指定格位，且該角色只能是「不露臉的身份錨點」。
+            if not panel_label:
+                errors.append(
+                    f"[E27: 整板查表缺格位說明] {ref.get('id')} 宣告 reference_view=panel，"
+                    f"但沒有 panel_label_en（要寫明用哪一格，例如「the fourth figure from the left, "
+                    f"a full-body back view」）。沒有指定格位的整板會被模型整張複製進成片。"
+                )
+            continue
+        path = str(ref.get("path") or "")
+        if not path or project_root is None:
+            continue
+        size = _image_size(project_root, path)
+        if not size:
+            continue
+        width, height = size
+        if width >= 1600 and height >= 900 and width / max(height, 1) >= 1.5:
+            errors.append(
+                f"[E20: 疑似多視圖板] 角色參考圖 {path} 尺寸 {width}×{height} 像四視圖／表情板，"
+                f"影片模型會把版面複製進成片（本專案 2026-10-19 實測背景長出多個同款角色）。"
+                f"請改成單一視角裁切（正面頭像 950×910 或背面全身裁切），"
+                f"或宣告 reference_view=panel 並用 panel_label_en 指定要用的那一格。"
+            )
+
     # 1. 參考圖數量與主角名次檢查
+    # 官方上限是分項的：圖 ≤9、影片 ≤3、音訊 ≤3、混合合計 ≤12。
     total_refs = len(ref_images)
-    if total_refs > 9:
-        errors.append(f"[E] reference_images 數量為 {total_refs} 張，超出 H3 上限 9 張！")
+    image_refs = [r for r in ref_images if isinstance(r, dict) and r.get("type") != "audio"]
+    audio_refs = [r for r in ref_images if isinstance(r, dict) and r.get("type") == "audio"]
+    if len(image_refs) > 9:
+        errors.append(f"[E] 圖像參考素材數量為 {len(image_refs)} 張，超出 H3 上限 9 張！")
+    if len(audio_refs) > 3:
+        errors.append(f"[E] 音訊參考素材數量為 {len(audio_refs)} 個，超出 H3 上限 3 個！")
+    if total_refs > 12:
+        errors.append(f"[E] 混合參考素材總數為 {total_refs} 個，超出 H3 上限 12 個！")
 
     char_refs = [r for r in ref_images if isinstance(r, dict) and r.get("type") in ("character", "role", "actor")]
     if len(char_refs) > 1:
-        warnings.append(
-            f"[W: 混臉風險] 同段掛載了 {len(char_refs)} 張角色參考圖！"
-            f"多張角色圖同段可能被模型平均成同一張臉，保守建議一段一張角色圖（其餘角色用文字描述）。"
-        )
+        face_refs = [r for r in char_refs if r.get("reference_view") != "non_face"]
+        if len(face_refs) > 1:
+            warnings.append(
+                f"[W: 混臉風險] 同段掛載了 {len(face_refs)} 張「可辨識人臉」角色參考圖！"
+                f"H3 會把多張角色圖平均成同一張臉，保守建議一段一張臉部參考圖；"
+                f"背影／側身角色可另掛無臉裁切（reference_view=non_face），不會被平均。"
+            )
+        else:
+            warnings.append(
+                f"[W: 單段多張角色參考圖] 同段掛載 {len(char_refs)} 張角色參考圖，"
+                f"其中只有 {len(face_refs)} 張含可辨識人臉；請確認無臉裁切不會帶入正面臉。"
+            )
 
     # 檢查主要生物角色是否在前 5 名
     for idx, ref in enumerate(ref_images):
@@ -233,8 +325,94 @@ def audit_refs_and_subjects(seg_data: Dict[str, Any]) -> Dict[str, Any]:
             for p in all_pics_in_prompt:
                 if p > total_refs and total_refs > 0:
                     errors.append(f"[E: 缺圖錯誤] Prompt 中引用了 <Picture {p}>，但 reference_images 僅有 {total_refs} 張！")
+            # 音色參考 <Audio N>：官方獨立編號，必須有對應的音訊參考素材
+            all_audios_in_prompt = set(int(m) for m in re.findall(r"<Audio\s*(\d+)>", prompt_text))
+            audio_ids = {r.get("audio_tag") for r in audio_refs if isinstance(r, dict) and r.get("audio_tag")}
+            for a in sorted(all_audios_in_prompt):
+                if f"<Audio {a}>" not in audio_ids:
+                    errors.append(
+                        f"[E: 缺音訊參考] Prompt 中引用了 <Audio {a}>，但 reference_images 沒有對應的 "
+                        f"type=audio 參考素材；官方 ref-en §2.4 規定 <Audio N> 的編號要對得到實際掛上的音訊。"
+                    )
+            for r in audio_refs:
+                if isinstance(r, dict) and not str(r.get("path") or "").strip():
+                    errors.append(f"[E: 缺音訊檔] 音色參考 {r.get('id')} 沒有音訊路徑。")
         else:
             warnings.append("[W] 提示詞中缺少 subject_definitions 區塊，無法執行逐條序對對帳。")
+
+        # ---------- E21：無參考圖的群眾／路人 ----------
+        detail_match = re.search(r"detailed_description:(.*?)(?:\n\n[a-z_]+:|\Z)", prompt_text, re.DOTALL)
+        detail_body = detail_match.group(1) if detail_match else prompt_text
+        # 逐鏡判斷：同一鏡裡若出現沒有參考圖的人群，而這一鏡沒有任何
+        # 「不可辨識／失焦／剪影」的寫法，就是會被補成複製臉的風險。
+        # 逐鏡而非逐句：避免中英混排的同一段內容被拆成兩半而誤判。
+        for block in re.split(r"(?=\[Shot \d+\])", detail_body):
+            if not block.strip():
+                continue
+            low = block.lower()
+            hits = [cue for cue in _CROWD_CUES if cue in low]
+            if not hits:
+                continue
+            if any(nc in low for nc in _NON_IDENTIFIABLE_CUES):
+                # 這一鏡已明確寫成不可辨識／失焦／剪影的人群：可接受，不會被補成複製臉
+                continue
+            errors.append(
+                f"[E21: 無參考圖的群眾／路人] detailed_description 出現「{hits[0]}」這類沒有參考圖的人群描述。"
+                f"H3 沒有第二個身分可用，會把唯一一張臉的造型套給他們，造成背景出現穿同款衣服的複製人。"
+                f"處理方式：把人群移出畫面、改寫成不可辨識的失焦剪影、或改走「分鏡圖 → I2V」把人群畫進首幀。"
+            )
+            break
+
+        # ---------- E22：說話人必須有官方 (Sx) 綁定 ----------
+        if "<d>" in prompt_text and not re.search(r"\(S\d+\)", prompt_text):
+            errors.append(
+                "[E22: 缺少說話人代號] 提示詞含 <d> 台詞但沒有任何 (S1) 形式的說話人代號。"
+                "官方 base 指南 §4.4 要求發聲者（含畫外音）都要有穩定 (Sx) 代號；"
+                "缺了綁定，H3 會把聲音掛到畫面上唯一的那張臉上，長出複製人。"
+            )
+
+        # ---------- E23：畫外音必須用官方句式並說明嘴閉合 ----------
+        if re.search(r"off-screen voiceover|off-screen voice over", prompt_text.lower()):
+            if "lips remain completely closed" not in prompt_text.lower():
+                errors.append(
+                    "[E23: 畫外音缺嘴閉合聲明] 提示詞寫了 off-screen voiceover，"
+                    "但沒有在 <d> 之後說明嘴唇保持閉合。官方要求："
+                    "Immediately after every voiceover <d> block, state that the on-screen character's lips remain closed."
+                )
+
+        # ---------- E24：旁白政策（external 時不得有畫外音 <d>） ----------
+        narration_policy = str((seg_data.get("metadata") or {}).get("narration_policy") or "external")
+        external_narration = seg_data.get("external_narration") or []
+        if narration_policy == "external" and external_narration:
+            for entry in external_narration:
+                line = str(entry.get("line") or "").strip()
+                if line and f"<d>[{entry.get('language') or 'Chinese'}] {line}</d>" in prompt_text:
+                    errors.append(
+                        f"[E24: 旁白政策衝突] narration_policy=external，但畫外音台詞仍以 <d> 出現在提示詞中：{line!r}。"
+                        f"請改由外部 TTS 合成後於階段 7 混入，H3 這段只出環境音。"
+                    )
+
+        # ---------- E25：overall_soundscape 不得重複台詞 ----------
+        sound_match = re.search(r"overall_soundscape:(.*?)(?:\n\n[a-z_]+:|\Z)", prompt_text, re.DOTALL)
+        sound_body = (sound_match.group(1) if sound_match else "").strip()
+        if sound_body:
+            for line in re.findall(r"<d>\[[^\]]*\]\s*(.*?)\s*</d>", prompt_text):
+                if line and len(line) >= 4 and line in sound_body:
+                    errors.append(
+                        f"[E25: 環境音重複台詞] overall_soundscape 內重複了台詞 {line!r}。"
+                        f"官方 §4.6：對白只寫在 detailed_description 的 <d> 區塊，"
+                        f"環境音欄只留環境與動作音，否則 H3 會在環境音軌再念一次。"
+                    )
+                    break
+
+    # ---------- E26：身份錨點必須真的掛上自己的參考圖 ----------
+    for ref in ref_images:
+        if not isinstance(ref, dict):
+            continue
+        if ref.get("reference_view") == "non_face" and not str(ref.get("path") or "").strip():
+            errors.append(
+                f"[E26: 身份錨點缺參考圖] {ref.get('id')} 標記為無臉身份錨點，卻沒有自己的參考圖路徑。"
+            )
 
     passed = len(errors) == 0
     return {
@@ -1041,7 +1219,7 @@ def main():
                         f.write("\n")
                     print(f"  🔧 已自動覆寫修復 reference_images 與 subject_definitions！")
 
-                refs_res = audit_refs_and_subjects(seg_data)
+                refs_res = audit_refs_and_subjects(seg_data, project_root=p.parent)
                 if refs_res["passed"]:
                     print(f"  [PASS] 參考圖與主體定義序對稽核通過 ({seg_id_label})")
                 else:

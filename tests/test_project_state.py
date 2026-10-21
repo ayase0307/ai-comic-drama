@@ -78,6 +78,8 @@ class ProjectStateTests(unittest.TestCase):
         (self.root / "videos" / "qa-report.json").write_text(json.dumps({
             "source_segments_file": str(segments.resolve()), "source_segments_sha256": source_hash,
             "expected_segments": ["EP01-S01"], "unproduced_segments": [],
+            "evidence": {"verdict": "VERIFIED", "produced": 1, "expected": 1,
+                         "failed": 0, "unverified_segments": []},
             "results": [{"segment_id": "EP01-S01", "video_file": str(video.resolve()),
                          "video_sha256": ps.sha256_file(video), "passed": True}]
         }), encoding="utf-8")
@@ -110,6 +112,19 @@ class ProjectStateTests(unittest.TestCase):
             ps.mark_awaiting_review(self.root, state, 1)
             self.assertTrue(ps.approve_stage(self.root, 1, "revised"))
             self.assertFalse(ps.is_approved(self.root, 4))
+
+    def test_stage5_snapshot_covers_catalog_acks(self):
+        (self.root / "segments-ep01.json").write_text("[]", encoding="utf-8")
+        ack_path = self.root / "review" / "catalog-acks.json"
+        ack_path.parent.mkdir(parents=True, exist_ok=True)
+        ack_path.write_text('{"acks": [{"id": "F-STILL-ENDING"}]}', encoding="utf-8")
+        # approve_stage() 的判定就是 entry["approval_snapshot"] != stage_snapshot(...)，
+        # 所以快照變了即等於核准失效（不需要在單元測試裡湊齊完整專案）。
+        before = ps.stage_snapshot(self.root, 5)
+        ack_path.write_text('{"acks": [{"id": "F-NEGATION"}]}', encoding="utf-8")
+        after = ps.stage_snapshot(self.root, 5)
+        self.assertNotEqual(ps.snapshot_fingerprint(before), ps.snapshot_fingerprint(after),
+                            "改動 ack 必須讓 stage-5 快照失效")
 
 
 if __name__ == "__main__":

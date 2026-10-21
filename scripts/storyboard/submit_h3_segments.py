@@ -25,16 +25,22 @@ import base64
 import hashlib
 import io
 import json
+import math
 import os
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import time
+from datetime import datetime, timezone
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
 import urllib.request
 import urllib.error
+
+# FreeVideo 依副檔名判定媒體類型（comfy_assets.EXTENSIONS / media_kind）：
+# 音訊參考必須是這些副檔名之一，才會被歸類成獨立音訊參考餵進 <Audio N>。
+SUPPORTED_AUDIO_SUFFIXES = {".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aac", ".opus"}
 from urllib.parse import urljoin, urlsplit
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -55,6 +61,14 @@ try:
 except ImportError:
     audit_refs_and_subjects = None
     lint_h3_prompt = None
+
+import h3_spec
+import provider_caps
+
+try:  # 以 scripts/storyboard 為 sys.path 執行（CLI 慣例）
+    import failure_catalog
+except ImportError:  # pragma: no cover - 套件匯入路徑
+    from . import failure_catalog
 
 
 DEFAULT_API_URL = "http://127.0.0.1:8189/freevideo/agent/v1"
@@ -96,7 +110,9 @@ def save_job_ledger(path: Path, ledger: Dict[str, Any]) -> None:
 
 
 def record_job(path: Path, *, project: str, api_scope: str, batch_id: str,
-               segment_id: str, job_id: str, status: str = "waiting") -> None:
+               segment_id: str, job_id: str, status: str = "waiting",
+               frames: Optional[int] = None, seconds: Optional[float] = None,
+               duration_assert: Optional[bool] = None) -> None:
     ledger = load_job_ledger(path)
     scope = (str(Path(project).resolve()), api_scope.rstrip("/"))
     if ledger and (ledger.get("project"), ledger.get("api_scope")) != scope:
@@ -111,7 +127,119 @@ def record_job(path: Path, *, project: str, api_scope: str, batch_id: str,
         jobs.append(entry)
     entry["status"] = status
     entry["updated_at"] = time.time()
+    if frames is not None:
+        entry["frames"] = int(frames)
+    if seconds is not None:
+        entry["seconds"] = round(float(seconds), 6)
+    if duration_assert is not None:
+        entry["duration_asserted"] = bool(duration_assert)
     save_job_ledger(path, ledger)
+
+
+def resolve_segment_frames(seg: Dict[str, Any]) -> Tuple[int, str]:
+    """決定該段要送出的影格數，並回報來源。
+
+    優先序：
+      1. metadata.frames（編譯器寫入的權威值）
+      2. metadata.effective_duration_sec 以 floor 回推（舊 segments 相容：
+         effective 已是量化後的秒數，floor 回推必得同一個量子）
+      3. metadata.target_duration_sec 依 rounding_mode / rounding_reason 換算
+      4. seg.seconds
+
+    2026-10-19 的事故正是「把 effective 四捨五入後當秒數送」；本函式只吐影格，
+    秒數一律由 h3_spec.wire_seconds() 從影格反推。
+    """
+    md = seg.get("metadata") if isinstance(seg.get("metadata"), dict) else {}
+    for key in ("frames", "effective_frames"):
+        value = md.get(key)
+        if isinstance(value, (int, float)) and int(value) > 0:
+            frames = int(value)
+            if not h3_spec.is_quantum(frames):
+                raise ValueError(
+                    f"{seg.get('segment_id') or seg.get('id')}: metadata.{key}={frames} 不是 17n+5 量子"
+                )
+            return frames, f"metadata.{key}"
+    effective = md.get("effective_duration_sec_exact") or md.get("effective_duration_sec")
+    if isinstance(effective, (int, float)) and float(effective) > 0:
+        # effective 是「量化後」的秒數（可能被 round 到 3 位小數），
+        # 所以只能吸附到最近的量子，不能 floor——floor 會整整少一個量子
+        # （6.583s → 158 幀被算成 141 幀，這是 2026-10-19 漂移的反向版本）。
+        frames = h3_spec.nearest_quantum(round(float(effective) * h3_spec.FPS))
+        return frames, "metadata.effective_duration_sec"
+    nominal = md.get("target_duration_sec")
+    if not isinstance(nominal, (int, float)) or float(nominal) <= 0:
+        nominal = seg.get("seconds")
+    if isinstance(nominal, (int, float)) and float(nominal) > 0:
+        rounding = str(md.get("rounding_mode") or "floor")
+        if md.get("rounding_reason") == "dialogue-preserving":
+            rounding = "ceil"
+        return h3_spec.frames_for(float(nominal), rounding=rounding), "metadata.target_duration_sec"
+    raise ValueError(
+        f"{seg.get('segment_id') or seg.get('id')}: 缺少可用時長"
+        "（frames / effective_duration_sec / target_duration_sec / seconds 都沒有）"
+    )
+
+
+def _coerce_frames(value: Any) -> Optional[int]:
+    """嚴格解析服務端回報的影格數；看不懂就回 None（不是 0、不是通過）。"""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value > 0 else None
+    if isinstance(value, float):
+        if not math.isfinite(value) or not float(value).is_integer():
+            return None
+        return int(value) if value > 0 else None
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            number = float(text)
+        except ValueError:
+            return None
+        if not math.isfinite(number) or not number.is_integer():
+            return None
+        return int(number) if number > 0 else None
+    return None
+
+
+def declared_frames(job: Dict[str, Any]) -> Optional[int]:
+    """從服務端回應找出它實際採用的影格數。
+
+    欄位路徑依版本不同，實測見過 plan.geometry.frames 與 spec.frames；
+    數字字串可接受，但小數／布林／負數一律視為「讀不到」，回 None。
+    """
+    for path in (("spec", "frames"), ("plan", "geometry", "frames"),
+                 ("spec", "geometry", "frames"), ("geometry", "frames")):
+        node: Any = job
+        for key in path:
+            if not isinstance(node, dict) or key not in node:
+                node = None
+                break
+            node = node.get(key)
+        parsed = _coerce_frames(node)
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def probe_video_duration(video_path: Path) -> Optional[float]:
+    """用 ffprobe 量實際檔案長度；失敗回 None（不代表通過）。"""
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=nw=1:nk=1", str(video_path)],
+            capture_output=True, text=True, timeout=60,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    try:
+        return float((result.stdout or "").strip())
+    except ValueError:
+        return None
 
 
 def get_gpu_vram() -> Optional[Tuple[int, int]]:
@@ -203,31 +331,41 @@ def save_media_cache(cache_file: Path, cache: Dict[str, str]) -> None:
     cache_file.write_text(json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def upload_reference_image(api_url: str, token: str, img_path: Path, cache: Dict[str, str], cache_file: Path) -> str:
-    """計算 SHA256 增量上傳參考圖至 FreeVideo /media 接口。"""
-    if not img_path.exists():
-        raise FileNotFoundError(f"找不到參考圖檔案: {img_path}")
-    
-    data_bytes = img_path.read_bytes()
+def upload_reference_media(api_url: str, token: str, media_path: Path, cache: Dict[str, str], cache_file: Path) -> str:
+    """計算 SHA256 增量上傳參考素材（圖片／影片／音訊）至 FreeVideo /media 接口。
+
+    媒體類型由副檔名判定（FreeVideo comfy_assets.media_kind）：
+    圖片 .png/.jpg/...、影片 .mp4/...、音訊 .wav/.mp3/.flac/.ogg/.m4a/.aac/.opus。
+    音訊會被 FreeVideo 自動分類成獨立音訊參考，對應官方節點的 ref_audios 槽位，
+    提示詞裡以 <Audio N> 指稱。
+    """
+    if not media_path.exists():
+        raise FileNotFoundError(f"找不到參考素材檔案: {media_path}")
+
+    data_bytes = media_path.read_bytes()
     sha = hashlib.sha256(data_bytes).hexdigest()
     cache_key = api_url.rstrip("/") + "::" + sha
     if cache_key in cache:
         return cache[cache_key]
-    
+
     b64 = base64.b64encode(data_bytes).decode("ascii")
     payload = {
-        "name": img_path.name,
+        "name": media_path.name,
         "data_base64": b64
     }
     resp = call_api(api_url, token, "POST", "/media", payload)
     remote_file_id = resp.get("file", "")
     if not remote_file_id:
-        raise RuntimeError(f"上傳參考圖 {img_path.name} 失敗，API 未回傳 file id")
-    
+        raise RuntimeError(f"上傳參考素材 {media_path.name} 失敗，API 未回傳 file id")
+
     cache[cache_key] = remote_file_id
     save_media_cache(cache_file, cache)
-    print(f"   [+] 成功上傳新參考圖: {img_path.name} -> {remote_file_id}")
+    print(f"   [+] 成功上傳新參考素材: {media_path.name} -> {remote_file_id}")
     return remote_file_id
+
+
+# 舊名保留相容（呼叫端與歷史紀錄用）
+upload_reference_image = upload_reference_media
 
 
 def cancel_stale_jobs(api_url: str, token: str, ledger_path: Optional[Path] = None,
@@ -305,12 +443,23 @@ def verify_stage4_gate(root_dir: Path, skip_gate: bool = False) -> bool:
     return not skip_gate and len(candidates) == 1 and verify_stage5_gate(root_dir, candidates[0])
 
 
-def audit_segment_prompts(todo_segs: List[Dict[str, Any]]) -> Tuple[bool, List[str]]:
-    """送件前執行 audit_refs_and_segments 17 條確定性審查，杜絕劣質與錯誤 Prompt 浪費顯存。"""
+def audit_segment_prompts(todo_segs: List[Dict[str, Any]], root_dir: Optional[Path] = None,
+                          strict_catalog: bool = False,
+                          ack_warnings: Optional[List[str]] = None) -> Tuple[bool, List[str]]:
+    """送件前執行 audit_refs_and_segments 確定性審查，杜絕劣質與錯誤 Prompt 浪費顯存。"""
     if audit_refs_and_subjects is None or lint_h3_prompt is None:
         return False, ["提示詞審查依賴 audit_refs_and_segments 不可用；fail closed，請修復環境後重試。"]
 
     errors: List[str] = []
+    try:
+        recorded_acks = failure_catalog.load_acks(root_dir) if root_dir else {}
+    except failure_catalog.CatalogError as exc:
+        return False, [f"ack 檔無法讀取（fail closed）：{exc}"]
+    cli_acked = {str(item).strip().upper() for item in (ack_warnings or []) if str(item).strip()}
+    try:
+        catalog = failure_catalog.load_catalog(root_dir)
+    except failure_catalog.CatalogError as exc:
+        return False, [f"失敗目錄無法載入：{exc}"]
     for idx, seg in enumerate(todo_segs, 1):
         sid = seg.get("segment_id") or seg.get("group") or seg.get("id") or f"seg_{idx}"
         prompt = seg.get("h3_prompt") or seg.get("prompt", "")
@@ -324,7 +473,7 @@ def audit_segment_prompts(todo_segs: List[Dict[str, Any]]) -> Tuple[bool, List[s
 
         # 模式 A: 參考圖序對
         if "reference_images" in seg:
-            r_res = audit_refs_and_subjects(seg)
+            r_res = audit_refs_and_subjects(seg, project_root=root_dir)
             if not r_res.get("passed", True):
                 for e in r_res.get("errors", []):
                     errors.append(f"[{sid}] 模式 A 參考圖錯誤: {e}")
@@ -340,7 +489,173 @@ def audit_segment_prompts(todo_segs: List[Dict[str, Any]]) -> Tuple[bool, List[s
             for e in l_res.get("errors", []):
                 errors.append(f"[{sid}] 模式 B 提示詞錯誤: {e}")
 
+        # 失敗目錄（P6）：enforce=error 直接擋；其餘警告要「有效 ack」才放行。
+        # ack 綁在當時那份提示詞（segment + prompt sha），改稿就失效。
+        prompt_sha = hashlib.sha256(str(prompt).encode("utf-8")).hexdigest()
+        try:
+            catalog_res = failure_catalog.lint_text(str(prompt), catalog)
+        except failure_catalog.CatalogError as exc:
+            return False, [f"失敗目錄執行失敗（{sid}）：{exc}"]
+        for item in catalog_res["errors"]:
+            errors.append(f"[{sid}] 失敗目錄: {failure_catalog.format_hit(item)}")
+        for item in catalog_res["warnings"]:
+            print(f"  ⚠️ [{sid}] {failure_catalog.format_hit(item)}")
+            if strict_catalog:
+                errors.append(f"[{sid}] 失敗目錄（strict）: {failure_catalog.format_hit(item)}")
+            elif item["id"] in cli_acked:
+                print(f"  ✅ [{sid}] {item['id']} 已由本次 --ack-warnings 接受")
+            elif failure_catalog.ack_is_valid(recorded_acks.get(item["id"]), str(sid), prompt_sha,
+                                              failure_catalog.catalog_rev(catalog)):
+                print(f"  ✅ [{sid}] {item['id']} 已有涵蓋此稿的 ack 紀錄")
+            else:
+                errors.append(
+                    f"[{sid}] {item['id']} 需明確確認：修正提示詞，或加 --ack-warnings {item['id']}"
+                )
+
     return len(errors) == 0, errors
+
+
+ACTIVE_LEDGER_STATUSES = {
+    "waiting", "queued", "running", "succeeded", "timeout", "interrupted", "unknown",
+}
+
+
+def active_job_for(ledger_path: Path, segment_id: str) -> Optional[Dict[str, Any]]:
+    """同一個 segment 是否還有「不該重送」的 ledger 紀錄。
+
+    這是 `--resume` 的安全鎖：中斷時 Ctrl-C 不會取消服務端任務，所以服務端
+    可能還在跑；若只憑「本地沒有 mp4」就重送，同一段會被計費兩次。
+    """
+    ledger = load_job_ledger(ledger_path)
+    for entry in reversed(ledger.get("jobs", []) or []):
+        if str(entry.get("segment_id")) != str(segment_id):
+            continue
+        status = str(entry.get("status") or "")
+        if status in ACTIVE_LEDGER_STATUSES:
+            return entry
+        if status in ("failed", "cancelled", "duration_drift"):
+            return None
+    return None
+
+
+def collect_jobs(api_url: str, token: str, ledger_path: Path, output_dir: Path,
+                 poll_wait: int = 0, only: Optional[List[str]] = None) -> Dict[str, int]:
+    """把 ledger 裡「已完成但沒下載」的工作補回來；不送任何新件。
+
+    這是 2026-10-19 那類事故的解藥：46 段批次跑到一半中斷，
+    當時只能靠專案 helper 重送；現在 ledger 有 job id，可以直接收。
+
+    - `failed`／`cancelled` 仍會**先查一次服務端**：本地記 failed 不代表遠端失敗
+      （worker_exit、輪詢例外、collect 自己寫回的 failed 都會造成假失敗）。
+    - 只有 `duration_drift` 是刻意跳過（那是我們自己判定的壞件）。
+    - 時長無法斷言（ffprobe 讀不到或超差）一律隔離為 `.unverified.mp4`，不記 downloaded。
+    """
+    summary = {"downloaded": 0, "still_running": 0, "failed": 0, "skipped": 0,
+               "drift": 0, "unverified": 0, "unreachable": 0, "aborted": 0}
+    ledger = load_job_ledger(ledger_path)
+    if not isinstance(ledger, dict) or not ledger.get("jobs"):
+        print("[collect] ledger 沒有任何工作紀錄，沒有可收的件。")
+        return summary
+
+    ledger_scope = str(ledger.get("api_scope") or "").rstrip("/")
+    if ledger_scope != str(api_url).rstrip("/"):
+        print(f"[collect] ❌ API scope 不符：ledger={ledger_scope or '(空)'} / 現在={api_url}；"
+              "為避免打錯 host 或寫錯帳本，中止。")
+        summary["aborted"] = 1
+        return summary
+    if not ledger.get("project"):
+        print("[collect] ❌ ledger 缺少 project 欄位，無法安全寫回；中止。")
+        summary["aborted"] = 1
+        return summary
+
+    project = str(ledger["project"])
+    api_scope = ledger_scope
+    output_dir.mkdir(parents=True, exist_ok=True)
+    only_set = {str(item) for item in only} if only else None
+
+    for entry in ledger.get("jobs", []):
+        sid = entry.get("segment_id")
+        jid = entry.get("id")
+        if not sid or not jid:
+            continue
+        if only_set is not None and str(sid) not in only_set:
+            continue
+        out_mp4 = output_dir / f"{sid}.mp4"
+        if out_mp4.exists():
+            summary["skipped"] += 1
+            continue
+        if str(entry.get("status")) == "duration_drift":
+            summary["failed"] += 1
+            continue
+        try:
+            resp = call_api(api_url, token, "GET", f"/jobs/{jid}?wait={max(0, poll_wait)}",
+                            timeout=max(10, poll_wait + 5))
+        except Exception as exc:
+            print(f"[collect] {sid}: 查詢失敗 {exc}")
+            summary["unreachable"] += 1
+            continue
+        job = (resp or {}).get("job", {}) or {}
+        state = str(job.get("status") or "")
+        if state == "succeeded":
+            frames = entry.get("frames")
+            terminal = declared_frames(job)
+            if frames and terminal is not None and int(frames) != terminal:
+                print(f"[collect] {sid}: duration_drift（要求 {frames}，回報 {terminal}），不下載")
+                record_job(ledger_path, project=project, api_scope=api_scope,
+                           batch_id=str(entry.get("batch_id") or "collect"), segment_id=str(sid),
+                           job_id=str(jid), status="duration_drift", frames=frames,
+                           duration_assert=False)
+                summary["drift"] += 1
+                summary["failed"] += 1
+                continue
+            video_url = (job.get("result") or {}).get("video", {}).get("url")
+            if not video_url:
+                print(f"[collect] {sid}: 成功但沒有 video url")
+                summary["failed"] += 1
+                continue
+            try:
+                download_file(token, api_url, video_url, out_mp4)
+            except Exception as exc:
+                print(f"[collect] {sid}: 下載失敗 {exc}")
+                summary["failed"] += 1
+                continue
+            probed = probe_video_duration(out_mp4)
+            expected = h3_spec.seconds_for_frames(int(frames)) if frames else None
+            asserted = bool(probed is not None and expected is not None
+                            and abs(probed - expected) <= (1.0 / h3_spec.FPS) + 0.02)
+            if not asserted:
+                quarantine = out_mp4.with_name(out_mp4.stem + ".unverified.mp4")
+                out_mp4.replace(quarantine)
+                record_job(ledger_path, project=project, api_scope=api_scope,
+                           batch_id=str(entry.get("batch_id") or "collect"), segment_id=str(sid),
+                           job_id=str(jid), status="duration_unverified",
+                           frames=int(frames) if frames else None, duration_assert=False)
+                print(f"[collect] {sid}: 時長無法斷言（實測 {probed}，預期 {expected}），"
+                      f"已隔離為 {quarantine.name}")
+                summary["unverified"] += 1
+                summary["failed"] += 1
+                continue
+            record_job(ledger_path, project=project, api_scope=api_scope,
+                       batch_id=str(entry.get("batch_id") or "collect"), segment_id=str(sid),
+                       job_id=str(jid), status="downloaded",
+                       frames=int(frames) if frames else None,
+                       seconds=h3_spec.wire_seconds(int(frames)) if frames else None,
+                       duration_assert=True)
+            print(f"[collect] {sid}: 已補下載 {out_mp4.name}")
+            summary["downloaded"] += 1
+        elif state in ("failed", "cancelled", "interrupted"):
+            record_job(ledger_path, project=project, api_scope=api_scope,
+                       batch_id=str(entry.get("batch_id") or "collect"), segment_id=str(sid),
+                       job_id=str(jid), status=state)
+            summary["failed"] += 1
+        else:
+            summary["still_running"] += 1
+
+    print(f"[collect] 補下載 {summary['downloaded']}｜仍在跑 {summary['still_running']}"
+          f"｜失敗 {summary['failed']}（drift {summary['drift']}、無法斷言 {summary['unverified']}）"
+          f"｜查詢失敗 {summary['unreachable']}｜已存在跳過 {summary['skipped']}")
+    return summary
+
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -354,7 +669,21 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--quality", type=str, default="light", choices=["light", "plus"], help="生成畫質模式 (預設 light)")
     parser.add_argument("--dry-run", action="store_true", help="送件前乾跑檢查：檢查參考圖存在、SHA256、顯存狀態與分段摘要")
     parser.add_argument("--cancel-stale", action="store_true", help="清理伺服器殘留的孤兒分段任務")
+    parser.add_argument("--collect", action="store_true",
+                        help="只收件：掃 ledger，把已完成但沒下載的工作補抓回來，不送新件（不做 provider 能力校驗）")
+    parser.add_argument("--resume", action="store_true",
+                        help="續跑：先 collect 補回已完成的工作，再送尚未產出的分段")
+    parser.add_argument("--collect-wait", type=int, default=0,
+                        help="collect 時對每個工作的等待秒數（預設 0，只查現況）")
+    parser.add_argument("--provider", default="freevideo", help="provider 能力表名稱（預設 freevideo）")
+    parser.add_argument("--caps-dir", type=Path, default=None, help="provider 能力表目錄（選填）")
     parser.add_argument("--force", action="store_true", help="若目標影片已存在，強制重新送件覆蓋")
+    parser.add_argument("--allow-out-of-range", action="store_true",
+                        help="允許超出 H3 支援區間（124–362 幀）的分段照送；預設是硬錯誤")
+    parser.add_argument("--strict-catalog", action="store_true",
+                        help="把失敗目錄的警告升級為錯誤（預設：警告需 --ack-warnings 明確確認才放行）")
+    parser.add_argument("--ack-warnings", nargs="*", default=None, metavar="ID",
+                        help="明確接受指定的失敗目錄警告（例如 --ack-warnings F-STILL-ENDING）；會記錄在送件輸出中")
     parser.add_argument("--root-dir", type=Path, default=Path("."), help="專案根目錄 (用以解析相對路徑參考圖)")
     parser.add_argument("--skip-stage-gate", action="store_true", help="僅供 --dry-run 除錯；實際送件永遠要求有效 stage-5 核准")
     parser.add_argument("--poll-timeout", type=int, default=POLL_TIMEOUT_SECONDS,
@@ -371,11 +700,36 @@ def main(argv: Optional[List[str]] = None) -> int:
         cancel_stale_jobs(args.api_url, token, args.output_dir / "_fv-job-ledger.json", args.root_dir)
         return 0
 
+    if args.collect or args.resume:
+        if not token:
+            sys.exit("❌ 錯誤: 未找到 FreeVideo 令牌，無法執行 --collect。")
+        if args.resume and not args.segments:
+            parser.error("--resume 需要同時提供 --segments（先收件，再補送）。")
+        summary = collect_jobs(args.api_url, token, args.output_dir / "_fv-job-ledger.json",
+                               args.output_dir, poll_wait=args.collect_wait, only=args.segment_id)
+        bad = bool(summary["failed"] or summary["unreachable"] or summary.get("aborted"))
+        if summary.get("aborted"):
+            return 2
+        if args.collect and not args.resume:
+            return 1 if bad else 0
+        if bad and not args.force:
+            print("❌ collect 沒有全部收乾淨（失敗或查詢失敗）；為避免重複送件，停止續跑。"
+                  "確認後可加 --force 強制續跑。")
+            return 1
+
     if not args.segments:
         parser.error("請提供 --segments 參數指定分段 JSON 檔案，或使用 --cancel-stale。")
 
     if not args.segments.exists():
         sys.exit(f"❌ 錯誤: 分段檔不存在: {args.segments}")
+
+    try:
+        caps = provider_caps.load_caps(args.provider, args.caps_dir)
+    except provider_caps.CapabilityError as exc:
+        sys.exit(f"❌ 錯誤: {exc}")
+    print(f"ℹ️ provider 能力：{provider_caps.describe(caps)}")
+    for drift in provider_caps.consistency_warnings(caps):
+        print(f"⚠️ [caps] {drift}（請更新 providers/{args.provider}.json）")
 
     # 讀取分段列表
     with args.segments.open("r", encoding="utf-8") as f:
@@ -406,7 +760,15 @@ def main(argv: Optional[List[str]] = None) -> int:
         sys.exit(f"❌ 錯誤: 在 {args.segments} 中未找到符合條件的分段！")
 
     # 執行提示詞確定性事前自檢
-    prompt_ok, prompt_errors = audit_segment_prompts(todo_segs)
+    # ack 只能由人透過 `h3d ack`（或 failure_catalog --ack）留下紀錄，
+    # 送件端只讀不寫——否則「用新 ack 通過自己的 gate」就是自我授權。
+    if args.ack_warnings:
+        print("ℹ️ --ack-warnings 只在本次檢查有效、不會寫入紀錄；要留憑證請先跑："
+              f"python scripts\\h3d.py ack --ids {' '.join(args.ack_warnings)}")
+
+    prompt_ok, prompt_errors = audit_segment_prompts(
+        todo_segs, root_dir=args.root_dir, strict_catalog=args.strict_catalog,
+        ack_warnings=args.ack_warnings)
     if not prompt_ok:
         print("\n" + "=" * 78, file=sys.stderr)
         print(f"❌ [Fatal Audit Error - 提示詞品質自檢攔截 ({len(prompt_errors)} 項錯誤)]", file=sys.stderr)
@@ -440,30 +802,57 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     # 3. 乾跑檢查 (Dry-Run)
     all_refs_ok = True
+    range_ok = True
+    caps_ok = True
+    range_problems: List[str] = []
     print("\n[分段清單與參考圖核驗]")
     for idx, seg in enumerate(todo_segs, 1):
         sid = seg.get("segment_id") or seg.get("group") or seg.get("id")
-        
-        # 提取時長
-        sec = 0.0
-        if "metadata" in seg and isinstance(seg["metadata"], dict):
-            sec = float(seg["metadata"].get("effective_duration_sec") or seg["metadata"].get("target_duration_sec") or 0.0)
-        if sec <= 0.0:
-            sec = float(seg.get("seconds") or 0.0)
 
-        # 提取參考圖路徑
+        # 時長一律由影格數反推（17n+5），避免四捨五入後被服務端向上取整。
+        frames, frames_source = resolve_segment_frames(seg)
+        sec = h3_spec.wire_seconds(frames)
+        if not h3_spec.in_supported_range(frames):
+            message = (f"#{idx:02d} [{sid}] {frames} 幀超出 H3 支援區間 "
+                       f"{h3_spec.MIN_SUPPORTED_FRAMES}–{h3_spec.MAX_SUPPORTED_FRAMES}"
+                       f"（{sec:.3f}s）")
+            if args.allow_out_of_range:
+                print(f"  ⚠️ {message}；已允許（--allow-out-of-range）")
+            else:
+                print(f"  ❌ {message}；請改分段長度或加 --allow-out-of-range")
+                range_ok = False
+                range_problems.append(message)
+
+        # 提取參考素材路徑（含音色母帶）
         raw_refs = seg.get("reference_images", [])
         ref_paths: List[str] = []
+        audio_paths: List[str] = []
         for r in raw_refs:
             if isinstance(r, dict):
+                if r.get("type") == "audio":
+                    audio_paths.append(r.get("path") or r.get("file") or "")
                 ref_paths.append(r.get("path") or r.get("file") or "")
             elif isinstance(r, str):
                 ref_paths.append(r)
 
         loras = seg.get("h3_loras", [])
 
-        # 核驗參考圖是否存在
+        # provider 能力校驗：measured 欄位違反＝硬錯誤，docs/assumed 只警告。
+        seg_aspect = seg.get("metadata", {}).get("aspect_ratio") or seg.get("aspect") or "16:9"
+        caps_verdict = provider_caps.validate_segment(
+            seg, caps, aspect=seg_aspect, quality=args.quality, frames=frames,
+            reference_count=len([p for p in ref_paths if p]),
+            audio_count=len(audio_paths), lora_count=len(loras),
+        )
+        for warning in caps_verdict["warnings"]:
+            print(f"  ⚠️ [caps] {warning}")
+        for error in caps_verdict["errors"]:
+            print(f"  ❌ [caps] {error}")
+            caps_ok = False
+
+        # 核驗參考素材是否存在、格式是否受支援
         missing_refs = []
+        bad_audio = []
         for p_str in ref_paths:
             if not p_str:
                 continue
@@ -472,9 +861,15 @@ def main(argv: Optional[List[str]] = None) -> int:
                 rp = (args.root_dir / rp).resolve()
             if not rp.exists():
                 missing_refs.append(p_str)
+        for p_str in audio_paths:
+            if not p_str:
+                continue
+            suffix = Path(p_str).suffix.lower()
+            if suffix not in SUPPORTED_AUDIO_SUFFIXES:
+                bad_audio.append(f"{p_str}（{suffix or '無副檔名'}）")
 
         status_flag = "✅"
-        if missing_refs:
+        if missing_refs or bad_audio:
             status_flag = "❌"
             all_refs_ok = False
 
@@ -482,19 +877,27 @@ def main(argv: Optional[List[str]] = None) -> int:
         if loras:
             lora_desc = "+".join(f"{l.get('name')}:{l.get('strength', 1.0)}" for l in loras)
 
-        print(f"  {status_flag} #{idx:02d} [{sid}] {sec:5.2f}s | 參考圖: {len(ref_paths)}張 | LoRA: {lora_desc}")
+        audio_note = f"（其中音色母帶 {len(audio_paths)} 個）" if audio_paths else ""
+        print(f"  {status_flag} #{idx:02d} [{sid}] {sec:7.4f}s = {frames:3d} 幀（17n+5，來源 {frames_source}）"
+              f" | 參考素材: {len(ref_paths)} 個{audio_note} | LoRA: {lora_desc}")
         if missing_refs:
-            print(f"     ❌ 缺失參考圖檔案: {missing_refs}")
+            print(f"     ❌ 缺失參考素材檔案: {missing_refs}")
+        if bad_audio:
+            print(f"     ❌ 音色母帶副檔名不受支援（需 {', '.join(sorted(SUPPORTED_AUDIO_SUFFIXES))}）: {bad_audio}")
 
     if args.dry_run:
         print("\n" + "-" * 70)
         print("🔍 乾跑 (Dry-Run) 檢查完成：")
-        if all_refs_ok:
-            print("✅ 本地參考檔與提示詞檢查通過；尚未提交任務，也未驗證服務模型或 VRAM 是否可執行。")
+        if all_refs_ok and range_ok and caps_ok:
+            print("✅ 本地參考檔、提示詞、時長區間與 provider 能力檢查通過；尚未提交任務，也未驗證服務模型或 VRAM 是否可執行。")
             return 0
-        else:
+        if not caps_ok:
+            print("❌ 有分段違反 provider 已驗證能力（見上方 [caps]）；請修正或改 provider 能力表。")
+        if range_problems and not args.allow_out_of_range:
+            print(f"❌ {len(range_problems)} 段超出 H3 支援區間；請改分段長度或加 --allow-out-of-range。")
+        if not all_refs_ok:
             print("❌ 存在缺失的參考圖檔案！請檢查路徑後再試。")
-            return 1
+        return 1
 
     # 4. 實機送件模式
     if not token:
@@ -502,6 +905,14 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if not all_refs_ok:
         sys.exit("❌ 錯誤: 存在缺失的參考圖檔案，中止實機送件！")
+
+    if not caps_ok:
+        sys.exit("❌ 錯誤: 有分段違反 provider 已驗證能力（見上方 [caps]），中止送件。")
+
+    if range_problems and not args.allow_out_of_range:
+        sys.exit("❌ 錯誤: 有分段超出 H3 支援區間 "
+                 f"({h3_spec.MIN_SUPPORTED_FRAMES}–{h3_spec.MAX_SUPPORTED_FRAMES} 幀)，中止送件；"
+                 "請調整分段長度或加 --allow-out-of-range。")
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     cache_file = args.output_dir / "_fv-ref-map.json"
@@ -524,17 +935,19 @@ def main(argv: Optional[List[str]] = None) -> int:
             return 1
 
     print("\n🚀 開始調用 FreeVideo Agent API 進行批次影片生成...")
-    stats = {"succeeded": 0, "failed": 0, "skipped": 0}
+    stats = {"succeeded": 0, "failed": 0, "skipped": 0, "unasserted": 0}
 
     for idx, seg in enumerate(todo_segs, 1):
         sid = seg.get("segment_id") or seg.get("group") or seg.get("id")
-        
-        # 提取時長
-        sec = 0.0
-        if "metadata" in seg and isinstance(seg["metadata"], dict):
-            sec = float(seg["metadata"].get("effective_duration_sec") or seg["metadata"].get("target_duration_sec") or 0.0)
-        if sec <= 0.0:
-            sec = float(seg.get("seconds") or 0.0)
+
+        # 時長一律由影格數反推（17n+5）
+        frames, frames_source = resolve_segment_frames(seg)
+        sec = h3_spec.wire_seconds(frames)
+        if not h3_spec.in_supported_range(frames) and not args.allow_out_of_range:
+            print(f"  ❌ [{sid}] {frames} 幀超出 H3 支援區間 "
+                  f"{h3_spec.MIN_SUPPORTED_FRAMES}–{h3_spec.MAX_SUPPORTED_FRAMES}；跳過（需 --allow-out-of-range）")
+            stats["failed"] += 1
+            continue
 
         out_mp4 = args.output_dir / f"{sid}.mp4"
 
@@ -543,16 +956,34 @@ def main(argv: Optional[List[str]] = None) -> int:
             stats["skipped"] += 1
             continue
 
-        print(f"\n--- [#{idx:02d} {sid}] 開始送件 (時長: {sec:.2f}s) ---")
+        # ledger 去重：服務端可能還有活著的 job（中斷不會取消遠端任務），
+        # 只憑「本地沒有 mp4」就重送會造成同一段重複計費。
+        existing_job = active_job_for(ledger_path, str(sid))
+        if existing_job and not args.force:
+            print(f"\n[#{idx:02d} {sid}] ledger 已有 {existing_job.get('status')} 的 job "
+                  f"{existing_job.get('id')}；跳過（先跑 --collect，或加 --force 重送）")
+            stats["skipped"] += 1
+            continue
 
-        # 提取參考圖路徑並上傳
+        print(f"\n--- [#{idx:02d} {sid}] 開始送件 (時長: {sec:.4f}s = {frames} 幀，來源 {frames_source}) ---")
+
+        # 提取參考素材路徑並上傳
+        # 參考順序有意義：官方 ComfyUI 節點的規則是「圖片 → 影片 → 獨立音訊」，
+        # 提示詞裡的 <Picture i> / <Video k> / <Audio j> 各自按自己的類別從 1 開始編號。
+        # 編譯器把音訊參考排在所有圖像素材之後，正好符合這個順序。
         raw_refs = seg.get("reference_images", [])
         ref_paths: List[str] = []
+        audio_refs: List[Dict[str, Any]] = []
         for r in raw_refs:
             if isinstance(r, dict):
+                if r.get("type") == "audio":
+                    audio_refs.append(r)
                 ref_paths.append(r.get("path") or r.get("file") or "")
             elif isinstance(r, str):
                 ref_paths.append(r)
+        if audio_refs:
+            print(f"     🎙️ [{sid}] 本段含 {len(audio_refs)} 個音色參考（<Audio N>）："
+                  f"會以音檔形式掛到參考素材，提示詞用 <Audio N> 描述其角色。")
 
         remote_refs = []
         for p_str in ref_paths:
@@ -561,7 +992,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             rp = Path(p_str)
             if not rp.is_absolute():
                 rp = (args.root_dir / rp).resolve()
-            ref_id = upload_reference_image(args.api_url, token, rp, cache, cache_file)
+            ref_id = upload_reference_media(args.api_url, token, rp, cache, cache_file)
             remote_refs.append({"file": ref_id})
 
         media = {"references": remote_refs}
@@ -572,7 +1003,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         body = {
             "kind": "generate",
             "prompt": prompt_text,
-            "seconds": sec,
+            "seconds": sec,  # = frames / 24 精確值；不可改成秒數四捨五入
             "aspect": aspect,
             "quality": args.quality,
             "label": seg.get("label", sid),
@@ -590,10 +1021,27 @@ def main(argv: Optional[List[str]] = None) -> int:
             if not jid:
                 raise RuntimeError("API 未回傳 job ID；無法安全追蹤此次送件")
             record_job(ledger_path, project=str(project_root), api_scope=args.api_url,
-                       batch_id=batch_id, segment_id=str(sid), job_id=str(jid), status=job.get("status", "waiting"))
+                       batch_id=batch_id, segment_id=str(sid), job_id=str(jid),
+                       status=job.get("status", "waiting"), frames=frames, seconds=sec)
             print(f"  [+] 成功建立任務: {jid} | 標籤: {job.get('label')}")
         except Exception as e:
             print(f"  ❌ 建立任務失敗: {e}")
+            stats["failed"] += 1
+            continue
+
+        # 時長斷言：服務端若回報 frames，必須等於我們要求的量子。
+        # 不符就取消該工作（省 GPU），並以 duration_drift 記帳——不讓漂移的片子進 QA。
+        reported = declared_frames(job)
+        if reported is not None and reported != frames:
+            print(f"  ❌ [duration_drift] 要求 {frames} 幀（{sec:.4f}s），服務端回報 {reported} 幀"
+                  f"（{h3_spec.seconds_for_frames(reported):.4f}s）；已取消該工作。")
+            try:
+                call_api(args.api_url, token, "POST", f"/jobs/{jid}/cancel", {})
+            except Exception as cancel_error:  # pragma: no cover - 服務端不可用時
+                print(f"     ⚠️ 取消失敗（工作仍留在服務端）: {cancel_error}")
+            record_job(ledger_path, project=str(project_root), api_scope=args.api_url,
+                       batch_id=batch_id, segment_id=str(sid), job_id=str(jid),
+                       status="duration_drift", frames=frames, seconds=sec)
             stats["failed"] += 1
             continue
 
@@ -627,12 +1075,46 @@ def main(argv: Optional[List[str]] = None) -> int:
         elapsed_min = 0.0
 
         if status == "succeeded":
+            # 終態再斷言一次：POST 建立任務當下通常還沒有 geometry，
+            # 只看第一次回應等於整個斷言空轉。
+            terminal_frames = declared_frames(job)
+            if terminal_frames is not None and terminal_frames != frames:
+                print(f"  ❌ [duration_drift] 終態回報 {terminal_frames} 幀"
+                      f"（{h3_spec.seconds_for_frames(terminal_frames):.4f}s），"
+                      f"要求 {frames} 幀（{sec:.4f}s）；不下載。")
+                record_job(ledger_path, project=str(project_root), api_scope=args.api_url,
+                           batch_id=batch_id, segment_id=str(sid), job_id=str(jid),
+                           status="duration_drift", frames=frames, seconds=sec,
+                           duration_assert=False)
+                stats["failed"] += 1
+                continue
+            if terminal_frames is None:
+                stats["unasserted"] += 1
+                print("  ⚠️ 服務端未回報 frames；時長只能在下載後用 ffprobe 驗。")
             video_url = (job.get("result") or {}).get("video", {}).get("url")
             if video_url:
                 try:
                     download_file(token, args.api_url, video_url, out_mp4)
+                    expected_sec = h3_spec.seconds_for_frames(frames)
+                    probed = probe_video_duration(out_mp4)
+                    if probed is None:
+                        stats["unasserted"] += 1
+                        print("  ⚠️ ffprobe 讀不到時長，無法斷言影格數。")
+                    elif abs(probed - expected_sec) > (1.0 / h3_spec.FPS) + 0.02:
+                        drifted = out_mp4.with_name(out_mp4.stem + ".drift.mp4")
+                        out_mp4.replace(drifted)
+                        print(f"  ❌ [duration_drift] 檔案 {probed:.3f}s，預期 {expected_sec:.3f}s"
+                              f"（{frames} 幀）；已隔離為 {drifted.name}，不進 QA。")
+                        record_job(ledger_path, project=str(project_root), api_scope=args.api_url,
+                                   batch_id=batch_id, segment_id=str(sid), job_id=str(jid),
+                                   status="duration_drift", frames=frames, seconds=sec,
+                                   duration_assert=False)
+                        stats["failed"] += 1
+                        continue
                     record_job(ledger_path, project=str(project_root), api_scope=args.api_url,
-                               batch_id=batch_id, segment_id=str(sid), job_id=str(jid), status="downloaded")
+                               batch_id=batch_id, segment_id=str(sid), job_id=str(jid),
+                               status="downloaded", frames=frames, seconds=sec,
+                               duration_assert=probed is not None)
                     size_mb = out_mp4.stat().st_size / 1048576.0
                     print(f"  ✅ 生成成功並已下載: {out_mp4.name} ({size_mb:.2f} MB, 耗時: {elapsed_min:.1f} 分鐘)")
                     stats["succeeded"] += 1
@@ -657,6 +1139,9 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     print("\n" + "=" * 70)
     print(f"🎉 批次送件結束: 成功: {stats['succeeded']} | 失敗: {stats['failed']} | 跳過: {stats['skipped']}")
+    if stats["unasserted"]:
+        print(f"⚠️ 其中 {stats['unasserted']} 段無法斷言時長（服務端未回 frames 或 ffprobe 讀不到）；"
+              "這些段落不算通過，請用 verify_video_shot 再驗一次。")
     print("=" * 70)
     return 0 if stats["failed"] == 0 else 1
 

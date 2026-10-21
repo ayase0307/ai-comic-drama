@@ -49,6 +49,11 @@ if hasattr(sys.stderr, "reconfigure"):
 # TTS 引擎封裝 (Edge-TTS + Windows SAPI 離線備案)
 # ==============================================================================
 
+try:  # 多後端 TTS 模組（VoiceStudio／Fish Audio／自帶 API）
+    import tts_engine as tts_module  # type: ignore
+except Exception:  # pragma: no cover - 模組缺失時退回內建實作
+    tts_module = None  # type: ignore
+
 SAPI_PS_SCRIPT = """param ([string]$text, [string]$outFile)
 Add-Type -AssemblyName System.Speech
 $speak = New-Object System.Speech.Synthesis.SpeechSynthesizer
@@ -97,22 +102,47 @@ def generate_edge_tts(text: str, out_file: Path, voice: str = "zh-TW-YunJheNeura
         return False
 
 
-def synthesize_speech(text: str, out_wav: Path, engine: str = "auto", speaker: str = "") -> str:
-    """智慧語音合成器：auto 模式下優先嘗試 Edge-TTS，遇 403/網路異常自動無縫切換 SAPI 備案。"""
+def synthesize_speech(
+    text: str,
+    out_wav: Path,
+    engine: str = "auto",
+    speaker: str = "",
+    config: Optional[Dict[str, Any]] = None,
+    voice: Optional[str] = None,
+    language: Optional[str] = None,
+) -> str:
+    """智慧語音合成器。
+
+    主線走 `tts_engine` 模組的多後端介面：voicestudio（本機 VoiceStudio／OmniVoice）
+    → fish（Fish Audio）→ openai_compat（自帶 API）→ sapi（Windows 離線備援）依序降級。
+    `tts_engine` 模組不可用時才退回本檔內建的 edge／sapi 實作。
+    角色音色以資產 ID（如 V-lin-zhao）交由設定檔 voice_map 對映到供應商音色。
+    """
     clean_text = re.sub(r"[^\w\u4e00-\u9fff，。！？、 ]", "", text).strip()
     if not clean_text:
         return ""
 
     out_wav.parent.mkdir(parents=True, exist_ok=True)
 
-    # 角色音色推測
+    if tts_module is not None:
+        result = tts_module.synthesize(
+            clean_text, out_wav, engine=engine, speaker=speaker,
+            voice=voice, language=language, config=config,
+        )
+        if result.get("ok"):
+            return str(result.get("engine") or engine)
+        if engine != "auto":
+            raise RuntimeError(f"TTS 合成失敗 ({engine}): {result.get('reason')}")
+
+    # ---- 內建離線備援 ----
+    # 角色音色推測（僅備援路徑使用；主線以設定檔 voice_map 為準）
     is_female = any(k in speaker.lower() for k in ["female", "woman", "girl", "ye", "shan", "女", "珊"])
     edge_voice = "zh-TW-HsiaoChenNeural" if is_female else "zh-TW-YunJheNeural"
 
     if engine == "edge":
         if generate_edge_tts(clean_text, out_wav, edge_voice):
             return "edge-tts"
-        raise RuntimeError("Edge-TTS 生成失敗 (可能遇 403 阻斷)")
+        raise RuntimeError("Edge-TTS 生成失敗 (2026-10-10 起微軟要求 v2 Sec-MS-GEC token，edge-tts 7.2.8 會 403)")
 
     elif engine == "sapi":
         if generate_sapi_tts(clean_text, out_wav):
@@ -273,6 +303,7 @@ def process_single_segment(
     seg_duration: float,
     audio_mode: str = "tts_replace",
     tts_engine: str = "auto",
+    tts_config: Optional[Dict[str, Any]] = None,
     bg_volume: float = 0.15,
     burn_subtitles: bool = True,
     temp_dir: Optional[Path] = None,
@@ -305,7 +336,9 @@ def process_single_segment(
             wav_path.unlink(missing_ok=True)
             speaker = item.get("speaker", "")
             try:
-                synthesize_speech(line_text, wav_path, engine=tts_engine, speaker=speaker)
+                synthesize_speech(
+                    line_text, wav_path, engine=tts_engine, speaker=speaker, config=tts_config,
+                )
                 if not wav_path.exists() or wav_path.stat().st_size == 0:
                     raise RuntimeError("TTS 沒有產生有效音訊檔")
                 actual_audio_duration = probe_audio_duration(wav_path)
@@ -360,19 +393,23 @@ def process_single_segment(
         mix_inputs = []
         mix_native_audio = has_native_audio and audio_mode == "tts_replace"
         if mix_native_audio:
-            filter_complex_parts.append(f"[0:a]volume={bg_volume}[native]" )
+            filter_complex_parts.append(f"[0:a]aresample=48000,volume={bg_volume}[native]")
             mix_inputs.append("[native]")
         for i, (_, delay_ms) in enumerate(tts_tracks, 1):
-            filter_complex_parts.append(f"[{i}:a]adelay={delay_ms}|{delay_ms}[v{i}]")
+            # adelay 的 all=1 才是單聲道來源的安全寫法；用 "|" 只對雙聲道有效。
+            filter_complex_parts.append(f"[{i}:a]aresample=48000,adelay={delay_ms}:all=1[v{i}]")
             mix_inputs.append(f"[v{i}]")
         mix_str = "".join(mix_inputs)
         mix_duration = "longest"
+        # amix 預設 normalize=1 會把輸出除以輸入數，等於把 TTS 人聲壓低約 3 dB
+        # （實測：兩軌 440/880Hz 混音 −24.1 dB vs 來源 −21.1 dB）。
+        # 改用 normalize=0 保住人聲電平，峰值交給後段的 loudnorm／alimiter 處理。
         filter_complex_parts.append(
-            f"{mix_str}amix=inputs={len(mix_inputs)}:duration={mix_duration}[mixed];"
+            f"{mix_str}amix=inputs={len(mix_inputs)}:duration={mix_duration}:normalize=0:dropout_transition=0[mixed];"
             f"[mixed]apad,atrim=duration={seg_duration:.6f}[aout]"
         )
     elif has_native_audio:
-        filter_complex_parts.append(f"[0:a]apad,atrim=duration={seg_duration:.6f}[aout]")
+        filter_complex_parts.append(f"[0:a]aresample=48000,apad,atrim=duration={seg_duration:.6f}[aout]")
 
     if filter_complex_parts:
         cmd.extend(["-filter_complex", ";".join(filter_complex_parts)])
@@ -423,8 +460,19 @@ def process_single_segment(
 # FFmpeg Concat 協議無縫拼接
 # ==============================================================================
 
-def concat_videos(video_list: List[Path], out_video: Path) -> Tuple[bool, str]:
-    """使用 FFmpeg concat 協議無縫拼接分段影片成片。"""
+def concat_videos(
+    video_list: List[Path],
+    out_video: Path,
+    target_lufs: Optional[float] = -23.0,
+    true_peak: float = -1.5,
+    lra: float = 11.0,
+) -> Tuple[bool, str]:
+    """使用 FFmpeg concat 協議無縫拼接分段影片成片。
+
+    響度正規化一律在「整片」層級做，不在分段層做：分段各自正規化會壓掉
+    段與段之間的動態對比。戲劇交付預設對齊 EBU R128（−23 LUFS、true peak
+    ≤ −1 dBTP）；串流平台可改用 --target-lufs。
+    """
     out_video.parent.mkdir(parents=True, exist_ok=True)
     list_file = out_video.parent / f"concat_{out_video.stem}_{os.getpid()}.txt"
 
@@ -442,9 +490,17 @@ def concat_videos(video_list: List[Path], out_video: Path) -> Tuple[bool, str]:
     cmd = [
         "ffmpeg", "-y", "-hide_banner", "-f", "concat", "-safe", "0",
         "-i", str(list_file.resolve()),
-        "-c", "copy",
-        str(staging_video.resolve())
     ]
+    if target_lufs is None:
+        cmd.extend(["-c", "copy"])
+    else:
+        # 單遍 loudnorm：先正規化整合響度，再由 loudnorm 內建的 true peak 限制收尾。
+        loud = f"loudnorm=I={target_lufs}:TP={true_peak}:LRA={lra}"
+        cmd.extend([
+            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
+            "-af", loud,
+        ])
+    cmd.append(str(staging_video.resolve()))
     res = subprocess.run(cmd, cwd=str(out_video.parent), capture_output=True, text=True, encoding="utf-8", errors="replace")
     try:
         list_file.unlink()
@@ -495,7 +551,7 @@ def run_self_test() -> bool:
         out_seg1 = t_path / "proc_seg01.mp4"
         out_seg2 = t_path / "proc_seg02.mp4"
 
-        def synthetic_tts(text: str, out_wav: Path, engine: str = "auto", speaker: str = "") -> str:
+        def synthetic_tts(text: str, out_wav: Path, engine: str = "auto", speaker: str = "", **kwargs) -> str:
             out_wav.parent.mkdir(parents=True, exist_ok=True)
             sample_rate = 16000
             samples = [int(7000 * math.sin(2 * math.pi * 440 * n / sample_rate)) for n in range(sample_rate // 2)]
@@ -553,9 +609,23 @@ def main() -> int:
     parser.add_argument("--narration", type=Path, help="narration-epXX.md 旁白字幕對照稿")
     parser.add_argument("--videos-dir", type=Path, default=Path("videos"), help="影片片段來源目錄 (預設 videos/)")
     parser.add_argument("--output", type=Path, default=Path("videos/final-ep01.mp4"), help="最終成片輸出路徑")
-    parser.add_argument("--audio-mode", type=str, default="tts_replace", choices=["tts_replace", "native_sub", "narration_only"], help="配音模式 (預設 tts_replace 方案 A)")
-    parser.add_argument("--tts-engine", type=str, default="auto", choices=["auto", "edge", "sapi"], help="TTS 後端引擎 (預設 auto 自動嘗試並降級)")
+    parser.add_argument("--audio-mode", type=str, default="auto",
+                        choices=["auto", "tts_replace", "native_sub", "narration_only"],
+                        help="配音模式 (預設 auto 逐段裁決：有可見嘴對白→native_sub 留 H3 口型；"
+                             "只有外部化旁白→tts_replace 混外部 TTS；"
+                             "tts_replace=強制外部 TTS 覆蓋；native_sub=保留 H3 原生配音；narration_only=只播旁白)")
+    parser.add_argument("--tts-engine", type=str, default="auto",
+                        choices=["auto", "edge", "sapi", "voicestudio", "fish", "openai_compat"],
+                        help="TTS 後端引擎 (預設 auto 依可用性挑選；voicestudio=本機 VoiceStudio/OmniVoice；"
+                             "fish=Fish Audio；openai_compat=自帶 API；edge 已於 2026-10-10 起 403 且非商用)")
+    parser.add_argument("--tts-config", type=Path, default=None,
+                        help="TTS 設定檔路徑 (預設 config/tts.json；含引擎、憑證與音色對映)")
     parser.add_argument("--bg-volume", type=float, default=0.15, help="壓低原生 H3 背景音量 (預設 0.15)")
+    parser.add_argument("--target-lufs", type=float, default=-23.0,
+                        help="成片整合響度目標 (預設 -23 LUFS，符合 EBU R128 戲劇交付；串流可用 -14)")
+    parser.add_argument("--true-peak", type=float, default=-1.5, help="成片 true peak 上限 dBTP (預設 -1.5)")
+    parser.add_argument("--lra", type=float, default=11.0, help="成片響度範圍 LRA (預設 11)")
+    parser.add_argument("--no-loudnorm", action="store_true", help="整片不做響度正規化（不建議交付）")
     parser.add_argument("--no-burn-subtitles", action="store_true", help="關閉字幕硬字幕燒錄")
     parser.add_argument("--delivery-report", type=Path, help="輸出階段 7 交付清單 Markdown 檔案")
     parser.add_argument("--manifest", type=Path, help="輸出機器可讀交付 JSON（預設 delivery-<output>.json）")
@@ -565,6 +635,14 @@ def main() -> int:
 
     if args.narration:
         parser.error("--narration 外部 Markdown 尚未支援；narration_only 僅讀取 segments 中 shots[].narration")
+
+    # TTS 設定（引擎端點、憑證、音色對映）；缺檔時退回內建 edge/sapi 備援
+    tts_config: Optional[Dict[str, Any]] = None
+    if tts_module is not None:
+        try:
+            tts_config = tts_module.load_config(args.tts_config)
+        except Exception as exc:
+            print(f"⚠️ [警告] TTS 設定檔載入失敗，將使用內建備援引擎: {exc}")
 
     if args.self_test:
         success = run_self_test()
@@ -720,8 +798,28 @@ def main() -> int:
             if text and str(text).strip() not in {"（無台詞）", "(無台詞)", "無台詞"}:
                 st = float(s.get("start_time") or s.get("start") or 0.0)
                 et = float(s.get("end_time") or s.get("end") or (st + float(s.get("duration", 2.5))))
+                # 對白窗口優先用 speech_window（段內秒），沒有才退回鏡頭時間；
+                # 這是 TTS 落點與畫面嘴型的對齊基準。
+                window = dlg.get("speech_window") or {}
+                if isinstance(window, dict) and window.get("start") is not None and window.get("end") is not None:
+                    st = float(window.get("start"))
+                    et = float(window.get("end"))
                 spk = dlg.get("speaker") or s.get("speaker") or ""
                 lines_info.append({"start": st, "end": et, "subtitle": text, "speaker": spk})
+
+        # 外部化旁白／畫外音：編譯器已把這類台詞移出 H3 的 <d>，改由這裡用外部 TTS 合成
+        for entry in (seg.get("external_narration") or []):
+            text = str(entry.get("line") or "").strip()
+            if not text:
+                continue
+            st = entry.get("start")
+            et = entry.get("end")
+            st = float(st) if st is not None else 0.0
+            et = float(et) if et is not None else (st + 3.0)
+            lines_info.append({
+                "start": st, "end": et, "subtitle": text,
+                "speaker": entry.get("speaker") or "", "external": True,
+            })
 
         out_seg_v = temp_dir / f"proc_{sid}.mp4"
         planned_durations.append(seg_dur)
@@ -740,10 +838,17 @@ def main() -> int:
                 continue
 
         print(f"  [+] 處理分段 #{idx:02d} [{sid}] (台詞: {len(lines_info)} 句)...")
+        # auto 模式逐段裁決：有可見嘴的畫內對白要留 H3 原生語音做口型；
+        # 只有外部化旁白的段落，H3 原生軌本來就沒有人聲，直接混外部 TTS 即可。
+        segment_audio_mode = args.audio_mode
+        if args.audio_mode == "auto":
+            has_visible_dialogue = any(not item.get("external") for item in lines_info)
+            segment_audio_mode = "native_sub" if has_visible_dialogue or not lines_info else "tts_replace"
         ok, msg = process_single_segment(
             found_in, out_seg_v, lines_info, seg_dur,
-            audio_mode=args.audio_mode,
+            audio_mode=segment_audio_mode,
             tts_engine=args.tts_engine,
+            tts_config=tts_config,
             bg_volume=args.bg_volume,
             burn_subtitles=not args.no_burn_subtitles,
             temp_dir=temp_dir,
@@ -792,7 +897,12 @@ def main() -> int:
     print(f"\n🔗 開始將 {len(processed_videos)} 個已配音字幕分段無縫拼接為成片...")
     candidate = args.output.with_name(f".{args.output.stem}.{os.getpid()}.candidate{args.output.suffix}")
     candidate.unlink(missing_ok=True)
-    concat_ok, concat_msg = concat_videos(processed_videos, candidate)
+    concat_ok, concat_msg = concat_videos(
+        processed_videos, candidate,
+        target_lufs=(None if args.no_loudnorm else args.target_lufs),
+        true_peak=args.true_peak,
+        lra=args.lra,
+    )
 
     if not concat_ok:
         candidate.unlink(missing_ok=True)

@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "updated": "2026-10-21",
+  "notes": "每條都是實測或取證過的失敗。enforce=error 才會擋送件，其餘只警告；confidence 用 measured/sourced/inferred 三級。",
+  "entries": [
+    {
+      "id": "F-RED-GLOBAL",
+      "title": "無邊界紅光被讀成全域色調",
+      "severity": "high",
+      "confidence": "measured",
+      "enforce": "error",
+      "symptom": "整片天空、遠山、植物一起變紅；石頭材質被改寫成紅色而不是被紅光照到",
+      "root_cause": "H3 把「matte red light with no defined edge」理解成調色，不是局部光源",
+      "minimal_fix": "改寫成有來源的局部光，並明寫背景保持原本日光：a red radiance from above the crater rim lighting only the near edge of the stone, the rest of the frame keeps neutral daylight；天空與遠景保持 natural daylight",
+      "evidence": [
+        {"segment": "EP01-S02-b", "note": "整片飽和紅，天空與植物同時變色"},
+        {"segment": "EP01-S02-f", "note": "鳳凰變成硬邊洋紅色塊、石頭被塗紅"}
+      ],
+      "detector": {
+        "type": "all",
+        "patterns": [
+          "\\bred\\b|\\bcrimson\\b|\\bscarlet\\b",
+          "no defined edge|undefined (light|source|glow)|no visible source|matte red light"
+        ]
+      }
+    },
+    {
+      "id": "F-NEGATION",
+      "title": "否定句會造成它禁止的行為",
+      "severity": "medium",
+      "confidence": "measured",
+      "symptom": "寫 no push in 反而推鏡；寫 without moving 反而漂移；刪掉否定句才正常",
+      "root_cause": "H3 對否定詞的處理不穩定，否定句常被讀成動作本身",
+      "minimal_fix": "改成正向描述（the camera stays locked），或直接刪掉該句；「安靜」是唯一必須明寫的例外",
+      "evidence": [{"note": "phileiny A/B/C 對照：A 漂移、B 加 no push in 仍漂、C 刪掉才對"}],
+      "detector": {
+        "type": "any",
+        "patterns": ["no\\s*push[-\\s]?in", "no\\s*zoom", "no camera movement", "camera does not move", "camera never moves", "without moving the camera", "the camera stays fixed instead of"]
+      }
+    },
+    {
+      "id": "F-STILL-ENDING",
+      "title": "結尾寫成靜止會被收尾定格吃掉",
+      "severity": "medium",
+      "confidence": "measured",
+      "symptom": "最後兩秒運動量掉到中段的一半，接縫卻很完美",
+      "root_cause": "hold the lock as the frame ends / settling / stand / facing each other 等於要求靜止結尾",
+      "minimal_fix": "改寫成停在動作過程中（mid-motion），再在剪輯時剪掉尾巴",
+      "evidence": [{"note": "FL2VA 實測：末2s÷中段 50% → 改寫後 76%"}],
+      "detector": {
+        "type": "any",
+        "patterns": ["holds? the lock as the frame ends", "and\\s+settles?\\s*\\.", "the frame settles?\\s+on", "settl(e|es|ing)\\s+(into|to)\\s+(a\\s+)?(stop|stillness|rest)", "facing each other at the end", "comes? to (a )?(stop|rest)", "freezes? at the end"]
+      }
+    },
+    {
+      "id": "F-CROWD-BY-NUMBER",
+      "title": "用文字數人頭，不如用一張已就位的圖",
+      "severity": "medium",
+      "confidence": "sourced",
+      "symptom": "寫 three students / a group of four 時人數與站位不穩，愈寫愈亂",
+      "root_cause": "群戲的人數與站位由參考圖決定，文字描述容易被部分忽略",
+      "minimal_fix": "改成一張「人群已就位」的構圖參考圖，並把文字縮短到只描述動作",
+      "evidence": [{"note": "phileiny 實測：文字 16,000 字失敗，改圖後 6,900 字一次就對"}],
+      "detector": {
+        "type": "any",
+        "patterns": ["(two|three|four|five|six)\\s+(young\\s+)?(men|women|students|people|kids)", "a group of (four|five|six|seven)", "crowd of"]
+      }
+    },
+    {
+      "id": "F-SINGLE-FACE",
+      "title": "一段多張可辨識臉會被平均成同一張",
+      "severity": "high",
+      "confidence": "measured",
+      "symptom": "三個年輕男學生同時入鏡時，H3 融成一張臉",
+      "root_cause": "多張相近角色參考圖在同一次生成中互相平均",
+      "minimal_fix": "一段只留一位可辨識臉；其餘角色寫成背影、肩背、頸部以下或畫外",
+      "evidence": [
+        {"segment": "EP01-S01-d", "note": "過肩雙人鏡只有一位可辨識臉，通過"},
+        {"segment": "EP03", "note": "多人同段時出現複製人"}
+      ],
+      "detector": {
+        "type": "any",
+        "patterns": ["(two|three|four)\\s+(women|men|people|students)\\s+facing each other", "(both|two|three|four) faces (are )?clearly visible", "two faces in frame"],
+        "exclude": ["back of the head", "only one face", "behind"]
+      }
+    }
+  ]
+}

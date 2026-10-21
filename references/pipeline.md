@@ -312,6 +312,38 @@ python scripts/storyboard/compile_layer2_to_h3.py \
 - **stage 4 gate**：編譯前要求 stage 4 有效核准，且輸入 Layer 2 與對應構圖 PNG 仍符合核准 hash；編譯不支援跳過 gate。
 - **雙重程式對帳（`--check`）**：調用 `audit_refs_and_segments.py` 執行 17 條自檢與參考圖對帳，達成 **0 Errors** 方可放行出片。
 
+### 5.4 旁白政策與外部化台詞（`--narration-policy`）
+
+H3 的聲音與畫面在同一次 forward 生成，輸出是**單一 32 kHz 立體聲混音軌，沒有分軌，也沒有關閉音訊的參數**【官方，[MiniMax-H3 官方 repo](https://github.com/MiniMax-AI/MiniMax-H3)】。因此「這一段沒有台詞」不能用否定詞表達，官方給的是**欄位分離**——官方 §4.6：*"Dialogue, singing, and diegetic music already belong in the multimodal description and should not be repeated here. Use `N/A` only when the user explicitly requests complete silence throughout the video."*【官方】也就是說：外部化之後，提示詞裡**不出現 `<d>` 區塊**、`overall_soundscape` 只留環境與動作音即可，不必寫任何「no dialogue」字樣。
+
+- **預設 `--narration-policy external`（`h3-native` 保留舊行為）**：**沒有可見嘴的台詞一律外部化**——畫外音、旁白、內心聲、背影／遮嘴說話都不再寫進 H3 的 `<d>` 區塊，改由外部 TTS 合成後於階段 7 混入。
+  - **為什麼**：H3 的內建中文語音實測 ASR 置信度只有 0.43–0.54【社群實測】（字音模糊、吞字、偶發 −40 dB 靜音）；而且外部化之後 H3 這段本來就沒有人聲，環境音床乾淨、可直接當混音底。
+  - **壞掉長怎樣**：把旁白留在 `<d>` 裡，H3 會把它念進同一條混音；之後想改用外部 TTS，就只能整軌丟掉重做聲場，等於白生成一次。
+- **有可見嘴的畫內對白保留 `<d>`**：留給 H3 當嘴部開合與時間點的物理對齊錨點；組裝器仍可用外部 TTS 覆蓋（此時需要 lipsync，見 §7.1）。
+- **指令**（`--narration-policy external` 為預設，寫出來是為了讓讀者知道這條路徑存在）：
+  ```bash
+  python scripts/storyboard/compile_layer2_to_h3.py \
+    --layer2 layer2/layer2-EP01-*.json \
+    --project-root . \
+    --episode EP01 \
+    --output-md prompts-ep01.md \
+    --output-segments segments-ep01.json \
+    --assets assets.md \
+    --bible adapt/bible.json \
+    --narration-policy external \
+    --check
+  ```
+  `--narration-policy h3-native` 會走回舊行為，並沿用官方畫外音句式：`says in an off-screen voiceover` 加上 `<d>` 之後的 `while <Subject N>'s lips remain completely closed`【官方】。
+- **`segments-epXX.json` 新增三個欄位**：
+
+  | 欄位 | 內容 | 誰在用 |
+  |---|---|---|
+  | `external_narration[]` | `shot_id`、`global_shot_id`、`speaker`、`speaker_id`、`line`、`language`、`is_voiceover`、`start`、`end` | 階段 7 組裝器逐句送外部 TTS，並依 `speech_window` 排回時間軸 |
+  | `speaker_ids` | 說話人 → 穩定代號 `(Sx)` 對照 | 官方 base §4.4；跨鏡鎖音色與 E22 閘門都要用 |
+  | `metadata.narration_policy` | 本段採用的政策（`external` / `h3-native`） | E24 閘門判定 |
+
+  編譯器另外會在 `compile_notes` 寫明「畫外音／旁白 N 句已改為外部 TTS（未寫入 `<d>`）」，方便審核頁對帳。
+
 ---
 
 ## 階段 6：生成（實戰定案與驗收）
@@ -355,6 +387,22 @@ python scripts/storyboard/submit_h3_segments.py --segments segments-ep01.json --
 - Dry-run 可檢查本機參考圖、提示詞與送件前條件，不證明 provider/model 端生成會成功。
 - GPU 預檢是即時診斷；不要把舊設備的顯存數值當成所有模型的固定硬門檻。
 
+### 6.2 送件前確定性閘門（E19–E27）
+
+`scripts/storyboard/audit_refs_and_segments.py` 模式 A 的第二組閘門，專門擋「複製人」與「旁白欄位分工」兩類壞掉。`compile_layer2_to_h3.py --check` 會自動跑，**Errors 未清零不得送件**。
+
+| 閘門 | 擋什麼 | 怎麼修 |
+|---|---|---|
+| **E19** 未錨定在場人物 | 角色出現在畫面中卻沒有自己的參考圖 → H3 把唯一那張臉複製給他們（2026-10-19 實測 4/4 段出現複製人） | 掛該角色自己的單視角裁切參考圖並在 stage5 綁定 `identity_anchor_ids`，或把該角色移出畫面 |
+| **E20** 疑似多視圖板 | 角色參考圖 ≥ 1600×900 且長寬比 ≥ 1.5（四視圖／表情板）→ 版面被複製進成片、長出背景人海；**未宣告 `reference_view: "panel"` ＋ `panel_label_en` 時一律擋** | 改成單一視角裁切（正面頭像 950×910 或背面全身裁切）；要用整板就宣告整板查表並指定格位（見 E27） |
+| **E21** 無參考圖的群眾／路人 | `detailed_description` 出現 crowd／onlookers／bystanders 這類無參考圖人群 → 群眾被套上主角造型 | 把人群移出畫面、改寫成不可辨識的失焦剪影，或改走「分鏡圖 → I2V」把人群畫進首幀 |
+| **E22** 缺少說話人代號 | 提示詞有 `<d>` 台詞卻沒有任何 `(S1)` 形式的說話人代號 → 聲音掛到畫面上唯一那張臉、長出複製人 | 補穩定 `(Sx)` 綁定（官方 base §4.4：發聲者，含畫外音，都要有代號） |
+| **E23** 畫外音缺嘴閉合聲明 | 寫了 `off-screen voiceover` 卻沒說明嘴唇閉合 | 在 `<d>` 區塊之後立刻寫明 on-screen character's lips remain closed |
+| **E24** 旁白政策衝突 | `narration_policy=external` 但畫外音台詞仍以 `<d>` 出現在提示詞 → H3 會把旁白一起念出來 | 改由外部 TTS 合成、於階段 7 混入；H3 這段只出環境音 |
+| **E25** 環境音重複台詞 | `overall_soundscape` 重複了 `<d>` 內的台詞 → H3 在環境音軌再念一次 | 對白只寫在 `detailed_description` 的 `<d>` 區塊，環境音欄只留環境與動作音（官方 §4.6） |
+| **E26** 身份錨點缺參考圖 | 標記為無臉身份錨點（`reference_view=non_face`）卻沒有自己的參考圖路徑 | 補上該角色自己的裁切參考圖路徑 |
+| **E27** 整板查表缺格位說明 | 宣告 `reference_view: "panel"`（多格板查表）卻沒有 `panel_label_en` → 沒指定用哪一格，模型會把整張板複製進成片 | 補 `panel_label_en`（如 `"the fourth figure from the left, a full-body back view"`）；編譯器也會直接丟 `ValueError`（訊息含「必須同時提供 panel_label_en」） |
+
 ### 6.3 影片自動審查門禁（`verify_video_shot.py`）
 
 支援單鏡審查與分段級（Segment-Level）批次審查，自動校驗規格並產出報告：
@@ -376,40 +424,220 @@ python scripts/storyboard/verify_video_shot.py --video videos/EP01-S01-seg01.mp4
 
 ## 階段 7：組裝交付與配音決策
 
-### 7.1 配音分層決策（實戰關鍵）
+本階段的順序是：**先定聲音三層（§7.1）→ 配音先行、再回頭定鏡頭長度（§7.2）→ 盤點本機 TTS 能力（§7.3）→ 混音與響度照交付標準（§7.4）→ 用組裝器執行（§7.5）→ 核對交付清單（§7.6）**。
 
-實測 MiniMax H3 原生中文配音之語音辨識（ASR）置信度僅在 **0.43–0.54**，普遍存在字音模糊、發音吞字、急促搶跑或偶發 -40dB 靜音。
-提示詞中保留 `<d>` 標籤，是為了提供影片生成時**嘴部開合與時間點的物理對齊錨點**。在階段 7 組裝時，提供以下三選一決策：
+### 7.1 聲音三層決策（新增）
 
-- **方案 A（推薦）**：**抽離 H3 人聲軌，使用高品質外部 TTS（如 Edge-TTS、CosyVoice、Windows SAPI）重配中文台詞，再用 ffmpeg 混回環境音效軌**。口型與語義兼得。
-- **方案 B**：保留 H3 原生配音，透過 ffmpeg 強制燒錄清晰中文字幕。
-- **方案 C**：全片去台詞化，改為純旁白講解。
+H3-Omni-Transformer *"jointly predicts video and audio latents, which are then decoded into video and stereo audio"*【官方，[MiniMax-H3 官方 repo](https://github.com/MiniMax-AI/MiniMax-H3)】；輸出是**單一 32 kHz 立體聲混音軌，沒有分軌，也沒有關閉音訊的參數**【官方】。所以「畫面要靜、聲音另做」在 H3 上不是一個開關，而是**要把那一層拆出來自己重建**。競品在這件事上乾淨得多：Kling Video 2.6 有官方 Native Audio Toggle（關閉 ⇒ 影片不含音軌），Veo 3.1 在 Vertex AI 上有 `generate_audio=False`；H3 兩者都沒有。
 
-### 7.2 自動化配音、字幕與成片拼接（`assemble_episode.py`）
+| 層 | 什麼時候用 | 怎麼做 | 為什麼 / 壞掉長怎樣 |
+|---|---|---|---|
+| **A. 畫內有可見嘴的對白** | 角色正臉說話、嘴型是重點 | **留給 H3 內建語音**（`<d>` 區塊照寫），當成口型錨點；**掛上音色母帶（`<Audio N>`）時，H3 會照母帶音色重新合成**，這就是跨段「像同一個人」的來源；要每段完全一致或更清晰的聲音時，用外部 TTS 覆蓋 ＋ lipsync（[MuseTalk 1.5](https://github.com/TMElyralab/MuseTalk)） | H3 內建中文語音實測 ASR 置信度只有 0.43–0.54【社群實測】（字音模糊、吞字、偶發 −40 dB 靜音），但嘴型是跟著 `<d>` 走的；音色參考只給音色方向、**不鎖口型**。**壞掉長怎樣**：直接抽掉 H3 音軌，會看到嘴還在動、聲音卻沒了，必須補 lipsync 才對得上 |
+| **B. 畫外音／旁白／內心聲／背影說話** | 旁白解說、內心獨白、背影或遮嘴說話 | **必須外部 TTS**：H3 這段只出環境音床，語音另生成後於階段 7 混入 | 這些句子本來就沒有「可見嘴」，硬塞回 H3 只會得到一條混在環境音裡的喃喃聲，還要另外把環境音重導一次。**壞掉長怎樣**：H3 把旁白念進同一條混音，之後想改用外部 TTS 就只能整軌丟掉重做聲場，等於白生成一次 |
+| **C. 全片外部聲景** | ambience ＋ SFX ＋ TTS ＋ BGM 全部外部重建 | 產出「無內建語音」的 H3 片段，聲場整條自己搭 | **只在要做多語配音版時才需要**：H3 的對白與畫面同批生成、已烤在同一條混音裡，換語言等於要重生成整支影片，之後聲場才能完全外部化。**壞掉長怎樣**：為了「乾淨」而全片外部化卻沒有多語需求，等於多花一輪重建成本卻沒有收益 |
+
+**音色怎麼鎖（同一個 `V-<slug>` 驅動兩條軌道）**：跨片段音色一致**不是**靠影片模型「記住」誰的聲音——社群說的「直出影片、每段聲音都一致且富有感情」，拆開看是**同一份音色被每一句重新合成**：掛音色母帶時是 **H3 自己照 `<Audio N>` 的音色重新發聲**（官方只保證「參考音色與語氣」，原訊號不複製），走外部 TTS 時則是**同一條複製音色重合成每一句**。本專案因此用**同一個 `V-<slug>` 當兩邊的 join key**：
+
+| 軌道 | 怎麼做 | 保證程度 |
+|---|---|---|
+| **H3 音色參考** | stage5 `audio_references` 綁母帶 → 編譯器產出 `<Audio N>` 綁定句 ＋ `reference` 保留標記 ＋ 固定描述詞 `voice_4d_spec_en` | **是參考，不是保證**【官方】；本機 FreeVideo **送得進**音訊參考（見 §7.3），但官方標註 **Experimental; does not lock the output soundtrack or lip sync**——只給音色方向，不鎖輸出音軌與口型 |
+| **外部 TTS** | `config/tts.json` 的 `voice_map["V-<slug>"]` → 供應商音色 id（VoiceStudio profile 名稱／Fish Audio voice id／OpenAI 相容端點的 voice） | **完全確定的選項**（H3 音色參考是「像同一個人」，這裡是「每段一模一樣」） |
+
+- **`voice_4d_spec_en`（或 `voice_profile_en`）是插進說話那一句的穩定音色描述詞**，必須用英文寫：H3 提示詞正文是英文，只給中文 `voice_4d_spec` 編譯器**不會**貼進提示詞（會變成未翻譯噪音），只在 `compile_notes` 回報提醒。
+- **兩軌可以同時開**：H3 負責畫面與口型錨點，最後用外部 TTS 覆蓋（要 lipsync）。細節與完整提示詞片段見 `references/consistency.md` §6。
+
+**本專案預設 ＝ A ＋ B 混合**（`--narration-policy external` ＋ `--audio-mode auto`）：**畫內對白保留 H3 口型、畫外音與旁白走外部 TTS**。C 不預設，只有使用者提出多語配音版需求時才升級。
+
+- **官方有沒有這樣建議？沒有。** MiniMax 官方文件並未推薦以外部 TTS 取代 H3 音訊；上表是**本專案自己的工程決策**，不是官方口徑。官方最接近的一句在 ComfyUI 文件：*"If needed, generate per-speaker audio externally and reference with the right marker (fully_copy vs partially_copy)."*【官方／[docs.comfy.org](https://docs.comfy.org)】——`fully_copy`／`partially_copy` 是 ComfyUI 的音訊參考標記，不是 MiniMax 的欄位。
+- **「這段沒有台詞」的正寫法是欄位分離，不是加否定詞。** 官方 §4.6：*"Dialogue, singing, and diegetic music already belong in the multimodal description and should not be repeated here. Use `N/A` only when the user explicitly requests complete silence throughout the video."*【官方】因此外部化之後，提示詞裡**不出現 `<d>` 區塊**、`overall_soundscape` 只留環境與動作音即可，不必寫「no dialogue」；寫了反而變成罐頭詞。
+- **為什麼是「畫外音」而不是「所有台詞」都要外部化**：畫外音沒有嘴型要對，外部化零成本；畫內對白有嘴型錨點，外部化還要補 lipsync，兩者不是同一個成本級別。
+
+### 7.2 配音先行（TTS-first）與時長對軸
+
+**順序：TTS 產音 → 量測時長 → 鏡頭定長（建議 ×1.2 緩衝）→ 生成 → 修剪 → 混音。**
+
+- **怎麼做**：先把每一句台詞送外部 TTS 產出音檔，用 ffprobe 量到實際秒數，再回頭把鏡頭長度定成 `實測時長 × 1.2`，最後才生成影片。
+- **為什麼**：先出畫面、之後才發現旁白比鏡頭長，就等於白跑一次 render——H3 一段的算力成本不低，而且改長度要重生成。社群實踐的說法是 *"write and time the voice before generating the visuals"*、*"narration sets the spine; visuals fill it"*【社群】。
+- **20 % 緩衝**：鏡頭長度取實測時長 × 1.2，留兩成給停頓、氣口與反應鏡頭。**壞掉長怎樣**：完全貼齊，語氣一頓就掉字；留太多則節奏鬆垮、剪輯點無處落。
+- **0.3–0.5 s 尾端留白**：每句尾端留 0.3–0.5 s 靜音，讓切點有呼吸。**壞掉長怎樣**：句尾黏到下一句，聽起來像搶話。
+- **H3 硬上限 15 秒**【官方】：單段不能超過 15 秒。**壞掉長怎樣**：×1.2 之後超過 15 秒就必須拆成兩段或改寫縮稿，**不要壓語速硬塞**——壓速的後果是台詞含糊，正是要避免的問題。
+- **落地欄位**：組裝器以 authored `speech_window`（段內秒）作為 TTS 落點，不用 shot 起始時間；所以先量時長、再回填 `speech_window`，組裝時語音才會落在畫面實際的嘴型動作上。
+
+### 7.3 TTS 引擎選擇與環境探查
+
+**先盤點，再選引擎。** 這台機器上到底有哪個語音後端，要用唯讀工具查，不要靠猜：
+
+```bash
+python scripts/storyboard/tts_doctor.py          # 人類可讀表格
+python scripts/storyboard/tts_doctor.py --json   # 機器可讀 JSON
+
+# 看本機 VoiceStudio 有哪些音色（profile 與 preset）
+python scripts/storyboard/tts_engine.py --list-voices --engine voicestudio
+```
+
+`tts_doctor.py` 會回報：ffmpeg／ffprobe 在不在、讀到哪一份設定檔與 `voice_map`、每個引擎可不可用與具體下一步、VoiceStudio `/health` 摘要、GPU／VRAM 衝突警告、edge-tts 棄用提醒、Fish Audio 授權提醒，以及建議的 `--tts-engine`。**它是唯讀的**：不寫檔、不上傳、不呼叫生成端點、**不印出任何金鑰**（API 金鑰只顯示「有／無」與環境變數名稱）。
+
+**音色母帶從哪來**（`extract_voice_master.py`）：母帶不必事前就有，**角色第一次出場的那一句就是最自然的母帶來源**。
+
+```bash
+# 1) 看哪些角色、在哪些段落有「畫內有可見嘴」且長度 2–15 秒的台詞可以當母帶
+python scripts/storyboard/extract_voice_master.py --segments segments-ep01.json --list
+
+# 2) 從第一次出場那一段抽出母帶（切點直接取自 Layer 2 的 speech_window，不靠 ASR 反推）
+python scripts/storyboard/extract_voice_master.py \
+  --segments segments-ep01.json --segment-id EP01-S01-c --character C-luonien \
+  --videos-dir videos/ --output assets/voices/V-luonien-master-v1.wav
+```
+
+- 產出 48 kHz／單聲道／16-bit PCM 的母帶與同名 `.provenance.json`（來源 SHA256、時間窗、原句、輸出 SHA256），並直接印出可貼進 stage5 綁定檔的 `audio_references` 片段。
+- **兩條來源路線**：事前用 TTS 克隆做一條（最乾淨）vs 事後從生成片抽出（省事，但母帶帶著該場景的環境音）。抽完若不滿意那個音色，**重抽那一段**，不要拿來當母帶。
+- FreeVideo 導演台的 cast 卡片本來就有同樣的機制（`voice` 欄位可從 `from_job` 取音軌），走導演台時這個閉環已經內建。
+
+**引擎選項**（`assemble_episode.py --tts-engine`）：
+
+| 值 | 用途 | 注意事項 |
+|---|---|---|
+| `auto` | 依序挑第一個可用者：**voicestudio → fish → openai_compat → sapi** | 預設；實際呼叫失敗會自動往下一順位補 |
+| `voicestudio` | **本專案預設**：本機 VoiceStudio／OmniVoice voicebox API（`http://127.0.0.1:8001`） | 本機、免費、中文與日文都支援；但要吃 3～4 GB 顯存 |
+| `fish` | Fish Audio 雲端（`fish_cloud`）或本機 OpenAI 相容 fish-speech（`fish_local`） | 授權有條件，見下 |
+| `openai_compat` | **自帶 API**：任何 OpenAI 相容的 `/v1/audio/speech` 端點 | `base_url` 尾端的 `/v1` 會自動去掉，不會變成 `/v1/v1/audio/speech` |
+| `sapi` | Windows 原生 SAPI，完全離線 | 機械味重，只當離線備援 |
+| `edge` | edge-tts | **只保留給離線除錯，不得用於交付**，見下 |
+
+**設定檔 `config/tts.json`**（已被 `.gitignore` 排除；`config/tts.example.json` 是可提交的範例）：
+
+| 欄位 | 說明 |
+|---|---|
+| `default_engine` | 未指定時的預設引擎 |
+| `engines.<id>.base_url` | 端點位址 |
+| `engines.<id>.api_key` / `api_key_env` | 金鑰；建議用 `api_key_env` 指向環境變數，**不要把金鑰寫進檔案** |
+| `engines.<id>.model` / `voice` / `voice_id` / `reference_id` | 模型與音色 |
+| `engines.<id>.response_format` | 供應商回傳格式（`wav` / `mp3`） |
+| `engines.<id>.auth_header` / `auth_prefix` | 認證標頭名與前綴（預設 `Authorization` / `Bearer `） |
+| `engines.<id>.headers` | 自訂標頭 |
+| `engines.<id>.extra_body` | 額外請求欄位 |
+| `voice_map` | 資產音色 ID（`V-<slug>`）→ 供應商音色／profile 名稱 |
+
+**金鑰鐵律**：金鑰只從 `api_key` 或 `api_key_env` 指定的環境變數讀取，**永不寫進磁碟、永不印出**；所有錯誤訊息一律遮罩成 `***REDACTED***`。`tts_doctor.py` 與 `tts_engine.py` 都遵守這條，`--json` 輸出裡的 `api_key` 也只有布林值。
+
+**音色對映**：資產表的音色 ID 形如 `V-narrator`、`V-lin-zhao`；`voice_map` 把它們對到供應商端的音色（VoiceStudio 是 profile 名稱，例如 `角色A｜冷面上班族內心旁白 V2`）。解析順序是**明確指定的 `voice` → `voice_map[speaker]` → speaker 原文 → `engines.voicestudio.default_profile`**，而且在**任何供應商呼叫之前**就完成；解析不到就會拿 speaker 原文當音色名去送，結果是拿到不對的聲線。
+
+**VoiceStudio（本機預設）**：VoiceStudio 是開源 Electron app（AGPL-3.0，[github.com/debpalash/VoiceStudio](https://github.com/debpalash/VoiceStudio)），內附的後端是 OmniVoice（k2-fsa）。本機 voicebox API 由 `E:\OmniVoice\啟動-OmniVoice.bat` 啟動、`停止-OmniVoice.bat` 停止。
+- 引擎可選 `qwen`（Qwen3-TTS 1.7B）、`qwen_custom_voice`、`luxtts`、`chatterbox`、`chatterbox_turbo`、`tada`、`kokoro`；語言含 `zh`、`ja`。
+- `POST /speak` 收 profile **名稱**（中文名如 `角色A｜冷面上班族內心旁白 V2` 可直接用），`POST /generate` 收 profile **id**；`GET /profiles` 回一個裸陣列。
+- **合約陷阱**：`/speak` 是非同步的（要輪詢 `GET /generate/{id}/status`，該端點宣告為 JSON 但行為像 SSE）；`GET /audio/{id}` 宣告為 JSON 但實際回二進位音訊；**亂塞 `engine` 會破壞 preset profile**——profile 自己的 `default_engine` 必須優先。
+- **硬體限制**：OmniVoice 需要 3～4 GB 顯存，而 ComfyUI 已經吃掉同一張 8 GB RTX 4060 Ti 的 5～7 GB，**兩者不能同時跑**（使用者自己的 `E:\OmniVoice\使用說明.txt` 記錄同時跑會讓聲音品質劣化）。`tts_doctor.py` 只警告，不會自動關閉任何程式——**配音前先手動關掉 ComfyUI**。
+
+**H3 音色參考（`<Audio N>`）與本機路徑的送法**：stage5 綁定檔可以掛音色母帶，讓 H3 **自己生成**的那把聲音「聽起來像同一個角色」：
+
+```json
+"audio_references": [
+  {"id": "V-HERO", "path": "audio/V-HERO-master.wav", "character_id": "C-HERO",
+   "role": "voice-timbre",
+   "description_en": "a single teenage boy's Mandarin line recorded dry with no music"}
+]
+```
+
+編譯器**只**把音色參考掛給**本段真的有可見嘴在說話**的角色（畫外音／旁白已外部化成 TTS，不掛，並在 `compile_notes` 記一條說明），輸出（英文，逐字）：
+
+```text
+<Audio 1> is the voice-timbre reference for <Subject 1> (S1), containing a single teenage boy's Mandarin line recorded dry with no music.
+```
+
+```text
+<Audio 1>: reference - <Subject 1> (S1) follows <Audio 1>'s voice timbre and measured delivery without copying the original signal; the words in <Audio 1> are not spoken in the target video.
+```
+
+- **✅ 本機 FreeVideo 路徑帶得動音訊參考（媒體型態看副檔名，不看 `role`）**：官方 ComfyUI 節點 `MiniMaxH3ReferenceToVideo` 有獨立的音訊參考槽 `ref_audios` → `io.Audio.Input("ref_audio", "Standalone reference audio")`；FreeVideo 操作面板 `FreeVideo · Media` 也有對應的 **`Reference audio`** 上傳／連接槽（可接 `Load Audio` 等 AUDIO 輸出）。**怎麼做**：把音色母帶（`.wav` / `.mp3` / `.flac` / `.ogg` / `.m4a` / `.aac` / `.opus`）放進 `media.references`——**媒體型態由副檔名判定**（`EXTENSIONS` 的 `image` / `video` / `audio`），`resolve_assets()` 收成 `{'kind': kind, 'path': str(path)}`，`submit_h3_segments.py` 的 `upload_reference_media()` 照圖片方式 POST `/media`；**不需要** `role: reference_audio` 欄位（先前的說法是把媒體項目的修飾欄位 `file` / `from_job` / `library` / `frame` / `edit` 誤當成媒體型態）。**壞掉長怎樣**：副檔名不在支援清單內時 `media_kind()` 判不支援而送不進去，dry-run 就會用 `SUPPORTED_AUDIO_SUFFIXES` 印 ❌ 訊息。
+- **參考順序是「圖 → 影片 → 獨立音訊」**：官方節點說明 *"References enter the presentation in fixed order: images, then videos (each soundtrack's `<Audio j>` label right before its `<Video k>`), then standalone audio. Ordinals are 1-based per type, so the prompt refers to them as `<Picture i>` / `<Video k>` / `<Audio j>`."*；`compile_layer2_to_h3.py` 已把音訊項目排在**所有圖像之後**（`<Audio N>` 各自從 1 編號）。音訊也佔 32 個參考名額（`connect_assets()` 把連接的 `reference_audio` 算進去）。
+- **兩種音色綁定寫法並存（來源不同）**：官方 ref-en §2.4 的獨立綁定式 `<Audio 1> is the voice-timbre reference for <Subject 1> (S1), containing a single teenage boy's Mandarin line recorded dry with no music.`；FreeVideo 導演台 `freevideo_engine/agent/drama.py` 的 `subject_definitions()` 則把綁定寫在**主體那一行**、與 `<Picture N> shows its appearance` 對稱：`<Subject 1> is the character in <Picture 2>, a teenage boy in a light short-sleeved shirt. <Audio 1> is its voice.`（導演台 cast 卡片本來就有 `voice` 欄位 `card['voice']['clip']`，會連同角色一起送成參考並編成 `<Audio j>`）。**怎麼做**：兩種可同時出現在同一份提示詞——官方那行說明音色是誰的、導演台那行把主體與音檔序號綁起來。**壞掉長怎樣**：兩邊的 `<Audio j>` 對不上（導演台寫 `<Audio 2>`、官方行卻綁 `<Subject 1>`），角色就會發出**別人的音色**。
+- **每段音色參考上限 3 個、參考總數上限 32 個**：導演台 `MAX_VOICES = 3`（模型限制）、`MAX_REFERENCES = 32`；FreeVideo 引擎端 `comfy_assets` 同樣是 32 個媒體項目上限（圖片＋影片＋音訊合計）。**壞掉長怎樣**：塞不下時導演台**不報錯**，而是把角色降級成 `voice_omitted`（有圖無聲）或 `omitted`（整個不帶參考），成片會突然換一把聲音。
+- **⚠️ 官方把音訊參考標成實驗性**：FreeVideo 面板註明 *"Experimental; does not lock the output soundtrack or lip sync."*——音色參考是讓 H3 **重新合成**一把像母帶的聲音，**不是音軌複製**，也**不鎖**輸出音軌與口型；跨片段一致性官方不保證（社群有 voice crossover 報告，`h3/audio-pipeline.md` 已記）。**壞掉長怎樣**：期待母帶原音被搬進成片（會聽到母帶原句），或期待音色參考順便鎖住口型（聲音對得上、嘴型對不上）。
+- **要「每段一模一樣」的確定性就走外部 TTS（軌道 2）**：本機 FreeVideo 也送得進音色參考（軌道 1），但那是「聽起來像同一個人」的參考，不保證跨段一致；需要完全確定（例如多語配音那一行）時，用 `voice_map["V-<slug>"]` 固定同一條複製音色，每句重新合成。`tts_doctor.py` 會回報哪些引擎真的可用。
+- **母帶原句不會被念出來**：官方要求只參考音色時不得把母帶對白帶進目標影片，編譯器照這句寫成 `the words in <Audio 1> are not spoken in the target video.`【官方】**壞掉長怎樣**：母帶原句也放進 `<d>`，觀眾會聽到同一句話出現兩次。
+
+**Fish Audio（雲端備援）**：[github.com/fishaudio/fish-speech](https://github.com/fishaudio/fish-speech) 的程式與權重採 Fish Audio Community License：年營收 50 萬美元以下可免費使用，但**把 TTS 對外提供成託管服務需要另簽協議**。交付前先確認自己的使用情境落在哪一邊。
+
+**自帶 API（`openai_compat`）**：任何 OpenAI 相容的 `/v1/audio/speech` 都能接進來——使用者已有商用 TTS 帳號、或要走雲端大廠時走這條，設定檔填 `base_url` 與 `model` 即可。
+
+**edge-tts 只能除錯**：**自 2026-10-10 起壞掉**（微軟的 Edge 朗讀改要 v2 `Sec-MS-GEC` token，edge-tts 7.2.8 直接吃 403），**而且沒有商用授權**（微軟的商業 TTS 指向 Azure AI Speech）【官方】。保留這個引擎只是為了離線除錯能跑通流程，**交付一律不准用**。
+
+### 7.4 混音與響度交付標準
+
+**量測演算法**是 ITU-R BS.1770-5；交付目標另外有各自的規範。
+
+| 標準 | 整合響度 | True peak | 適用 |
+|---|---|---|---|
+| **EBU R128 v5.0** | **−23 LUFS ±0.5 LU** | ≤ −1 dBTP | 戲劇交付預設；本專案 `--target-lufs -23 --true-peak -1.5` |
+| **ATSC A/85:2026-07** | −24 LKFS ±2 dB | < −2 dBTP | 對白錨定（CALM Act），美國廣播路徑 |
+| **Netflix** | −27 LKFS（dialog-gated） | — | 串流平台；對白閘門取樣，不是整體平均 |
+| Spotify −14 LUFS | −14 LUFS | — | **音樂／串流值，不是戲劇交付值**；不要套在劇集成片上 |
+
+**順序：先做整合響度正規化，再套 true-peak 上限。** 反過來會在壓峰值時把響度又拉回來，最後量到的整合響度就偏了。
+
+**正規化要在整片做，不要逐段做**：逐段正規化會把段與段之間的動態對比壓平（安靜的環境音段被拉成和對白段一樣大），成片聽起來像一條被壓扁的動態線。組裝器的做法是：分段只做混音，**Concat 完再對整條節目做 `loudnorm`**。`--no-loudnorm` 會關掉它（不建議交付時用）。
+
+**修正後的 ffmpeg 混音鏈**（三個關鍵字都別動）：
+
+```bash
+ffmpeg -i video.mp4 -i tts.wav -filter_complex \
+  "[0:a]aresample=48000,volume=0.15[native];[1:a]aresample=48000,adelay=2000:all=1[v1];[native][v1]amix=inputs=2:duration=first:normalize=0:dropout_transition=0[mixed];[mixed]apad,atrim=duration=10.0[aout]" \
+  -map 0:v -map "[aout]" -c:v copy -c:a aac -b:a 192k -ar 48000 out.mp4
+```
+
+- **`aresample=48000`**：每條軌都先統一到 48 kHz。`loudnorm` 預設輸出 192 kHz，忘了補 `-ar 48000` 會得到一支取樣率怪怪的成片。
+- **`adelay=2000:all=1`**：`all=1` 才是單聲道來源的安全寫法；`2000|2000` 只對真正的雙聲道有效，單聲道 TTS 會被忽略。**壞掉長怎樣**：語音沒有延遲、字幕卻有時差。
+- **`amix ...:normalize=0`**：預設 `normalize=1` 會把輸出除以輸入數，等於把 TTS 人聲壓低約 3 dB【社群實測：兩軌 440/880 Hz、來源 −21.1 dB，`normalize=1` 混成 −24.1 dB，`normalize=0` 混成 −18.1 dB】。峰值交給後段的 `loudnorm` 處理。
+- **`dropout_transition=0`**：避免音軌長短不同時，`amix` 在切換點做淡入淡出而產生「呼吸感」雜訊。
+
+**兩遍 loudnorm（正式交付用）**：
+
+```bash
+# 第一遍：量測
+ffmpeg -i final_ep01.mp4 -af loudnorm=I=-23:TP=-1.5:LRA=11:print_format=json -f null -
+
+# 第二遍：帶入第一遍的 measured_* 值重跑
+ffmpeg -i final_ep01.mp4 -af loudnorm=I=-23:TP=-1.5:LRA=11:measured_I=-23.1:measured_TP=-1.2:measured_LRA=7.4:measured_thresh=-33.6:offset=-0.2:linear=true:print_format=summary -c:v copy -c:a aac -b:a 192k -ar 48000 final_ep01_norm.mp4
+```
+
+單遍 loudnorm 約有 ±0.5 LU 誤差【官方／ffmpeg `loudnorm` 文件】；要交付就跑兩遍，並用 `ffprobe` 驗輸出取樣率是 48000。
+
+### 7.5 自動化配音、字幕與成片拼接（`assemble_episode.py`）
 
 使用者要求組裝且素材與依賴可用時，可執行後期交付：
 
 ```bash
-# 智慧 TTS 配音、字幕燒錄與無縫拼接成片
+# 1. 先盤點本機 TTS 能力（唯讀；不寫檔、不上傳、不印金鑰）
+python scripts/storyboard/tts_doctor.py
+python scripts/storyboard/tts_doctor.py --json
+
+# 2. 組裝：--audio-mode auto 逐段裁決（畫內對白留 H3 口型、旁白由外部 TTS 產生）
 python scripts/storyboard/assemble_episode.py \
   --segments segments-ep01.json \
   --videos-dir videos/ \
   --output final/ep01_final.mp4 \
+  --audio-mode auto \
+  --tts-engine voicestudio \
+  --tts-config config/tts.json \
+  --target-lufs -23 \
+  --true-peak -1.5 \
   --delivery-report final/delivery-ep01.md
 
-# 全鏈路閉環自檢
+# 3. 全鏈路閉環自檢
 python scripts/storyboard/assemble_episode.py --self-test
 ```
 
-- **語音能力依環境而定**：TTS engine 可選 `auto`、`edge` 或 `sapi`；需檢查當前安裝、平台及服務連線，不承諾每個環境都能無縫離線降級。
+- **`--audio-mode` 預設 `auto`，逐段裁決**：有可見嘴的畫內對白 → `native_sub`（保留 H3 的語音做口型）；整段說話都被外部化 → `tts_replace`（把外部 TTS 混在 H3 已無語音的環境音床上）。仍可手動指定 `tts_replace`／`native_sub`／`narration_only`。
+- **語音能力依環境而定**：TTS engine 可選 `auto`、`voicestudio`、`fish`、`openai_compat`、`sapi`、`edge`；不承諾每個環境都能離線降級，先跑 `tts_doctor.py` 才知道實際有哪個。
+- **TTS 落點用 authored `speech_window`**（段內秒），不是 shot 起始時間：合成的語音才會落在畫面實際的嘴型動作上。
 - 外部 `narration-epNN.md` 目前不會被組裝器解析。旁白稿可作為文字交付；要合成旁白時，先轉成組裝器支援的 inline line/narration 欄位，或交給其他剪輯工具處理。`--narration` 目前會明確回報不支援，不代表可讀取該 Markdown。
 - **Windows FFmpeg 冒號轉義**：自動將 Windows 絕對路徑中的磁碟機冒號轉義為 `C\:/...`，避免 FFmpeg 字幕濾鏡語法解析崩潰。
-- **音訊多軌精細混音**：利用 `adelay` 精確對齊分鏡對白起始秒數，配合 `amix` 將 H3 原生背景音壓低至 0.15 混音，確保人聲清晰乾淨。
+- **音訊多軌精細混音**：`aresample=48000` → `adelay ...:all=1` → `amix ...:normalize=0:dropout_transition=0`；混完才做整片 `loudnorm`（細節見 §7.4）。
 - **無縫拼接**：依據分段時間順序自動生成 Concat 協議列表，一鍵封裝最終交付成片。
 
-### 7.3 交付檔案清單
-1. **成品影片**（`final/ep01_final.mp4`）：配音、混音、字幕燒錄無縫拼接成片。
+### 7.6 交付檔案清單
+1. **成品影片**（`final/ep01_final.mp4`）：配音、混音、字幕燒錄無縫拼接成片，並已套整片 `loudnorm`。
 2. **旁白與字幕稿**（`narration-ep01.md`）：可獨立交付；組裝器不會直接讀取外部 Markdown 旁白稿。
 3. **剪輯時間線**（`timeline-ep01.csv`）：從編譯後 `segments-ep01.json` 執行 `layer2_to_table.py --timeline`，使用有效片長與量化後末鏡時間。Layer 2 直接匯出的表格只代表企劃名義秒數。
 4. **品質審查報告**（`videos/qa-report.json`）：分段規格、色差與畫風審查報告。
-5. **交付清單**：列出已生成檔案、規格核驗結果與各鏡狀態。
+5. **交付清單**：列出已生成檔案、規格核驗結果與各鏡狀態；**交付前用 `ffprobe` 複核輸出取樣率與響度**（見 §7.4 的兩遍 loudnorm）。

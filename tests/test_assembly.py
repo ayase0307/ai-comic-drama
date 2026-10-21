@@ -1,4 +1,4 @@
-import json
+﻿import json
 import contextlib
 import io
 import sys
@@ -177,7 +177,7 @@ class AssemblyRegressionTests(unittest.TestCase):
                 captured["lines"] = lines
                 dest.write_bytes(b"processed")
                 return True, "ok"
-            def fake_concat(paths, dest):
+            def fake_concat(paths, dest, **kwargs):
                 dest.write_bytes(b"final")
                 return True, "ok"
             with mock.patch.object(sys, "argv", [
@@ -253,7 +253,7 @@ class AssemblyRegressionTests(unittest.TestCase):
             def fake_process(source, dest, *args, **kwargs):
                 dest.write_bytes(b"processed")
                 return True, "ok"
-            def fake_concat(paths, dest):
+            def fake_concat(paths, dest, **kwargs):
                 dest.write_bytes(b"final")
                 return True, "ok"
             with mock.patch.object(sys, "argv", [
@@ -293,7 +293,7 @@ class AssemblyRegressionTests(unittest.TestCase):
             def fake_process(source, dest, *args, **kwargs):
                 dest.write_bytes(b"processed")
                 return True, "ok"
-            def fake_concat(paths, dest):
+            def fake_concat(paths, dest, **kwargs):
                 dest.write_bytes(b"final")
                 return True, "ok"
             with mock.patch.object(sys, "argv", [

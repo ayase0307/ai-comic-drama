@@ -87,6 +87,8 @@ class StageReviewGateTests(unittest.TestCase):
                 "source_segments_file": str(p.resolve()),
                 "source_segments_sha256": ps.sha256_file(p),
                 "expected_segments": [sid], "unproduced_segments": [],
+                "evidence": {"verdict": "VERIFIED", "produced": 1, "expected": 1,
+                             "failed": 0, "unverified_segments": []},
                 "results": [{"segment_id": sid, "video_file": str(video.resolve()),
                              "video_sha256": ps.sha256_file(video), "passed": True}],
             }

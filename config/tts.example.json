@@ -1,0 +1,42 @@
+{
+  "_readme": "TTS 設定範例。複製成 config/tts.json 後自行填入金鑰；config/tts.json 已被 .gitignore 排除，不會進版控。",
+  "default_engine": "voicestudio",
+  "engines": {
+    "voicestudio": {
+      "base_url": "http://127.0.0.1:8001",
+      "timeout_sec": 180,
+      "default_profile": "",
+      "default_voice_engine": "qwen",
+      "default_language": "zh",
+      "_note": "VoiceStudio／OmniVoice 本機 voicebox API；啟動前請先關閉 ComfyUI 釋放顯存。"
+    },
+    "fish": {
+      "dialect": "fish_cloud",
+      "base_url": "https://api.fish.audio",
+      "api_key": "",
+      "api_key_env": "FISH_AUDIO_API_KEY",
+      "model": "speech-1.6",
+      "voice_id": "",
+      "reference_id": "",
+      "format": "mp3",
+      "_note": "dialect 可選 fish_cloud（雲端，需要金鑰）或 fish_local（本機 OpenAI 相容 fish-speech）。"
+    },
+    "openai_compat": {
+      "base_url": "",
+      "api_key": "",
+      "api_key_env": "OPENAI_COMPAT_API_KEY",
+      "model": "",
+      "voice": "",
+      "response_format": "wav",
+      "auth_header": "Authorization",
+      "auth_prefix": "Bearer ",
+      "headers": {},
+      "extra_body": {},
+      "_note": "自帶 API：任何 OpenAI 相容的 /v1/audio/speech 端點；base_url 尾端的 /v1 會自動去除。"
+    }
+  },
+  "voice_map": {
+    "V-narrator": "角色A｜冷面上班族內心旁白 V2",
+    "V-lin-zhao": "阿廷AI聲"
+  }
+}

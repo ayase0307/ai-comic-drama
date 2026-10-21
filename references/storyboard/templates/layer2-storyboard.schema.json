@@ -560,6 +560,13 @@
                   "null"
                 ]
               },
+              "voice_4d_spec_en": {
+                "description": "English voice descriptor (timbre, register, delivery). The H3 prompt compiler writes this field into the English prompt body; a Chinese voice_4d_spec is not pasted into the prompt.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "delivery_timing_anchor": {
                 "type": [
                   "string",

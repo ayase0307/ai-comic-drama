@@ -127,6 +127,11 @@ def _files_for_stage(root: Path, stage: int) -> list[Path]:
         if p.is_file() and not (stage == 2 and p.name.startswith("grid-")):
             files.append(p)
     if stage == 5:
+        # 失敗目錄的 ack 是「我接受這條警告」的憑證；納入快照，
+        # 事後偷偷增減 ack 就會讓 stage-5 核准失效。
+        acks = root / "review" / "catalog-acks.json"
+        if acks.is_file():
+            files.append(acks)
         # A multi-episode project needs one combined segments file so the stage-6
         # gate can confirm that every episode's clips exist, not just one episode.
         combined = root / "segments-all.json"
@@ -329,6 +334,14 @@ def stage6_errors(root: Path) -> list[str]:
     except (OSError, json.JSONDecodeError) as exc:
         return [f"QA 報告無法解析: {exc}"]
     errors: list[str] = []
+    evidence = data.get("evidence")
+    if not isinstance(evidence, dict):
+        errors.append("QA 報告缺少 evidence 區塊：請用新版 verify_video_shot.py 重跑，舊報告不得作為階段 6 依據")
+    elif evidence.get("verdict") != "VERIFIED":
+        errors.append(
+            f"QA 證據等級為 {evidence.get('verdict')}"
+            f"（已量測 {evidence.get('produced')}/{evidence.get('expected')}）：未達 VERIFIED 不得核准階段 6"
+        )
     expected = set(data.get("expected_segments", []))
     unproduced = set(data.get("unproduced_segments", []))
     results = data.get("results", [])

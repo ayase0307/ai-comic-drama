@@ -36,7 +36,7 @@
 | ⚡ **H3 官方六段式批次編譯** | `compile_layer2_to_h3.py` 一鍵產出 `prompts-epXX.md` 與 `segments-epXX.json`、防混臉單圖排序、切點時間保護（$D - \text{末切點} \ge 2.05s$）、LoRA 適配與 `--check` 雙重對帳。 |
 | 🚀 **批次送件預檢** | `submit_h3_segments.py` 提供 `--dry-run`、參考圖檢查、可用 GPU 診斷與非同步任務處理；實際需求依模型與後端而異。 |
 | 🛡️ **批次自動審查門禁** | `verify_video_shot.py` 修復分段總時長精確對齊、支援 `--segments` 批次掃描、防灰階線稿滲透、防九宮格分屏線殘留、串聯 `color_qa.py` 匯總輸出 `qa-report.json`。 |
-| 🎬 **配音字幕與成片組裝** | `assemble_episode.py` 可選字幕／配音與 FFmpeg 組裝；TTS、外部服務與素材格式依本機能力而定。外部 narration Markdown 需先轉成支援的 inline 欄位或交給剪輯工具。 |
+| 🎬 **配音字幕與成片組裝** | `assemble_episode.py` 可選字幕／配音與 FFmpeg 組裝；**旁白／畫外音走外部 TTS**（引擎由 `tts_doctor.py` 盤點：VoiceStudio／Fish Audio／自帶 API），畫內對白保留 H3 口型。外部 narration Markdown 需先轉成支援的 inline 欄位或交給剪輯工具。 |
 | ⚖️ **多維程式對帳（P0）** | `audit_refs_and_segments.py` 嚴查參考圖陣列、主體定義、說話者代號與台詞字數預算（模式 A 序對 + 模式 B 13 條自檢）。 |
 | 🎨 **11 種風格鎖定錨** | 主流漫劇風格蒸餾成可貼的錨定詞，每種附同角色樣圖。 |
 | 🎭 **資產一致性規範** | 以資產 ID、參考圖與風格描述維持一致；依使用者已選擇且當前可用的圖片工具製作。 |
@@ -110,9 +110,10 @@ python "$skillRoot/scripts/storyboard/submit_h3_segments.py" --segments segments
 # 8. 階段 6 批次影片審查（分段總時長精確比對、黑白防漏、九宮格邊框檢驗、串聯 color_qa.py 輸出報告）
 python "$skillRoot/scripts/storyboard/verify_video_shot.py" --segments segments-ep01.json --videos-dir videos/ --out-report videos/qa-report.md --out-json videos/qa-report.json
 
-# 9. 階段 7 選用組裝（需實際可用的影片／音訊工具）（智慧 TTS、Windows 冒號轉義、多軌混音、Concat 拼接）
+# 9. 階段 7 選用組裝（需實際可用的影片／音訊工具）（外部 TTS 盤點與配音、Windows 冒號轉義、多軌混音、Concat 拼接）
+python "$skillRoot/scripts/storyboard/tts_doctor.py"
 python "$skillRoot/scripts/storyboard/layer2_to_table.py" segments-ep01.json --check --timeline timeline-ep01.csv
-python "$skillRoot/scripts/storyboard/assemble_episode.py" --segments segments-ep01.json --videos-dir videos/ --output final/ep01_final.mp4 --delivery-report final/delivery-ep01.md
+python "$skillRoot/scripts/storyboard/assemble_episode.py" --segments segments-ep01.json --videos-dir videos/ --output final/ep01_final.mp4 --audio-mode auto --tts-engine auto --tts-config config/tts.json --target-lufs -23 --delivery-report final/delivery-ep01.md
 # 外部 narration-ep01.md 不會由組裝器解析；將旁白轉為支援的 inline 欄位，或交由剪輯工具處理
 ```
 
@@ -144,7 +145,7 @@ python "$skillRoot/scripts/storyboard/assemble_episode.py" --segments segments-e
 | 4 導演分鏡 | **分段級分鏡（預設 10s/3 鏡，`handoff_to_skeleton.py`）**、焦距物距、**動作力學三要素**、`INDEPENDENT_REF2VA` 四大錨點、鉛筆九宮格構圖審核 | `layer2/*.json`、`storyboard-ep01.md`、`grid-*.png` |
 | 5 提示詞包 | **H3 官方六段式批次編譯（`compile_layer2_to_h3.py`）**、防混臉單圖排序、切點時間保護、LoRA 適配、`--check` 雙重對帳 | `prompts-ep01.md`、`segments-ep01.json` |
 | 6 生成 | **主力定案：獨立 Ref2VA（四錨點連戲、一段一張角色圖）**；`submit_h3_segments.py` 批次送件；`verify_video_shot.py` 批次審查 | `images/`、`videos/`、`qa-report.json` |
-| 7 組裝交付（選用） | 依可用素材與依賴進行組裝；旁白稿可另行交付，實際時間線由 compiled segments 匯出 | `final/ep01_final.mp4`、`narration-ep01.md`、`timeline-ep01.csv` |
+| 7 組裝交付（選用） | 依可用素材與依賴進行組裝；**旁白／畫外音由外部 TTS 產生**（H3 這段只出環境音床），畫內對白保留 H3 口型；旁白稿可另行交付，實際時間線由 compiled segments 匯出 | `final/ep01_final.mp4`、`narration-ep01.md`、`timeline-ep01.csv` |
 
 詳細模板與每階段檢查點見 [`references/pipeline.md`](references/pipeline.md)。
 
@@ -209,7 +210,7 @@ ai-comic-drama/
     ├── init_project.py      # 建立專案骨架（自動初始化 adapt/source.json、adapt/bible.json 與門禁欄位）
     ├── color_qa.py          # 跨鏡頭色彩連貫性檢查
     ├── adapt/               # 小說抽取清洗（extract_chapter.py）、劇本驗證、時長台詞審計（estimate_duration.py）、連戲、改編比對（compare_adaptation.py）與人工審核鎖定（sync_script.py）
-    └── storyboard/          # Layer 2 骨架（handoff_to_skeleton.py）、表格時間線、分鏡驗證、局部修改（patch_shot.py）、Qwen 九宮格與轉彩（qwen_storyboard_grid.py）、H3 官方六段式批次編譯（compile_layer2_to_h3.py）、H3 批次提交與顯存保護（submit_h3_segments.py）、影片審查與報告匯總（verify_video_shot.py）、後期智慧配音字幕成片拼接（assemble_episode.py）、多維程式對帳（audit_refs_and_segments.py）
+    └── storyboard/          # Layer 2 骨架（handoff_to_skeleton.py）、表格時間線、分鏡驗證、局部修改（patch_shot.py）、Qwen 九宮格與轉彩（qwen_storyboard_grid.py）、H3 官方六段式批次編譯（compile_layer2_to_h3.py）、H3 批次提交與顯存保護（submit_h3_segments.py）、影片審查與報告匯總（verify_video_shot.py）、後期智慧配音字幕成片拼接（assemble_episode.py）、TTS 後端封裝與能力盤點（tts_engine.py、tts_doctor.py）、多維程式對帳（audit_refs_and_segments.py）
 ```
 
 用本技能產出的專案：
@@ -238,7 +239,7 @@ ai-comic-drama/
 | 文件 | 內容 |
 |---|---|
 | [`SKILL.md`](SKILL.md) | 核心原則、工作紀律鐵律與八階段總覽 |
-| [`references/pipeline.md`](references/pipeline.md) | 各階段詳細流程、台詞政策門禁（4選1）、體量反推秒數公式、模板 |
+| [`references/pipeline.md`](references/pipeline.md) | 各階段詳細流程、台詞政策門禁（4選1）、體量反推秒數公式、模板；階段 7 聲音三層決策、外部 TTS 與響度交付標準 |
 | [`references/model-profiles.md`](references/model-profiles.md) | 生成前必問清單、各模型提示詞風格對照 |
 | [`references/prompt-playbook.md`](references/prompt-playbook.md) | 景別、運鏡、光線、負面提示詞 |
 | [`references/adapt/novel-to-manju.md`](references/adapt/novel-to-manju.md) | 小說改編總規範（10 階段、題材模式、退稿閘門）與 `adapt/` 各篇 |
@@ -249,7 +250,7 @@ ai-comic-drama/
 | [`references/styles.md`](references/styles.md) | 11 種風格鎖定錨與樣圖 |
 | [`references/freevideo.md`](references/freevideo.md) | 搭配 FreeVideo 出片：連線、規則、階段對應 |
 | [`agent.md`](agent.md) / [`memory.md`](memory.md) | 給維護本技能的 Agent：進場規範與跨 agent 交接記憶 |
-| [`references/minimax-h3.md`](references/minimax-h3.md) | MiniMax H3 專章入口、負面轉正面詞表、8GB VRAM OOM 拆段公式、Windows 七大工程坑 |
+| [`references/minimax-h3.md`](references/minimax-h3.md) | MiniMax H3 專章入口、負面轉正面詞表、8GB VRAM OOM 拆段公式、Windows 工程坑速查（1–11）、官方 Ref2VA 格式合規速查 |
 | [`references/h3/lora-guide.md`](references/h3/lora-guide.md) | MiniMax H3 專用 LoRA 矩陣校準（停用 camera_motion、驗證速度滑桿與 Bunny）、疊加預算與 FreeVideo 掛載合約 |
 | [`references/h3/`](references/h3/) | 官方格式、皮膚段骨架、動作節奏、失敗診斷、情境庫（人物／視覺／商業）、運鏡轉場、音訊對白、長片分段、10 秒打鬥範例 |
 

@@ -169,9 +169,35 @@ class Stage5BindingTests(unittest.TestCase):
             "has_dialogue": True, "speaker": "C-VOICE", "line_verbatim": "往前走。", "voice_4d_spec": "voiceover",
         }
         compiled = compiler.compile_segment_h3(data, registry, auto_lora=False, stage5_binding=self.binding)
-        self.assertIn("do not show the speaker", compiled["h3_prompt"])
+        # 畫外音外部化：台詞不進 H3 的 <d>，改由外部 TTS 合成
+        self.assertNotIn("<d>[Chinese] 往前走。</d>", compiled["h3_prompt"])
         self.assertNotIn("is the visible speaking character", compiled["h3_prompt"])
         self.assertNotIn("C-VOICE", [ref["id"] for ref in compiled["reference_images"]])
+        narration = compiled["external_narration"]
+        self.assertEqual(len(narration), 1)
+        self.assertEqual(narration[0]["line"], "往前走。")
+        self.assertEqual(narration[0]["speaker"], "C-VOICE")
+        self.assertIn("narrates off-screen", compiled["h3_prompt"])
+
+    def test_native_narration_policy_keeps_the_voiceover_line_in_h3(self):
+        registry = compiler.AssetRegistry(project_root=self.root)
+        registry.locations["S-HALL"] = {"id": "S-HALL", "name": "Hall", "desc_en": "school hall", "ref_img": "images/S-HALL.png"}
+        registry.characters["C-HERO"] = {"id": "C-HERO", "name": "hero", "desc_en": "a student", "short_en": "student", "ref_img": "images/C-HERO.png", "wardrobe_states": {}}
+        registry.characters["E-SNAKE"] = {"id": "E-SNAKE", "name": "snake", "desc_en": "a yellow serpent", "short_en": "serpent", "ref_img": "images/E-SNAKE.png", "wardrobe_states": {}, "is_creature": True}
+        registry.characters["C-VOICE"] = {"id": "C-VOICE", "name": "guide", "desc_en": "a guide speaking from off-screen", "short_en": "off-screen guide", "ref_img": "", "wardrobe_states": {}, "no_visual_reference": True, "voice_only": True}
+        registry.props["P-SPEAR"] = {"id": "P-SPEAR", "name": "spear", "desc_en": "a long silver spear", "ref_img": "images/P-SPEAR.png"}
+        registry.bodydetails["D-SCAR"] = {"id": "D-SCAR", "name": "scar", "desc_en": "a healed scar", "ref_img": "images/D-SCAR.png"}
+        data = compiler.apply_stage5_binding(self.layer, self.binding)
+        data["shots"][0]["dialogue_and_audio"] = {
+            "has_dialogue": True, "speaker": "C-VOICE", "line_verbatim": "往前走。", "voice_4d_spec": "voiceover",
+        }
+        compiled = compiler.compile_segment_h3(
+            data, registry, auto_lora=False, stage5_binding=self.binding, narration_policy="h3-native",
+        )
+        self.assertIn("<d>[Chinese] 往前走。</d>", compiled["h3_prompt"])
+        self.assertIn("says in an off-screen voiceover", compiled["h3_prompt"])
+        self.assertIn("lips remain completely closed", compiled["h3_prompt"])
+        self.assertEqual(compiled["external_narration"], [])
 
     def test_authored_camera_hold_stage_does_not_duplicate_camera_movement_clause(self):
         registry = compiler.AssetRegistry(project_root=self.root)

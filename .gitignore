@@ -7,4 +7,8 @@ CLAUDE.md
 scratch/
 tmp/
 
+# TTS 設定（含金鑰，不進版控）
+config/tts.json
+config/*.local.json
+
 噩盡島-第一章/

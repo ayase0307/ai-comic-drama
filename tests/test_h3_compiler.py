@@ -122,6 +122,68 @@ class H3CompilerRegressionTests(unittest.TestCase):
             auto_lora=False,
         )
 
+    def test_legacy_characters_field_is_normalized_before_compile(self):
+        data = self.segment()
+        legacy = data["shots"][0].pop("character_ids", ["C-MIRA"])
+        data["shots"][0]["characters"] = legacy
+        compiled = self.compile(data)
+        notes = " ".join(compiled.get("compile_notes") or [])
+        self.assertIn("[normalize]", notes)
+
+    def test_missing_timeline_is_rejected_with_clear_error(self):
+        data = self.segment()
+        for key in ("start_time", "end_time", "duration"):
+            data["shots"][0].pop(key, None)
+        with self.assertRaises(ValueError) as ctx:
+            self.compile(data)
+        self.assertIn("正規化失敗", str(ctx.exception))
+
+    def test_cut_marker_tokens_are_opt_in(self):
+        plain = self.compile()
+        self.assertNotIn("<cutoff>", plain["h3_prompt"])
+        self.assertFalse(plain["metadata"]["cut_marker_tokens"]["embedded"])
+
+        data = self.segment()
+        for shot in data["shots"]:
+            shot["scene_id"] = "SC01"
+        data["shots"][-1]["scene_id"] = "SC02"
+        marked = compiler.compile_segment_h3(copy.deepcopy(data), registry=self.registry,
+                                             auto_lora=False, embed_cut_markers=True)
+        self.assertIn("<cutoff>", marked["h3_prompt"])
+        self.assertIn("<scenetrans>", marked["h3_prompt"])
+        self.assertTrue(marked["metadata"]["cut_marker_tokens"]["embedded"])
+
+    def test_cut_markers_are_structured_metadata(self):
+        compiled = self.compile()
+        metadata = compiled["metadata"]
+        shots = compiled["shots"]
+        markers = metadata["cut_markers"]
+        self.assertEqual(len(markers), len(shots) - 1)
+        self.assertEqual(markers[0]["shot_id"], shots[1]["shot_id"])
+        self.assertAlmostEqual(markers[0]["at_seconds"], float(shots[1]["start_time"]), places=3)
+        # 切點標記只放 metadata，不進提示詞（避免官方 lint 把它當非法 token）
+        self.assertNotIn("[cut]", compiled["h3_prompt"])
+
+    def test_compiled_metadata_carries_frame_quantum(self):
+        """編譯器必須寫出可被送件端讀回的 17n+5 影格數（2026-10-19 時長漂移防線）。"""
+        compiled = self.compile()
+        metadata = compiled["metadata"]
+        self.assertIn("frames", metadata)
+        frames = metadata["frames"]
+        self.assertIsInstance(frames, int)
+        self.assertEqual((frames - 5) % 17, 0, f"{frames} 不是 17n+5")
+        self.assertAlmostEqual(metadata["effective_duration_sec"],
+                               round(frames / 24.0, 3), places=3)
+        self.assertIn("17n+5", metadata["frame_spec"])
+
+    def test_dialogue_segments_use_ceil_frames(self):
+        data = self.segment()
+        data["shots"] = [self.shot("D1", 0, 9, "Mira raises one hand.", line="先別退，聽我說！")]
+        metadata = self.compile(data)["metadata"]
+        self.assertEqual(metadata["rounding_mode"], "ceil")
+        self.assertEqual(metadata["frames"], 226)  # 9.0s 含台詞 → 13 steps × 17 + 5
+        self.assertEqual((metadata["frames"] - 5) % 17, 0)
+
     def test_anime_and_ink_style_and_continuity_are_preserved(self):
         for anchor in (
             "2D anime, cobalt shadows, hand-drawn linework",
@@ -304,17 +366,18 @@ class H3CompilerRegressionTests(unittest.TestCase):
 
         prompt = self.compile(data)["h3_prompt"]
 
-        self.assertIn("speaker ID C-MIRA", prompt)
+        # 官方 base §4.4：說話人要用穩定 (Sx) 代號綁定；對應得到 Subject 時寫 <Subject N> (Sx)
+        self.assertIn("<Subject 1> (S1)", prompt)
         self.assertIn("segment_seconds 1.250–2.500", prompt)
         self.assertIn("<d>[Chinese] 先別退，聽我說！</d>", prompt)
 
     def test_offscreen_and_inner_voice_dialogue_never_becomes_visible_speech(self):
         cases = [
-            ("C-guide", ["C-MIRA", "C-guide"], "The offscreen guide asks from beyond frame; only a hand is visible.", "the guide"),
+            ("C-guide", ["C-MIRA", "C-guide"], "The offscreen guide asks from beyond frame; only a hand is visible.", "C-guide"),
             ("C-doctor", ["C-MIRA"], "The doctor remains offscreen and never appears; no speaking mouth is visible.", "the doctor"),
             ("E-unknown-voice", ["C-MIRA"], "An unseen inner voice speaks; no source or mouth is visible.", "the unseen inner voice"),
         ]
-        for speaker, character_ids, action, label in cases:
+        for speaker, character_ids, action, identity in cases:
             with self.subTest(speaker=speaker):
                 data = self.segment()
                 shot = self.shot("V1", 0, 9, action, line="你聽得見嗎？")
@@ -329,15 +392,21 @@ class H3CompilerRegressionTests(unittest.TestCase):
                 shot["action_and_performance"]["observable_expression_en"] = "Mira keeps her lips closed."
                 data["shots"] = [shot]
 
-                prompt = self.compile(data)["h3_prompt"]
+                compiled = self.compile(data)
+                prompt = compiled["h3_prompt"]
 
-                self.assertIn(f"{label} (speaker ID {speaker})", prompt)
-                self.assertIn("do not show the speaker", prompt)
-                self.assertIn("visible characters' mouths stay closed", prompt)
+                # 官方 base §4.4：發聲者一定要有穩定 (Sx) 代號
+                self.assertIn("(S1)", prompt)
+                self.assertIn(identity, prompt)
+                self.assertIn("off-screen", prompt)
                 self.assertIn("segment_seconds 0.500–2.000", prompt)
-                self.assertIn("<d>[Chinese] 你聽得見嗎？</d>", prompt)
                 self.assertNotIn(f"{speaker} speaks", prompt)
                 self.assertNotIn("<Subject 1> speaks", prompt)
+                # 畫外音／內心聲走外部 TTS：不進 <d>，也不可變成可見說話
+                self.assertNotIn("<d>[Chinese] 你聽得見嗎？</d>", prompt)
+                self.assertEqual(len(compiled["external_narration"]), 1)
+                self.assertEqual(compiled["external_narration"][0]["line"], "你聽得見嗎？")
+                self.assertIn("lips completely closed", prompt)
 
     def test_visible_back_only_speaker_respects_lip_closed_lock(self):
         data = self.segment()
@@ -352,12 +421,16 @@ class H3CompilerRegressionTests(unittest.TestCase):
         shot["action_and_performance"]["action_stages_en"] = ["The driver stays in a back view while speaking from offscreen."]
         data["shots"] = [shot]
 
-        prompt = self.compile(data)["h3_prompt"]
+        compiled = self.compile(data)
+        prompt = compiled["h3_prompt"]
 
-        self.assertIn("speaker ID C-DRIVER", prompt)
-        self.assertIn("no visible lip movement", prompt)
+        # 背影說話沒有可見的嘴 → 整句改由外部 TTS，H3 不生成人聲
+        self.assertIn("(S1)", prompt)
+        self.assertIn("lips completely closed", prompt)
         self.assertIn("segment_seconds 0.500–2.000", prompt)
-        self.assertIn("<d>[Chinese] 先送你回去。</d>", prompt)
+        self.assertNotIn("<d>[Chinese] 先送你回去。</d>", prompt)
+        self.assertEqual(len(compiled["external_narration"]), 1)
+        self.assertEqual(compiled["external_narration"][0]["line"], "先送你回去。")
 
     def test_null_speaker_is_valid_for_a_nondialogue_shot(self):
         data = self.segment()

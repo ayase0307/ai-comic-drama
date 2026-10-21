@@ -36,7 +36,7 @@ FreeVideo 不是必經流程。若使用者只要文字／分鏡，停在指定�
 | 4 分鏡表 | 不要求使用 FreeVideo 生成構圖 | Stage-4 PNG 可由 Qwen、手繪或其他可用工具提供，需 shot 對應並通過同一審核 |
 | 5 提示詞包 | 本 repo 的編譯器輸出 Ref2VA H3 六段式；FreeVideo 端支援以當前介面為準 | `compile_layer2_to_h3.py` 產生 `prompts-epXX.md` 與 `segments-epXX.json` |
 | 6 生成 | 僅在 FreeVideo 目前提供相容端點且使用者要求時提交 | `submit_h3_segments.py` 支援本機 adapter；QA 工具與人工 review 分開 |
-| 7 交付 | 視當前服務介面下載已生成影片；本 repo 組裝器是選用工具 | 組裝器不解析外部 narration Markdown；旁白需轉成支援的 inline 欄位，或交由其他剪輯工具 |
+| 7 交付 | 視當前服務介面下載已生成影片；本 repo 組裝器是選用工具 | 旁白／畫外音由外部 TTS 產生、H3 這段只出環境音床；組裝器不解析外部 narration Markdown，旁白需轉成支援的 inline 欄位，或交由其他剪輯工具 |
 
 ## 本機 GPU 預檢
 
@@ -66,15 +66,25 @@ python scripts/storyboard/verify_video_shot.py --segments segments-ep01.json --v
 
 ### 3. 階段 7 配音、字幕與成片組裝（`assemble_episode.py`）
 ```bash
-# 選用組裝；TTS 與影片素材依本機可用能力而定
+# 先盤點本機 TTS 能力（唯讀；不寫檔、不上傳、不印金鑰）
+python scripts/storyboard/tts_doctor.py
+
+# 選用組裝；旁白／畫外音由外部 TTS 產生，H3 這段只出環境音床
+# --audio-mode auto 逐段裁決：畫內對白留 H3 口型、外部化旁白混外部 TTS
 python scripts/storyboard/assemble_episode.py \
   --segments segments-ep01.json \
   --videos-dir videos/ \
-  --output final/ep01_final.mp4
+  --output final/ep01_final.mp4 \
+  --audio-mode auto \
+  --tts-engine voicestudio \
+  --tts-config config/tts.json \
+  --target-lufs -23
 
 # 全鏈路閉環自檢
 python scripts/storyboard/assemble_episode.py --self-test
 ```
+
+TTS 引擎、憑證與音色對映寫在 `config/tts.json`；交付標準與混音鏈見 `references/pipeline.md` §7。
 
 ## 注意
 

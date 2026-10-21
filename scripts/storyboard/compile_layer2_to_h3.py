@@ -67,6 +67,15 @@ from director_storyboard_assistant import (
 from handoff_to_skeleton import segment_sort_key
 from speech_utils import count_speech_chars, normalize_speech
 
+try:  # 以 scripts/storyboard 為 sys.path 執行（CLI 慣例）
+    import h3_spec
+    import normalize as normalize_mod
+    import failure_catalog
+except ImportError:  # pragma: no cover - 套件匯入路徑
+    from . import h3_spec
+    from . import normalize as normalize_mod
+    from . import failure_catalog
+
 
 # ==============================================================================
 # 官方運鏡動詞標準庫與智慧映射
@@ -534,6 +543,30 @@ def validate_stage5_binding(
         crop_note = shot_binding.get("crop_note_en")
         if crop_note is not None and (not isinstance(crop_note, str) or not crop_note.strip()):
             raise ValueError(f"Stage5 crop_note_en for {sid} must be a non-empty string")
+        anchor_ids = shot_binding.get("identity_anchor_ids")
+        if anchor_ids is not None:
+            if not isinstance(anchor_ids, list) or not all(isinstance(v, str) and v.strip() for v in anchor_ids):
+                raise ValueError(f"Stage5 identity_anchor_ids for {sid} must be a list of non-empty strings")
+            char_paths = (shot_binding.get("reference_paths", {}) or {}).get("characters", []) or []
+            if isinstance(char_paths, dict):
+                char_paths = [{"id": key, "reference_image": value} for key, value in char_paths.items()]
+            path_ids = {
+                entry.get("id") for entry in char_paths
+                if isinstance(entry, dict) and entry.get("id")
+            }
+            visual_ids = set(shot_binding.get("visual_subject_ids") or [])
+            for cid in anchor_ids:
+                if visual_ids and cid not in visual_ids:
+                    raise ValueError(
+                        f"Stage5 identity_anchor_ids {cid} for {sid} is not in visual_subject_ids; "
+                        f"an identity anchor must be a character that is actually in frame"
+                    )
+                if cid not in path_ids:
+                    raise ValueError(
+                        f"Stage5 identity_anchor_ids {cid} for {sid} has no reference_paths.characters entry; "
+                        f"背影／側身的重要角色必須掛自己的單視角裁切參考圖，"
+                        f"省略參考圖會讓 H3 把別人的臉複製給這個角色"
+                    )
     if seen_refs != known:
         missing = sorted(known - seen_refs)
         raise ValueError(f"Stage5 bindings are missing per-shot reference mapping(s): {', '.join(missing)}")
@@ -588,9 +621,15 @@ def apply_stage5_binding(layer2_data: Dict[str, Any], binding: Dict[str, Any]) -
     return data
 
 
-def _stage5_reference_path_map(binding: Dict[str, Any]) -> Tuple[Dict[str, str], Optional[str], List[Dict[str, Any]], Optional[str]]:
-    """Collect explicit per-shot paths; creature morphology variants remain shot-scoped."""
+def _stage5_reference_path_map(binding: Dict[str, Any]) -> Tuple[Dict[str, str], Optional[str], List[Dict[str, Any]], Optional[str], Dict[str, Dict[str, Any]]]:
+    """Collect explicit per-shot paths; creature morphology variants remain shot-scoped.
+
+    同時回傳每個素材的綁定中繼資料（asset_meta）：`reference_view`（single_view／non_face／
+    panel）、`panel_label_en`（整板查表時指定用哪一格）、`crop_status`。
+    這些欄位決定該素材在官方六段式裡怎麼被描述，也決定送件前的門禁怎麼判定。
+    """
     paths: Dict[str, str] = {}
+    asset_meta: Dict[str, Dict[str, Any]] = {}
     scene_path: Optional[str] = None
     scene_description: Optional[str] = binding.get("scene_description_en")
     if binding.get("scene_reference"):
@@ -629,6 +668,17 @@ def _stage5_reference_path_map(binding: Dict[str, Any]) -> Tuple[Dict[str, str],
                 image = entry.get("reference_image") or entry.get("path")
                 if not aid or not image:
                     raise ValueError(f"Stage5 reference_paths.{group} entry requires id and reference_image")
+                meta = {
+                    k: entry[k] for k in ("reference_view", "panel_label_en", "panel_role", "crop_status")
+                    if entry.get(k) not in (None, "")
+                }
+                if meta:
+                    existing = asset_meta.get(str(aid), {})
+                    merged = {**existing, **meta}
+                    for key in ("reference_view", "crop_status"):
+                        if key in existing and key in meta and existing[key] != meta[key]:
+                            raise ValueError(f"Stage5 asset {aid} has conflicting {key} declarations")
+                    asset_meta[str(aid)] = merged
                 variant = str(entry.get("variant") or "").strip() if group == "creatures" else ""
                 if variant:
                     key = (str(aid), variant)
@@ -651,7 +701,7 @@ def _stage5_reference_path_map(binding: Dict[str, Any]) -> Tuple[Dict[str, str],
                 if aid in paths and paths[aid] != image:
                     raise ValueError(f"Stage5 asset {aid} has conflicting bound reference paths")
                 paths[aid] = image
-    return paths, scene_path, list(variants.values()), scene_description
+    return paths, scene_path, list(variants.values()), scene_description, asset_meta
 
 
 # ==============================================================================
@@ -743,10 +793,15 @@ def _dialogue_visibility(s: Dict[str, Any]) -> str:
 
 
 def _dialogue_speaker_label(speaker: Optional[str], registry: AssetRegistry) -> str:
+    """回傳穩定的說話人稱呼（不含資產 ID）。
+
+    官方格式要求說話人以 `<Subject N> (Sx)` 綁定；對應不到 Subject 的發聲者
+    改用「穩定音色描述 + (Sx)」。因此本函式只負責產生描述，編號另外附加。
+    """
     if not speaker:
         return "the authored speaker"
     if is_narrator(speaker):
-        return f"the narrator (speaker ID {speaker})"
+        return "the narrator"
     normalized = speaker.lower()
     special_labels = {
         "e-unknown-voice": "the unseen inner voice",
@@ -759,7 +814,46 @@ def _dialogue_speaker_label(speaker: Optional[str], registry: AssetRegistry) -> 
     if not label:
         info = registry.characters.get(speaker, {})
         label = str(info.get("name") or speaker)
-    return f"{label} (speaker ID {speaker})"
+    return label
+
+
+def _assign_speaker_ids(shots: List[Dict[str, Any]]) -> Dict[str, str]:
+    """依第一次發聲順序，為每個發聲來源配發官方穩定代號 (S1)、(S2)…
+
+    官方 base 指南 §4.4：「Subjects who speak, sing, or produce an off-screen
+    human voice use stable IDs such as (S1) and (S2).」同一說話人跨鏡沿用同一代號。
+    """
+    ids: Dict[str, str] = {}
+    for shot in shots:
+        dlg = shot.get("dialogue_and_audio", {}) or {}
+        if not (dlg.get("has_dialogue") or dlg.get("line_verbatim")):
+            continue
+        speaker = dlg.get("speaker")
+        if not speaker:
+            continue
+        key = str(speaker)
+        if key not in ids:
+            ids[key] = f"S{len(ids) + 1}"
+    return ids
+
+
+def _strip_dialogue_from_soundscape(foley: str, spoken_lines: List[str]) -> str:
+    """從環境音描述中移除逐字台詞。
+
+    官方 §4.6 / ref-en §6：「Dialogue, singing, and diegetic music already belong
+    in the multimodal description and should not be repeated here.」環境音欄只留
+    環境與動作音，否則 H3 會在環境音軌再念一次台詞。
+    """
+    text = foley or ""
+    for line in spoken_lines:
+        stripped = (line or "").strip()
+        if len(stripped) >= 4 and stripped in text:
+            text = text.replace(stripped, "")
+    # 移除殘留的 <d> 標記與其內容
+    text = re.sub(r"<d>\[[^\]]*\][^<]*</d>", "", text)
+    text = re.sub(r"\s{2,}", " ", text).strip()
+    text = re.sub(r"\s+([,.;:])", r"\1", text)
+    return text.strip()
 
 
 def _speech_window_clause(dlg: Dict[str, Any]) -> str:
@@ -787,6 +881,48 @@ def _english_or_empty(text: str) -> str:
     return text
 
 
+def _shot_speaker_has_visible_mouth(shot: Dict[str, Any], registry: AssetRegistry) -> bool:
+    """判斷這句台詞的說話人是否有「可見的嘴」。
+
+    官方 base §4.4：發聲者（含畫外音）都要有穩定 (Sx) 代號；而沒有可見嘴的台詞
+    不該由 H3 內建語音生成（見 --narration-policy external）。這個判斷同時決定
+    「要不要掛音色參考 <Audio N>」：只有 H3 自己要念出來的台詞才需要音色參考。
+    """
+    dlg = shot.get("dialogue_and_audio", {}) or {}
+    if not (dlg.get("has_dialogue") or dlg.get("line_verbatim")):
+        return False
+    speaker = dlg.get("speaker")
+    if not speaker:
+        return False
+    if _is_voiceover(shot):
+        return False
+    record = registry.characters.get(speaker, {}) or {}
+    if record.get("no_visual_reference") or record.get("voice_only"):
+        return False
+    return _dialogue_visibility(shot) == "visible"
+
+
+def _english_voice_descriptor(dlg: Dict[str, Any], notes: Optional[List[str]] = None) -> str:
+    """取出可直接放進英文提示詞的音色描述。
+
+    優先用 voice_4d_spec_en；若只有中文的 voice_4d_spec，不直接塞進英文提示詞
+    （H3 提示詞正文用英文，中文描述會變成未翻譯噪音），但會記進 compile_notes 提醒。
+    """
+    for key in ("voice_4d_spec_en", "voice_profile_en"):
+        value = _clean(dlg.get(key))
+        if value and not CJK_RE.search(value):
+            return value.rstrip(".。 ")
+    value = _clean(dlg.get("voice_4d_spec"))
+    if value and not CJK_RE.search(value):
+        return value.rstrip(".。 ")
+    if value and notes is not None:
+        notes.append(
+            "voice_4d_spec 只有中文描述，未寫入英文提示詞（H3 提示詞正文是英文）；"
+            "請改填 voice_4d_spec_en，否則同一角色在不同段的音色描述不一致。"
+        )
+    return ""
+
+
 def compile_segment_h3(
     layer2_data: Dict[str, Any],
     registry: AssetRegistry,
@@ -794,12 +930,37 @@ def compile_segment_h3(
     auto_lora: bool = True,
     rounding_mode: str = "floor",
     stage5_binding: Optional[Dict[str, Any]] = None,
+    narration_policy: str = "external",
+    allow_normalize_warnings: bool = False,
+    embed_cut_markers: bool = False,
 ) -> Dict[str, Any]:
     """將單個 Layer 2 JSON 分鏡檔編譯為符合 H3 官方六段式規範的資料結構。
 
     主角參考圖：asset_refs.primary_character / metadata.primary_character 優先；
     否則取臉戲權重（景別越近權重越高）最重的角色。旁白與畫外音永不成為主體。
+
+    narration_policy：
+      - "external"（預設）：畫外音／旁白不寫入 H3 的 <d> 標籤，改由外部 TTS
+        合成後在階段 7 混入；H3 這一段只出環境與動作音。
+      - "h3-native"：保留舊行為，畫外音仍以 <d> 交給 H3 原生語音。
     """
+    if narration_policy not in ("external", "h3-native"):
+        raise ValueError(f"narration_policy 必須是 external 或 h3-native，收到 {narration_policy!r}")
+    # 正規化層（P3）：先把同義欄位與時間軸收斂，避免「合法欄位被誤報缺」
+    # 或「duration 與 end-start 不一致卻照算」。strict=False 只把可自動修正的
+    # 問題降級為 warning；結構性錯誤（缺時間軸、重複 shot_id、panel 缺格位）仍會拋錯。
+    try:
+        layer2_data = normalize_mod.normalize_layer2(layer2_data, strict=False, strict_aliases=False)
+    except normalize_mod.NormalizationError as exc:
+        raise ValueError(f"Layer 2 正規化失敗（{layer2_data.get('segment_id', 'unknown')}）：{exc}") from exc
+    normalization = layer2_data.get("_normalization") or {}
+    norm_warnings = list(normalization.get("warnings") or [])
+    if norm_warnings and not allow_normalize_warnings:
+        # 警告不是裝飾：時間軸（shot 級）不一致或台詞窗越界會直接產生錯片與錯字幕。
+        raise ValueError(
+            "Layer 2 正規化警告不得靜默通過（時間軸／台詞窗；如確認可接受請加 "
+            "--allow-normalize-warnings）：\n- " + "\n- ".join(norm_warnings)
+        )
     if stage5_binding is not None and layer2_data.get("_stage5_binding") is not stage5_binding:
         layer2_data = apply_stage5_binding(layer2_data, stage5_binding)
     if stage5_binding is None:
@@ -822,10 +983,13 @@ def compile_segment_h3(
         for shot in shots
     )
     selected_rounding_mode = "ceil" if contains_dialogue else rounding_mode
+    seg_frames = h3_spec.frames_for(target_dur, rounding=selected_rounding_mode)
     eff_d = effective_duration(target_dur, rounding=selected_rounding_mode)
     # Treat authored shot timings as one continuous source timeline, then
     # adjust only the final shot to the effective H3 duration.
     shots = [dict(shot) for shot in shots]
+    # 官方 base §4.4：說話人要有穩定 (Sx) 代號，同一說話人跨鏡沿用同一代號。
+    speaker_ids = _assign_speaker_ids(shots)
     if len(shots) == 1 and not ("start_time" in shots[0] and "end_time" in shots[0]):
         shots[0].update(start_time=0.0, end_time=target_dur, duration=target_dur)
     tolerance = 1e-3
@@ -847,6 +1011,14 @@ def compile_segment_h3(
     if cuts and (cuts[0] < 2.0 or any(b - a < 2.0 for a, b in zip(cuts, cuts[1:])) or eff_d - cuts[-1] < 2.0):
         raise ValueError("source timeline cannot satisfy H3 cut bounds; revise the storyboard cuts")
     notes: List[str] = []
+    normalization = layer2_data.get("_normalization") or {}
+    for warning in normalization.get("warnings") or []:
+        notes.append(f"[normalize] {warning}")
+    for note in normalization.get("notes") or []:
+        notes.append(f"[normalize] {note}")
+    aliases = normalization.get("aliases_applied") or []
+    if aliases:
+        notes.append(f"[normalize] 已收斂 {len(aliases)} 處同義欄位（詳見 _normalization.aliases_applied）")
 
     # ---------- 角色與服裝 ----------
     asset_refs = layer2_data.get("asset_refs", {}) or {}
@@ -894,10 +1066,16 @@ def compile_segment_h3(
     creature_variants: List[Dict[str, Any]] = []
     # Single readable face (Stage5 face_subject_ids): see the bindings branch below.
     face_subject_ids: List[str] = []
+    # Identity-anchored characters (Stage5 identity_anchor_ids): in frame but never
+    # face-readable. They still carry their own single-view reference so H3 never
+    # clones another character's face onto them.
+    identity_anchor_ids: List[str] = []
     crop_notes: List[str] = []
     single_face_mode = False
+    unanchored_stage5: List[str] = []
+    asset_meta: Dict[str, Dict[str, Any]] = {}
     if stage5_binding:
-        ref_path_map, bound_scene_path, creature_variants, bound_scene_description = _stage5_reference_path_map(stage5_binding)
+        ref_path_map, bound_scene_path, creature_variants, bound_scene_description, asset_meta = _stage5_reference_path_map(stage5_binding)
         for shot_binding in stage5_binding.get("shots", []) or []:
             paths = shot_binding.get("reference_paths", {}) or {}
             chars = paths.get("characters", []) or []
@@ -940,10 +1118,62 @@ def compile_segment_h3(
             for cid in (shot_binding.get("face_subject_ids", []) or []):
                 if cid not in face_subject_ids:
                     face_subject_ids.append(cid)
+            for cid in (shot_binding.get("identity_anchor_ids", []) or []):
+                if cid not in identity_anchor_ids:
+                    identity_anchor_ids.append(cid)
             note = _clean(shot_binding.get("crop_note_en") or "")
             if note and note not in crop_notes:
                 crop_notes.append(note)
         single_face_mode = bool(face_subject_ids)
+        # 整板查表模式（reference_view=panel）：允許直接餵四視圖板，但必須宣告用哪一格。
+        # 官方 ComfyUI 指引允許多格板，只要「獨立編號、逐格描述、鏡頭指向某一格」；
+        # 本技能把它限制在「不露臉的身份錨點」用途，並用 partially_preserved 明文
+        # 宣告只用那一格、其餘格與正面臉都不匯入。
+        panel_anchor_ids: List[str] = []
+        bound_visual_ids = {
+            cid for b in (stage5_binding.get("shots", []) or [])
+            for cid in (b.get("visual_subject_ids") or [])
+        }
+        for cid, meta in asset_meta.items():
+            if meta.get("reference_view") != "panel":
+                continue
+            if not str(meta.get("panel_label_en") or "").strip():
+                raise ValueError(
+                    f"Stage5 asset {cid} 宣告 reference_view=panel，必須同時提供 panel_label_en "
+                    f"（說明用哪一格，例如「the fourth figure from the left, a full-body back view」）；"
+                    f"沒有指定格位的整板會被模型整張複製進成片"
+                )
+            if cid in face_subject_ids:
+                raise ValueError(
+                    f"Stage5 asset {cid} 同時是可辨識人臉與整板查表；整板查表只能用於不露臉的身份錨點，"
+                    f"可辨識正臉必須用單視角裁切"
+                )
+            if cid not in bound_visual_ids:
+                # 沒有在場就不該變成 Subject；宣告與在場名單不一致要講清楚。
+                notes.append(
+                    f"整板查表素材 {cid} 沒有出現在任何一鏡的 visual_subject_ids，已略過（不會變成 Subject）"
+                )
+                continue
+            if cid not in panel_anchor_ids:
+                panel_anchor_ids.append(cid)
+        for cid in panel_anchor_ids:
+            if cid not in identity_anchor_ids:
+                identity_anchor_ids.append(cid)
+        # 背影／側身的重要角色不可省略自己的參考圖：官方 Ref2VA 只有四個保留標記，
+        # 沒有「忽略」語意，唯一能表達「只留服裝與體型、不要臉」的是
+        # partially_preserved 加上明文說明。省略參考圖會讓模型把唯一一張臉複製給他
+        # （本專案 2026-10-19 實測 4/4 段出現複製人）。
+        for cid in identity_anchor_ids:
+            if cid in no_visual_ids:
+                raise ValueError(f"Stage5 lists {cid} as an identity anchor but marks it as having no visual reference")
+            if not ref_path_map.get(cid):
+                raise ValueError(
+                    f"Stage5 identity_anchor_ids 要求 {cid} 掛上自己的參考圖（背面／側身單視角裁切，"
+                    f"或宣告 reference_view=panel 的整板查表），但 reference_paths.characters 沒有提供；"
+                    f"省略參考圖會讓 H3 把別人的臉複製給這個角色"
+                )
+            if cid in face_subject_ids:
+                raise ValueError(f"Stage5 lists {cid} as both a readable face and an identity anchor; a character is one or the other")
         for shot in shots:
             bound_shot = next((b for b in stage5_binding.get("shots", []) or []
                                if b.get("global_shot_id") == shot.get("global_shot_id")), {})
@@ -951,10 +1181,15 @@ def compile_segment_h3(
             for cid in ids:
                 if not cid or cid in no_visual_ids or cid in visual_order:
                     continue
-                if single_face_mode and cid not in face_subject_ids:
-                    # visible but never face-readable: text only, no reference image
-                    continue
                 info = registry.get_character(cid, wardrobe_state=costume_of.get(cid) or seg_wardrobe)
+                if (single_face_mode and not info.get("is_creature")
+                        and cid not in face_subject_ids and cid not in identity_anchor_ids):
+                    # 在場但既不是可辨識人臉、也不是身份錨點：不得靜默退回角色聖經的
+                    # 整板參考圖（那會讓背景長出同款複製人），也不得只留文字描述
+                    # （那會讓模型把別人的臉複製給他）。交給 E19 門禁要求補圖或移出畫面。
+                    # 生物／怪物不受這個分流影響：牠們沒有「臉」可讀，一律要有自己的參考。
+                    unanchored_stage5.append(cid)
+                    continue
                 if info.get("no_visual_reference") or info.get("voice_only"):
                     if cid in explicit_visual_ids or cid in ref_path_map:
                         raise ValueError(f"Stage5 marks {cid} as visually present but the normalized Bible forbids a visual reference")
@@ -965,9 +1200,18 @@ def compile_segment_h3(
             for cid in face_subject_ids:
                 if cid in no_visual_ids:
                     raise ValueError(f"Stage5 lists {cid} as a readable face but marks it as having no visual reference")
+                if not ref_path_map.get(cid):
+                    raise ValueError(
+                        f"Stage5 face_subject_ids 要求 {cid} 掛上自己的參考圖（正面單視角裁切），"
+                        f"但 reference_paths.characters 沒有提供"
+                    )
                 if cid not in visual_order:
                     visual_order.append(cid)
-            human_faces = [cid for cid in visual_order
+            for cid in identity_anchor_ids:
+                if cid not in visual_order:
+                    visual_order.append(cid)
+            # 混臉風險只計算「可辨識人臉」；背影／側身的無臉裁切不會被平均成一張臉。
+            human_faces = [cid for cid in face_subject_ids
                            if not registry.get_character(cid, wardrobe_state=costume_of.get(cid) or seg_wardrobe).get("is_creature")]
             if len(human_faces) > 1:
                 notes.append(
@@ -977,13 +1221,17 @@ def compile_segment_h3(
             for entry in group:
                 cid = entry.get("id") if isinstance(entry, dict) else entry
                 if cid and cid not in no_visual_ids and cid not in visual_order:
-                    if single_face_mode and cid not in face_subject_ids:
+                    rec = registry.get_character(cid, wardrobe_state=costume_of.get(cid) or seg_wardrobe)
+                    if (single_face_mode and not rec.get("is_creature")
+                            and cid not in face_subject_ids and cid not in identity_anchor_ids):
                         # cropped out of frame: keep as a text-only secondary subject
                         continue
                     visual_order.append(cid)
         for cid in ref_path_map:
             if cid in registry.characters and cid not in no_visual_ids and cid not in visual_order:
-                if single_face_mode and cid not in face_subject_ids:
+                rec = registry.get_character(cid, wardrobe_state=costume_of.get(cid) or seg_wardrobe)
+                if (single_face_mode and not rec.get("is_creature")
+                        and cid not in face_subject_ids and cid not in identity_anchor_ids):
                     continue
                 visual_order.append(cid)
         if primary and primary in visual_order:
@@ -993,13 +1241,47 @@ def compile_segment_h3(
             info = registry.get_character(cid, wardrobe_state=costume_of.get(cid) or seg_wardrobe)
             if info.get("no_visual_reference") or info.get("voice_only"):
                 raise ValueError(f"Stage5 marks {cid} as visually present but the normalized Bible forbids a visual reference")
-            if not (ref_path_map.get(cid) or info.get("ref_img")):
-                raise ValueError(f"Stage5 visible character/creature {cid} has no approved reference image")
+            # Stage5 綁定是明確的量產指示：角色參考圖必須來自綁定的單視角裁切，
+            # 不得靜默退回角色聖經的整張設定板（那會讓背景長出同款複製人）。
+            if not ref_path_map.get(cid):
+                raise ValueError(
+                    f"Stage5 visible character/creature {cid} has no approved reference image；"
+                    f"請在 reference_paths.characters 綁定單視角裁切（正面頭像或背面全身），"
+                    f"不可沿用角色聖經的整張四視圖板"
+                )
         selected = visual_order
         secondary = [cid for cid in ranked if cid not in selected]
     else:
         selected = [cid for cid in ranked if cid not in no_visual_ids][:max(1, max_char_refs)]
         secondary = [cid for cid in ranked if cid not in selected]
+
+    # ---------- 未錨定的在場人物（複製人主因，送件前由 E19 攔截） ----------
+    in_frame_ids: List[str] = []
+    for shot in shots:
+        for cid in (shot.get("character_ids") or []):
+            if cid and cid not in in_frame_ids:
+                in_frame_ids.append(cid)
+    if stage5_binding:
+        for shot_binding in stage5_binding.get("shots", []) or []:
+            for cid in (shot_binding.get("visual_subject_ids") or []):
+                if cid and cid not in in_frame_ids:
+                    in_frame_ids.append(cid)
+    unanchored_in_frame: List[str] = []
+    for cid in in_frame_ids:
+        if cid in selected or cid in no_visual_ids:
+            continue
+        info = registry.get_character(cid, wardrobe_state=costume_of.get(cid) or seg_wardrobe)
+        if info.get("no_visual_reference") or info.get("voice_only") or is_narrator(cid):
+            continue
+        unanchored_in_frame.append(cid)
+    for cid in unanchored_stage5:
+        if cid not in unanchored_in_frame:
+            unanchored_in_frame.append(cid)
+    if unanchored_in_frame:
+        notes.append(
+            f"未錨定在場人物（會被 H3 補成複製臉）：{', '.join(unanchored_in_frame)}。"
+            f"請為其掛上自己的單視角裁切參考圖並在 stage5 綁定 identity_anchor_ids，或把該角色移出畫面。"
+        )
 
     first_variant_by_id: Dict[str, Dict[str, Any]] = {}
     for variant in creature_variants:
@@ -1045,22 +1327,116 @@ def compile_segment_h3(
 
     tag_of: Dict[str, str] = {}
     subject_picture_no: Dict[str, int] = {}
+    # ---------- 音色參考 <Audio N>（官方獨立編號） ----------
+    # 官方 ref-en §2.4：<Audio N> 是可單獨追蹤的參考音訊，用途之一是「參考說話人的音色與語氣」。
+    # 綁定格式：stage5 的 audio_references[{id, path, character_id, role, description_en}]。
+    # 只有「這一段 H3 真的要念出來」的說話人才需要音色參考；畫外音已外部化成 TTS，不需要。
+    on_screen_speakers: List[str] = []
+    for shot in shots:
+        speaker = (shot.get("dialogue_and_audio", {}) or {}).get("speaker")
+        if speaker and _shot_speaker_has_visible_mouth(shot, registry) and speaker not in on_screen_speakers:
+            on_screen_speakers.append(speaker)
+    audio_refs: List[Dict[str, Any]] = []
+    for entry in (stage5_binding or {}).get("audio_references", []) or []:
+        if not isinstance(entry, dict):
+            raise ValueError("Stage5 audio_references entries must be objects")
+        character_id = entry.get("character_id")
+        if character_id and character_id not in on_screen_speakers:
+            notes.append(
+                f"音色參考 {entry.get('id')} 對應的角色 {character_id} 在本段沒有可見嘴的台詞，"
+                f"已略過（畫外音由外部 TTS 負責，不需掛 H3 音色參考）"
+            )
+            continue
+        if not entry.get("path"):
+            raise ValueError(f"Stage5 audio_references entry {entry.get('id')} requires path")
+        audio_refs.append({
+            "id": str(entry.get("id") or ""),
+            "path": str(entry.get("path")),
+            "character_id": character_id,
+            "description": _clean(entry.get("description_en") or entry.get("desc_en") or ""),
+            "role": str(entry.get("role") or "voice-timbre"),
+        })
+    # <Audio N> 的編號在音訊類別內獨立從 1 開始（官方 ref-en §2.5），
+    # 先於主體編號決定，才能在 <Subject N> 的定義句裡直接綁定。
+    audio_tag_of: Dict[str, str] = {}
+    audio_ref_entries: List[Tuple[Dict[str, Any], str, Optional[str]]] = []
+    for idx, ref in enumerate(audio_refs, start=1):
+        tag = f"<Audio {idx}>"
+        audio_tag_of[str(ref.get("character_id") or "")] = tag
+        audio_ref_entries.append((ref, tag, speaker_ids.get(str(ref.get("character_id") or ""))))
     for k, cid in enumerate(selected, start=1):
         info = char_info(cid)
         tag_of[cid] = f"<Subject {k}>"
         subject_picture_no[cid] = k + 1
+        is_identity_anchor = cid in identity_anchor_ids
+        meta = asset_meta.get(cid, {})
+        is_panel_anchor = meta.get("reference_view") == "panel"
+        panel_label = str(meta.get("panel_label_en") or "").strip()
+        panel_role = str(meta.get("panel_role") or "back").strip() or "back"
         reference_images.append({
             "id": info["id"], "type": "creature" if info.get("is_creature") else "character",
             "description": info["desc_en"], "path": info["ref_img"],
             "is_primary_character": k == 1,
             **({"costume_id": costume_of.get(cid)} if costume_of.get(cid) else {}),
+            **({
+                "reference_view": "panel" if is_panel_anchor else ("non_face" if is_identity_anchor else "single_view"),
+                **({"panel_label_en": panel_label} if is_panel_anchor else {}),
+                **({"panel_role": panel_role} if is_panel_anchor else {}),
+                **({"crop_status": "single_view"} if is_identity_anchor and not is_panel_anchor else {}),
+            } if is_identity_anchor else {}),
         })
         desc = info["desc_en"] or info["name"]
-        subject_def_lines.append(f"<Subject {k}> is the character in <Picture {k + 1}>, {desc}.")
-        ret = f"<Subject {k}> (appears across shots): fully_preserved - the facial identity, hairstyle, and wardrobe from <Picture {k + 1}> are retained."
-        if info.get("is_creature"):
-            ret += " Ignore neutral gray/white studio background of creature turnaround sheet."
-        retention_lines.append(ret)
+        if is_panel_anchor:
+            # 整板查表：官方 ComfyUI 指引允許多格板，但必須逐格描述、鏡頭指向某一格。
+            # 這裡把「只用這一格、其餘格與正面臉都不匯入」寫進兩段式欄位。
+            if panel_role == "creature":
+                subject_tail = ("that panel is the only part of the sheet used, and the creature's other "
+                                "panels are not imported into the target video.")
+                retention_tail = ("the other panels of that sheet and its neutral gray studio background are "
+                                  "not imported, and no duplicate creature appears in the target video.")
+            elif panel_role == "profile":
+                subject_tail = ("that panel is the only part of the sheet used, and only the three-quarter "
+                                "profile from it may appear in the target video.")
+                retention_tail = ("the other panels of that sheet and its neutral gray studio background are "
+                                  "not imported, and the frontal face from that sheet is not imported.")
+            else:
+                subject_tail = ("that panel is the only part of the sheet used, and the face is never shown "
+                                "in the target video.")
+                retention_tail = ("the other panels of that sheet and its neutral gray studio background are "
+                                  "not imported, and no face appears in the target video.")
+            subject_def_lines.append(
+                f"<Subject {k}> is {panel_label} of <Picture {k + 1}>, {desc}; {subject_tail}"
+            )
+            retention_lines.append(
+                f"<Subject {k}> (appears across shots): partially_preserved - only {panel_label} of "
+                f"<Picture {k + 1}> is used: the hair, the headwear, the wardrobe and the body silhouette are "
+                f"retained; {retention_tail}"
+            )
+        elif is_identity_anchor:
+            # 背影／側身角色的參考圖不含可見正臉；用官方 partially_preserved 說明
+            # 保留哪些特徵，正面臉不匯入。
+            subject_def_lines.append(
+                f"<Subject {k}> is the figure in <Picture {k + 1}>, {desc}; this reference shows the "
+                f"character from behind, and the face is never shown in the target video."
+            )
+            ret = (
+                f"<Subject {k}> (appears across shots): partially_preserved - the hairstyle, the headwear, "
+                f"the wardrobe and the body silhouette from <Picture {k + 1}> are retained; the reference "
+                f"face is not imported and never appears in the target video."
+            )
+            ret += " Ignore the neutral gray studio background of the reference sheet."
+            retention_lines.append(ret)
+        else:
+            subject_def_lines.append(f"<Subject {k}> is the character in <Picture {k + 1}>, {desc}.")
+            ret = f"<Subject {k}> (appears across shots): fully_preserved - the facial identity, hairstyle, and wardrobe from <Picture {k + 1}> are retained."
+            if info.get("is_creature"):
+                ret += " Ignore neutral gray/white studio background of creature turnaround sheet."
+            retention_lines.append(ret)
+        # 音色綁定採用 FreeVideo 導演台自己的慣例（與 <Picture N> shows its appearance 對稱）：
+        # 「<Audio N> is its voice」。主體與音色的關係寫在主體那一行，H3 較不容易錯配。
+        voice_tag = audio_tag_of.get(cid)
+        if voice_tag:
+            subject_def_lines[-1] += f" {voice_tag} is its voice."
         if not info["desc_en"]:
             notes.append(f"{cid} 缺英文固定描述片段")
 
@@ -1083,6 +1459,28 @@ def compile_segment_h3(
                 line += ". " + " ".join(crop_notes)
             retention_lines.append(line)
 
+    # ---------- 音色參考 <Audio N>：官方獨立編號，與 <Picture>/<Subject> 分開 ----------
+    # 官方 ref-en §2.4：<Audio 1> is the voice-timbre reference for <Subject 1> (S1).
+    # 官方 ref-en §4.1 音訊的保留標記是 reference：只參考音色與語氣，不複製原訊號。
+    for ref, tag, speaker_id in audio_ref_entries:
+        subject_tag = tag_of.get(str(ref.get("character_id") or ""))
+        desc = ref.get("description") or "a single speaker's line recorded dry with no music"
+        if subject_tag and speaker_id:
+            subject_def_lines.append(
+                f"{tag} is the voice-timbre reference for {subject_tag} ({speaker_id}), containing {desc}."
+            )
+            retention_lines.append(
+                f"{tag}: reference - {subject_tag} ({speaker_id}) follows {tag}'s voice timbre and measured "
+                f"delivery without copying the original signal; the words in {tag} are not spoken in the target video."
+            )
+        else:
+            subject_def_lines.append(
+                f"{tag} is a voice-timbre reference containing {desc}."
+            )
+            retention_lines.append(
+                f"{tag}: reference - the target speaker follows {tag}'s voice timbre and measured delivery "
+                f"without copying the original signal; the words in {tag} are not spoken in the target video."
+            )
     # Stage5 supplementary props/body details are Pictures after the subject sequence.
     # They inform object or localized-detail appearance without becoming face Subjects.
     variant_picture_by_shot: Dict[str, List[Tuple[int, str]]] = {}
@@ -1165,6 +1563,15 @@ def compile_segment_h3(
             for sid in variant["shot_ids"]:
                 variant_picture_by_shot.setdefault(sid, []).append((pic_no, variant["variant"]))
 
+    # 音色參考的音訊素材排在所有圖像素材之後：官方 ref-en §2.5 明載 <Video N> 與
+    # <Audio N> 各自獨立編號，音訊不參與 <Picture N> 的序對。
+    for ref, tag, speaker_id in audio_ref_entries:
+        reference_images.append({
+            "id": ref["id"], "type": "audio", "description": ref["description"], "path": ref["path"],
+            "role": ref["role"], "character_id": ref.get("character_id"),
+            "speaker_id": speaker_id, "audio_tag": tag,
+        })
+
     # ---------- 風格與光線 ----------
     if stage5_binding:
         anchor = registry.style.get("style_anchor", "") or "cinematic film look"
@@ -1199,8 +1606,9 @@ def compile_segment_h3(
 
     mood = _clean(metadata.get("mood_en")) or _clean(metadata.get("summary_en"))
     focus = "<Subject 1>" if selected else "the scene"
+    task_type = "reference generation + audio reference" if audio_refs else "reference generation"
     summary_block = (
-        f"summary:\n[reference generation] A {target_dur:.1f}s {aspect} segment ({eff_d:.3f}s effective from {target_dur:.3f}s target) "
+        f"summary:\n[{task_type}] A {target_dur:.1f}s {aspect} segment ({eff_d:.3f}s effective from {target_dur:.3f}s target) "
         f"in {len(shots)} shots opening on <Picture 1>"
         + (f", {mood}." if mood else f", centred on {focus}.")
     )
@@ -1237,6 +1645,8 @@ def compile_segment_h3(
             break
     tail_hold = tail_hold and not final_second_has_dialogue
     used_motion: set = set()
+    spoken_lines: List[str] = []
+    external_narration: List[Dict[str, Any]] = []
     for idx, s in enumerate(shots, start=1):
         cam = s.get("camera_optics", {}) or {}
         shot_size = cam.get("shot_size", "MS")
@@ -1285,17 +1695,74 @@ def compile_segment_h3(
             line = dlg["line_verbatim"].strip()
             spk = dlg.get("speaker")
             identity = _dialogue_speaker_label(spk, registry)
+            speaker_tag = tag_of.get(spk)
+            speaker_id = speaker_ids.get(str(spk)) if spk else None
+            if speaker_tag and speaker_id:
+                # 官方 ref-en §5.4：參考主體發聲時要同時保留視覺標籤與說話人代號
+                subject_speaker = f"{speaker_tag} ({speaker_id})"
+            elif speaker_id:
+                # 官方：說話人不對應到任何 Subject 時，用穩定音色描述 + (Sx)
+                subject_speaker = f"{identity} ({speaker_id})"
+            else:
+                subject_speaker = identity
             window = _speech_window_clause(dlg)
             speaker_record = registry.characters.get(spk, {}) if spk else {}
             visibility = "offscreen" if (speaker_record.get("no_visual_reference") or speaker_record.get("voice_only")) else _dialogue_visibility(s)
-            if visibility == "offscreen":
-                delivery = f"The line is heard from {identity}; do not show the speaker, no visible lip movement, and visible characters' mouths stay closed. "
+            is_vo = _is_voiceover(s)
+            spoken_lines.append(line)
+            # 外部化判準：這句話沒有「可見的嘴」就不該由 H3 內建語音發出。
+            # 畫外音、旁白、背影／遮嘴說話全部改由外部 TTS 合成後於階段 7 混入；
+            # 有可見嘴的畫內對白才留 <d> 給 H3 當口型錨點。
+            no_visible_mouth = is_vo or visibility in ("offscreen", "mouth_hidden")
+            if narration_policy == "external" and no_visible_mouth:
+                external_narration.append({
+                    "shot_id": s.get("shot_id"),
+                    "global_shot_id": s.get("global_shot_id"),
+                    "speaker": spk,
+                    "speaker_id": speaker_id,
+                    "line": line,
+                    "language": "Chinese",
+                    "is_voiceover": is_vo,
+                    "start": ((dlg.get("speech_window") or {}) or {}).get("start"),
+                    "end": ((dlg.get("speech_window") or {}) or {}).get("end"),
+                })
+                verb = "narrates" if is_vo else "speaks"
+                delivery = (
+                    f"{subject_speaker} {verb} off-screen over this shot; the visible characters keep their "
+                    f"lips completely closed and continue their actions, and the shot carries only the location ambience. "
+                )
+                speech = f"; {window}{delivery}"
+            elif is_vo:
+                # 官方畫外音句式：says in an off-screen voiceover + <d> 後立刻說明嘴閉合
+                lips_owner = f"{speaker_tag}'s" if speaker_tag else "the on-screen character's"
+                delivery = f"{subject_speaker} says in an off-screen voiceover: "
+                speech = f"; {window}{delivery}<d>[Chinese] {line}</d> while {lips_owner} lips remain completely closed."
+            elif visibility == "offscreen":
+                delivery = (
+                    f"The line is heard from {subject_speaker} off-screen, while the visible characters' "
+                    f"lips remain completely closed. "
+                )
+                speech = f"; {window}{delivery}<d>[Chinese] {line}</d>"
             elif visibility == "mouth_hidden":
-                delivery = f"{identity} delivers the line with no visible lip movement. "
+                delivery = f"{subject_speaker} speaks with lips remaining completely closed: "
+                speech = f"; {window}{delivery}<d>[Chinese] {line}</d>"
             else:
                 who = tag_of.get(spk) or (secondary_short.get(spk) if spk else None) or focal
-                delivery = f"{identity} is the visible speaking character ({who}). "
-            speech = f"; {window}{delivery}<d>[Chinese] {line}</d>"
+                # 音色：穩定的描述詞（voice_4d_spec_en）＋ 官方音色參考 <Audio N>。
+                # 兩者一起才跨段穩：描述詞固定「聽起來像誰」，<Audio N> 固定「音色是哪一條」。
+                voice_bits: List[str] = []
+                descriptor = _english_voice_descriptor(dlg, notes)
+                if descriptor:
+                    voice_bits.append(descriptor)
+                audio_tag = audio_tag_of.get(str(spk)) if spk else None
+                if audio_tag:
+                    voice_bits.append(f"matching the voice timbre referenced from {audio_tag}")
+                voice_clause = (", " + ", ".join(voice_bits)) if voice_bits else ""
+                if speaker_tag and who == speaker_tag:
+                    delivery = f"{subject_speaker} is the visible speaking character{voice_clause}, and says: "
+                else:
+                    delivery = f"{subject_speaker} is the visible speaking character ({who}){voice_clause}, and says: "
+                speech = f"; {window}{delivery}<d>[Chinese] {line}</d>"
         else:
             speech = "; lips stay closed"
 
@@ -1308,6 +1775,20 @@ def compile_segment_h3(
         global_shot_id = s.get("global_shot_id")
         for picture_no, variant_name in variant_picture_by_shot.get(global_shot_id, []):
             stage_refs += f" Stage-specific reference: use <Picture {picture_no}> for the creature's {variant_name} morphology in this shot only."
+        # 整板查表角色：把「用哪一格」寫進鏡頭描述，讓模型知道該取板上的哪個人。
+        bound_shot_refs = next((b for b in (stage5_binding or {}).get("shots", []) or []
+                                if b.get("global_shot_id") == global_shot_id), {})
+        for cid in bound_shot_refs.get("visual_subject_ids") or []:
+            meta = asset_meta.get(cid, {})
+            if meta.get("reference_view") != "panel":
+                continue
+            pic_no = subject_picture_no.get(cid)
+            if not pic_no:
+                continue
+            stage_refs += (
+                f" The figure seen from behind matches {meta.get('panel_label_en')} in <Picture {pic_no}>; "
+                f"no other figure on that sheet appears in this shot."
+            )
 
         if idx == 1 and ref2va:
             head = f"[Shot 1] The scene opens with <Picture 1> as a scene/style reference for spatial guidance: {shot_size}{optics} of {focal}, as {mclause}."
@@ -1322,7 +1803,17 @@ def compile_segment_h3(
             if final_state:
                 tail += " End state: " + json.dumps(final_state, ensure_ascii=False, sort_keys=True) + "."
         action = action[:1].upper() + action[1:]
-        body = f"{head} {action}." + (f" Expression: {expr}" if expr else "") + blocking_clause + stage_refs + f"{speech}.{tail}"
+        marker = ""
+        if embed_cut_markers:
+            # 本專案的約定（非官方語法）：<scenetrans> 標在新場景的第一鏡結尾、
+            # <cutoff> 標在段落最後一鏡結尾，供剪輯與 QA 讀；只在 --embed-cut-markers 時寫入。
+            previous_scene = shots[idx - 2].get("scene_id") if idx > 1 else None
+            current_scene = s.get("scene_id")
+            if idx > 1 and current_scene and previous_scene and current_scene != previous_scene:
+                marker += " <scenetrans>"
+            if idx == n_shots:
+                marker += " <cutoff>"
+        body = f"{head} {action}." + (f" Expression: {expr}" if expr else "") + blocking_clause + stage_refs + f"{speech}.{tail}{marker}"
         det_lines.append(sanitize_english_text(body))
 
     detailed_block = "detailed_description:\n" + "\n".join(det_lines)
@@ -1337,6 +1828,9 @@ def compile_segment_h3(
             if f:
                 parts.append(f)
         foley = "; ".join(parts)
+    # 官方 §4.6 / ref-en §6：對白只寫在 detailed_description 的 <d> 區塊，
+    # 不得在 overall_soundscape 重複，否則 H3 會在環境音軌再念一次。
+    foley = _strip_dialogue_from_soundscape(foley, spoken_lines)
     soundscape_block = "overall_soundscape:\n" + foley
 
     music = _clean(layer2_data.get("non_diegetic_music")) or _clean(metadata.get("music_en"))
@@ -1369,6 +1863,25 @@ def compile_segment_h3(
     missing = [r["path"] for r in reference_images if not registry.path_exists(r["path"])]
     if stage5_binding and missing:
         raise ValueError(f"Stage5 has missing bound reference image(s): {', '.join(missing)}")
+    if narration_policy == "external" and external_narration:
+        notes.append(
+            f"畫外音／旁白 {len(external_narration)} 句已改為外部 TTS（未寫入 <d>），"
+            f"階段 7 需以 {narration_policy} 政策合成後混入"
+        )
+    if not h3_spec.in_supported_range(seg_frames):
+        notes.append(
+            f"⚠️ {seg_frames} 幀超出 H3 支援區間 "
+            f"{h3_spec.MIN_SUPPORTED_FRAMES}–{h3_spec.MAX_SUPPORTED_FRAMES}；送件前請拆段"
+        )
+    cut_markers = [
+        {
+            "shot_id": shot.get("shot_id"),
+            "at_seconds": round(float(shot.get("start_time", 0.0)), 3),
+            "type": "cut",
+        }
+        for shot in shots
+        if float(shot.get("start_time", 0.0)) > 0
+    ]
     return {
         "segment_id": seg_id,
         "scene_id": scene_id,
@@ -1377,17 +1890,30 @@ def compile_segment_h3(
             "aspect_ratio": aspect,
             "target_duration_sec": target_dur,
             "effective_duration_sec": round(eff_d, 3),
+            "effective_duration_sec_exact": eff_d,
+            "frames": seg_frames,
+            "frame_spec": f"{h3_spec.FRAME_QUANTUM_STEP}n+{h3_spec.FRAME_QUANTUM_OFFSET}@{h3_spec.FPS}fps",
+            "cut_markers": cut_markers,
+            "cut_marker_spec": "shots[].start_time；結構化資料，不寫進提示詞",
+            "cut_marker_tokens": {
+                "embedded": embed_cut_markers,
+                "spec": "<scenetrans> 標新場景首鏡、<cutoff> 標段落末鏡（本專案約定，非官方語法）",
+            },
             "rounding_mode": selected_rounding_mode,
             "rounding_reason": "dialogue-preserving" if contains_dialogue else metadata.get("rounding_reason", "configured"),
             "shots_count": n_shots,
             "style_lock": effective_style_lock,
             "qa_exclusions": negative,
             "palette_preset": metadata.get("palette_preset", ""),
+            "narration_policy": narration_policy,
         },
         "reference_images": reference_images,
         "h3_prompt": full_h3_prompt,
         "h3_loras": loras,
         "shots": shots,
+        "external_narration": external_narration,
+        "speaker_ids": speaker_ids,
+        "unanchored_in_frame_characters": unanchored_in_frame,
         "segment_end_state": layer2_data.get("segment_end_state"),
         "compile_notes": notes + [f"參考圖不存在: {p}" for p in missing],
     }
@@ -1538,6 +2064,16 @@ def main() -> int:
     parser.add_argument("--no-auto-lora", action="store_false", dest="auto_lora", help="停用自動推導 LoRA")
     parser.add_argument("--max-char-refs", type=int, default=1, help="每段最多掛載角色參考圖張數（預設 1 張，防止混臉）")
     parser.add_argument("--check", action="store_true", help="編譯完成後立即自動執行 audit_refs_and_segments 雙重審查")
+    parser.add_argument("--allow-normalize-warnings", action="store_true",
+                        help="允許 Layer 2 正規化警告通過（時間軸不一致／台詞窗越界）；預設是硬錯誤")
+    parser.add_argument("--record-deps", action="store_true",
+                        help="編譯成功後更新 <project-root>/.h3d-deps.json（segment 級 stale 帳本）")
+    parser.add_argument("--embed-cut-markers", action="store_true",
+                        help="在提示詞寫入 <scenetrans>／<cutoff> 標記（本專案約定，非官方語法）")
+    parser.add_argument(
+        "--narration-policy", type=str, default="external", choices=["external", "h3-native"],
+        help="畫外音／旁白政策：external=不寫入 H3 <d>，改由外部 TTS 合成後於階段 7 混入（預設）；h3-native=沿用 H3 內建語音",
+    )
     parser.add_argument("--project-root", type=pathlib.Path, default=pathlib.Path("."), help="專案根目錄（預設當前目錄）")
     parser.add_argument("--skip-stage-gate", action="store_true", help="強制跳過階段 4 九宮格門禁檢查（僅限測試或除錯）")
 
@@ -1602,6 +2138,9 @@ def main() -> int:
                 max_char_refs=args.max_char_refs,
                 auto_lora=args.auto_lora,
                 stage5_binding=stage5_binding,
+                narration_policy=args.narration_policy,
+                allow_normalize_warnings=getattr(args, "allow_normalize_warnings", False),
+                embed_cut_markers=getattr(args, "embed_cut_markers", False),
             )
             compiled_results.append(seg_res)
             print(f"  ✅ 成功編譯段落: {seg_res['segment_id']} ({len(seg_res['shots'])} 鏡, {seg_res['metadata']['target_duration_sec']}s)")
@@ -1651,7 +2190,7 @@ def main() -> int:
             sid = seg["segment_id"]
             dur = seg["metadata"]["target_duration_sec"]
             # 模式 A: 參考圖序對
-            refs_res = audit_refs_and_subjects(seg)
+            refs_res = audit_refs_and_subjects(seg, project_root=args.project_root)
             # 模式 B: H3 提示詞 13 條自檢
             lint_res = lint_h3_prompt(
                 seg["h3_prompt"],
@@ -1680,6 +2219,21 @@ def main() -> int:
 
             for w in refs_res["warnings"] + lint_res["warnings"]:
                 print(f"    [警告] {w}")
+
+            # 失敗目錄（P6）：把已知失敗模式套到這份提示詞；目錄壞掉算錯誤，不靜默。
+            try:
+                catalog = failure_catalog.load_catalog(args.project_root)
+                catalog_res = failure_catalog.lint_text(seg["h3_prompt"], catalog)
+            except failure_catalog.CatalogError as exc:
+                print(f"    [失敗目錄錯誤] 無法載入或執行：{exc}")
+                total_errors += 1
+                catalog_res = {"errors": [], "warnings": []}
+            for item in catalog_res["warnings"]:
+                print(f"    [失敗目錄] {failure_catalog.format_hit(item)}")
+                total_warnings += 1
+            for item in catalog_res["errors"]:
+                print(f"    [失敗目錄錯誤] {failure_catalog.format_hit(item)}")
+                total_errors += 1
             total_warnings += len(refs_res["warnings"]) + len(lint_res["warnings"])
             for note in seg.get("compile_notes", []):
                 print(f"    [編譯提醒] {note}")
@@ -1690,6 +2244,19 @@ def main() -> int:
         print("=" * 75)
         if total_errors > 0:
             return 1
+
+    # 更新 segment 級依賴帳本（選用）：只有在上面所有檢查都通過後才寫，
+    # 否則壞掉的編譯會變成新的「乾淨基準」。merge 語義見 deps.py。
+    if getattr(args, "record_deps", False):
+        try:
+            import deps as deps_mod
+        except ImportError:  # pragma: no cover - 套件匯入路徑
+            from . import deps as deps_mod
+        try:
+            ledger = deps_mod.record(args.project_root)
+            print(f"🧾 已合併更新依賴帳本: {ledger}")
+        except ValueError as exc:
+            print(f"⚠️ 依賴帳本未更新：{exc}", file=sys.stderr)
 
     return 0
 

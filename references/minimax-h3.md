@@ -72,6 +72,11 @@ MiniMax H3（即 Hailuo 3）是**全模態影視生成模型**，有官方規定
 - 台詞兩句塞一個 `<d>`；3 秒 shot 講一段話
 - 代名詞或場景與照片不符（會中途換人）
 - 「HUD elements」「some labels」沒逐字打出
+- 提示詞出現沒有參考圖的人群描述（tourists／crowd／群眾／路人）
+- 提示詞出現第二個人，但該段只有一張臉參考圖
+- 畫面出現多視圖板（四視圖板／表情板）當參考圖，且**沒有**宣告 `reference_view: "panel"` ＋ `panel_label_en`
+- 提示詞提到音色參考卻沒掛 `<Audio N>`／沒綁音色母帶（`subject_definitions` 缺 `<Audio N> is the voice-timbre reference for <Subject N> (Sx).`）
+- `<d>` 沒有 `(Sx)` 說話人代號
 
 ## 本專案既有定版（優先套用）
 
@@ -121,7 +126,7 @@ MiniMax H3 的文字理解器為 **Qwen3-VL-32B**，不支援 Negative Prompt。
 
 ---
 
-## Windows + FreeVideo 七大工程坑速查表
+## Windows + FreeVideo 工程坑速查表（1–11）
 
 | # | 陷阱名稱 | 症狀與報錯 | 根本原因 | 根治解法 |
 |---|---|---|---|---|
@@ -132,7 +137,29 @@ MiniMax H3 的文字理解器為 **Qwen3-VL-32B**，不支援 Negative Prompt。
 | 5 | **多角色平均化「撞臉」坑** | 三個角色同框全部長成同一張大眾臉 | 同時餵入多張體型相近的角色設定圖，模型自注意力特徵混淆 | 保守預設「一段一張角色圖」，拍反應拆成單人特寫；群戲時確保角色特異性視覺錨點極度鮮明 |
 | 6 | **正面特寫「背後出怪」景深陷阱** | 角色大特寫時，肩膀後面突然長出怪物頭部 | 特寫鏡頭 Prompt 描寫了「遠處的怪物」 | 正面特寫 Prompt **絕不描寫遠處主體**！地理與空間由前導背影段建立，特寫純寫面部微表情 |
 | 7 | **首幀與 H3 畫風割裂坑** | 影片畫面跟前後片段風格完全不搭、強烈塑膠感 | 誤用 Qwen/GPT 生成的首幀與 H3 Ref2VA 混剪（未並排對照） | 嚴禁混用！主力定案一律走獨立 Ref2VA；若要用首幀必須全片統一模型並排比對過審 |
-| 8 | **無參考圖的第二張正臉（2026-10-19 實測，n=2，方向性）** | 單圖段落只要提示詞提到對方，4/4 段都會畫出第二人，且是唯一那張圖的複製臉；拆段後說話者還可能錯邊 | 每段預設只掛 1 張角色圖，配角只有文字描述 | 過肩鏡（只露配角肩背）最穩：2/2 只露一張臉、最像本人；要配角正臉就另開一段並掛其圖。外型差異大的兩人掛 2 圖同框未混臉（n=1）；「寫成正反打」不保證拍成單人 CU（2/3 拍成雙人側面），需逐支看片 |
+| 8 | **無參考圖的第二張正臉（2026-10-19 實測，n=2，方向性）** | 單圖段落只要提示詞提到對方，4/4 段都會畫出第二人，且是唯一那張圖的複製臉；拆段後說話者還可能錯邊 | 每段預設只掛 1 張角色圖，配角只有文字描述 | 過肩鏡（只露配角肩背）最穩：2/2 只露一張臉、最像本人；要配角正臉就另開一段並掛其圖。外型差異大的兩人掛 2 圖同框未混臉（n=1）；「寫成正反打」不保證拍成單人 CU（2/3 拍成雙人側面），需逐支看片（三定律與門禁對照見 `references/consistency.md` §7.4） |
+| 9 | **無參考圖的「第二個人」→ 複製臉（2026-10-19 實測 n=4，4/4 命中）** | 提示詞提到對方卻沒給對方參考圖，畫面就長出第二個人，而且那張臉是唯一那張參考圖主角的複製臉；刪掉參考圖等於把對方的身分送給主角 | 段內只有一張可辨識人臉參考圖，H3 沒有第二個身分可用，只能複寫唯一身分（Vera 論文：subject confusion／attribute swapping／excessive copying of reference-specific appearance cues【社群/論文】） | 每個重要角色（含背影、側身）都掛自己的參考圖（stage5 `identity_anchor_ids`）；純文字配角一律寫成不可辨識剪影或移出畫面；門禁 E19／E21，見 `references/consistency.md` §7.4 |
+| 10 | **完整三視圖／表情板當參考圖 → 背景長出同款複製人** | 背景突然多出幾個穿著與參考板相同衣服、長著同一張臉的人，像「一個人在海邊走，身後跟著三個穿同款衣服的自己」 | 影片模型會把參考圖的**版面**一起複製進成片（官方 skill 明文禁止 4-panel sheet：「not one 4-panel sheet, because video models may copy panel layouts into the final film」【官方】）。**多格板本身不是違規**——ComfyUI 官方 H3 指引允許多格板，只要「獨立編號、逐格描述、鏡頭指向某一格」【官方】；違規的是**把整板當成扁平的身分來源**餵進去 | 角色參考圖**預設**改成單一視角裁切（正面身份裁切 950×910、背面全身裁切約 400×960）；2560×1440 整板**未經宣告不得送件**；門禁 E20（≥1600×900 且長寬比 ≥1.5 即擋）。官方允許的例外是**宣告式整板查表**：stage5 宣告 `reference_view: "panel"` ＋ 必填 `panel_label_en`（如 `"the fourth figure from the left, a full-body back view"`），且該角色只能是**不露臉的身份錨點**（不能同時是 `face_subject_ids`）；缺 `panel_label_en` → 編譯器丟 `ValueError`、送件前 E27 報錯。**但整板查表尚未在本專案 A/B 實測，仍有把其他格也畫進畫面的風險**，單視角裁切才是低風險預設（細節見 `references/consistency.md` §7.4） |
+| 11 | **提示詞缺 `(Sx)` 說話人代號 → 畫外音長出第二個人（0/13 段合規）** | 寫了 `<d>` 台詞或畫外音卻沒有 `(S1)` 這類說話人代號，聲音被掛到畫面上唯一那張臉上，於是長出第二個人；有時還會「說話者錯邊」 | 官方要求發聲者（含畫外音）都要有穩定 ID；沒有 ID 時 H3 只能猜，而段內它只猜得到唯一那張臉（官方 base 指南 §4.4：發聲者使用 `(S1)`、`(S2)` 等穩定 ID【官方】） | 每個發聲者都要有 `(Sx)`，且說話人與 `<Subject N>` 綁定（`<Subject 2> (S1) turns toward the woman and says, <d>[English] …</d>`）；畫外音同形並標 `off-screen`；門禁 E22／E23，見 `references/consistency.md` §7.4 |
+
+---
+
+## 官方 Ref2VA 格式合規速查（本專案實作對照）
+
+官方 Ref2VA 的 `retention_analysis` 對可見內容**只有四個固定標記**：`fully_preserved`、`partially_preserved`、`attribute_transfer`、`weak_reference`——**沒有「忽略」這個標記**；`weak_reference` 的語意是「只保留風格、類別、構圖或氛圍的廣泛相似」，用在人物身上會把對方降級成一個泛用人。下表把官方要求對到本專案的函式、欄位與旗標，以及不照做時的症狀。
+
+| 官方要求 | 本專案實作（函式／欄位／旗標） | 未合規時的症狀 |
+|---|---|---|
+| 【官方】`<Subject N> (Sx)` 說話人綁定：physically speaks 要同時保留視覺參考標籤與說話人 ID | `compile_layer2_to_h3.py` 的 `_assign_speaker_ids()` 產生 `speaker_ids`，提示詞寫成 `<Subject 2> (S1) turns toward the woman and says, <d>[English] …</d>`；畫外音同形並標 `off-screen` | 聲音被掛到畫面上唯一那張臉上，長出第二個人（門禁 **E22**） |
+| 【官方】畫外音用原句 `says in an off-screen voiceover`，且每個 voiceover `<d>` 之後要說明對應畫面角色的嘴唇保持閉合 | 編譯器在畫外音 `<d>` 之後直接產出官方句式；E23 檢查 `lips remain completely closed` 是否存在 | 畫面角色的嘴跟著旁白開合，成片像角色在自言自語（門禁 **E23**） |
+| 【官方】`partially_preserved` 用於「保留服裝與體型、但不匯入臉」的身份錨點 | stage5 `identity_anchor_ids` → 編譯器輸出 `partially_preserved - the hairstyle, the headwear, the wardrobe and the body silhouette from <Picture N> are retained; the reference face is not imported and never appears in the target video.` | 用錯標記（`weak_reference` 會把角色降級成泛用人）或乾脆省略參考圖 → 主角的複製臉長在別人身上（門禁 **E19**／**E26**） |
+| 【官方】`overall_soundscape` 不得重複台詞：對白、歌唱、情境音樂都已屬於多模態描述欄 | 編譯器把台詞只寫在 `detailed_description` 的 `<d>` 區塊，環境音欄只留環境與動作音 | H3 在環境音軌把台詞再念一次，觀眾聽到同一句說兩遍（門禁 **E25**） |
+| 【官方】禁止多視圖板：不要一張 4-panel sheet，影片模型會把版面複製進成片；【官方 ComfyUI 指引】多格板可以用，但必須獨立編號、逐格描述、鏡頭指向某一格 | 送件前 E20 量參考圖像素（≥1600×900 且長寬比 ≥1.5 → 錯誤，**除非**宣告 `reference_view: "panel"` ＋ 非空 `panel_label_en`）；`submit_h3_segments.py` 傳 `project_root`，讓 audit 讀得到像素；宣告查表缺格位 → E27 | 背景長出多個穿同款衣服、長同一張臉的複製人（門禁 **E20**／**E27**） |
+| 【官方】參考素材要逐一對應主體（`<Picture N>` ↔ `<Subject N>` 序對不可錯位），沒有參考圖的人不該被寫成具體人物 | stage5 `identity_anchor_ids` 必須對得到 `reference_paths.characters`（否則編譯器丟 `ValueError`）；編譯器把在場但無圖的角色寫進 `unanchored_in_frame_characters` | 提示詞裡的群眾／路人被補成主角造型，火山島上長出整群白襯衫學生（門禁 **E19**／**E21**） |
+| 【官方】每張參考素材只對應一個主體；【本專案保守預設】一段最多一張「可辨識人臉」參考圖（無臉裁切不計） | 混臉警告只計算 `reference_view != "non_face"` 的角色參考圖；`reference_view: "non_face"` 的背影／側身裁切不計人臉 | 兩張可辨識臉同段會被平均成同一張臉（混臉）；無臉裁切本來就是為此設計的，本專案實測多張體型相近的角色圖會被融合成同一張臉 |
+| 【官方】`<Audio N>` 是可單獨追蹤的參考音訊，用途之一是「參考說話人的音色與語氣」；綁定式為 `<Audio 1> is the voice-timbre reference for <Subject 1> (S1).`，音訊的保留標記用 `reference`（只參考音色與語氣、**不複製原訊號**），且只參考音色時**不得**把母帶原句帶進目標影片 | stage5 `audio_references[{id, path, character_id, role, description_en}]` → 編譯器產出 `<Audio N>` 綁定句、`reference` 保留標記與固定描述詞 `voice_4d_spec_en`；音訊素材排在**所有圖像素材之後**（`<Audio N>` 獨立編號，見官方 §2.5）；只掛給本段**真的有可見嘴**說話的角色，畫外音（已外部化 TTS）不掛；**本機 FreeVideo 路徑送得進音訊參考**（`FreeVideo · Media` 的 `Reference audio` 槽，媒體型態依副檔名分類，音訊檔由 `submit_h3_segments.py` 的 `upload_reference_media()` 上傳）；FreeVideo 導演台另有一種自動前綴寫法 `<Subject 1> is the character in <Picture 2>, a teenage boy in a light short-sleeved shirt. <Audio 1> is its voice.`（與 `<Picture N> shows its appearance` 對稱） | 同一角色在每一段是不同音色（跨片段不斷換人；音色參考不保證跨段一致）；或母帶原句被念出來，等於同一句話出現兩次【官方 ref-en §2.4／§4.1】；或音色參考送到了但**口型對不上**（音訊參考不鎖輸出音軌與口型）；或兩種綁定寫法的 `<Audio j>` 對不上帳（角色發出別人的音色） |
+
+官方原文：[`skills/h3-prompt-writing/references/ref-en.txt`](https://github.com/MiniMax-AI/MiniMax-H3/blob/main/skills/h3-prompt-writing/references/ref-en.txt)（§5.4 說話人綁定與 `off-screen`；§2.2 `<Picture N>` 當分鏡／鏡頭規劃錨點；§2.4 `<Audio N>` 音訊參考與音色參考綁定式；§4.1 音訊保留標記 `reference`；§2.5 `<Video N>` 與 `<Audio N>` 各自獨立編號）｜[`skills/h3-prompt-writing/references/base-en.txt`](https://github.com/MiniMax-AI/MiniMax-H3/blob/main/skills/h3-prompt-writing/references/base-en.txt)（§4.4 說話人 ID 與 `says in an off-screen voiceover`、§4.6 `overall_soundscape` 分工）｜官方 skill [`minimalist-product-ad-generator/SKILL.md`](https://github.com/MiniMax-AI/MiniMax-H3/blob/main/skills/minimalist-product-ad-generator/SKILL.md)（禁止 4-panel sheet）｜多格板用法見 ComfyUI 官方文件 [docs.comfy.org](https://docs.comfy.org)（MiniMax H3 提示詞指引：多格板需獨立編號、逐格描述、鏡頭指向某一格）｜同一批文件也收在 [huggingface.co/MiniMaxAI/MiniMax-H3](https://huggingface.co/MiniMaxAI/MiniMax-H3) 的 `docs/`。中文手冊另見社群轉載 [h3skills.com/anthology](https://h3skills.com/anthology)：「人物露脸只能是近景或特写，远景只能是背影、侧背或环境空镜，不要正脸远景。」
 
 ---
 
