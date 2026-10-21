@@ -2039,7 +2039,137 @@ def build_stage_5(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
     return len(errors) == 0, errors, html_out
 
 
+def _load_bible_characters(project_dir: Path) -> Dict[str, Dict[str, Any]]:
+    """讀 adapt/bible.json，回傳 character_id -> 角色條目（階段 6 對照設定圖用）。"""
+    path = project_dir / "adapt" / "bible.json"
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    result: Dict[str, Dict[str, Any]] = {}
+    for ch in data.get("characters", []) or []:
+        cid = str(ch.get("character_id") or ch.get("id") or "")
+        if cid:
+            result[cid] = ch
+    return result
+
+
+def _manifest_character_images(project_dir: Path) -> Dict[str, str]:
+    """assets/reference-manifest.json 的 source_id -> target_path。
+
+    實務上 bible.json 常常沒有 reference_image（只有 character_id），真正的圖
+    登記在 reference-manifest（stable_id / source_id / target_path）。階段 6 要
+    對照設定圖，就必须從這裡補，否則每一段都顯示缺圖。
+    """
+    path = project_dir / "assets" / "reference-manifest.json"
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    mapping: Dict[str, str] = {}
+    for asset in data.get("assets", []) or []:
+        target = str(asset.get("target_path") or "")
+        if not target:
+            continue
+        for token in re.split(r"[/,、;\s]+", str(asset.get("source_id") or "")):
+            token = token.strip()
+            if token.startswith(("C-", "E-", "CREATURE-", "W-")):
+                mapping.setdefault(token, target)
+    return mapping
+
+
+def _segment_layer2(project_dir: Path, seg_id: str) -> Optional[Tuple[Path, Dict[str, Any]]]:
+    layer_dir = project_dir / "layer2"
+    if not layer_dir.exists():
+        return None
+    for path in sorted(layer_dir.glob("layer2-*.json")):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8-sig"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        sid = str(data.get("segment_id") or path.stem.replace("layer2-", ""))
+        if sid == seg_id:
+            return path, data
+    return None
+
+
+def _sketch_visuals(project_dir: Path, layer2_path: Path,
+                    data: Dict[str, Any]) -> List[Tuple[str, Path]]:
+    """該段的九宮格與逐鏡構圖（沿用 stage4_artifacts 的候選規則，但容忍部分缺圖）。"""
+    seg_id = str(data.get("segment_id") or layer2_path.stem.replace("layer2-", ""))
+    found: List[Tuple[str, Path]] = []
+    for cand in (project_dir / "images" / f"grid-{seg_id}.png",
+                 layer2_path.parent / f"grid-{seg_id}.png"):
+        if cand.is_file():
+            found.append((f"九宮格總覽 {seg_id}", cand))
+            break
+    for index, shot in enumerate(data.get("shots", []) or [], 1):
+        shot_id = str(shot.get("shot_id") or f"SH{index:02d}")
+        candidates: List[Path] = []
+        # 專案實務的兩種映射：shot.sketch_file（逐鏡）與 grid_file（整頁九宮格，
+        # 例如 layer2/grids-batch/grid-EP01-G03.png）。兩者都要能顯示。
+        grid_ref = None
+        generation = shot.get("sketch_generation") or shot.get("metadata") or {}
+        if isinstance(generation, dict):
+            grid_ref = generation.get("grid_file")
+        grid_ref = grid_ref or shot.get("grid_file")
+        if isinstance(grid_ref, str) and grid_ref.strip():
+            for g in (project_dir / grid_ref, layer2_path.parent / grid_ref):
+                if g.is_file():
+                    found.append((f"九宮格 {Path(grid_ref).stem}", g))
+                    break
+        sketch = shot.get("sketch_file")
+        if isinstance(sketch, str) and sketch.strip():
+            candidates.extend((project_dir / sketch, layer2_path.parent / sketch))
+        candidates.extend((
+            project_dir / "panels" / f"panel-{index:02d}-{shot_id}.png",
+            layer2_path.parent / "panels" / f"panel-{index:02d}-{shot_id}.png",
+            project_dir / f"panel-{index:02d}-{shot_id}.png",
+        ))
+        for cand in candidates:
+            if cand.is_file():
+                found.append((f"構圖 {index:02d}·{shot_id}", cand))
+                break
+    seen, unique = set(), []
+    for label, path in found:
+        key = path.resolve().as_posix()
+        if key not in seen:
+            seen.add(key)
+            unique.append((label, path))
+    return unique
+
+
+def _segment_character_visuals(project_dir: Path, bible: Dict[str, Dict[str, Any]],
+                               shots: List[Dict[str, Any]],
+                               manifest: Optional[Dict[str, str]] = None) -> List[Tuple[str, str, Optional[Path]]]:
+    """該段出場角色 -> (cid, 顯示名, 設定圖實體路徑或 None)。"""
+    manifest = manifest or {}
+    ordered: List[str] = []
+    for shot in shots:
+        for cid in shot.get("character_ids") or []:
+            if str(cid) not in ordered:
+                ordered.append(str(cid))
+    result = []
+    for cid in ordered:
+        entry = bible.get(cid) or {}
+        name = str(entry.get("canonical_name") or entry.get("name") or cid)
+        raw = entry.get("reference_image") or entry.get("image_path") or manifest.get(cid) or f"images/{cid}.png"
+        raw = str(raw)
+        _src, real = rel_img_src(project_dir, raw)
+        result.append((cid, name, real))
+    return result
+
+
 def build_stage_6(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[str], str]:
+    """階段 6：分段影片 × 九宮格構圖 × 角色設定圖 × QA 指標，四項並排驗收。
+
+    九宮格與設定圖是「視覺對照」，缺圖只顯示紅框並在 KPI 揭示覆蓋率，
+    **不阻擋核准**——擋不擋由 QA 證據（stage6_errors）決定。
+    """
     errors: List[str] = stage6_errors(project_dir)
     videos: List[Path] = []
     qa_path = project_dir / "videos" / "qa-report.json"
@@ -2064,22 +2194,94 @@ def build_stage_6(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
         errors.append("QA 報告中尚無可播放的專案影片檔案！")
         return False, errors, ""
 
+    bible = _load_bible_characters(project_dir)
+    manifest = _manifest_character_images(project_dir)
     cards: List[str] = []
+    grid_covered = 0
+    design_covered = 0
+
     for vp in videos:
+        seg_id = vp.stem
         v_rel = "../" + vp.relative_to(project_dir.resolve()).as_posix()
-        q_item = qa_map.get(vp.stem, {})
+        q_item = qa_map.get(seg_id, {})
         q_pass = q_item.get("passed") is True
+
+        layer = _segment_layer2(project_dir, seg_id)
+        sketches: List[Tuple[str, Path]] = []
+        design_boxes: List[str] = []
+        if layer is not None:
+            layer_path, layer_data = layer
+            sketches = _sketch_visuals(project_dir, layer_path, layer_data)
+            characters = _segment_character_visuals(project_dir, bible, layer_data.get("shots", []) or [], manifest)
+            if characters and all(real is not None for _cid, _n, real in characters):
+                design_covered += 1
+            for cid, name, real in characters:
+                if real is not None:
+                    src_rel, _ = rel_img_src(project_dir, real.relative_to(project_dir).as_posix()) \
+                        if real.is_relative_to(project_dir.resolve()) else (real.as_uri(), real)
+                    dims = get_png_dimensions(real)
+                    dim_str = f"{dims[0]}×{dims[1]} px" if dims else "圖檔"
+                    design_boxes.append(
+                        f'<div class="asset-img-box">'
+                        f'  <img src="{src_rel}" alt="{html.escape(name)}">'
+                        f'  <div class="asset-meta-bar">'
+                        f'    <span class="tag-badge gold">{html.escape(name)}</span>'
+                        f'    <code>{html.escape(cid)}</code>'
+                        f'    <span class="tag-badge emerald">{dim_str}</span>'
+                        f'  </div>'
+                        f'</div>'
+                    )
+                else:
+                    design_boxes.append(
+                        f'<div class="missing-box">❌ 缺漏設定圖：{html.escape(name)}'
+                        f'（<code>{html.escape(cid)}</code>）<br>請先完成階段 2 資產圖</div>'
+                    )
+
+        if sketches:
+            grid_covered += 1
+            grid_boxes = []
+            for label, sp in sketches:
+                src_rel, _ = rel_img_src(project_dir, sp.relative_to(project_dir).as_posix())
+                dims = get_png_dimensions(sp)
+                dim_str = f"{dims[0]}×{dims[1]} px" if dims else "PNG"
+                grid_boxes.append(
+                    f'<div class="asset-img-box">'
+                    f'  <img src="{src_rel}" alt="{html.escape(label)}">'
+                    f'  <div class="asset-meta-bar">'
+                    f'    <span class="tag-badge">{html.escape(label)}</span>'
+                    f'    <span class="tag-badge emerald">{dim_str}</span>'
+                    f'  </div>'
+                    f'</div>'
+                )
+            grid_html = f'<div class="grid-gallery">{"".join(grid_boxes)}</div>'
+        else:
+            grid_html = (
+                '<div class="missing-box">❌ 這一段找不到九宮格或逐鏡構圖 PNG'
+                '（<code>images/grid-*.png</code> 或 <code>panels/panel-*.png</code>）<br>'
+                '請先完成階段 4 並核准，再回來對照。</div>'
+            )
+
+        design_html = (
+            f'<div class="thumb-strip">{"".join(design_boxes)}</div>' if design_boxes
+            else '<p class="md-p">（此段沒有登記出場角色，或 layer2 缺少 character_ids）</p>'
+        )
+
         cards.append(
             f'<article class="sbs-card">'
             f'  <div class="sbs-header">'
-            f'    <h3 class="sbs-title">🎞️ 影片片段：`{html.escape(vp.name)}`</h3>'
+            f'    <h3 class="sbs-title">🎞️ 影片片段：<code>{html.escape(vp.name)}</code></h3>'
             f'    <span class="tag-badge {"emerald" if q_pass else "rose"}">{"技術 QA PASS" if q_pass else "技術 QA FAIL"}</span>'
             f'  </div>'
             f'  <div class="sbs-body">'
             f'    <div class="sbs-spec">'
             f'      <video controls preload="metadata" src="{v_rel}"></video>'
+            f'      <p class="md-p">① 先看動作與表演：穿模／染色／布偶化；② 再對右上九宮格看走位與景別；③ 最後對右下設定圖看臉與服裝。</p>'
             f'    </div>'
             f'    <div class="sbs-visual">'
+            f'      <h4 class="md-h4">九宮格／逐鏡構圖（階段 4）</h4>'
+            f'      {grid_html}'
+            f'      <h4 class="md-h4">角色設定圖（階段 2）</h4>'
+            f'      {design_html}'
             f'      <h4 class="md-h4">自動品質審查數據 (verify_video_shot.py)</h4>'
             f'      <div class="qa-box">{qa_panel(q_item)}</div>'
             f'    </div>'
@@ -2089,16 +2291,20 @@ def build_stage_6(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
 
     kpis = [
         ("已生成影片片段", f"{len(videos)} 支", "gold"),
+        ("九宮格覆蓋", f"{grid_covered}/{len(videos)} 段", "emerald" if grid_covered == len(videos) else "rose"),
+        ("設定圖覆蓋", f"{design_covered}/{max(1, len(videos))} 段", "emerald" if design_covered == len(videos) else "rose"),
         ("QA 報告狀態", "已產出" if qa_path.exists() else "待執行", "emerald" if qa_path.exists() else "cyan"),
     ]
     body = f'<div class="side-by-side-list">{"".join(cards)}</div>'
     checklist = [
         "已逐支播放影片，確認無道具懸空吸附穿模、無角色衣服染色、無怪獸布偶化",
-        "人物臉部五官與階段 2 設定圖一致，動作打擊感與時間減速節奏符合原著戲劇張力",
+        "影片走位／景別與同卡九宮格一致；若不一致，標記為重拍，不要只看 QA 綠燈",
+        "人物臉部五官與同卡設定圖一致（同一個人、同一套服裝狀態）",
+        "技術 QA 通過不代表表演、光影與台詞已通過人工審核",
     ]
     html_out = wrap_studio_html(
         project_dir, 6, state,
-        "直接於瀏覽器內播放生成的各段影片，並對照自動技術審查指標。技術 QA 通過不代表人物、光影、表演或台詞已通過人工審核。",
+        "同一段的三方對照：左邊播放影片，右邊由上而下是階段 4 的構圖、階段 2 的設定圖、以及 verify_video_shot.py 的量化結果。缺圖會顯示紅框，但不會阻擋核准——擋不擋由 QA 證據決定。",
         kpis, body, checklist
     )
     return len(errors) == 0, errors, html_out

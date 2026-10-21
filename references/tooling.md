@@ -76,7 +76,11 @@ python scripts/h3d.py deps --root . --status --strict
 
 > ack 的定位是「人看過並接受」，不是「讓 gate 閉嘴」。沒有 ack 就送不出去，這是刻意的。
 
-### (e) 切點標記（選用，非官方語法）
+### (e) 階段 6 的「影片 × 九宮格 × 設定圖 × QA」頁
+
+`review/stage-6-videos.html` 每張卡左邊是影片，右邊由上而下是階段 4 構圖（`grid-*` 或逐鏡 `panel-*`）、階段 2 角色設定圖（`adapt/bible.json` 或 `assets/reference-manifest.json` 對映）、以及 `qa-report.json` 的量化欄位。缺圖只顯示紅框，**不阻擋核准**。
+
+### (f) 切點標記（選用，非官方語法）
 
 `h3d compile ... --embed-cut-markers` 會在提示詞寫入：
 

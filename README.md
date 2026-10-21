@@ -38,6 +38,7 @@
 | ⚡ **H3 官方六段式批次編譯** | `compile_layer2_to_h3.py` 一鍵產出 `prompts-epXX.md` 與 `segments-epXX.json`、防混臉單圖排序、切點時間保護（$D - \text{末切點} \ge 2.05s$）、LoRA 適配與 `--check` 雙重對帳。 |
 | 🎯 **切點標記（選用）** | `compile --embed-cut-markers` 在提示詞寫入 `<cutoff>`（段末）與 `<scenetrans>`（跨場景首鏡），並在 `metadata.cut_marker_tokens` 記錄規格；預設關閉，因為那是本專案約定、不是官方語法。 |
 | 🚀 **批次送件預檢** | `submit_h3_segments.py` 提供 `--dry-run`、參考圖檢查、可用 GPU 診斷與非同步任務處理；實際需求依模型與後端而異。 |
+| 🖼️ **影片四欄對照驗收** | 階段 6 審核頁把同一段的**影片／九宮格（階段 4）／角色設定圖（階段 2）／QA 數據**放在一起；缺圖顯示紅框與覆蓋率，但不阻擋核准（擋不擋由 QA 證據決定）。 |
 | 🛡️ **批次自動審查門禁** | `verify_video_shot.py` 修復分段總時長精確對齊、支援 `--segments` 批次掃描、防灰階線稿滲透、防九宮格分屏線殘留，並輸出**證據分級**（`VERIFIED／PARTIAL／UNVERIFIED`）串聯 `color_qa.py` 匯總 `qa-report.json`。 |
 | 🎬 **配音字幕與成片組裝** | `assemble_episode.py` 可選字幕／配音與 FFmpeg 組裝；**旁白／畫外音走外部 TTS**（引擎由 `tts_doctor.py` 盤點：VoiceStudio／Fish Audio／自帶 API），畫內對白保留 H3 口型。外部 narration Markdown 需先轉成支援的 inline 欄位或交給剪輯工具。 |
 | ⚖️ **多維程式對帳（P0）** | `audit_refs_and_segments.py` 嚴查參考圖陣列、主體定義、說話者代號與台詞字數預算（模式 A 序對 + 模式 B 13 條自檢）。 |
