@@ -371,7 +371,14 @@ class TtsDoctorTests(unittest.TestCase):
             report = tts_doctor.collect_report(None)
         self.assertTrue(report["edge_tts"]["broken"])
         self.assertFalse(report["edge_tts"]["available"])
-        self.assertIn(report["recommended_engine"], tts_engine.ALL_ENGINE_IDS)
+        available = [item["id"] for item in report["engines"] if item.get("available")]
+        if available:
+            self.assertIn(report["recommended_engine"], tts_engine.ALL_ENGINE_IDS)
+        else:
+            # 沒有任何可用引擎的環境（例如 CI 的 Linux runner：無 VoiceStudio／SAPI／金鑰）
+            # 正確行為是空推薦 + 說明原因，而不是硬塞一個不存在的引擎。
+            self.assertEqual(report["recommended_engine"], "")
+            self.assertTrue(report["recommendation_reason"])
         self.assertTrue(report["tools"]["ffmpeg"]["present"] or not report["tools"]["ffmpeg"]["present"])
 
 
