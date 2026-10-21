@@ -91,6 +91,22 @@ python scripts/h3d.py deps --root . --status --strict
 （官方對這兩個 token 的語義我沒有可核對的來源）；要交給剪輯／拼接工具時再開。
 結構化的切點時間一直都在 `metadata.cut_markers`，不需要開這個旗標也能用。
 
+## 3. 文件同步（references/h3）
+
+`references/h3/` 是上游 `h3-video-prompting` 的 `references/` 同步副本，**不是手寫的**。
+
+```bash
+python scripts/sync_h3_reference.py --check            # 對本機 upstream clone 比對漂移
+python scripts/sync_h3_reference.py --sync --write-manifest   # 同步並更新紀錄
+```
+
+- 紀錄檔：`references/h3/UPSTREAM.json`（上游 commit＋逐檔 sha256＋`local_only`＋`local_annotations`）
+- CI：`tests/test_h3_reference_sync.py` 只驗「紀錄 vs 本地檔案」（不需網路），擋住偷改／漏檔／未宣告新檔
+- 本專案追加：`lora-guide.md`（local_only）；`scenarios-people.md` 的三處 ★ 標註由 `local_annotations` 在同步時重套，不會被覆蓋
+
+> 教訓：曾經只靠人工同步、SKILL 卻寫「同名同步」，結果落後 15 個檔案還缺 `shot-five-part.md`。
+> 現在「同步狀態」是可稽核的紀錄，不是一句宣稱。
+
 ## 3. Provider 能力表
 
 `scripts/storyboard/providers/freevideo.json` 宣告 fps、frames 區間、支援比例、參考圖／音訊／LoRA 上限，

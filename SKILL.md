@@ -204,7 +204,7 @@ H3 的聲音與畫面在同一次 forward 生成，輸出是**單一 32 kHz 立�
 - `references/freevideo.md` — **建議搭配 FreeVideo**：連線步驟、規則、與八階段的對應。階段 6 先讀這份。
 - `references/model-profiles.md` — **生成前必問清單**，以及各圖像／影片模型的提示詞風格對照與改寫流程。
 - `references/minimax-h3.md` — **MiniMax H3 專章（入口）**：規格、五種模式、預算表、十條速查、Red Flags、負面轉正面詞表、8GB 顯存 OOM 拆段公式、Windows 工程坑速查（1–11，含多視圖板的宣告式例外）、官方 Ref2VA 格式合規速查（含**音色參考 `<Audio N>`**）。用 H3 前必讀。
-- `references/h3/` — H3 細部參考（與上游 [h3-video-prompting](https://github.com/ayase0307/h3-video-prompting) 的 `references/` 同名同步；詳見 `memory.md`）：
+- `references/h3/` — H3 細部參考（同步自上游 [h3-video-prompting](https://github.com/ayase0307/h3-video-prompting) 的 `references/`，釘在 commit `1db923b`（2026-10-21），紀錄在 `references/h3/UPSTREAM.json`；本專案另加 `lora-guide.md`、`scenarios-people.md` 有三處標註。漂移檢查：`python scripts/sync_h3_reference.py --check`，CI 由 `tests/test_h3_reference_sync.py` 守）：
   - `lora-guide.md` — **MiniMax H3 專用 LoRA 實戰與自動適配指南**：核心 LoRA 實測校準（停用 camera_motion、驗證速度滑桿與 Bunny 武戲）、正負權重滑塊、疊加預算鐵則與 FreeVideo API 掛載格式。
   - `prompt-formats.md` — 四種 prompt 格式決策（官方三欄／六段式／中文三段／社群區塊）、對齊句、參考檔上限。
   - `skin-realism-block.md` — **守富定版**三段式骨架與皮膚段原文（整段照抄）。

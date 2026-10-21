@@ -292,7 +292,7 @@ ai-comic-drama/
 
 ## 🔗 搭配的專案
 
-小說改編與導演分鏡兩個子體系分別整併自作者另開發的 novel-to-manju、cinematic-director-storyboard。本技能的影片提示詞（MiniMax H3）部分，以 **[ayase0307/h3-video-prompting](https://github.com/ayase0307/h3-video-prompting)**（MIT）為準：動作品質、節奏卡點、光影配色、音訊流程、失敗分診與情境 playbook 都在那邊持續更新。`references/h3/` 是本技能內的整合版，兩邊有出入時以該 repo 為主。
+小說改編與導演分鏡兩個子體系分別整併自作者另開發的 novel-to-manju、cinematic-director-storyboard。本技能的影片提示詞（MiniMax H3）部分，以 **[ayase0307/h3-video-prompting](https://github.com/ayase0307/h3-video-prompting)**（MIT）為準：動作品質、節奏卡點、光影配色、音訊流程、失敗分診與情境 playbook 都在那邊持續更新。`references/h3/` 是該 repo `references/` 的同步副本（釘在 commit `1db923b`，逐檔紀錄在 [`references/h3/UPSTREAM.json`](references/h3/UPSTREAM.json)）；本專案只額外加了 `lora-guide.md` 與幾個 ★ 標註。兩邊有出入時以該 repo 為主，並跑 `python scripts/sync_h3_reference.py --check` 找出漂移。
 
 ## 📄 授權
 

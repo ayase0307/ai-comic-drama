@@ -67,7 +67,7 @@
 
 | 來源 | 授權 | 用了什麼 | 可信度 |
 |---|---|---|---|
-| 抖音 1（7686479295782341938）電影感來自關係 | — | 關係、光線路徑、攝影機動機 | 方法主張；展示工具不是 H3；無 H3 實測 |
+| 抖音 1（7686479295782341938）電影感來自關係 | — | 關係、光線路徑、攝影機動機 | 方法主張；展示工具不是 H3；光線路徑已做本機先導 A/B（T3）沒測到好處，降為風格建議 |
 | 抖音 2（7694988979074010404）分鏡表 | — | spec 卡欄位、角度慣例 | 方法主張；逐字稿逾時，只採影音摘要 |
 | 抖音 3（7696840221446393126）混合媒介 | — | C9b 分層 | 方法主張；展示 Seedream 類工具；無 H3 實測 |
 | 抖音 4（7686079109826465078）6 種運鏡 | — | camera §9 對照表（已 remap） | 方法主張；無 H3 實測 |
@@ -108,3 +108,41 @@
 | en.wikipedia.org/wiki/Zone_System | CC BY-SA | 11 分區、概念對照 | 業界標準（無百分比） |
 | lighting-color-palette-card（Seedance 教學影片蒸餾） | 自有 | 五層亮度、色卡錨點、重打光 | 自創方法，H3 未驗證 |
 | colour-science `JND_CIE1976` 文件 | BSD | ΔE76≈2.3 | 社群 |
+
+## 2026-10-20 研究批次（LoveUolanda 動作鏈方法論 + 英中社群掃描）
+
+流程：Haiku 四路蒐集（英文社群、中文社群、journal 其他案例、官方 repo 差異）→ Opus 審核 → 整合。
+
+### 主要來源
+
+| 來源 | 授權 | 用了什麼 | 可信度 |
+|---|---|---|---|
+| LoveUolanda〈H3 古風舞蹈創作方法論〉X 長文，2026-10-19（x.com/LoveUolanda/status/2112373570055897528） | 原文亦收錄於 MIT repo `case-studies/2026-10-classical-wuxia-dance-13-segment/methodology.md`（Copyright (c) 2026 LoveRain1997，MIT）；本 skill 為中文轉寫與泛化，非逐字複製 | 動作鏈十要素、三層結構、運動質地、攝影機幾何、負向配正向、導演自檢 | **作者自述有成片（貼文影片），無 A/B、無量化**；貼文自述長片以 RunningHub OpenAPI 腳本化生成、本地 ffmpeg 拼接 |
+| github.com/LoveRain1997/h3-prompt-journal（MIT） | MIT（Copyright (c) 2026 LoveRain1997；LICENSE 無排除文字條款） | 13 段武俠舞完整 prompt、sock-fan 狀態機、snap-lock 兩態相機、speed-contrast 動作數比、orbital 遮擋聯動 | prompt 完整公開；repo README 稱所有案例均實際生成、成片在作者 X 文章頁，但**成片未隨 repo 發布**（repo 內 mp4 多為來源樣片），我們沒看過成片；lamp 五章 p83/p84 README 未給比較結論，視為風格變奏而非對照 |
+
+journal 內部互相矛盾處（連續環繞 vs 離散硬鎖、有無時間碼、單段精簡 vs 重複冗餘）已整理成條件對照，見 `camera-and-transitions.md` §12、`prompt-formats.md`「附：長自含式…」。
+
+### 英文社群（Reddit 為主，2026-09 下旬～10 月）
+
+全部是作者自述或留言建議，日期多為以貼文序號推算的近似值，**視為待測假說**：
+
+- 一個 shot 一個具名運鏡（type + amplitude + speed），疊加運鏡會讓畫面變形（suno.bi、photogptai、LinkedIn 文；與現行規則一致，佐證不新增）。
+- 連續長鏡/鏈式生成約第 3–4 次退化，一位作者把 30–45 秒當工作流上限、另一則留言稱約 45 秒後色彩衰退；用精確的最後一幀 PNG 接續（r/StableDiffusion 1wwh94x、1x43xyq、r/comfyui 1wqlv1u、1wyrp36）。
+- Blender 假人運鏡渲染當 Ref2VA 運鏡參考可行，但要檢查接縫與身份漂移（r/comfyui 1wqybjk）；遮罩式動作參考有作者自述的 A/B 改善（r/StableDiffusion 1wruoq1）。
+- 動漫來源影片會被加 3D 陰影、鏡頭漂移；留言建議用格線/十字覆蓋當固定錨（r/comfyui 1x8odqk，**未測**）。
+- 複雜場景拆成兩個短 prompt 較穩（r/StableDiffusion 1wrdhbr）。
+- 單句 prompt 做舞蹈：H3 比 Seedance 2.0 更守住身份，但漏掉運鏡、舞蹈提早結束（r/StableDiffusion 1wvsrhs）。
+
+### 中文社群
+
+2026-09-17 之後、有 H3 實測證據的新發現幾乎沒有；多為彙整與未驗證宣稱（覺醒AI知識庫 2026-09-23、X @GeekCatX 2026-09-27 反推 skill、B 站 BV1A2Hs6eE5p、GitHub flaqai/awesome-minimax-h3-video-prompts 與 AtlasCloudAI 中文庫）。小紅書、抖音、即刻、知乎原文抓不到。可用的只有：動作因果與關係（誰看見、誰被拍）要寫清楚；劇烈動作易溶解崩壞，建議分拍寫；換人時主體描述不足會丟身份。**均未驗證，未寫進規則，僅供參考。**
+
+### 官方
+
+MiniMax-AI/MiniMax-H3 自 2026-10-16 起沒有新 commit、release 或 tag（最後一次 push 為 2026-08-15）；平台文件的素材與字元上限與既有規則一致。issue #95（獨立參考音訊會多出對白、重複句）、#17（Ref2VA/FL2VA 多角色 voice 互相滲漏）是使用者回報，官方未回應，不當規則。官方頁另提文字生影片可在關鍵描述後加 `[pan]`、`[zoom]`、`[static]` 相機指令，效果未驗證，未收錄。
+
+規則：無授權來源只轉寫概念；MIT 來源附授權聲明。本批沒有一條新規則通過 H3 對照實測。
+
+### 使用者提供（2026-10-21）
+
+- 「Photorealistic 15-Second Cinematic Video Script Generator」通用 system prompt（守富提供，作者不明，非 H3 專用）。吸收的概念：180 度線/畫面方向、因果五步、尺度參照、不瞬移、招牌技能保留、soundscape 遠近與三段衰減、配樂人聲與曲風、品牌不捏造、交付規則。皆為方法主張，未經 H3 A/B。衝突對照見 `prompt-formats.md` 附錄。
