@@ -314,7 +314,10 @@ def render_markdown_block(
         if re.match(r"^\d+\.\s+", stripped):
             ol_items = []
             while i < len(lines) and re.match(r"^\d+\.\s+", lines[i].strip()):
-                ol_items.append(f"<li>{inline_md(re.sub(r'^[0-9]+[.]\s+', '', lines[i].strip()))}</li>")
+                # 注意：反斜線不能出現在 f-string 的 {} 內（Python 3.11 之前不允許，
+                # 本 skill 宣告支援 3.10+，所以先算好再格式化）。
+                item_text = re.sub(r'^[0-9]+[.]\s+', '', lines[i].strip())
+                ol_items.append(f"<li>{inline_md(item_text)}</li>")
                 i += 1
             tokens.append((0, f'<ol class="md-list">{"".join(ol_items)}</ol>'))
             continue
@@ -371,7 +374,8 @@ def render_screenplay(md_text: str) -> str:
             continue
         flush_notes() if not re.match(r"^\d+-\d+\s", ln) else None
         if re.match(r"^#{1,3}\s", ln) or (re.search(r"第\s*\d+\s*集", ln) and len(ln) < 40 and not out):
-            out.append(f'<h3 class="sp-ep">{inline_md(re.sub(r"^#+\s*", "", ln))}</h3>')
+            heading_text = re.sub(r"^#+\s*", "", ln)
+            out.append(f'<h3 class="sp-ep">{inline_md(heading_text)}</h3>')
             continue
         m_s = re.match(r"^(\d+-\d+)\s+(.*)$", ln)
         if m_s:
