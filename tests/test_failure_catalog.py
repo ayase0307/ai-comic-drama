@@ -16,8 +16,15 @@ class CatalogTests(unittest.TestCase):
     def test_default_catalog_loads_with_expected_ids(self):
         ids = {entry["id"] for entry in self.catalog["entries"]}
         for expected in ("F-RED-GLOBAL", "F-NEGATION", "F-STILL-ENDING",
-                         "F-CROWD-BY-NUMBER", "F-SINGLE-FACE"):
+                         "F-CROWD-BY-NUMBER", "F-SINGLE-FACE", "F-CRACK-STICKER"):
             self.assertIn(expected, ids)
+
+    def test_crack_pattern_needs_geometry_words(self):
+        # 只說「cracked stone state」不該被當成貼紙網格
+        benign = fc.lint_text("the later cracked stone state begins at the final fall.", self.catalog)
+        self.assertNotIn("F-CRACK-STICKER", [item["id"] for item in benign["warnings"]])
+        bad = fc.lint_text("the crack becomes a black polygon web across the stone.", self.catalog)
+        self.assertIn("F-CRACK-STICKER", [item["id"] for item in bad["warnings"]])
 
     def test_red_light_heuristic_flags_undefined_light(self):
         text = "texture: Porous charcoal volcanic stone, matte red light with no defined edge."
