@@ -239,6 +239,7 @@ ai-comic-drama/
 | 文件 | 內容 |
 |---|---|
 | [`SKILL.md`](SKILL.md) | 核心原則、工作紀律鐵律與八階段總覽 |
+| [`references/tooling.md`](references/tooling.md) | **產線工具 `h3d`**：量子、證據分級、依賴帳本、失敗目錄與 ack、能力表、錯誤訊息處置 |
 | [`references/pipeline.md`](references/pipeline.md) | 各階段詳細流程、台詞政策門禁（4選1）、體量反推秒數公式、模板；階段 7 聲音三層決策、外部 TTS 與響度交付標準 |
 | [`references/model-profiles.md`](references/model-profiles.md) | 生成前必問清單、各模型提示詞風格對照 |
 | [`references/prompt-playbook.md`](references/prompt-playbook.md) | 景別、運鏡、光線、負面提示詞 |

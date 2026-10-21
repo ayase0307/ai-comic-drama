@@ -187,6 +187,7 @@ H3 的聲音與畫面在同一次 forward 生成，輸出是**單一 32 kHz 立�
 
 ## 資源
 
+- `references/tooling.md` — **產線工具（`h3d`）與四道確定性檢查**：一個入口、時長量子（17n+5）、證據分級（VERIFIED／PARTIAL／UNVERIFIED 與階段 6 閘門）、segment 級依賴帳本（`deps --record／--status`）、失敗目錄與 ack 憑證流程、provider 能力表、常見錯誤訊息 → 處置。**跑任何指令前先讀這頁。**
 - `references/pipeline.md` — 八階段詳細流程、提問清單與各階段模板；階段 7 含聲音三層決策（畫內對白／畫外音／全片外部聲景）、配音先行與時長對軸、TTS 引擎盤點與混音響度交付標準（EBU R128 / ATSC A/85 / Netflix）。
 - `references/adapt/` — **小說改編（階段 1、3）**：`novel-to-manju.md` 為總規範（10 階段、6 題材模式、四道退稿閘門、100 分制），其餘為原則、故事聖經、結構節奏、劇本格式、視覺寫作、對白、可拍性、分鏡交接、授權證據各篇，`templates/` 含交接 JSON Schema。腳本在 `scripts/adapt/`（附 10 個測試案例）。
 - `references/storyboard/` — **導演分鏡（階段 4）**：`cinematic-director.md` 為總規範（v2.0），含三步法、焦距物距光學、漫劇九宮格與連戲狀態機、武戲 90° 與多模型編譯；`combat-and-vfx-library.md`（高階武戲連招、玄幻大招五段鏈與 11 大戰場拓撲）；`acting-and-emotion-library.md`（邁斯納行為表演法、言行反差、10 大景別句型與 4D 配音）；`templates/` 含 Layer 2 JSON Schema。腳本在 `scripts/storyboard/`。

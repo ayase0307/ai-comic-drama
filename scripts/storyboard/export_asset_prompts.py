@@ -347,12 +347,11 @@ def main():
             used_assets_md = cand
             assets = parse_assets_markdown(cand)
     else:
-        # 自動尋找當前目錄或常規目錄下的 assets.md
+        # 自動尋找「當前目錄」或專案常見位置的 assets.md。
+        # 這裡刻意不列任何使用者本機的絕對路徑：skill 要能換機器、換專案直接跑。
         defaults = [
             pathlib.Path("assets.md"),
             pathlib.Path("ch02/assets.md"),
-            pathlib.Path(r"C:\Users\kirit\OneDrive\文件\噩盡島\噩盡島-漫劇\ch02\assets.md"),
-            pathlib.Path(r"C:\Users\kirit\OneDrive\文件\噩盡島\噩盡島-漫劇\assets.md"),
         ]
         for d in defaults:
             if d.exists():
