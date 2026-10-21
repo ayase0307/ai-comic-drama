@@ -67,6 +67,20 @@
       }
     },
     {
+      "id": "F-CRACK-STICKER",
+      "title": "裂紋被畫成貼紙網格，而不是石材崩解",
+      "severity": "medium",
+      "confidence": "measured",
+      "symptom": "石頭碎裂變成黑色多邊形網格貼在表面，沒有體積變化",
+      "root_cause": "提示詞寫「crack / fracture」時，模型傾向畫紋理圖案而不是結構斷裂",
+      "minimal_fix": "改寫成體積崩解：碎石飛散、石面凹坑、斷面粗糙；不要只描述裂縫線條",
+      "evidence": [{"segment": "EP01-S02-f", "note": "裂紋渲染成黑色多邊形網（像貼紙）"}],
+      "detector": {
+        "type": "all",
+        "patterns": ["crack|fracture", "web|net|polygon|sticker|decal"]
+      }
+    },
+    {
       "id": "F-SINGLE-FACE",
       "title": "一段多張可辨識臉會被平均成同一張",
       "severity": "high",
