@@ -108,6 +108,15 @@ class EndToEndCliTests(unittest.TestCase):
         self.assertNotEqual(blocked.returncode, 0, "沒有 stage-4 核准時不得默默編譯")
         self.assertFalse(self.segments.exists())
 
+    def test_h3d_runs_from_foreign_cwd(self):
+        """skill 被裝在 ~/.claude/skills 時，cwd 不會是 repo；入口不能依賴 cwd。"""
+        listed = run([ROOT / "scripts" / "h3d.py", "--list"], cwd=self.tmp)
+        self.assertEqual(listed.returncode, 0, listed.stderr[-1000:])
+        self.assertIn("compile", listed.stdout)
+        status = run([ROOT / "scripts" / "h3d.py", "status", "--root", self.tmp], cwd=self.tmp)
+        self.assertEqual(status.returncode, 0, status.stderr[-1000:])
+        self.assertIn("依賴帳本", status.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
