@@ -32,6 +32,7 @@ for candidate in (str(SCRIPTS_DIR), str(STORYBOARD_DIR)):
 # command -> (module, description)
 COMMANDS: Dict[str, str] = {
     "doctor": "本機環境自檢（GPU／ffmpeg／服務 port／-vsync）",
+    "sketch": "免生圖 SVG 構圖九宮格（階段 4 構圖來源，回寫 sketch_file 供審核門禁）",
     "compile": "Layer 2 → H3 六段式提示詞與 segments（--check 可同時審查）",
     "audit": "分段參考圖／主體定義／台詞預算的確定性對帳",
     "qa": "影片自動審查（時長／色彩／九宮格／證據分級）",
@@ -47,6 +48,7 @@ COMMANDS: Dict[str, str] = {
 
 MODULE_FOR = {
     "doctor": "doctor",
+    "sketch": "svg_storyboard_grid",
     "compile": "compile_layer2_to_h3",
     "audit": "audit_refs_and_segments",
     "qa": "verify_video_shot",

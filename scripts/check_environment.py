@@ -46,6 +46,8 @@ def _package_version(name: str) -> dict[str, Any]:
 def build_report() -> dict[str, Any]:
     python_ok = sys.version_info >= (3, 10)
     pillow = _package_version("Pillow")
+    numpy = _package_version("numpy")
+    resvg = _package_version("resvg-py")
     ffmpeg = _command_version("ffmpeg")
     ffprobe = _command_version("ffprobe")
 
@@ -61,12 +63,15 @@ def build_report() -> dict[str, Any]:
         "schema_version": 1,
         "inspection": "local executable/package presence only; no network, service, token, account, or model checks",
         "runtime": {"python": sys.version.split()[0], "minimum": "3.10", "available": python_ok},
-        "dependencies": {"Pillow": pillow, "ffmpeg": ffmpeg, "ffprobe": ffprobe},
+        "dependencies": {"Pillow": pillow, "numpy": numpy, "resvg-py": resvg, "ffmpeg": ffmpeg, "ffprobe": ffprobe},
         "capabilities": [
             capability("企劃與文本改編", ["Python >= 3.10", "Python standard library"], python_ok,
                        "此能力不需要 jsonschema；專案含標準庫 schema validator。"),
             capability("構圖與圖片檔檢查", ["Python >= 3.10", "Pillow"], python_ok and pillow["available"],
                        "此結果只代表本機圖片工具依賴可用，不代表圖片已生成或已審核。"),
+            capability("免生圖 SVG 構圖九宮格（選用）", ["Python >= 3.10", "Pillow", "numpy", "resvg-py"],
+                       python_ok and pillow["available"] and numpy["available"] and resvg["available"],
+                       "svg_storyboard_grid.py 用程式算構圖，不呼叫生圖 API；缺依賴時改用 Qwen 九宮格或手繪。"),
             capability("影片片段技術審查", ["ffmpeg", "ffprobe"], ffmpeg["available"] and ffprobe["available"],
                        "需提供本機影片；本檢查不產生影片。"),
             capability("影片組裝與交付驗證", ["ffmpeg", "ffprobe"], ffmpeg["available"] and ffprobe["available"],

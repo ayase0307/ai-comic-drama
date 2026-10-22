@@ -16,7 +16,7 @@
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 ![PRs welcome](https://img.shields.io/badge/PRs-welcome-ec4899)
 
-[特色](#-特色) · [快速開始](#-快速開始) · [八階段流程](#-八階段流程) · [風格鎖定錨](#-漫劇風格鎖定錨) · [角色一致性](#-資產一致性靠登記參考鏈與驗收) · [專案結構](#-專案結構) · [文件索引](#-文件索引)
+[特色](#-特色) · [快速開始](#-快速開始) · [八階段流程](#-八階段流程) · [免生圖構圖](#-免生圖構圖九宮格) · [風格鎖定錨](#-漫劇風格鎖定錨) · [角色一致性](#-資產一致性靠登記參考鏈與驗收) · [專案結構](#-專案結構) · [文件索引](#-文件索引)
 
 </div>
 
@@ -34,6 +34,7 @@
 | ⚖️ **單章拆多集跨集驗收** | `compare_adaptation.py` 支援 `--episode` 單集過濾與多檔合併總體驗收，連動 `--h3`。 |
 | 🎬 **分段級導演分鏡** | 可由約 10s / 3 鏡作為起點；依內容調整，含焦距物距、動作表演與 `INDEPENDENT_REF2VA` 連戲錨點。 |
 | 🖼️ **構圖審核** | Qwen 九宮格為可用選項；手繪或其他工具輸出的 shot 對應 PNG 也可使用同一審核門。 |
+| 🧱 **免生圖構圖九宮格** | `h3d sketch` 用 2.5D 相機＋3D 人偶直接算出每鏡構圖，**0 次生圖 API**；依景別取景、過肩貼肩、畫左／畫右跟著 180 度線走，回寫 `sketch_file` 走同一個 stage-4 門禁。 |
 | 🔒 **單鏡局部修改與審核鎖** | `patch_shot.py` 單鏡景別秒數修改與自動時間軸重算；`sync_script.py` 場景審核狀態保護防誤改。 |
 | ⚡ **H3 官方六段式批次編譯** | `compile_layer2_to_h3.py` 一鍵產出 `prompts-epXX.md` 與 `segments-epXX.json`、防混臉單圖排序、切點時間保護（$D - \text{末切點} \ge 2.05s$）、LoRA 適配與 `--check` 雙重對帳。 |
 | 🎯 **切點標記（選用）** | `compile --embed-cut-markers` 在提示詞寫入 `<cutoff>`（段末）與 `<scenetrans>`（跨場景首鏡），並在 `metadata.cut_marker_tokens` 記錄規格；預設關閉，因為那是本專案約定、不是官方語法。 |
@@ -142,6 +143,7 @@ python "$skillRoot/scripts/storyboard/assemble_episode.py" --segments segments-e
 |---|---|
 | 文字規劃、JSON/提示詞檢查 | Python 標準庫 |
 | review 頁與九宮格 | Python；圖片操作需 Pillow |
+| 免生圖 SVG 構圖（選用） | Pillow、numpy、resvg-py；不需 GPU、不呼叫生圖 API |
 | 影片 QA 與組裝 | FFmpeg、ffprobe；部分輸入檢查使用 Python/Pillow |
 | 圖片/影片生成 | Agent 當前可用的相容工具或連線後端；FreeVideo 是可選 adapter |
 
@@ -159,7 +161,7 @@ python "$skillRoot/scripts/storyboard/assemble_episode.py" --segments segments-e
 | 1 改編 | 小說目錄掃描與單章清洗抽取（`extract_chapter.py`）、保留分級、A/B/C 方案、分集架構、跨集驗收（`compare_adaptation.py --episode`） | 故事地圖、分集大綱 |
 | 2 資產與設定圖 | 若目標包含設定圖，使用實際可用且已選擇的工具；維護資產參考 | `assets.md`、可選設定板 |
 | 3 漫劇劇本 | 場景化改寫、時長與台詞預算審計（`estimate_duration.py --h3`）、HTML 註解元數據注入、交接 JSON、人工審核鎖（`sync_script.py`） | `script-ep01.md`、`handoff-ep01.json`、`adaptation-diff.md` |
-| 4 導演分鏡 | **分段級分鏡（預設 10s/3 鏡，`handoff_to_skeleton.py`）**、焦距物距、**動作力學三要素**、`INDEPENDENT_REF2VA` 四大錨點、鉛筆九宮格構圖審核 | `layer2/*.json`、`storyboard-ep01.md`、`grid-*.png` |
+| 4 導演分鏡 | **分段級分鏡（預設 10s/3 鏡，`handoff_to_skeleton.py`）**、焦距物距、**動作力學三要素**、`INDEPENDENT_REF2VA` 四大錨點、構圖審核（免生圖 SVG／Qwen 鉛筆九宮格／手繪） | `layer2/*.json`、`storyboard-ep01.md`、`grid-*.png` |
 | 5 提示詞包 | **H3 官方六段式批次編譯（`compile_layer2_to_h3.py`）**、防混臉單圖排序、切點時間保護、LoRA 適配、`--check` 雙重對帳 | `prompts-ep01.md`、`segments-ep01.json` |
 | 6 生成 | **主力定案：獨立 Ref2VA（四錨點連戲、一段一張角色圖）**；`submit_h3_segments.py` 批次送件；`verify_video_shot.py` 批次審查 | `images/`、`videos/`、`qa-report.json` |
 | 7 組裝交付（選用） | 依可用素材與依賴進行組裝；**旁白／畫外音由外部 TTS 產生**（H3 這段只出環境音床），畫內對白保留 H3 口型；旁白稿可另行交付，實際時間線由 compiled segments 匯出 | `final/ep01_final.mp4`、`narration-ep01.md`、`timeline-ep01.csv` |
@@ -210,6 +212,58 @@ python "$skillRoot/scripts/storyboard/assemble_episode.py" --segments segments-e
 
 分鏡走[導演分鏡體系](references/storyboard/cinematic-director.md)：台詞一字不改、焦距與物距成對寫、同場連續與時空跳躍二選一握手、武戲接觸瞬間 90° 無遮擋。逐鏡生成、逐鏡檢查，不要一次丟十幾鏡。
 
+## 🧱 免生圖構圖九宮格
+
+階段 4 審走位不必燒圖片額度。`svg_storyboard_grid.py` 讀 Layer 2，用程式算出每一鏡的機位、景別與站位，畫成鉛筆風構圖：**只要有 Layer 2 就能跑，不呼叫任何生圖 API**。下圖左邊是同一段實際生成的影片（每鏡取中段影格），右邊是只靠 Layer 2 算出來的構圖。
+
+<div align="center">
+<img src="assets/svg-grid/hero-EP04-S03.jpg" alt="成片與 SVG 構圖九宮格對照" width="100%">
+<br><sub>同一段 9 鏡：左為成片中段影格，右為 SVG 構圖九宮格。景別、人物在畫面哪一側、朝哪邊看、過肩前景位置都由 Layer 2 推算。</sub>
+</div>
+
+<br>
+
+<div align="center">
+<img src="assets/svg-grid/pair-ots.jpg" alt="過肩鏡頭對照" width="100%">
+<br><sub><b>過肩鏡頭</b>：相機貼在前景肩後，前景後腦佔畫面約三分之一，不遮主體的臉。</sub>
+</div>
+
+<div align="center">
+<img src="assets/svg-grid/pair-facing.jpg" alt="3/4 側臉方向對照" width="100%">
+<br><sub><b>3/4 側臉方向</b>：「畫左、面向畫右」照 180 度線換算機位，不會左右顛倒。</sub>
+</div>
+
+<details>
+<summary><b>更多對照：背影、零設定場景、逆光剪影</b></summary>
+<br>
+
+<div align="center">
+<img src="assets/svg-grid/pair-back-view.jpg" alt="側後背影對照" width="100%">
+<br><sub><b>側後背影</b>：窗前背影用約 145° 的側後機位，房間門窗位置來自 staging 設定。</sub>
+</div>
+
+<div align="center">
+<img src="assets/svg-grid/pair-zero-config-ots.jpg" alt="零設定場景對照" width="100%">
+<br><sub><b>零設定場景</b>：沒寫任何場景檔，書架、矮案、兩人對坐與過肩都從 Layer 2 文字自動搭出。</sub>
+</div>
+
+<div align="center">
+<img src="assets/svg-grid/pair-silhouettes.jpg" alt="逆光剪影對照" width="100%">
+<br><sub><b>逆光剪影</b>：「兩道守閣弟子的剪影」自動複製成兩個暗色人形，低角度取景。</sub>
+</div>
+
+</details>
+
+```bash
+pip install numpy resvg-py Pillow              # 選用依賴，只有這個工具需要
+python scripts/h3d.py sketch --root <專案> --episode EP04
+python scripts/build_stage_review.py --project-dir <專案> --stage 4
+```
+
+每鏡輸出到 `panels/panel-NN-<shot_id>.png`、每段九宮格到 `images/grid-<segment_id>.png`，並回寫 `sketch_file`／`sketch_sha256`／`sketch_generation`。鎖定或手繪替換過的格子不會被覆蓋。角色外觀、場景與站位都可以用 `staging/` 的 JSON 補強，程式內不含任何專案的角色或場景。完整說明見 [`references/storyboard/svg-rig-grid.md`](references/storyboard/svg-rig-grid.md)；最小範例在 [`examples/svg-grid-minimal/`](examples/svg-grid-minimal/)。
+
+> 構圖圖只用來審走位，**不送 H3**。臉部是簡筆，要看光影、表情、服裝細節時仍用 Qwen 九宮格或手繪。
+
 ## 📁 專案結構
 
 Skill 本身：
@@ -227,7 +281,7 @@ ai-comic-drama/
     ├── init_project.py      # 建立專案骨架（自動初始化 adapt/source.json、adapt/bible.json 與門禁欄位）
     ├── color_qa.py          # 跨鏡頭色彩連貫性檢查
     ├── adapt/               # 小說抽取清洗（extract_chapter.py）、劇本驗證、時長台詞審計（estimate_duration.py）、連戲、改編比對（compare_adaptation.py）與人工審核鎖定（sync_script.py）
-    └── storyboard/          # Layer 2 骨架（handoff_to_skeleton.py）、表格時間線、分鏡驗證、局部修改（patch_shot.py）、Qwen 九宮格與轉彩（qwen_storyboard_grid.py）、H3 官方六段式批次編譯（compile_layer2_to_h3.py）、H3 批次提交與顯存保護（submit_h3_segments.py）、影片審查與報告匯總（verify_video_shot.py）、後期智慧配音字幕成片拼接（assemble_episode.py）、TTS 後端封裝與能力盤點（tts_engine.py、tts_doctor.py）、多維程式對帳（audit_refs_and_segments.py）
+    └── storyboard/          # Layer 2 骨架（handoff_to_skeleton.py）、表格時間線、分鏡驗證、局部修改（patch_shot.py）、Qwen 九宮格與轉彩（qwen_storyboard_grid.py）、免生圖 SVG 構圖九宮格（svg_storyboard_grid.py）、H3 官方六段式批次編譯（compile_layer2_to_h3.py）、H3 批次提交與顯存保護（submit_h3_segments.py）、影片審查與報告匯總（verify_video_shot.py）、後期智慧配音字幕成片拼接（assemble_episode.py）、TTS 後端封裝與能力盤點（tts_engine.py、tts_doctor.py）、多維程式對帳（audit_refs_and_segments.py）
 ```
 
 用本技能產出的專案：
@@ -243,7 +297,8 @@ ai-comic-drama/
 ├── storyboard-ep01.md      # 分鏡表（人可讀）
 ├── prompts-ep01.md         # 逐鏡圖像 / 影片提示詞
 ├── segments-ep01.json       # FreeVideo 批次分段檔（H3 官方六段式結構）
-├── panels/                 # Qwen 單格黑白鉛筆手繪草圖（panel-*.png）
+├── staging/                # 選用：SVG 構圖的角色外觀、場景與站位設定（cast.json、<場景>.json）
+├── panels/                 # 逐鏡構圖（SVG 構圖或 Qwen 鉛筆草圖，panel-*.png）
 ├── keyframes/              # Qwen 轉繪全彩關鍵幀首幀（keyframe-*.png，去黑箭頭）
 ├── narration-ep01.md       # 旁白與字幕稿
 ├── timeline-ep01.csv       # 剪輯時間線
@@ -262,6 +317,7 @@ ai-comic-drama/
 | [`references/prompt-playbook.md`](references/prompt-playbook.md) | 景別、運鏡、光線、負面提示詞 |
 | [`references/adapt/novel-to-manju.md`](references/adapt/novel-to-manju.md) | 小說改編總規範（10 階段、題材模式、退稿閘門）與 `adapt/` 各篇 |
 | [`references/storyboard/cinematic-director.md`](references/storyboard/cinematic-director.md) | 導演分鏡總規範與 `storyboard/` 各篇、Layer 2 JSON Schema |
+| [`references/storyboard/svg-rig-grid.md`](references/storyboard/svg-rig-grid.md) | 免生圖 SVG 構圖九宮格：用法、回寫欄位、零設定搭景規則、cast／staging 格式、已知限制 |
 | [`references/storyboard/combat-and-vfx-library.md`](references/storyboard/combat-and-vfx-library.md) | 冷兵器武學連招、玄幻大招五段鏈與 11 大戰場拓撲庫 |
 | [`references/storyboard/acting-and-emotion-library.md`](references/storyboard/acting-and-emotion-library.md) | 邁斯納壓力行為表演法、潛台詞言行反差、10 大景別句型與 4D 配音詞庫 |
 | [`references/consistency.md`](references/consistency.md) | 資產 ID、生物純底三視圖（Creature Sheet）、防角色平均化、多模態素材職責表、首幀畫風並排對照驗收門 |
