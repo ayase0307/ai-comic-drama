@@ -65,6 +65,7 @@ from director_storyboard_assistant import (
     strip_hex,
 )
 from handoff_to_skeleton import segment_sort_key
+import style_rules
 from speech_utils import count_speech_chars, normalize_speech
 
 try:  # 以 scripts/storyboard 為 sys.path 執行（CLI 慣例）
@@ -350,7 +351,7 @@ class AssetRegistry:
         for raw in content.splitlines():
             line = raw.strip()
             # 風格錨點
-            m = re.match(r"^-\s*\*\*(style_anchor|style_negative|lighting_lock_line)\*\*[：:]\s*`([^`]+)`", line)
+            m = re.match(r"^-\s*\*\*(style_anchor|style_negative|lighting_lock_line|style_index)\*\*[：:]\s*`([^`]+)`", line)
             if m:
                 self.style[m.group(1)] = m.group(2).strip()
                 continue
@@ -1577,6 +1578,10 @@ def compile_segment_h3(
         anchor = registry.style.get("style_anchor", "") or "cinematic film look"
     else:
         anchor = _clean(style_lock.get("anchor")) or registry.style.get("style_anchor", "") or "cinematic film look"
+    if style_rules.is_style14(metadata.get("style_key") or registry.style.get("style_index")
+                              or style_rules.project_style(registry.project_root)):
+        # 14 號風格：固定影片錨，刪掉「hand-painted 2D／cel-like／non-photorealistic」這類平塗模板句
+        anchor = style_rules.video_anchor(anchor)
     lighting_line = (_clean(metadata.get("lighting_lock_line")) or _clean(style_lock.get("lighting_lock_line"))
                      or registry.style.get("lighting_lock_line", "") or "natural ambient light")
     lighting_line_clean, _ = strip_hex(palette_names(lighting_line))

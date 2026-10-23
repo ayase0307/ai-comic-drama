@@ -56,6 +56,7 @@ MAX_GROUP_WARN = 3               # ⚠️ 超過這個數量就併成一張卡
 IMAGE_SUFFIXES = (".jpg", ".jpeg", ".png", ".webp")
 VIDEO_SUFFIXES = (".mp4", ".mov", ".webm")
 CACHE_DIRNAME = "_inbox_cache"
+STYLE14_SHEET = SCRIPTS_DIR.parent / "assets" / "styles" / "sheet-14-xianxia-cinematic-semireal.jpg"
 
 
 # ------------------------------------------------------------------ 讀資料
@@ -338,7 +339,11 @@ def build_cards(root: Path, *, state: Optional[Dict[str, Any]] = None,
     # 1) 目前階段還沒定案的規則
     for did in decisions_mod.missing_for_stage(root, cur):
         meta = decisions_mod.KNOWN_DECISIONS[did]
-        if did == "acceptance_policy":
+        if did == "style":
+            rec = f"{decisions_mod.RECOMMENDED_STYLE}：真人骨相＋厚塗質地，10 集 115 段實證；仍可改選其他風格。"
+            options = [{"label": "照建議（14 號）", "reply": f"{meta['label']}：照建議，用 {decisions_mod.RECOMMENDED_STYLE}"},
+                       {"label": "看其他風格", "reply": f"{meta['label']}：給我看 styles.md 其他風格的樣圖再選"}]
+        elif did == "acceptance_policy":
             rec = decisions_mod.default_rule(did, decisions_mod.RECOMMENDED_ACCEPTANCE_POLICY)
             options = [{"label": "照建議", "reply": f"{meta['label']}：照建議（{rec}）"},
                        {"label": "我另外定", "reply": f"{meta['label']}：我要改成 ____"}]
@@ -351,7 +356,9 @@ def build_cards(root: Path, *, state: Optional[Dict[str, Any]] = None,
             "segment": "全集", "title": f"「{meta['label']}」還沒定案",
             "impact": f"沒定案就不能往下；定案後編譯器、QA、收件匣都照它判斷（參考 {meta['reference']}）。",
             "recommendation": rec, "options": options, "blocking": 1, "blocking_label": "擋下一步",
-            "evidence_paths": [], "links": [], "source": "decisions.json"})
+            "evidence_paths": [STYLE14_SHEET] if did == "style" and STYLE14_SHEET.is_file() else [],
+            "evidence_caption": "14 號樣圖：上＝設定圖，下＝H3 成片" if did == "style" else "",
+            "links": [], "source": "decisions.json"})
 
     # 2) 階段 6：逐段結論的例外
     warn_rows: List[Tuple[str, Dict[str, Any], Dict[str, Any]]] = []

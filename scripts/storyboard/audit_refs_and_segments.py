@@ -31,6 +31,9 @@ import pathlib
 import re
 import sys
 from typing import Any, Dict, List, Optional, Tuple
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import style_rules  # noqa: E402
 from pathlib import Path
 
 try:  # 以 scripts/storyboard 為 sys.path 執行（CLI 慣例）
@@ -413,6 +416,12 @@ def audit_refs_and_subjects(seg_data: Dict[str, Any], project_root: Optional[Pat
             errors.append(
                 f"[E26: 身份錨點缺參考圖] {ref.get('id')} 標記為無臉身份錨點，卻沒有自己的參考圖路徑。"
             )
+
+    # ---------- E28：14 號風格（古風寫實厚塗・電影感）每段要有參考圖、不得含平塗模板句 ----------
+    style_value = (seg_data.get("metadata") or {}).get("style_key") or (
+        style_rules.project_style(project_root) if project_root else "")
+    if style_rules.is_style14(style_value):
+        errors.extend(style_rules.segment_errors(seg_data, prompt_text))
 
     passed = len(errors) == 0
     return {

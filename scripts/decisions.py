@@ -48,6 +48,10 @@ RECOMMENDED_ACCEPTANCE_POLICY: Dict[str, Any] = {
     "note": "只有真的不該出現的東西才重跑；紙面出字後製處理、人物稍老可接受。",
 }
 
+# 階段 0 定調的畫風建議值：14 號「古風寫實厚塗・電影感」（10 集 115 段實證，見 references/styles.md §14）。
+# 只是建議；使用者可改選 styles.md 任一套。`h3d decide style recommended --quote "照建議"` 寫入這個值。
+RECOMMENDED_STYLE = "14 號 古風寫實厚塗・電影感（xianxia-cinematic-semireal）"
+
 # 已知定案：說明、預設適用階段、h3d next 在哪個階段前要求它存在、該讀的 reference。
 KNOWN_DECISIONS: Dict[str, Dict[str, Any]] = {
     "style": {"label": "畫風", "stages": [2, 4, 5, 6], "required_by": 2,
@@ -234,6 +238,8 @@ def parse_value(decision_id: str, raw: str) -> Any:
     """值先試 JSON（物件、陣列、數字），失敗就當字串。acceptance_policy 支援 `recommended`。"""
     if decision_id == "acceptance_policy" and raw.strip().lower() in ("recommended", "建議", "照建議"):
         return dict(RECOMMENDED_ACCEPTANCE_POLICY)
+    if decision_id == "style" and raw.strip().lower() in ("recommended", "建議", "照建議", "預設", "default"):
+        return RECOMMENDED_STYLE
     if decision_id == "auto_approve":
         text = raw.strip()
         if text[:1] not in ("{", "["):

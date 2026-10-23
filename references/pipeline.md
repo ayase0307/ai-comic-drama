@@ -18,7 +18,7 @@
 | 原稿類型與用途 | 小說／網文／故事梗概／已有劇本；依當前任務確認需要的來源與處理方式 |
 | `genre_mode` | `xuanhuan_revenge`／`romance_emotional`／`mystery_thriller`／`comedy_slice_of_life`／`wuxia_action`／`healing_literary` |
 | `target_medium` | `motion_comic` 動態漫／`ai_animation` AI 動畫漫劇／`live_action_short_drama` 真人短劇 |
-| 畫風 | 從 `references/styles.md` 選一套風格鎖定錨（整部只用一套）；角色設定板另需確認 `master`（3D 漫劇寫實厚塗）／`semi-real`（UE5 半寫實）／styles 編號，寫入 `assets.md` 的 `style_index` |
+| 畫風 | **預設推 14 號「古風寫實厚塗・電影感」（`xianxia-cinematic-semireal`，附樣圖）**，使用者可改選 `references/styles.md` 任一套（整部只用一套）；角色設定板選項 `xianxia-cinematic-semireal`／`master`（3D 漫劇寫實厚塗）／`semi-real`（UE5 半寫實）／styles 編號，寫入 `assets.md` 的 `style_index`，並 `h3d decide style` 定案 |
 | `aspect_ratio` | 9:16（預設）／16:9／1:1 |
 | 語言與聲音形式 | 旁白解說／角色對白／混合／默片字幕 |
 | 台詞政策（需要改寫或估算時） | `① 原文逐字保留` / `② 只留重點句` / `③ 影視化改寫` / `④ 無台詞純旁白`；已在 brief 中交代則沿用 |
@@ -127,8 +127,8 @@ python scripts/init_project.py my-drama --title "我的漫劇" --episodes 12
    - **詢問指定工具（推薦 Codex CLI）**：在出核心資產圖前，必須詢問使用者指定生圖工具（推薦本機 Codex CLI 或使用者授權之工具）。
    - **跨章節工具選擇**：若使用者要求跨章節風格一致，記錄已選工具及可重用的風格參考；依每個工具實際能力安排工作，不強制使用特定引擎。
    - Qwen、手繪或其他可用圖像工具可依任務製作設定圖或分鏡構圖圖；同一張圖是否可用於後續生成依目標模型能力判斷。
-6. **組裝角色設定板提示詞再生圖**：角色卡填好 `設定板描述`、`背面特徵`（`init_project.py` 範本已含），**問風格的方式（P0）**：依題材從 `references/styles.md`「角色設定板預設風格」的推薦挑 2–3 個，附上樣圖（`assets/styles/sheet-*.jpg`）與一句話差別，一次問一個問題；**全片風格鎖與設定板風格合併成同一個選擇**，不要分開問。沒有選定時 `export_asset_prompts.py` 會停下報錯，不會默默套預設。
-   **風格要在階段 0 與使用者確認後**寫進「風格錨點」區的 `style_index`：`master`（母版 3D 漫劇寫實厚塗，偏插畫感）／`semi-real`（UE5 半寫實東亞，更接近真人質感）／`1`–`11`（`styles.md` 編號）。沒寫時匯出預設 `master`，不要讓它默默成為預設，開工前先問。然後：
+6. **組裝角色設定板提示詞再生圖**：角色卡填好 `設定板描述`、`背面特徵`（`init_project.py` 範本已含），**問風格的方式（P0）**：依題材從 `references/styles.md`「角色設定板預設風格」的推薦挑 2–3 個，附上樣圖（`assets/styles/sheet-*.jpg`）與一句話差別，一次問一個問題；**全片風格鎖與設定板風格合併成同一個選擇**，不要分開問。預設推 14 號「古風寫實厚塗・電影感」；沒有選定時 `export_asset_prompts.py` 會用 14 號並在 stderr 提醒，開工前仍要讓使用者確認。
+   **風格要在階段 0 與使用者確認後**寫進「風格錨點」區的 `style_index`：`14`／`xianxia-cinematic-semireal`（**預設**，古風寫實厚塗・電影感）／`master`（母版 3D 漫劇寫實厚塗，偏插畫感）／`semi-real`（UE5 半寫實東亞，更接近真人質感）／`1`–`11`（`styles.md` 編號）。沒寫時匯出用預設 14 號並提醒，開工前仍先問。選 14 號時每段都要綁設定圖或場景圖（audit E28）。然後：
    ```bash
    python scripts/storyboard/export_asset_prompts.py --assets-md assets.md --out-json images/asset_prompts.json --out-md images/asset_prompts.md
    python scripts/storyboard/run_codex_asset_gen.py --prompts images/asset_prompts.json --output-dir images

@@ -31,6 +31,9 @@ import re
 import sys
 from typing import Any, Dict, List, Optional
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import style_rules  # noqa: E402
+
 # 確保 Windows 終端輸出 UTF-8
 if sys.platform.startswith("win"):
     if hasattr(sys.stdout, "reconfigure"):
@@ -67,8 +70,9 @@ DEFAULT_STYLE_LOCK_3D = (
 )
 
 # 角色設定板以 ai-image-prompt「3D 漫劇寫實厚涂四視圖母版」為準（段 1 構圖一字不改）。
-# 風格選擇：預設母版 3d-realistic；`--style N` 改用 references/styles.md 第 N 套錨（取代母版渲染與膚質句）。
-DEFAULT_STYLE_KEY = "3d-realistic"
+# 風格選擇：預設 14 號「古風寫實厚塗・電影感」（xianxia-cinematic-semireal）；`--style master` 用母版 3D 厚塗；
+# `--style N` 改用 references/styles.md 第 N 套錨（取代母版渲染與膚質句）。
+DEFAULT_STYLE_KEY = style_rules.DEFAULT_STYLE_KEY
 STYLES_MD = pathlib.Path(__file__).resolve().parents[2] / "references" / "styles.md"
 
 MASTER_COMPOSITION = (
@@ -107,6 +111,13 @@ def load_style_anchor(index: int, styles_md: pathlib.Path = STYLES_MD) -> Dict[s
 
 
 STYLE_PRESETS = {
+    style_rules.STYLE14_KEY: {
+        "name": f"14 號 {style_rules.STYLE14_NAME}（預設）",
+        "line": (
+            f"{style_rules.SHEET_STYLE_LINE}。真人骨相＋厚涂质地的半写实，冷灰低对比平光。"
+        ),
+        "quality": f"所有视图都是手绘厚涂质地的半写实插画。避免：{style_rules.SHEET_NEGATIVE}。",
+    },
     "master": {
         "name": "3D 漫劇寫實厚塗（母版預設）",
         "line": MASTER_STYLE_3D,
@@ -123,13 +134,16 @@ STYLE_PRESETS = {
         "quality": "8K超高清，电影级半写实CG渲染，毛孔级皮肤质感与次表面散射。",
     },
 }
-STYLE_CHOICES = "master（母版3D厚塗，預設）／semi-real（UE5半寫實）／1–11（styles.md 編號）"
+STYLE_CHOICES = (f"{style_rules.STYLE14_KEY} 或 14（古風寫實厚塗・電影感，預設）／master（母版3D厚塗）／"
+                 "semi-real（UE5半寫實）／1–11（styles.md 編號）")
 NUMBERED_STYLE_NOTE = "背景以上述四格共用的浅灰纯色背景为准，忽略风格词里的场景背景、粒子与氛围元素。"
 
 
 def resolve_style(token: Optional[str]) -> Dict[str, str]:
     """把風格選擇（master／semi-real／styles.md 編號）解析成 {name, line, quality}。"""
-    key = (str(token).strip().lower() if token else "") or "master"
+    key = (str(token).strip().lower() if token else "") or style_rules.DEFAULT_STYLE_KEY
+    if style_rules.is_style14(key):
+        key = style_rules.STYLE14_KEY
     if key in STYLE_PRESETS:
         return {**STYLE_PRESETS[key], "key": key}
     if key.isdigit():
@@ -322,7 +336,7 @@ def main():
     parser.add_argument("--out-json", type=str, default=None, help="匯出組裝好的 Prompt 清單為 JSON")
     parser.add_argument("--out-md", type=str, default=None, help="匯出組裝好的 Prompt 清單為 Markdown")
     parser.add_argument("--filter", type=str, default=None, help="過濾特定名稱或類別 (如 character, scene, ye-weishan)")
-    parser.add_argument("--style", type=str, default=None, help=f"角色設定板風格：{STYLE_CHOICES}；不給則讀 assets.md 的 style_index，再不然用 master")
+    parser.add_argument("--style", type=str, default=None, help=f"角色設定板風格：{STYLE_CHOICES}；不給則讀 assets.md 的 style_index，再不然用預設 {style_rules.STYLE14_KEY}")
     parser.add_argument("--no-gate", action="store_true", help="略過門禁警告輸出 (僅回傳純數據)")
 
     args = parser.parse_args()
@@ -378,9 +392,11 @@ def main():
     try:
         style_index = args.style or (read_style_index(used_assets_md) if used_assets_md else None)
         if not style_index and any(a["type"] == "character" for a in assets):
-            print("[錯誤] 尚未選定角色設定板風格：請先與使用者確認（見 pipeline.md 階段 2 第 6 步），"
-                  f"再寫入 assets.md 的 style_index 或加 --style。可選：{STYLE_CHOICES}", file=sys.stderr)
-            sys.exit(2)
+            # 預設 14 號「古風寫實厚塗・電影感」；仍提醒與使用者確認（可改選）。
+            style_index = style_rules.DEFAULT_STYLE_KEY
+            print(f"[提醒] assets.md 尚未寫 style_index，使用預設風格 14 號「{style_rules.STYLE14_NAME}」"
+                  f"（{style_rules.STYLE14_KEY}）。請在階段 0 與使用者確認；要改選請寫入 style_index 或加 --style。"
+                  f"可選：{STYLE_CHOICES}", file=sys.stderr)
         style = resolve_style(style_index)
     except (OSError, ValueError) as exc:
         print(f"[錯誤] --style {style_index}：{exc}", file=sys.stderr)
