@@ -497,8 +497,44 @@ class AssetRegistry:
 # 所以英文版放在 stage5 binding，編譯時寫進記憶體中的 Layer 2 的 *_en 欄位。
 SHOT_OVERRIDE_KEYS = {
     "action_stages_en", "observable_expression_en",
-    "movement_en", "blocking_en", "anchor_objects_en", "lips",
+    "movement_en", "blocking_en", "anchor_objects_en", "lips", "show",
 }
+# 逐鏡可見度（#67）：en_overlay.shots.<gsid>.show = {角色 id: 模式}；未列出的 Subject 視為 absent。
+SHOW_MODES = {
+    "face": "{L}: face visible, from {P}",
+    "profile": "{L}: side profile, face from {P}",
+    "back": "{L}: back to camera, face hidden",
+    "fg_soft": "{L}: soft out-of-focus foreground shoulder, face hidden",
+    "silhouette": "{L}: backlit silhouette, no facial detail",
+    "small": "{L}: tiny distant figure, features unreadable",
+    "absent": "{L}: not in this shot",
+    "visible": "{L}: in frame",
+}
+
+
+def _on_screen_sentence(show: Dict[str, Any], subjects: List[Tuple[int, str, int]]) -> str:
+    """subjects = [(k, cid, picture_no)]；回傳 ' On screen: …' 句（沒有 show 就回空字串）。"""
+    if not show:
+        return ""
+    bits: List[str] = []
+    groups: Dict[str, List[str]] = {}
+    order: List[Any] = []
+    for k, cid, pic in subjects:
+        mode = str(show.get(cid) or "absent")
+        label = f"<Subject {k}>"
+        if mode.startswith("part:"):
+            bits.append(f"{label}: only {mode[5:].strip()}, face out of frame")
+        elif mode not in SHOW_MODES:
+            raise ValueError(f"show 模式 {mode!r}（{cid}）不在 {sorted(SHOW_MODES)} 或 part:<部位>")
+        elif "{P}" in SHOW_MODES[mode]:
+            bits.append(SHOW_MODES[mode].format(L=label, P=f"<Picture {pic}>"))
+        else:
+            if mode not in groups:
+                groups[mode] = []
+                bits.append(("@", mode))  # type: ignore[arg-type]
+            groups[mode].append(label)
+    out = [SHOW_MODES[b[1]].format(L=", ".join(groups[b[1]])) if isinstance(b, tuple) else b for b in bits]
+    return " On screen: " + "; ".join(out) + "."
 LIPS_MODES = {"closed", "omit"}
 # 中文運鏡關鍵字 → H3 官方動詞（依序比對，先比較長、較具體的詞）。
 CJK_CAMERA_KEYWORDS: List[Tuple[Tuple[str, ...], str]] = [
@@ -1023,6 +1059,22 @@ def _assign_speaker_ids(shots: List[Dict[str, Any]]) -> Dict[str, str]:
     return ids
 
 
+def _align_speaker_ids(ids: Dict[str, str], selected: List[str]) -> Dict[str, str]:
+    """說話者代號對齊 Subject 編號（#66）：<Subject k> 的代號一律 (Sk)，其餘發聲者接在最後一號之後。"""
+    if not ids:
+        return ids
+    new: Dict[str, str] = {}
+    for k, cid in enumerate(selected, start=1):
+        if cid in ids:
+            new[cid] = f"S{k}"
+    nxt = len(selected) + 1
+    for cid in ids:
+        if cid not in new:
+            new[cid] = f"S{nxt}"
+            nxt += 1
+    return new
+
+
 def _strip_dialogue_from_soundscape(foley: str, spoken_lines: List[str]) -> str:
     """從環境音描述中移除逐字台詞。
 
@@ -1490,6 +1542,8 @@ def compile_segment_h3(
     else:
         selected = [cid for cid in ranked if cid not in no_visual_ids][:max(1, max_char_refs)]
         secondary = [cid for cid in ranked if cid not in selected]
+    # #66：<Subject k> 的說話者代號一律 (Sk)，其他發聲者接在後面
+    speaker_ids = _align_speaker_ids(speaker_ids, selected)
 
     # ---------- 未錨定的在場人物（複製人主因，送件前由 E19 攔截） ----------
     in_frame_ids: List[str] = []
@@ -1624,6 +1678,10 @@ def compile_segment_h3(
             } if is_identity_anchor else {}),
         })
         desc = info["desc_en"] or info["name"]
+        disp_name = str(info.get("name") or cid)
+        if is_identity_anchor and not costume_of.get(cid) and not is_panel_anchor:
+            notes.append(f"[背影錨點] {cid} 沒有 costume_id：背面全身圖的服裝不會寫進提示詞；"
+                         f"請在 reference_paths.characters 為它登記 costume_id（或確認 asset_refs 已登記該錨點）")
         if is_panel_anchor:
             # 整板查表：官方 ComfyUI 指引允許多格板，但必須逐格描述、鏡頭指向某一格。
             # 這裡把「只用這一格、其餘格與正面臉都不匯入」寫進兩段式欄位。
@@ -1654,7 +1712,8 @@ def compile_segment_h3(
             # 背影／側身角色的參考圖不含可見正臉；用官方 partially_preserved 說明
             # 保留哪些特徵，正面臉不匯入。
             subject_def_lines.append(
-                f"<Subject {k}> is the figure in <Picture {k + 1}>, {desc}; this reference shows the "
+                f"<Subject {k}> is the figure in <Picture {k + 1}> (a full-body back-view reference of {disp_name}), "
+                f"{(info.get('back_en') or desc)}; this reference shows the "
                 f"character from behind, and the face is never shown in the target video."
             )
             ret = (
@@ -1665,7 +1724,11 @@ def compile_segment_h3(
             ret += " Ignore the neutral gray studio background of the reference sheet."
             retention_lines.append(ret)
         else:
-            subject_def_lines.append(f"<Subject {k}> is the character in <Picture {k + 1}>, {desc}.")
+            kind_label = ("a single-view creature crop" if info.get("is_creature")
+                          else "a head-and-shoulders face crop of this one person")
+            subject_def_lines.append(
+                f"<Subject {k}> is the character in <Picture {k + 1}> ({disp_name}; reference image "
+                f"{k + 1}, {kind_label}), {desc}.")
             if info.get("is_creature"):
                 # 生物沒有髮型與服裝；沿用人類模板會把 H3 引向「人臉」（#60）
                 ret = (f"<Subject {k}> (appears across shots): fully_preserved - the body shape, skin or surface "
@@ -2097,6 +2160,10 @@ def compile_segment_h3(
         else:
             head = (f"[Shot {idx}] At {format_timestamp(cut_timestamps[idx - 2])}, the shot cuts to a "
                     f"{shot_size}{optics} of {focal}, as {mclause}.")
+        # #67：逐鏡 On screen 句（en_overlay.shots.<gsid>.show）
+        _show = ((stage5_en_overlay(stage5_binding).get("shots") or {}).get(global_shot_id) or {}).get("show") if stage5_binding else None
+        if _show:
+            head += _on_screen_sentence(_show, [(k, c, subject_picture_no[c]) for k, c in enumerate(selected, start=1)])
         tail = " The final second holds still before the cut." if (idx == n_shots and tail_hold) else ""
         if idx == n_shots and layer2_data.get("segment_end_state"):
             end_state = layer2_data["segment_end_state"]
