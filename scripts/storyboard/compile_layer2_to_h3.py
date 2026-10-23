@@ -561,7 +561,7 @@ def stage5_pending_references(binding: Optional[Dict[str, Any]]) -> List[str]:
         if not isinstance(items, list) or not all(isinstance(v, str) and v.strip() for v in items):
             raise ValueError(f"Stage5 {key} must be a project-relative path or a list of paths")
         for v in items:
-            if pathlib.PurePath(v).is_absolute():
+            if pathlib.PurePosixPath(v).is_absolute() or pathlib.PureWindowsPath(v).is_absolute():
                 raise ValueError(f"Stage5 {key} must be project-relative: {v}")
             if v not in out:
                 out.append(v)
