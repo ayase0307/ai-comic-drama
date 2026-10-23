@@ -91,6 +91,55 @@
         },
         "decided_at": {
           "type": "string"
+        },
+        "impact": {
+          "type": "string",
+          "minLength": 1,
+          "description": "（選填，收件匣卡片用）會影響什麼"
+        },
+        "recommendation": {
+          "type": "string",
+          "minLength": 1,
+          "description": "（選填，收件匣卡片用）建議"
+        },
+        "options": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 3,
+          "items": {
+            "type": "object",
+            "required": [
+              "label",
+              "reply"
+            ],
+            "properties": {
+              "label": {
+                "type": "string",
+                "minLength": 1
+              },
+              "reply": {
+                "type": "string",
+                "minLength": 1,
+                "description": "使用者點了會複製的回覆文字"
+              }
+            }
+          },
+          "description": "（選填，收件匣卡片用）2–3 個選項"
+        },
+        "imported_from": {
+          "type": "object",
+          "required": [
+            "file"
+          ],
+          "properties": {
+            "file": {
+              "type": "string"
+            },
+            "key": {
+              "type": "string"
+            }
+          },
+          "description": "由 h3d verdict import 從舊格式 conclusions-*.json 轉入時的出處"
         }
       }
     }

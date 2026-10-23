@@ -15,7 +15,9 @@ python scripts/h3d.py status --root . # 全局狀態（階段／依賴／送件�
 |---|---|---|
 | `next` | 讀 project-state（hash／依賴）、decisions、verdicts、QA、ledger，印**下一步唯一一條指令**＋該讀的 reference（`--json` 可機讀） | **每次開工、每做完一步** |
 | `decide` | 把使用者定案寫進 `decisions.json`（必附 `--quote` 原話；`--list` 列出） | 使用者拍板任何畫風／比例／台詞／驗收／剪輯規則時 |
-| `verdict` | 階段 6 逐段目視結論寫進 `review/verdicts.json`；`--summary` 依驗收政策分類 | 收件抽幀看完每一段後 |
+| `verdict` | 階段 6 逐段目視結論寫進 `review/verdicts.json`；`--summary` 依驗收政策分類；`verdict import` 轉舊格式 conclusions-*.json | 收件抽幀看完每一段後 |
+| `inbox` | 決策收件匣 `review/inbox.html`：只列**需要使用者決定的事**（卡片＋選項複製回覆），已決定／自動處理收合 | 每次要使用者拍板之前；取代逐階段審核頁 |
+| `approve --auto` | 沒有未決卡、且符合 `decisions.json` 政策（`auto_approve`）時自動核准並記錄依據 | `h3d next` 指示時 |
 | `doctor` | GPU 顯存、ffmpeg（含 `-vsync` 回歸）、服務 port、磁碟 | 開工前、換機器後 |
 | `compile` | Layer 2 → H3 六段式提示詞＋`segments-*.json`；`--check` 同時跑 17 條自檢與失敗目錄 | 每次改完分鏡 |
 | `audit` | 參考圖／主體定義／台詞預算對帳 | 編譯後單獨重驗 |
@@ -105,6 +107,34 @@ python scripts/h3d.py deps --root . --status --strict
 - `review/verdicts.json`（格式 `references/schemas/verdicts.schema.json`）：segment_id → `verdict`（pass／warn／fail）、`reason`、`evidence`（證據圖）、`decided_by`（agent／user／policy）、`issues`。結論綁影片 hash，影片重生後自動過期。
   分類規則：技術硬錯誤（時長漂移、比例錯）一律 fail；`decided_by=user` 最大；其餘套政策（碰到 `rerun_on` → fail，fail 但問題全在 `accept` → warn）；沒有結論＝未驗收（技術綠燈也一樣）。
 - 階段 6 閘門：有 verdicts.json 時，政策判 fail 的段落擋核准，**不能覆寫**；技術 QA 的量化指標未過可用 `--override --reason` 由使用者帶理由放行，覆寫紀錄（理由、時間、被覆寫的問題）永久留在 project-state。
+
+## 2.6 決策收件匣與自動核准（h3d inbox／h3d approve --auto）
+
+**原則：人只看例外。** 收件匣取代逐階段把所有資料攤開的審核頁（舊八頁保留給除錯）。
+
+- `h3d inbox --root .`（或 `build_stage_review.py --project-dir . --inbox`）產生 `review/inbox.html`（standalone、手機優先、縮圖 webp 內嵌、目標 < 5 MB）與 `review/inbox.json`。
+  資料只讀 `decisions.json`、`review/verdicts.json`、`review/project-state.json`，選用 `videos/qa-report.json` 與影片抽 10 幀條（`--strips all|recent|none`）；階段 7 的待定音色角色另讀 `segments-ep*.json` 的 `external_narration[].speaker`。
+- 卡片來源（依會不會擋下一步排序）：
+  1. 目前階段還沒定案的規則（`decisions.json` 缺項）
+  2. verdicts 依政策判 fail（擋核准）／warn（不擋；超過 3 段併成一張）；`decided_by=user` 的結論列在「已決定」
+  3. 技術 QA 量化指標未過、且不在政策 `accept` 內 → 問使用者要不要覆寫
+  4. 有畫外台詞、但還沒有 `voice:<角色>` 定案的角色（一張卡列全部）
+  5. 階段等核准、且沒有其他卡也不在自動核准授權內 → 「階段 N 等你核准」
+- 卡片的影響／建議／選項可以在寫結論時指定：`h3d verdict <段> warn --reason ... --evidence ... --impact "..." --recommend "..." --option "後製疊墨線=EP01-S04-d：後製疊九道墨線" --option "維持現狀=EP01-S04-d：不處理"`。
+- 使用者回覆卡片上的文字後：定案用 `h3d decide`、段落裁示用 `h3d verdict <段> <結論> --by user`、角色音色用 `h3d decide voice:<角色id> "<音色>" --quote "<原話>"`。
+
+**自動核准**：`h3d approve --auto [--stage N] [--dry-run] --root .`
+
+- 授權只能來自使用者：`h3d decide auto_approve 1,3,4,5,6 --quote "<原話>"`。**階段 0 與 2 永遠要人決定**，寫進去會被拒。
+- 條件：該階段收件匣沒有未決卡、`h3d next` 要求的定案都在、前一階段有效核准、產物檢查通過。
+  階段 6 另需：驗收政策已定案、沒有未驗收段、沒有判重跑的段；技術 QA 問題全部屬政策 `accept` 時自動帶覆寫理由，否則要人決定。
+  階段 7 另需：每個有畫外台詞的角色都有使用者本人定的 `voice:<角色>`（`--by user_delegated` 會被拒）。
+- 核准走 `project_state.approve_stage_detailed`（正門），依據（政策 id、原話、verdicts 分類）寫進該階段的 `auto_approval`／`auto_approval_history`。
+- `h3d next` 在符合條件時會直接指示 `h3d approve --auto --stage N`。
+
+**舊結論轉換**：`h3d verdict import <conclusions-*.json…> --root . [--dry-run] [--keep-unknown] [--overwrite] [--no-issues]`
+把「segment_id → 一句中文結論」轉成 verdicts.json：✅→pass、✅（附註）／⚠️→warn、❌→fail；`_老大裁示_*` 物件裡的段落記成 `decided_by=user`；
+只看「原判：」之前的文字；pass 只推可接受類問題代碼；證據依序取 `videos/qa/tiles/<段>.jpg`→`videos/<段>.mp4`→原檔。
 
 ## 3. 文件同步（references/h3）
 

@@ -77,7 +77,7 @@
         "id": {
           "type": "string",
           "minLength": 1,
-          "description": "已知：style、aspect_ratio、dialogue_policy、design_engine、acceptance_policy、edit_method；也可自訂"
+          "description": "已知：style、aspect_ratio、dialogue_policy、design_engine、acceptance_policy、edit_method、auto_approve；角色音色用 voice:<角色id>（只能 by=user）；也可自訂"
         },
         "rule": {
           "type": "string",
@@ -148,8 +148,67 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "id": {
+                "const": "auto_approve"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "$ref": "#/$defs/autoApprove"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "id": {
+                "pattern": "^voice:"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "source": {
+                "properties": {
+                  "by": {
+                    "const": "user"
+                  }
+                }
+              }
+            },
+            "description": "每個角色的音色定案永遠要使用者本人決定"
+          }
         }
       ]
+    },
+    "autoApprove": {
+      "type": "object",
+      "required": [
+        "stages"
+      ],
+      "properties": {
+        "stages": {
+          "type": "array",
+          "items": {
+            "enum": [
+              1,
+              3,
+              4,
+              5,
+              6,
+              7
+            ]
+          },
+          "description": "使用者授權「沒有未決卡且符合政策就自動核准」的階段；0（定調）與 2（角色設定圖）永遠要人決定，不可列入"
+        }
+      }
     }
   }
 }

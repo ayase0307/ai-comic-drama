@@ -89,7 +89,40 @@ def validate(data: Any) -> List[str]:
         issues = item.get("issues", [])
         if not isinstance(issues, list) or any(i not in decisions_mod.ISSUE_CODES for i in issues):
             errors.append(f"{sid}: issues 只能用驗收政策代碼（{', '.join(decisions_mod.ISSUE_CODES)}）")
+        errors.extend(_card_field_errors(sid, item))
     return errors
+
+
+def _card_field_errors(sid: str, item: Dict[str, Any]) -> List[str]:
+    """選用的決策卡欄位（impact／recommendation／options）：給收件匣用，讓卡片寫得比通用模板準。"""
+    errors: List[str] = []
+    for key in ("impact", "recommendation"):
+        if key in item and (not isinstance(item[key], str) or not item[key].strip()):
+            errors.append(f"{sid}: {key} 若有填必須是非空字串")
+    if "options" in item:
+        options = item["options"]
+        if not isinstance(options, list) or not 2 <= len(options) <= 3:
+            errors.append(f"{sid}: options 必須是 2–3 個選項")
+        else:
+            for opt in options:
+                if not isinstance(opt, dict) or not all(
+                        isinstance(opt.get(k), str) and opt[k].strip() for k in ("label", "reply")):
+                    errors.append(f"{sid}: options 每項都要有 label 與 reply 字串")
+                    break
+    imported = item.get("imported_from")
+    if imported is not None and not (isinstance(imported, dict) and isinstance(imported.get("file"), str)):
+        errors.append(f"{sid}: imported_from 必須是 {{file, key}} 物件")
+    return errors
+
+
+def parse_option(raw: str) -> Dict[str, str]:
+    """`--option "後製裁掉=EP03-S02-d：後製裁掉最後 1 秒"` → {label, reply}；沒有 = 時兩者相同。"""
+    label, sep, reply = raw.partition("=")
+    label = label.strip()
+    reply = reply.strip() if sep else label
+    if not label or not reply:
+        raise VerdictError(f"--option 格式錯誤：{raw}（應為 \"選項=回覆文字\"）")
+    return {"label": label, "reply": reply}
 
 
 def load(root: Path) -> Dict[str, Any]:
@@ -133,7 +166,9 @@ def _resolve(root: Path, raw: str) -> Path:
 
 def set_verdict(root: Path, segment_id: str, verdict: str, reason: str, evidence: List[str], *,
                 decided_by: str = "agent", issues: Optional[List[str]] = None,
-                video: Optional[str] = None) -> Dict[str, Any]:
+                video: Optional[str] = None, impact: Optional[str] = None,
+                recommendation: Optional[str] = None,
+                options: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
     if verdict not in VERDICTS:
         raise VerdictError("verdict 必須是 pass／warn／fail")
     if not evidence:
@@ -150,6 +185,12 @@ def set_verdict(root: Path, segment_id: str, verdict: str, reason: str, evidence
         "issues": list(issues or []),
         "decided_at": datetime.now().astimezone().isoformat(timespec="seconds"),
     }
+    if impact:
+        entry["impact"] = impact.strip()
+    if recommendation:
+        entry["recommendation"] = recommendation.strip()
+    if options:
+        entry["options"] = list(options)
     video_path = _resolve(root, video) if video else root / "videos" / f"{segment_id}.mp4"
     if video_path.is_file():
         # 結論綁影片 hash：影片重生後舊結論自動過期，不會被當成新片的驗收。
@@ -260,11 +301,16 @@ def classify(root: Path, qa_report: Optional[Dict[str, Any]] = None,
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "import":
+        import verdict_import
+        return verdict_import.main(argv[1:])
     parser = argparse.ArgumentParser(
         prog="h3d verdict",
         description="寫入階段 6 逐段目視結論（review/verdicts.json），或列出依驗收政策的分類",
         epilog="例：h3d verdict EP01-S01-a pass --reason \"人物一致、無多人\" "
-               "--evidence videos/qa/tiles/EP01-S01-a.jpg --root <專案>；h3d verdict --summary --root <專案>",
+               "--evidence videos/qa/tiles/EP01-S01-a.jpg --root <專案>；h3d verdict --summary --root <專案>；"
+               "舊格式轉換：h3d verdict import conclusions-*.json --root <專案>",
     )
     parser.add_argument("segment_id", nargs="?")
     parser.add_argument("verdict", nargs="?", choices=VERDICTS)
@@ -273,6 +319,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--issues", default="", help=f"問題代碼，逗號分隔（{', '.join(decisions_mod.ISSUE_CODES)}）")
     parser.add_argument("--by", default="agent", choices=DECIDED_BY, help="誰判的：agent／user／policy")
     parser.add_argument("--video", help="影片路徑（預設 videos/<segment_id>.mp4），用來綁 hash")
+    parser.add_argument("--impact", help="（選填，給收件匣）會影響什麼，一句話")
+    parser.add_argument("--recommend", help="（選填，給收件匣）你的建議，一句話")
+    parser.add_argument("--option", action="append", default=[],
+                        help="（選填，給收件匣）選項，格式 \"選項=回覆文字\"，可重複 2–3 次")
     parser.add_argument("--root", type=Path, default=Path("."), help="專案根目錄")
     parser.add_argument("--summary", action="store_true", help="列出依驗收政策的分類")
     parser.add_argument("--json", action="store_true", help="--summary 以 JSON 輸出")
@@ -301,8 +351,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         unknown = [i for i in issues if i not in decisions_mod.ISSUE_CODES]
         if unknown:
             raise VerdictError(f"未知問題代碼：{', '.join(unknown)}")
+        options = [parse_option(o) for o in args.option]
+        if options and not 2 <= len(options) <= 3:
+            raise VerdictError("--option 要 2–3 個")
         entry = set_verdict(root, args.segment_id, args.verdict, args.reason, args.evidence,
-                            decided_by=args.by, issues=issues, video=args.video)
+                            decided_by=args.by, issues=issues, video=args.video,
+                            impact=args.impact, recommendation=args.recommend, options=options or None)
     except (VerdictError, decisions_mod.DecisionError) as exc:
         print(f"❌ {exc}", file=sys.stderr)
         return 2

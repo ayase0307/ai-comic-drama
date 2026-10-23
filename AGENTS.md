@@ -8,7 +8,8 @@
 2. **使用者定案一律 `h3d decide <id> <值> --quote "<使用者原話>"`**，不要只寫在筆記裡，也不要替使用者決定。
 3. **不准手改 `review/project-state.json`。** 狀態只能由 `scripts/build_stage_review.py`（`--stage`／`--approve-stage`）寫入；手改會被偵測（寫入戳記對不上）並由 `h3d next` 擋下。
    階段 6 技術 QA 為 PARTIAL 但使用者看過仍核准：`--approve-stage 6 --override --reason "<使用者理由>"`；不得代替使用者核准。
-4. **階段 6 逐段結論一律 `h3d verdict`** 寫進 `review/verdicts.json`，依 `decisions.json` 的 `acceptance_policy` 分類。
+4. **階段 6 逐段結論一律 `h3d verdict`** 寫進 `review/verdicts.json`，依 `decisions.json` 的 `acceptance_policy` 分類；舊格式 conclusions-*.json 用 `h3d verdict import` 轉。
+4a. **要使用者決定的事用 `h3d inbox` 交給使用者**（只列例外，不要把整頁資料攤開）；使用者授權過的階段照 `h3d next` 跑 `h3d approve --auto`。階段 0、角色設定圖（階段 2）、每個角色的音色永遠要使用者本人決定。
 5. **不同時跑兩個影片 runner**，也不要碰不是自己送的 job；ledger 有 waiting／running 的工作時只收件。
 6. **遇到 `PARTIAL`、`duration_drift`、`已有 waiting 的 job` 就停下**，照 `references/tooling.md` §4 處置並回報使用者。
 
