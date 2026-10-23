@@ -7,7 +7,7 @@ compile_layer2_to_h3.py — Layer 2 分鏡轉 H3 官方六段式 Prompt 與分�
 功能：
 1. 讀取一至多個 Layer 2 分鏡 JSON（支援目錄或多檔案），依集與場序批次編譯。
 2. 結合 bible.json 與/或 assets.md 解析角色、妖物、場景底圖的圖片路徑與中英文外貌錨點。
-3. 嚴格輸出符合 audit_refs_and_segments.py 13 條規則的 H3 官方六段式結構：
+3. 嚴格輸出符合 audit_refs_and_segments.py 17 條規則的 H3 官方六段式結構：
    - subject_definitions: (<Picture 1> 為場景，<Subject k> 嚴格對應 <Picture k+1>)
    - summary: (時長、鏡數、主體動作與情緒)
    - retention_analysis: (四大連戲錨點、妖物純灰底三視圖防染色聲明)
@@ -474,10 +474,11 @@ class AssetRegistry:
         if not rec:
             raise ValueError(f"Stage5 binding prop {pid!r} is not registered in the normalized Bible")
         result = dict(rec)
-        if not result.get("ref_img"):
-            raise ValueError(f"Stage5 binding prop {pid!r} has no approved reference_image")
         if not result.get("desc_en"):
-            raise ValueError(f"Stage5 binding prop {pid!r} has no English visual description")
+            raise ValueError(
+                f"Stage5 binding prop {pid!r} has no English visual description"
+                + ("" if result.get("ref_img") else "（也沒有參考圖；沒有圖的道具會以英文描述純文字注入，至少要有描述）")
+            )
         return result
 
     def get_bodydetail(self, did: str) -> Dict[str, Any]:
@@ -539,6 +540,34 @@ def ensure_global_shot_ids(layer2_data: Dict[str, Any]) -> Dict[str, Any]:
     return layer2_data
 
 
+PENDING_REFERENCE_KEYS = ("pending_references", "pending_scene_plate", "x_pending_scene_plate")
+
+
+def stage5_pending_references(binding: Optional[Dict[str, Any]]) -> List[str]:
+    """binding 宣告「這張圖還沒出、先編提示詞給人審」的路徑（#55）。
+
+    可以寫字串或字串清單；鍵名 `pending_references`（舊包裝用 `x_pending_scene_plate`）。
+    宣告過的路徑編譯時不因「檔案不存在」失敗，但 compile_notes 與 metadata.pending_references 會留記錄，
+    送件（submit）看到 pending_references 一律擋下，圖補齊後重編就會消失。
+    """
+    if not isinstance(binding, dict):
+        return []
+    out: List[str] = []
+    for key in PENDING_REFERENCE_KEYS:
+        raw = binding.get(key)
+        if raw in (None, "", []):
+            continue
+        items = [raw] if isinstance(raw, str) else raw
+        if not isinstance(items, list) or not all(isinstance(v, str) and v.strip() for v in items):
+            raise ValueError(f"Stage5 {key} must be a project-relative path or a list of paths")
+        for v in items:
+            if pathlib.PurePosixPath(v).is_absolute() or pathlib.PureWindowsPath(v).is_absolute():
+                raise ValueError(f"Stage5 {key} must be project-relative: {v}")
+            if v not in out:
+                out.append(v)
+    return out
+
+
 def _has_cjk(value: Any) -> bool:
     if isinstance(value, dict):
         return any(_has_cjk(v) for v in value.values())
@@ -586,6 +615,7 @@ def validate_stage5_binding(
             raise ValueError(f"Stage5 shot override does not resolve uniquely: {sid}")
         if not isinstance(override, dict) or set(override) - SHOT_OVERRIDE_KEYS:
             raise ValueError(f"Stage5 shot override {sid} may override only {', '.join(sorted(SHOT_OVERRIDE_KEYS))}")
+    stage5_pending_references(binding)
     overlay = stage5_en_overlay(binding)
     for sid, entry in (overlay.get("shots") or {}).items():
         if sid not in known:
@@ -744,6 +774,8 @@ def _stage5_reference_path_map(binding: Dict[str, Any]) -> Tuple[Dict[str, str],
     if binding.get("scene_reference"):
         scene_path = str(binding["scene_reference"])
     variants: Dict[Tuple[str, str], Dict[str, Any]] = {}
+    variant_placeholder: set = set()
+    base_creature_ids: set = set()
     for shot_binding in binding.get("shots", []) or []:
         grouped = shot_binding.get("reference_paths", {}) or {}
         scene = grouped.get("scene")
@@ -775,6 +807,9 @@ def _stage5_reference_path_map(binding: Dict[str, Any]) -> Tuple[Dict[str, str],
                     raise ValueError(f"Stage5 reference_paths.{group} entries must be objects")
                 aid = entry.get("id")
                 image = entry.get("reference_image") or entry.get("path")
+                if aid and not image and group == "props":
+                    # 沒有設定圖的道具：以文字描述注入提示詞（#54），編譯端另行收集
+                    continue
                 if not aid or not image:
                     raise ValueError(f"Stage5 reference_paths.{group} entry requires id and reference_image")
                 meta = {
@@ -806,10 +841,23 @@ def _stage5_reference_path_map(binding: Dict[str, Any]) -> Tuple[Dict[str, str],
                         current["shot_ids"].append(sid)
                     if aid not in paths:
                         paths[aid] = image
+                        variant_placeholder.add(aid)
+                    continue
+                if aid in variant_placeholder:
+                    # 同一生物先出現階段變體、後出現基本型（#60）：基本型才是 Subject 的圖，
+                    # 變體留在逐鏡範圍內另掛一張 Picture。
+                    variant_placeholder.discard(aid)
+                    paths[aid] = image
+                    if group == "creatures":
+                        base_creature_ids.add(str(aid))
                     continue
                 if aid in paths and paths[aid] != image:
                     raise ValueError(f"Stage5 asset {aid} has conflicting bound reference paths")
                 paths[aid] = image
+                if group == "creatures":
+                    base_creature_ids.add(str(aid))
+    for variant in variants.values():
+        variant["has_base"] = variant["id"] in base_creature_ids
     return paths, scene_path, list(variants.values()), scene_description, asset_meta
 
 
@@ -1261,6 +1309,7 @@ def compile_segment_h3(
     single_face_mode = False
     unanchored_stage5: List[str] = []
     asset_meta: Dict[str, Dict[str, Any]] = {}
+    pending_refs = set(stage5_pending_references(stage5_binding))
     if stage5_binding:
         ref_path_map, bound_scene_path, creature_variants, bound_scene_description, asset_meta = _stage5_reference_path_map(stage5_binding)
         for shot_binding in stage5_binding.get("shots", []) or []:
@@ -1284,7 +1333,7 @@ def compile_segment_h3(
                 (registry.project_root / path).resolve().relative_to(registry.project_root.resolve())
             except ValueError as exc:
                 raise ValueError(f"Stage5 reference image path escapes project root: {rel}") from exc
-            if not registry.path_exists(rel):
+            if not registry.path_exists(rel) and rel not in pending_refs:
                 raise ValueError(f"Stage5 bound reference image does not exist: {rel}")
         for shot_binding in stage5_binding.get("shots", []) or []:
             no_visual_ids.update(shot_binding.get("no_visual_reference_ids", []) or [])
@@ -1472,7 +1521,9 @@ def compile_segment_h3(
 
     first_variant_by_id: Dict[str, Dict[str, Any]] = {}
     for variant in creature_variants:
-        first_variant_by_id.setdefault(variant["id"], variant)
+        # 同段也綁了基本型（has_base）時，Subject 用基本型圖，所有變體都是逐鏡範圍的補充 Picture。
+        if not variant.get("has_base"):
+            first_variant_by_id.setdefault(variant["id"], variant)
 
     def char_info(cid: str) -> Dict[str, Any]:
         info = registry.get_character(cid, wardrobe_state=costume_of.get(cid) or seg_wardrobe)
@@ -1615,9 +1666,13 @@ def compile_segment_h3(
             retention_lines.append(ret)
         else:
             subject_def_lines.append(f"<Subject {k}> is the character in <Picture {k + 1}>, {desc}.")
-            ret = f"<Subject {k}> (appears across shots): fully_preserved - the facial identity, hairstyle, and wardrobe from <Picture {k + 1}> are retained."
             if info.get("is_creature"):
+                # 生物沒有髮型與服裝；沿用人類模板會把 H3 引向「人臉」（#60）
+                ret = (f"<Subject {k}> (appears across shots): fully_preserved - the body shape, skin or surface "
+                       f"texture, and head features from <Picture {k + 1}> are retained.")
                 ret += " Ignore neutral gray/white studio background of creature turnaround sheet."
+            else:
+                ret = f"<Subject {k}> (appears across shots): fully_preserved - the facial identity, hairstyle, and wardrobe from <Picture {k + 1}> are retained."
             retention_lines.append(ret)
         # 音色綁定採用 FreeVideo 導演台自己的慣例（與 <Picture N> shows its appearance 對稱）：
         # 「<Audio N> is its voice」。主體與音色的關係寫在主體那一行，H3 較不容易錯配。
@@ -1697,6 +1752,14 @@ def compile_segment_h3(
             aid = entry.get("id") if isinstance(entry, dict) else entry
             if aid and aid not in detail_ids:
                 detail_ids.append(aid)
+        for shot_binding in stage5_binding.get("shots", []) or []:
+            bound_props = (shot_binding.get("reference_paths", {}) or {}).get("props", []) or []
+            if isinstance(bound_props, dict):
+                bound_props = [{"id": key, "reference_image": value} for key, value in bound_props.items()]
+            for entry in bound_props:
+                aid = entry.get("id") if isinstance(entry, dict) else None
+                if aid and aid not in prop_ids:
+                    prop_ids.append(aid)
         for aid in ref_path_map:
             if aid in registry.props and aid not in prop_ids:
                 prop_ids.append(aid)
@@ -1704,13 +1767,20 @@ def compile_segment_h3(
                 detail_ids.append(aid)
         for aid in prop_ids:
             info = registry.get_prop(aid)
-            info["ref_img"] = ref_path_map.get(aid, info["ref_img"])
+            info["ref_img"] = ref_path_map.get(aid, info.get("ref_img") or "")
             supplementary.append(("prop", info))
         for aid in detail_ids:
             info = registry.get_bodydetail(aid)
             info["ref_img"] = ref_path_map.get(aid, info["ref_img"])
             supplementary.append(("bodydetail", info))
         for kind, info in supplementary:
+            if kind == "prop" and not info.get("ref_img"):
+                # 無設定圖的道具：不占 Picture 編號，描述寫進參考定義區（純文字）
+                subject_def_lines.append(
+                    f"A prop without a reference image appears in this segment, described in words only: {info['desc_en']}."
+                )
+                notes.append(f"道具 {info['id']} 沒有設定圖，以英文描述純文字注入；補圖後重編可改走 Picture 參考。")
+                continue
             reference_images.append({
                 "id": info["id"], "type": kind, "description": info.get("desc_en") or info.get("name", info["id"]),
                 "path": info["ref_img"],
@@ -2110,8 +2180,15 @@ def compile_segment_h3(
             loras = [l for l in loras if "realism" not in l.get("name", "").lower()]
 
     missing = [r["path"] for r in reference_images if not registry.path_exists(r["path"])]
+    pending_missing = [p for p in missing if p in pending_refs]
+    missing = [p for p in missing if p not in pending_refs]
     if stage5_binding and missing:
         raise ValueError(f"Stage5 has missing bound reference image(s): {', '.join(missing)}")
+    if pending_missing:
+        notes.append(
+            f"⏳ 待補參考圖（已宣告 pending_references，提示詞可審稿、不可送件）：{', '.join(pending_missing)}；"
+            f"圖補齊後重編一次即可解除。"
+        )
     if narration_policy == "external" and external_narration:
         notes.append(
             f"畫外音／旁白 {len(external_narration)} 句已改為外部 TTS（未寫入 <d>），"
@@ -2157,6 +2234,7 @@ def compile_segment_h3(
             "qa_exclusions": negative,
             "palette_preset": metadata.get("palette_preset", ""),
             "narration_policy": narration_policy,
+            **({"pending_references": pending_missing} if pending_missing else {}),
         },
         "reference_images": reference_images,
         "h3_prompt": full_h3_prompt,
@@ -2445,7 +2523,7 @@ def main() -> int:
             dur = seg["metadata"]["target_duration_sec"]
             # 模式 A: 參考圖序對
             refs_res = audit_refs_and_subjects(seg, project_root=args.project_root)
-            # 模式 B: H3 提示詞 13 條自檢
+            # 模式 B: H3 提示詞 17 條自檢
             lint_res = lint_h3_prompt(
                 seg["h3_prompt"],
                 nominal_duration=dur,
@@ -2469,7 +2547,7 @@ def main() -> int:
                     print(f"    [模式B錯誤] {e}")
                 total_errors += len(lint_res["errors"])
             else:
-                print(f"    [模式B通過] 13 條 H3 自檢全部通過 (真實秒數 D={lint_res['details']['effective_duration_sec']}s)")
+                print(f"    [模式B通過] 17 條 H3 自檢全部通過 (真實秒數 D={lint_res['details']['effective_duration_sec']}s)")
 
             for w in refs_res["warnings"] + lint_res["warnings"]:
                 print(f"    [警告] {w}")

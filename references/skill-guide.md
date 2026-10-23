@@ -227,7 +227,7 @@ H3 的聲音與畫面在同一次 forward 生成，輸出是**單一 32 kHz 立�
 - `scripts/adapt/*.py` — 劇本結構、時長、連戲、改編差異完整驗證套件。
 - `scripts/storyboard/handoff_to_skeleton.py` — 交接 JSON → Layer 2 骨架，預設每段 10.0s / 3 鏡（支援 `--max-segment-sec`、`--max-shots`）、統一 4.0 字/秒、窗口 $\ge 2.5s$、動作力學三要素結構模板（施力點 ➔ 傳導路徑 ➔ 受擊反饋）、`INDEPENDENT_REF2VA` 握手與四大連戲錨點（lighting/axis/blocking/texture）。
 - `scripts/storyboard/compile_layer2_to_h3.py` — Layer 2 批次編譯為 H3 官方六段式提示詞（`prompts-epXX.md`）與 FreeVideo 批次分段檔（`segments-epXX.json`），支援防混臉參考圖排序（一段一張角色圖）、切點時間軸保護（$D - \text{末切點} \ge 2.05s$）、光源名詞映射、官方運鏡詞微交替、LoRA 自動適配、`--narration-policy external`（畫外音／旁白移出 `<d>`、寫入 `external_narration` 與 `speaker_ids`）與 `--check` 雙重對帳。stage5 綁定檔支援 `identity_anchor_ids`（不露臉身份錨點）、`reference_view: "panel"` ＋ `panel_label_en`（**整板查表模式**，缺格位說明即丟 `ValueError`）、`audio_references`（**音色參考 `<Audio N>`** ＋ 固定描述詞 `voice_4d_spec_en`）。
-- `scripts/storyboard/audit_refs_and_segments.py` — 分段參考圖、主體定義、說話者與字數預算多維程式對帳工具（支援雙重審查：模式 A 序對 + 模式 B 13 條自檢）。
+- `scripts/storyboard/audit_refs_and_segments.py` — 分段參考圖、主體定義、說話者與字數預算多維程式對帳工具（支援雙重審查：模式 A 序對 + 模式 B 17 條自檢）。
 - `scripts/storyboard/patch_shot.py` — 單鏡局部修改與審核鎖定工具（支援秒數吸收、自動重算時間軸）。
 - `scripts/storyboard/svg_storyboard_grid.py` — 免生圖 SVG 構圖九宮格（2.5D 相機＋3D 人偶，依景別取景、過肩貼肩、依 180 度線換算左右；回寫 `sketch_file`／`sketch_sha256`／`sketch_generation.grid_file`；鎖定格不覆蓋；外觀與站位走專案 `staging/`，動作關鍵字走 `svg_rig_actions.json`）。選用依賴 numpy、resvg-py。
 - `scripts/storyboard/qwen_storyboard_grid.py` — Qwen-Image 2.1 電影分鏡鉛筆草圖、單格局部重繪、九宮格拼版與去黑箭頭轉全彩首幀工具。

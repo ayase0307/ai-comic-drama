@@ -134,6 +134,24 @@ python scripts/h3d.py deps --root . --status --strict
 - 閉唇句只加在「看得到臉且不說話」的鏡：`lips`（en_overlay）→ `lips_closed_lock`（明寫 true／false）→ 鏡內有沒有可見角色。
 - `no_visual_reference`／`voice_only` 的角色只寫「只聞其聲、畫面上不出現」，不寫外觀；`secondary_desc_en` 可為某段改寫次要角色描述。
 
+### 2.3.1 缺圖、無圖道具、生物階段變體（#54 #55 #60）
+
+- **沒有設定圖的道具**：`reference_paths.props` 的條目可以不寫 `reference_image`（或 `asset_refs.props` 登記了但 bible 沒圖）。只要 bible 有 `visual_prompt_en`，編譯器會把它以純文字寫進參考定義區、不占 `<Picture N>`，並記一條 compile note；沒有英文描述才報錯。補圖後重編即改走 Picture 參考。
+- **缺場景母版先審稿**：binding 段落寫 `"pending_references": ["refs/scenes/xxx.png"]`（字串或清單；舊名 `pending_scene_plate`、`x_pending_scene_plate` 也認）。宣告過的路徑不會因檔案不存在而編譯失敗，`compile_notes` 與 `metadata.pending_references` 會留記錄。**這只放行審稿**：`submit` 看到 `pending_references` 或檔案不存在一律擋下，階段 5 驗證仍判缺圖，圖補齊重編後記錄自動消失。
+- **同一生物同段有階段變體＋基本型**：基本型（沒寫 `variant` 的條目）當 Subject 的圖，所有 `variant` 條目都是逐鏡範圍的補充 Picture（`Stage-specific reference…this shot only`）。只有變體沒有基本型時，第一個變體當 Subject 的圖（舊行為）。
+- 生物的 retention 寫「body shape, skin or surface texture, and head features」，不再沿用人類模板的臉／髮型／服裝。
+
+### 2.3.2 全集 `segments-all.json` 怎麼產
+
+多集專案要一份 `segments-all.json`（階段 5 快照納入，階段 6 門禁用它確認每集的片段都在）。產法：把**全部** layer2 一次編譯，輸出檔名指定為 `segments-all.json`：
+
+```
+python scripts/h3d.py compile --layer2 layer2/ --bible video-bible.json --bindings video-bindings.json \
+  --project-root . --output-segments segments-all.json --check
+```
+
+逐集 `segments-epXX.json` 則用 `--episode EPxx` 另編；`--bindings` 含其他集的段會自動略過。`--check` 的「17 條」是 `audit_refs_and_segments.py --lint-h3` 的 E1–E9、W10–W13、E14–E16、E18；E19 起是參考圖對帳與逐鏡撰寫審查。
+
 ## 2.4 階段 0–3 產物內容門禁（stage_content_checks.py）
 
 `h3d next`、`h3d approve --auto` 與 `build_stage_review.py --approve-stage` 判斷階段 0–3「產物齊了沒」時，會跑

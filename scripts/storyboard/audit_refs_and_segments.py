@@ -11,7 +11,7 @@ audit_refs_and_segments.py — 確定性產線稽核工具
    - 檢查主角是否在前 5 名，同段掛多張角色圖時發出同質化混臉警告。
    - 支援 --fix-refs 由演員設定自動確定性生成並覆寫一致的資產定義。
 2. 模式 B (--lint-h3)：
-   - H3 分段提示詞 13 條確定性自檢（FreeVideo 17n+5 幀數取整真實有效秒數 D、
+   - H3 分段提示詞 17 條確定性自檢（FreeVideo 17n+5 幀數取整真實有效秒數 D、
      6 大必填區塊、鏡頭數量連續性、禁止時間戳於 Shot 1、切點 >=2s、末切點空間、
      禁用運鏡詞、每鏡官方運鏡詞、時間推進詞 then/as、光源名詞、負面詞轉正面改寫、台詞語速等）。
 3. 模式 C (--self-test)：
@@ -525,7 +525,7 @@ def fix_refs_and_subjects(seg_data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # ==============================================================================
-# 模式 B：H3 分段提示詞 13 條確定性自檢 (--lint-h3)
+# 模式 B：H3 分段提示詞 17 條確定性自檢 (--lint-h3)
 # ==============================================================================
 
 def lint_h3_prompt(
@@ -534,7 +534,7 @@ def lint_h3_prompt(
     rounding_mode: str = "floor",
     authored_shots: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
-    """對 H3 分段提示詞執行 13 條確定性工程自檢。
+    """對 H3 分段提示詞執行 17 條確定性工程自檢。
     支援 5–10 秒短分段與 15 秒段，動態計算 FreeVideo 取整有效秒數 D。
     """
     errors: List[str] = []
@@ -1119,7 +1119,7 @@ def main():
     parser.add_argument("--self-test", action="store_true", help="執行內建完整單元自檢回歸測試")
     parser.add_argument("--audit-refs", metavar="FILE_OR_DIR", help="審查指定分段 JSON 檔或目錄的參考圖與語義定義序對")
     parser.add_argument("--fix-refs", action="store_true", help="搭配 --audit-refs，自動以演員表重寫並修復至 100%% 合規")
-    parser.add_argument("--lint-h3", metavar="FILE_OR_DIR", help="對指定分段 JSON 或提示詞文本執行 13 條 H3 確定性自檢")
+    parser.add_argument("--lint-h3", metavar="FILE_OR_DIR", help="對指定分段 JSON 或提示詞文本執行 17 條 H3 確定性自檢")
     parser.add_argument("--duration", type=float, default=7.0, help="分段目標名義秒數（預設: 7.0s）")
     parser.add_argument("--rounding", choices=["floor", "round", "ceil"], default="floor", help="17n+5 取整模式；JSON分段優先採 metadata.rounding_mode")
 
@@ -1241,14 +1241,14 @@ def main():
                     print(f"  ⚠️ {w}")
                 total_warnings += len(refs_res["warnings"])
 
-            # 模式 B: H3 提示詞 13 條自檢
+            # 模式 B: H3 提示詞 17 條自檢
             if args.lint_h3:
                 prompt_str = extract_prompt_from_seg(seg_data)
                 dur = float(seg_data.get("metadata", {}).get("target_duration_sec", args.duration))
                 rounding_mode = (seg_data.get("metadata", {}) or {}).get("rounding_mode", args.rounding)
                 lint_res = lint_h3_prompt(prompt_str, nominal_duration=dur, rounding_mode=rounding_mode, authored_shots=seg_data.get("shots"))
                 if lint_res["passed"]:
-                    print(f"  [PASS] H3 提示詞 13 條自檢通過 ({seg_id_label}: 名義 {dur}s -> 真實有效 {lint_res['details']['effective_duration_sec']}s)")
+                    print(f"  [PASS] H3 提示詞 17 條自檢通過 ({seg_id_label}: 名義 {dur}s -> 真實有效 {lint_res['details']['effective_duration_sec']}s)")
                 else:
                     for e in lint_res["errors"]:
                         print(f"  ❌ {e}")
