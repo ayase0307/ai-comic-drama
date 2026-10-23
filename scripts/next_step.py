@@ -104,9 +104,12 @@ def _decision_step(res: Dict[str, Any], root: Path, missing: List[str]) -> Dict[
     did = missing[0]
     meta = decisions_mod.KNOWN_DECISIONS[did]
     res["blocked_on"].append("尚未定案：" + "、".join(decisions_mod.KNOWN_DECISIONS[m]["label"] for m in missing))
-    hint = "recommended" if did == "acceptance_policy" else "<值>"
+    hint = "recommended" if did in ("acceptance_policy", "style") else "<值>"
     res["action"] = (f"向使用者問「{meta['label']}」（附推薦值），拿到回覆後用使用者原話寫入。"
                      "不要自己替使用者決定。")
+    if did == "style":
+        res["action"] += (f" 預設推薦：{decisions_mod.RECOMMENDED_STYLE}，附樣圖 assets/styles/"
+                          "sheet-14-xianxia-cinematic-semireal.jpg；使用者改選就寫他選的那套。")
     res["next_command"] = f'{H3D} decide {did} "{hint}" --quote "<使用者原話>" --root .'
     res["read"] = [meta["reference"]]
     return res

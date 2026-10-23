@@ -4,8 +4,14 @@ from scripts.storyboard import export_asset_prompts as ex
 
 
 class CharacterPromptTests(unittest.TestCase):
-    def test_default_uses_master_composition_and_3d_style(self):
+    def test_default_is_style14_with_master_composition(self):
         p = ex.compile_full_prompt({"type": "character", "description": "黑发女剑客"})
+        self.assertIn(ex.MASTER_COMPOSITION, p)
+        self.assertIn("realistic East Asian bone structure", p)
+        self.assertIn("同一焦平面", p)
+
+    def test_master_option_uses_master_composition_and_3d_style(self):
+        p = ex.compile_full_prompt({"type": "character", "description": "黑发女剑客"}, ex.resolve_style("master"))
         self.assertIn(ex.MASTER_COMPOSITION, p)
         self.assertIn("高级3D漫剧写实厚涂", p)
         self.assertIn("同一焦平面", p)
@@ -95,10 +101,11 @@ class StyleGateTests(unittest.TestCase):
                     code = e.code
             return code, err.getvalue()
 
-    def test_missing_style_stops_character_export(self):
+    def test_missing_style_uses_default_style14_with_reminder(self):
+        # 2026-10-23 起預設 14 號「古風寫實厚塗・電影感」：不再停下，但提醒與使用者確認
         code, err = self._run(CARD_NO_STYLE)
-        self.assertEqual(code, 2)
-        self.assertIn("尚未選定角色設定板風格", err)
+        self.assertEqual(code, 0)
+        self.assertIn("預設風格 14 號", err)
 
     def test_explicit_style_passes_gate(self):
         code, _ = self._run(CARD_NO_STYLE, "--style", "master")

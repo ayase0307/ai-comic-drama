@@ -34,7 +34,7 @@ agent_created: true
 
 | 階段 | 做什麼 | 不准做什麼 | 跑哪個指令 | 先讀 |
 |---|---|---|---|---|
-| 0 定調 | 一次問完定調題（題材、載體、畫風、比例、台詞政策），每題附推薦值 | 不替使用者決定；不跳過體量反推 | `init_project.py`、`h3d decide style/aspect_ratio/dialogue_policy` | `references/pipeline.md`、`references/styles.md` |
+| 0 定調 | 一次問完定調題（題材、載體、畫風、比例、台詞政策），每題附推薦值；**畫風預設推 14 號「古風寫實厚塗・電影感」**（附樣圖，可改選） | 不替使用者決定；不跳過體量反推 | `init_project.py`、`h3d decide style/aspect_ratio/dialogue_policy` | `references/pipeline.md`、`references/styles.md` |
 | 1 改編 | 保留分級、A/B/C 方案、分集、因果債務 | 小說直接當劇本 | `scripts/adapt/*`、`h3d next` | `references/adapt/novel-to-manju.md` |
 | 2 設定圖 | 主角優先出圖、自檢後重生；引擎定案後全集鎖定 | 換生圖引擎不並排比對；自動核准（永遠要人看臉和服裝） | `h3d decide design_engine`、審核頁 | `references/consistency.md`、`references/styles.md` |
 | 3 劇本 | 場景化改寫、台詞預算（4 字/秒、說話 ≤ 60%）、改編差異 | 超預算照送 | `estimate_duration.py --h3`、`sync_script.py` | `references/adapt/screenplay-format.md` |

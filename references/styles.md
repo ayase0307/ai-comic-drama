@@ -24,6 +24,9 @@
 | 9 | Q 版二頭身喜劇 | <img src="../assets/styles/sheet-09-chibi.jpg" width="200"> | 沙雕、搞笑 | 大頭小身、粗描邊、高彩度色塊 |
 | 10 | 美漫／硬派線稿 | <img src="../assets/styles/sheet-10-american-comic.jpg" width="200"> | 動作、末世、懸疑 | 粗墨線、網點、強對比 |
 | 11 | 賽博科幻平塗霓虹 | <img src="../assets/styles/sheet-11-cyberpunk.jpg" width="200"> | 末世、科幻、機甲 | 霓虹色塊、硬邊陰影、雨夜招牌 |
+| **14（預設）** | **古風寫實厚塗・電影感**（`xianxia-cinematic-semireal`） | <img src="../assets/styles/sheet-14-xianxia-cinematic-semireal.jpg" width="200"> | 仙俠、古風、修真、懸疑古裝（**首推**） | 真人骨相＋厚塗質地、冷灰低對比、玉青硃砂 |
+
+**預設：14 號「古風寫實厚塗・電影感」。** 階段 0 沒有特別指定時推這個（仍可改選任何一套）；它是唯一有整部片實證（10 集 115 段）的風格，配方與翻車見 §14。
 
 使用規則：同一部片的所有圖像提示詞結尾逐字貼同一套錨；3D 與 2D 錨不可混用（互為負面詞）；9:16 構圖詞（`vertical 9:16 composition`）在階段 5 依實際比例替換。
 
@@ -31,15 +34,16 @@
 
 ## 角色設定板預設風格（`export_asset_prompts.py --style`）
 
-角色設定板提示詞用「四視圖母版」排版，風格可選下面兩個預設，或改用本檔 1–11 號的鎖定錨。同一部片只選一個，並與全片風格鎖一致。
+角色設定板提示詞用「四視圖母版」排版，風格可選下面三個預設，或改用本檔 1–11 號的鎖定錨。同一部片只選一個，並與全片風格鎖一致。
 
 | 選項 | 樣圖 | 一句話 | 與相近風格的差別 |
 |---|---|---|---|
+| `xianxia-cinematic-semireal`（或 `14`，**預設**） | <img src="../assets/styles/sheet-14-xianxia-cinematic-semireal.jpg" width="200"> | 古風寫實厚塗・電影感：真人骨相＋厚塗筆觸的半寫實 | 比 7 號「仙俠古風厚塗」更寫實、**不帶賽璐璐膚色**；比 `semi-real` 少 CG 渲染感、保留手繪厚塗質地 |
 | `master` | <img src="../assets/styles/sheet-12-master-3d-thickpaint.jpg" width="200"> | 3D 漫劇寫實厚塗，偏插畫、髮絲與服飾精緻 | 比 1 號「3D 國漫」更寫實、有皮膚次表面散射；仍帶插畫感 |
 | `semi-real` | <img src="../assets/styles/sheet-13-semi-real-ue5.jpg" width="200"> | UE5 半寫實東亞，毛孔級皮膚、接近真人 | 比 8 號「都市霸總半寫實厚塗」更偏 3D CG 渲染而非手繪厚塗 |
 
 - 樣圖為同一角色（雷系女法師）以 ChatGPT 網頁版生成（原圖 1672×941，縮為 1280×720）。每種風格僅各出 1 張，是方向性參考。
-- 題材推薦：奇幻／玄幻／科幻／動作 → `semi-real` 或 `master`；仙俠 → 7 號或 `master`；都市豪門 → 8 號或 `semi-real`；古風文化 → 6 號；搞笑 → 9 號。這只是起點，最終由使用者決定。
+- 題材推薦：**仙俠／古風／修真／古裝懸疑 → 首推 14 號 `xianxia-cinematic-semireal`**（其次 7 號或 `master`）；奇幻／玄幻／科幻／動作 → `semi-real` 或 `master`；都市豪門 → 8 號或 `semi-real`；古風文化 → 6 號；搞笑 → 9 號。這只是起點，最終由使用者決定。
 - 提示詞組裝時，風格自帶的場景背景詞會被「背景以四格共用的浅灰纯色背景为准」覆蓋。
 
 ---
@@ -136,9 +140,36 @@
 
 ---
 
+## 14. 古風寫實厚塗・電影感（預設）
+
+key：`xianxia-cinematic-semireal`（`export_asset_prompts.py --style 14` 或 `--style xianxia-cinematic-semireal`；不指定時就是它）。
+樣圖：上＝主角四視圖設定圖（Codex 內建生圖），下＝H3 Ref2VA 成片截圖（同一套配方）。
+
+- **證據等級：實測（measured）**。《我修的是遺忘課》10 集 115 段全部用這套配方出片，依使用者 2026-10-22 定的驗收標準逐段目視；
+  其中 4 段畫風突變（見下方翻車），修正規則後重跑通過。設定圖與影片都只在 Codex 內建生圖＋MiniMax H3（FreeVideo 本機）驗證過，換模型先出 3–5 張測試。
+- **色盤（實測）**：灰褐麻、冷石灰、玉青、一點硃砂（`palette_preset`：`grey-brown hemp, cold stone grey, jade teal, a touch of cinnabar`）。
+- **設定圖風格句（Codex 內建生圖，四視圖母版）**：
+  `painterly xianxia illustration, thick painterly brush strokes on hair, skin and fabric, NOT 3D render/CGI/photograph, no glossy plastic skin`
+  ＋ `realistic East Asian bone structure and eye proportions, NOT Pixar/Disney cartoon face, no oversized eyes`；
+  負面加 `photorealism, Unreal Engine look`。結果是真人骨相＋厚塗質地的半寫實（範例：本案 `manju/images/asset_prompts.json`）。
+- **風格鎖定錨**：`semi-realistic cinematic painting exactly like <Picture 1>, realistic proportions, never cel-shaded anime, no outlines, muted jade and vermilion palette`（影片用，H3 Ref2VA）
+- **負面錨**：`3D render, CGI, plastic skin, overexposed glow, cluttered pattern, distorted face, text, cel shading, outlines`
+- **中文**：半寫實電影感繪畫，完全照 <Picture 1> 的畫風，真人比例，絕不畫成賽璐璐動畫，沒有描邊，低飽和玉青與硃砂。
+- **影片固定做法**：
+  1. 每段都綁角色設定圖為 `<Picture N>`，對應 `<Subject>` 寫 `fully_preserved`（臉、髮型、服裝都保留）。
+  2. 每段一條 `lighting_lock_line`：**單一動機光源**、約 6000K 冷灰天光或暖油燈、低對比；再加 `palette_preset`。
+  3. 風格錨用上面的影片錨，不要沿用 7 號錨的 `soft cel-like skin`。
+- **翻車（實測）與規則**：
+  - **沒有角色參考圖的段（純物件／空景）一定會漂成平塗 cel 卡通**——EP04-S02-a（夢中火燒舊街）、EP09-S02-a、EP05-S02-a、EP09-S01-c 都發生過。
+    原因：畫面只剩文字風格句可依，而當時模板句「Hand-painted 2D… soft cel-like shading… non-photorealistic」本身就在叫 H3 畫平塗。
+  - 規則一：這個風格下**每段至少綁一張設定圖或場景圖**。`audit_refs_and_segments`（`h3d compile --check`、`h3d audit`、送件前審查）在 style=14 且段落沒有 `<Picture>` 參考時報 **E28 錯誤**。
+  - 規則二：**刪掉「Hand-painted 2D／cel-like／non-photorealistic」這類句子**。編譯器在 style=14 時自動改用影片錨並清掉這些片段；已編譯的提示詞裡若還有，E28 一樣報錯。
+  - 其他（依驗收標準可接受）：紙面／簿頁會出假字（後製處理）、近景人物略顯老。
+- **怎麼判定專案是 14 號**：`decisions.json` 的 `style` 定案（`h3d decide style recommended` 會寫入 14 號）或 `assets.md` 的 `style_index`（`14`／`xianxia-cinematic-semireal`）；段落 `metadata.style_key` 也可單獨指定。
+
 ## 套用與驗收
 
-1. 階段 0 讓使用者從總覽表選一套（或指定兩套疊加），寫入 `project.md` 與 `assets.md`。
+1. 階段 0 預設推 14 號「古風寫實厚塗・電影感」，附樣圖讓使用者確認或從總覽表改選一套（或指定兩套疊加），用 `h3d decide style` 定案並寫入 `project.md` 與 `assets.md`。
 2. 先用該錨出角色設定板與一張場景圖，使用者確認風格對味，才大量生成。
 3. 影片模型（H3 等）不吃這些英文錨時，改用中文版或 `references/h3/scenarios-world-and-styles.md` 的對應風格寫法，但**畫面風格仍以設定板為準**，靠參考圖鎖定。
 4. 發現風格漂移：先查是否有人混入第二套錨或「cinematic、4K、render」類詞，再依 `consistency.md` §9 修復階梯處理。

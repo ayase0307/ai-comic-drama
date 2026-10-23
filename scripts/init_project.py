@@ -61,7 +61,7 @@ ASSETS_TEMPLATE = """# 資產聖經
 > 固定片段逐字複用；有參考圖時外觀只在首次出現寫一次，見 references/consistency.md §0
 
 ## 風格錨點
-- **style_index**：`<角色設定板風格，階段 0 與使用者確認：master 母版3D漫劇寫實厚塗｜semi-real UE5半寫實東亞｜1–11 styles.md 編號>`（export_asset_prompts.py 自動讀取）
+- **style_index**：`<角色設定板風格，階段 0 與使用者確認：預設 14＝古風寫實厚塗・電影感｜master 母版3D漫劇寫實厚塗｜semi-real UE5半寫實東亞｜1–11 styles.md 編號>`（export_asset_prompts.py 自動讀取；不填就用預設 14）
 - **style_anchor**：`<全片共用風格，例：3D donghua, cel-shaded, soft rim light>`
 - **style_negative**：`<不要出現的特徵>`
 - **lighting_lock_line**：`<全片光線鎖，一句話>`
