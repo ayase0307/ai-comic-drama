@@ -85,13 +85,13 @@ python scripts/init_project.py my-drama --title "我的漫劇" --episodes 12
    - **原著行號依據**：所有外貌、武器、年齡與能力描述必須附帶 `(Lxxx)` 行號依據，非原著內容標註 `【改編新增】`。
    - **確定性驗證器**：
      ```bash
-     python scripts/adapt/validate_character_bible.py --bible adapt/character-bible.md --json adapt/bible.json
+     python scripts/adapt/validate_character_bible.py --bible-md adapt/character-bible.md --bible-json adapt/bible.json
      ```
    - **產出階段 1 HTML 審核頁並停下**：
      ```bash
      python scripts/build_stage_review.py --stage 1
      ```
-     Agent 必須主動停下，提示使用者查閱 `review/stage-1-adapt.html`，取得核准後才可進入階段 2！
+     Agent 必須主動停下，提示使用者查閱 `review/stage-1-adaptation.html`，取得核准後才可進入階段 2！
 2. **全文解析與故事地圖**：logline、主衝突、因果鏈、時間線、人物關係、世界規則、伏筆、原著內部矛盾（列出，不私自掩蓋）。長篇分批讀，不假裝讀完沒看過的章節。模板 `adapt/templates/source-analysis.md`。
 3. **保留分級**：每個事件標 `MUST_KEEP`／`KEEP_IF_POSSIBLE`／`MERGE`／`COMPRESS`／`REMOVE`／`REORDER`，記原文引用與理由。
 4. **A／B／C 三方案停靠**：忠於原著／節奏優先／成本優先，比較後推薦，**交使用者選**。

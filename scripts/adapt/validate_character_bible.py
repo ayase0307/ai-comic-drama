@@ -120,8 +120,11 @@ def validate_character_bible(
         errors.append("[E02: 殘留 TODO] character-bible.md 中仍含 `<角色名>` 或 `TODO` 佔位符，請依原著完整填寫。")
 
     # 2. 檢查禁用英文假名
+    # 模板的 > 引言說明與 HTML 註解不算角色內容（說明裡舉例禁用名不該讓整份永遠 FAIL）。
+    name_scope = re.sub(r"<!--.*?-->", "", md_text, flags=re.S)
+    name_scope = "\n".join(l for l in name_scope.splitlines() if not l.lstrip().startswith(">")).lower()
     for bad_name in FORBIDDEN_PSEUDO_NAMES:
-        if bad_name.lower() in md_text.lower():
+        if bad_name.lower() in name_scope:
             errors.append(
                 f"[E03: 禁用自創英文假名] 檢測到自創代號 '{bad_name}'！"
                 f"必須跨章節檢索原著揭曉之中文真名（如瑪蓮、奇雅、賴一心），嚴禁以英文代號敷衍。"

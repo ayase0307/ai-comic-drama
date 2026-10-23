@@ -615,8 +615,17 @@ def stage7_errors(root: Path) -> list[str]:
     return errors
 
 
-def stage_validation_errors(root: Path, stage: int, allow_technical: bool = False) -> list[str]:
-    """allow_technical=True 時，階段 6 只回硬錯誤（供已記錄 override 的核准使用）。"""
+def stage_validation_errors(root: Path, stage: int, allow_technical: bool = False,
+                            strict: bool = False) -> list[str]:
+    """allow_technical=True 時，階段 6 只回硬錯誤（供已記錄 override 的核准使用）。
+
+    strict=True（h3d next、新核准、自動核准）時，階段 0–3 另外檢查產物內容：
+    模板佔位符、角色設定驗證、設定圖存在、劇本四支驗證（stage_content_checks.py）。
+    已核准階段的重新驗證不走 strict：核准快照已綁定內容 hash，改了就失效。
+    """
+    if strict and stage in (0, 1, 2, 3):
+        import stage_content_checks
+        return stage_content_checks.content_errors(root, stage)
     if stage == 6 and allow_technical:
         return stage6_issues(root)[0]
     if stage == 4:
@@ -750,7 +759,7 @@ def approve_stage_detailed(root: Path, stage: int, note: str = "使用者確認�
             return False, (f"技術 QA 未過（{len(technical)} 項，例如 {technical[0]}）。"
                            "若使用者已看過影片仍核准，請加 --override --reason \"使用者的理由\"")
     else:
-        errors = stage_validation_errors(root, stage)
+        errors = stage_validation_errors(root, stage, strict=True)
         if errors:
             return False, f"產物檢查失敗：{errors[0]}"
     if stage > 0:
@@ -786,6 +795,12 @@ def approve_stage_detailed(root: Path, stage: int, note: str = "使用者確認�
         entry["auto_approval_history"] = history
     else:
         entry.pop("auto_approval", None)
+    # 解鎖下一階段放在正門裡：手動 --approve-stage 與 h3d approve --auto 狀態一致。
+    next_key = stage_key(stage + 1)
+    if next_key in state["stages"]:
+        state["current_stage"] = stage + 1
+        if state["stages"][next_key].get("status") == "locked":
+            state["stages"][next_key]["status"] = "in_progress"
     save_state(root, state)
     return True, "OK"
 

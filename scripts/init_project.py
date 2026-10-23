@@ -25,17 +25,17 @@ import re
 from pathlib import Path
 
 from decisions import empty_decisions
-from project_state import initial_state
+from project_state import initial_state, save_state
 
 PROJECT_TEMPLATE = """# {title}
 
 ## 設定
 - 集數 / 每集時長：{episodes} 集 / 90 秒
 - 畫風：
-- aspect_ratio：9:16
+- aspect_ratio：<9:16 | 16:9 | 1:1，與 h3d decide aspect_ratio 定案一致>
 - 語言：繁體中文
-- 聲音形式：旁白解說
-- 交付深度：到分鏡圖
+- 聲音形式：<對白為主 | 旁白解說 | 對白＋少量旁白>
+- 交付深度：<到劇本 | 到分鏡圖 | 到提示詞包 | 到成片>
 - genre_mode：<xuanhuan_revenge | romance_emotional | mystery_thriller | comedy_slice_of_life | wuxia_action | healing_literary>
 - target_medium：<motion_comic | ai_animation | live_action_short_drama>
 - rights_status：<owned_original | licensed_adaptation | public_domain | personal_study_only | unconfirmed>
@@ -297,12 +297,20 @@ def handoff_stub(project_id: str, episode: int) -> dict:
     }
 
 
+# 與 build_stage_review.STAGE_META 的檔名一致（不 import 它，避免 init 拉進整個審核頁模組）。
+REVIEW_FILES = {
+    0: "stage-0-intake.html", 1: "stage-1-adaptation.html", 2: "stage-2-assets.html",
+    3: "stage-3-script.html", 4: "stage-4-storyboard.html", 5: "stage-5-prompts.html",
+    6: "stage-6-videos.html", 7: "stage-7-final.html",
+}
+
+
 def initial_project_state(title: str, project_id: str) -> dict:
     """初始化 8 個階段之狀態檔，供 build_stage_review.py 驅動斷點審核。"""
     state = initial_state(title, project_id)
     for i in range(8):
         state["stages"][f"stage-{i}"].update({
-            "review_html": f"review/stage-{i}.html",
+            "review_html": f"review/{REVIEW_FILES[i]}",
             "notes": "尚未執行",
         })
     return state
@@ -361,7 +369,12 @@ def main() -> None:
         if p.exists():
             skipped.append(name)
             continue
-        p.write_text(content, encoding="utf-8")
+        if name == "review/project-state.json":
+            # 走 project_state.save_state 寫入，蓋上寫入戳記；
+            # 不然全新專案的 h3d next 也會出現「沒有寫入戳記（舊專案或曾手改）」。
+            save_state(root, json.loads(content))
+        else:
+            p.write_text(content, encoding="utf-8")
         created.append(name)
 
     print(f"專案目錄：{root}")

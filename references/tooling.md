@@ -111,6 +111,20 @@ python scripts/h3d.py deps --root . --status --strict
 - E38：`detailed_description` 與 `metadata.compiled_prompt_sha256` 不符＝編譯後被改寫。
 - 處置：回 Layer 2 的 `five_part_en` 逐鏡改稿再編譯。不准改檢查器門檻、不准手改 segments 過關。規範見 `references/prompt-authoring.md`。
 
+## 2.4 階段 0–3 產物內容門禁（stage_content_checks.py）
+
+`h3d next`、`h3d approve --auto` 與 `build_stage_review.py --approve-stage` 判斷階段 0–3「產物齊了沒」時，會跑
+`scripts/stage_content_checks.py`（也可手動：`python scripts/stage_content_checks.py --root . --stage N`）：
+
+| 階段 | 擋什麼 |
+|---|---|
+| 0 | `project.md` 殘留 init 模板佔位符（`<…｜…>`、`<中文說明>`）、「畫風」空白、`aspect_ratio` 與 `decisions.json` 定案不一致 |
+| 1 | `validate_character_bible.py` 的 ERROR、`bible.json` 佔位符、`source.json` 仍是 init 骨架或 `must_keep` 對不到 `story_units`、缺 `adapt/series-outline.md` |
+| 2 | `assets.md` 卡片（標題、`- **欄位**：`、表格列）殘留佔位符、登記的設定圖／母版圖檔案不存在 |
+| 3 | 劇本佔位符、`validate_structure` 閘門與錯誤、handoff 的 `title`／`episode_goal` 還是 TODO、`check_continuity` 閘門、`compare_adaptation` 原著對帳硬錯誤（漏 MUST_KEEP、未記錄刪減、未回報缺口或矛盾） |
+
+已核准的階段不會因為之後新增的檢查失效：核准快照已綁定內容 hash，內容改了才需要重審。
+
 ## 2.5 使用者定案與逐段結論（decisions.json／verdicts.json）
 
 - `decisions.json`（專案根目錄，格式 `references/schemas/decisions.schema.json`）：每條定案含 `id`、一句話 `rule`、`value`、`source`（使用者原話＋日期）、適用 `stages`。重新定案時舊值進 `history`。
