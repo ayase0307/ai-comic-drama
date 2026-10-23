@@ -14,6 +14,9 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _common import duration_seconds, keep_agent_section  # noqa: E402,F401
+
 LENS = "araki"
 FIELDS: Dict[str, List[str]] = {
     "動機": ["動機", "动机", "想要", "目標", "目标", "motive", "goal", "want"],
@@ -118,7 +121,7 @@ def run(project_dir: Path, stage: int, episode: str, bible: Optional[Path] = Non
                     else [("⚠️", "輸入", f"找不到 {hp.name}，略過")])
     target = out or project_dir / "review" / "craft" / f"stage-{stage}-{LENS}-{episode.lower()}.md"
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(render(stage, episode, findings), encoding="utf-8")
+    target.write_text(keep_agent_section(render(stage, episode, findings), target), encoding="utf-8")
     return target
 
 

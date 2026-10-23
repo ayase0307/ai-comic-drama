@@ -32,6 +32,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from validate_structure import parse_and_validate_script  # noqa: E402
+from audio_keywords import classify_note  # noqa: E402
 
 
 def compute_content_hash(actions: List[str], dialogues: List[Dict[str, Any]]) -> str:
@@ -91,16 +92,40 @@ def build_speaker_map(script_scenes: List[Dict[str, Any]], handoff_scenes: List[
 
 
 def detect_audio_type(note: str, current_type: str = "onscreen") -> str:
-    """依據括注提示推斷音訊類型。"""
-    if not note:
-        return current_type or "onscreen"
-    if any(k in note for k in ["畫外音", "画外音", "OS", "O.S."]):
-        return "offscreen"
-    if any(k in note for k in ["內心獨白", "内心独白", "VO", "V.O."]):
-        return "voiceover"
-    if any(k in note for k in ["電話", "电话", "手機", "手机"]):
-        return "phone"
-    return current_type or "onscreen"
+    """依據括注提示推斷音訊類型（關鍵字表與 validate_structure 共用，見 audio_keywords.py）。"""
+    kind = classify_note(note or "")
+    return kind or current_type or "onscreen"
+
+
+def read_project_defaults(project_dir: Path) -> Dict[str, str]:
+    """從零建 handoff 的頂層預設值：decisions.json（aspect_ratio）＞ project.md／adapt/source.json（genre_mode）＞ 範本預設（議題 #26）。"""
+    out = {"genre_mode": "healing_literary", "aspect_ratio": "9:16"}
+    try:
+        data = json.loads((project_dir / "decisions.json").read_text(encoding="utf-8"))
+        for d in data.get("decisions", []):
+            if d.get("id") == "aspect_ratio" and isinstance(d.get("value"), str):
+                out["aspect_ratio"] = d["value"]
+    except Exception:
+        pass
+    md = project_dir / "project.md"
+    if md.exists():
+        text = md.read_text(encoding="utf-8")
+        m = re.search(r"aspect_ratio[：:]\s*(\d+:\d+)", text)
+        if m and out["aspect_ratio"] == "9:16" and not (project_dir / "decisions.json").exists():
+            out["aspect_ratio"] = m.group(1)
+        m = re.search(r"genre_mode[：:]\s*([a-z_]+)", text)
+        if m:
+            out["genre_mode"] = m.group(1)
+            return out
+    for cand in (project_dir / "adapt" / "source.json", project_dir / "source" / "source.json"):
+        try:
+            g = json.loads(cand.read_text(encoding="utf-8")).get("genre_mode")
+            if g:
+                out["genre_mode"] = g
+                break
+        except Exception:
+            pass
+    return out
 
 
 def time_to_en(time_str: str) -> str:
@@ -333,6 +358,13 @@ def sync_scene_content(
             if od.get("text") != nd.get("text"):
                 dialogues_changed = True
                 break
+            note = nd.get("note") or ""
+            if note and (
+                detect_audio_type(note, od.get("audio_type", "onscreen")) != od.get("audio_type", "onscreen")
+                or od.get("delivery_note") != note
+            ):
+                dialogues_changed = True
+                break
 
     setting = hs.setdefault("setting", {})
     setting_changed = False
@@ -550,12 +582,13 @@ def main() -> int:
             proj_id = re.sub(r"[^a-z0-9]+", "-", parent_dir.name.lower()).strip("-") or "project"
 
         ep_num_int = int(re.sub(r"[^0-9]", "", ep_id) or "1")
+        project_defaults = read_project_defaults(parent_dir)
         handoff_data = {
             "project_id": proj_id,
             "rights_status": "unconfirmed",
             "adaptation_mode": "balanced",
-            "genre_mode": "healing_literary",
-            "aspect_ratio": "9:16",
+            "genre_mode": project_defaults["genre_mode"],
+            "aspect_ratio": project_defaults["aspect_ratio"],
             "target_medium": "ai_animation",
             "episodes": [{
                 "episode_id": ep_id,

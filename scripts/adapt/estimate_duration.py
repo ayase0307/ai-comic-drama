@@ -353,12 +353,48 @@ def estimate_novel_duration(
     }
 
 
+def find_project_root(path: Path) -> Optional[Path]:
+    for parent in Path(path).resolve().parents:
+        if (parent / "decisions.json").exists() or (parent / "project.md").exists():
+            return parent
+    return None
+
+
+def project_genre(root: Optional[Path]) -> Optional[str]:
+    if root is None:
+        return None
+    try:
+        m = re.search(r"genre_mode[：:]\s*([a-z_]+)", (root / "project.md").read_text(encoding="utf-8"))
+        if m and m.group(1) in GENRE_SPEECH_RATES:
+            return m.group(1)
+    except OSError:
+        pass
+    for cand in (root / "adapt" / "source.json", root / "adapt" / "bible.json"):
+        try:
+            g = json.loads(cand.read_text(encoding="utf-8")).get("genre_mode")
+            if g in GENRE_SPEECH_RATES:
+                return g
+        except (OSError, ValueError):
+            pass
+    return None
+
+
+def dialogue_policy_decided(root: Optional[Path]) -> bool:
+    if root is None:
+        return False
+    try:
+        data = json.loads((root / "decisions.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return any(d.get("id") == "dialogue_policy" and d.get("value") for d in data.get("decisions", []))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="估算漫劇劇本時長區間或小說原文體量反推片長")
     parser.add_argument("--script", type=str, default=None, help="漫劇劇本路徑（或在 --novel 下作為小說路徑）")
     parser.add_argument("--novel-file", type=str, default=None, help="小說章節檔案路徑（開啟小說體量反推）")
     parser.add_argument("--novel", action="store_true", help="開啟小說原文體量反推片長與階段 0 阻斷檢查")
-    parser.add_argument("--genre", type=str, default="xuanhuan_revenge", help="題材模式代碼")
+    parser.add_argument("--genre", type=str, default=None, help="題材模式代碼（省略時讀專案 project.md／source.json 的 genre_mode，都沒有才用 xuanhuan_revenge）")
     parser.add_argument("--target-seconds", type=float, default=90.0, help="單集目標秒數（預設 90s）")
     parser.add_argument("--h3", action="store_true", help="開啟 H3 漫劇台詞預算嚴格檢查（4字/秒、單句≤15字、說話秒數佔比≤60%%）")
     parser.add_argument("--h3-strict", action="store_true", dest="h3", help="同 --h3")
@@ -378,6 +414,10 @@ def main() -> int:
         return 1
 
     file_text = target_path.read_text(encoding="utf-8")
+    project_root = find_project_root(target_path)
+    if args.genre is None:
+        args.genre = project_genre(project_root) or "xuanhuan_revenge"
+    policy_decided = dialogue_policy_decided(project_root)
 
     # 1. 小說模式
     if is_novel_mode:
@@ -403,7 +443,10 @@ def main() -> int:
                 print("\n🚨 【觸發階段 0 阻斷閘門】")
                 for msg in res["gate_messages"]:
                     print(f"  {msg}")
-                print("  👉 解決方案：必須在進入階段 1 前選定以下四大台詞政策之一！")
+                if policy_decided:
+                    print("  ✅ 台詞政策已在 decisions.json 定案；以下試算僅供核對，不需再選。")
+                else:
+                    print("  👉 解決方案：必須在進入階段 1 前選定以下四大台詞政策之一！")
 
             print("\n【四大台詞政策試算】")
             print(f"  {p['policy_1']['name']}:")

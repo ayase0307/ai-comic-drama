@@ -37,6 +37,19 @@ def audit_continuity(
         for alias in ch.get("aliases", []):
             alias_to_canonical[alias] = cname
 
+    # 生物（bible.json 的 creatures）與角色同樣視為已註冊（議題 #31）
+    for cr in bible_data.get("creatures", []) or []:
+        cid = cr.get("creature_id") or cr.get("character_id") or cr.get("id")
+        cname = cr.get("canonical_name") or cr.get("name")
+        if not cid:
+            continue
+        char_registry[cid] = cr
+        if cname:
+            canonical_to_id[cname] = cid
+        for alias in cr.get("aliases", []) or []:
+            if cname:
+                alias_to_canonical[alias] = cname
+
     # 2. 若提供劇本文字，檢查發言人與人物行是否誤用別名或未註冊角色
     if script_text:
         parsed_script = parse_and_validate_script(script_text)
@@ -143,8 +156,11 @@ def audit_continuity(
     if len(all_episodes) >= 2 and len(debt_ledger) == 0:
         warnings.append("[EMPTY_DEBT_LEDGER] 多集劇本未建立任何跨集因果債務（debt_ledger 為空），存在單元清零風險")
     for debt in debt_ledger:
-        if not debt.get("origin_ep") or not debt.get("payoff_ep"):
-            errors.append(f"[INVALID_DEBT_ENTRY] 債務 '{debt.get('debt_id')}' 缺少明確的 origin_ep 或 payoff_ep")
+        payoff = debt.get("payoff_ep")
+        # 未償還（status=open）的債務可以用 payoff_ep="TBD" 或留空，表示還沒排回收集數；已償還的才要求明確集數。
+        unscheduled_ok = debt.get("status", "open") == "open" and (not payoff or str(payoff).upper() in ("TBD", "UNSCHEDULED"))
+        if not debt.get("origin_ep") or (not payoff and not unscheduled_ok):
+            errors.append(f"[INVALID_DEBT_ENTRY] 債務 '{debt.get('debt_id')}' 缺少明確的 origin_ep 或 payoff_ep（未償還的可填 TBD）")
 
     passed = len(errors) == 0 and len(gate_failures) == 0
     return {
