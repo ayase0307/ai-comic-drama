@@ -20,6 +20,20 @@ import next_step  # noqa: E402
 import project_state as ps  # noqa: E402
 import verdicts  # noqa: E402
 
+
+import sys as _sys, pathlib as _pl  # noqa: E401,E402
+_sys.path.insert(0, str(_pl.Path(__file__).resolve().parent))
+import _content_gate  # noqa: E402
+
+
+def setUpModule():
+    _content_gate.disable()
+
+
+def tearDownModule():
+    _content_gate.enable()
+
+
 EPISODES = {"ep01": ["EP01-S01"], "ep02": ["EP02-S01"]}
 ALL_IDS = [sid for ids in EPISODES.values() for sid in ids]
 FAKE_PROBE = {"duration": 2.0}

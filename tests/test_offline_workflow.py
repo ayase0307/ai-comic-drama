@@ -22,6 +22,20 @@ import project_state as state
 import submit_h3_segments as submit
 
 
+import sys as _sys, pathlib as _pl  # noqa: E401,E402
+_sys.path.insert(0, str(_pl.Path(__file__).resolve().parent))
+import _content_gate  # noqa: E402
+
+
+def setUpModule():
+    _content_gate.disable()
+
+
+def tearDownModule():
+    _content_gate.enable()
+
+
+
 def run_cli(script: Path, *args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, str(script), *map(str, args)], cwd=cwd,

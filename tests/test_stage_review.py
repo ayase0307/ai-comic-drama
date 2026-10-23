@@ -15,6 +15,14 @@ import compile_layer2_to_h3 as compiler
 import submit_h3_segments as submit
 import project_state as ps
 
+from unittest import mock as _mock  # noqa: E402
+import sys as _sys, pathlib as _pl  # noqa: E401,E402
+_sys.path.insert(0, str(_pl.Path(__file__).resolve().parent))
+import _content_gate  # noqa: E402,F401  (確保 scripts 在 sys.path)
+
+_content_gate_off = _mock.patch("stage_content_checks.content_errors", new=lambda root, stage: [])
+
+
 
 class StageReviewGateTests(unittest.TestCase):
     def setUp(self):
@@ -49,6 +57,8 @@ class StageReviewGateTests(unittest.TestCase):
         matched, errors = ps.stage4_artifacts(self.root)
         self.assertFalse(errors)
         self.assertEqual(matched, [panel.resolve()])
+
+    @_content_gate_off  # 測的是下游階段，階段 0–3 內容門禁另有測試
 
     def test_stage6_and_stage7_scope_each_episode_to_its_segments_file(self):
         from PIL import Image
@@ -127,6 +137,8 @@ class StageReviewGateTests(unittest.TestCase):
     def test_compile_requires_current_stage4_approval_even_with_grid(self):
         self.assertFalse(compiler.verify_stage4_gate(self.root))
 
+    @_content_gate_off  # 測的是下游階段，階段 0–3 內容門禁另有測試
+
     def test_compile_cli_after_stage4_approval_writes_outputs_and_rejects_stale_edit(self):
         from PIL import Image
 
@@ -164,6 +176,8 @@ class StageReviewGateTests(unittest.TestCase):
 
     def test_submit_requires_stage5_approval_and_matching_segment_inputs(self):
         self.assertFalse(submit.verify_stage5_gate(self.root, self.root / "segments-ep01.json"))
+
+    @_content_gate_off  # 測的是下游階段，階段 0–3 內容門禁另有測試
 
     def test_submit_accepts_approved_stage5_batch_and_blocks_changed_reference(self):
         from PIL import Image

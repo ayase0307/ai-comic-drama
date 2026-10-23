@@ -22,6 +22,15 @@ FORCED_SHUANGWEN_CLICHES = [
 ]
 
 
+def _episode_key(value: Any) -> str:
+    """EP01／ep1／1（整數）都正規化成 EP01；階段 1 的 source.json 常寫整數。"""
+    text = str(value if value is not None else "").strip().upper()
+    if not text:
+        return ""
+    digits = text[2:] if text.startswith("EP") else text
+    return f"EP{int(digits):02d}" if digits.isdigit() else text
+
+
 def evaluate_adaptation(
     source_data: Dict[str, Any],
     handoff_data: Dict[str, Any],
@@ -40,7 +49,7 @@ def evaluate_adaptation(
 
     episodes = handoff_data.get("episodes", [])
     if target_episode:
-        matched_eps = [ep for ep in episodes if ep.get("episode_id", "").upper() == target_episode.upper()]
+        matched_eps = [ep for ep in episodes if _episode_key(ep.get("episode_id")) == _episode_key(target_episode)]
         if matched_eps:
             episodes = matched_eps
 
@@ -83,8 +92,8 @@ def evaluate_adaptation(
     # 1. 檢查原著 MUST_KEEP 事件是否遺失 & 是否存在 UNTRACKED_MAJOR_CHANGE
     raw_source_units = source_data.get("story_units", [])
     if target_episode:
-        ep_filter = target_episode.upper()
-        source_units = [u for u in raw_source_units if not u.get("episode") or u.get("episode", "").upper() == ep_filter]
+        ep_filter = _episode_key(target_episode)
+        source_units = [u for u in raw_source_units if not u.get("episode") or _episode_key(u.get("episode")) == ep_filter]
     else:
         source_units = raw_source_units
 

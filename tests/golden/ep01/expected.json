@@ -96,7 +96,7 @@
  ],
  "next": {
   "stage": 6,
-  "status": "locked",
+  "status": "in_progress",
   "command_head": "build_stage_review.py\""
  },
  "auto_approve_eligible": false,

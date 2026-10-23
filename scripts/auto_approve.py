@@ -124,7 +124,7 @@ def evaluate(root: Path, stage: Optional[int] = None) -> Dict[str, Any]:
     entry = state["stages"][ps.stage_key(stage)]
     if not blockers:
         errors = (ps.stage_validation_errors(root, stage, allow_technical=True) if stage == 6
-                  else ps.stage_validation_errors(root, stage))
+                  else ps.stage_validation_errors(root, stage, strict=True))
         if errors:
             blockers.append(f"產物檢查失敗：{errors[0]}")
     counts_txt = ""

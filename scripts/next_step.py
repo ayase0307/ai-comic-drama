@@ -35,6 +35,7 @@ import verdicts as verdicts_mod  # noqa: E402
 
 H3D = f'python "{(SCRIPTS_DIR / "h3d.py").as_posix()}"'
 REVIEW = f'python "{(SCRIPTS_DIR / "build_stage_review.py").as_posix()}"'
+CHECK = f'python "{(SCRIPTS_DIR / "stage_content_checks.py").as_posix()}"'
 INIT = f'python "{(SCRIPTS_DIR / "init_project.py").as_posix()}"'
 
 STAGE_REFERENCES: Dict[int, List[str]] = {
@@ -305,10 +306,19 @@ def plan(root: Path) -> Dict[str, Any]:
         if step is not None:
             return step
     else:
-        errors = ps.stage_validation_errors(root, stage)
+        errors = ps.stage_validation_errors(root, stage, strict=True)
         if errors:
             res["blocked_on"].append(errors[0])
             producers = {
+                0: (f"{H3D} decide --list --root .",
+                    "和使用者定調（h3d decide style／aspect_ratio／dialogue_policy），把 project.md 的模板欄位全部填實。"),
+                1: (f"{CHECK} --root . --stage 1",
+                    "依原著寫完 adapt/character-bible.md（validate_character_bible.py --bible-md --bible-json 要 PASS）、"
+                    "bible.json、source.json 的 story_units 與 adapt/series-outline.md。"),
+                2: (f"{CHECK} --root . --stage 2",
+                    "把 assets.md 的模板卡片填實，並生成每張登記的設定圖。"),
+                3: (f"{CHECK} --root . --stage 3",
+                    "寫完 script-ep*.md，跑 sync_script.py 產 handoff，修到 validate_structure／check_continuity／compare_adaptation 沒有 FAIL。"),
                 4: (f"{H3D} sketch --root . --episode <EPxx>", "補齊每一鏡對應的構圖 PNG。"),
                 5: (f"{H3D} compile --layer2 layer2/layer2-<段>.json --episode <EPxx> --project-root . --check",
                     "重新編譯提示詞包並補齊參考圖。"),

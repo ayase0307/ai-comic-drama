@@ -25,6 +25,20 @@ import verdicts  # noqa: E402
 from test_enforce_flow import ALL_IDS, TwoEpisodeProject  # noqa: E402
 
 
+import sys as _sys, pathlib as _pl  # noqa: E401,E402
+_sys.path.insert(0, str(_pl.Path(__file__).resolve().parent))
+import _content_gate  # noqa: E402
+
+
+def setUpModule():
+    _content_gate.disable()
+
+
+def tearDownModule():
+    _content_gate.enable()
+
+
+
 def _ids(cards):
     return [c["id"] for c in cards]
 

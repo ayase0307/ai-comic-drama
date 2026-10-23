@@ -58,14 +58,14 @@
 
 | 階段 | 做什麼 | 產出與驗證門禁 | HTML 審核介面 |
 |---|---|---|---|
-| 0 定調 | 鎖定題材、載體、畫風錨、比例、**台詞政策（4選1）與體量反推秒數門禁**（`estimate_duration.py --novel`、`init_project.py`） | `project.md`、`adapt/source.json`、`adapt/bible.json` | `review/stage-0-pitch.html` |
-| 1 改編 | 小說目錄清洗（`extract_chapter.py`）、**角色設定 v4 十一大章節**（`validate_character_bible.py`）、保留分級、分集架構 | `adapt/character-bible.md`、故事地圖、`series-outline` | `review/stage-1-adapt.html` |
+| 0 定調 | 鎖定題材、載體、畫風錨、比例、**台詞政策（4選1）與體量反推秒數門禁**（`estimate_duration.py --novel`、`init_project.py`） | `project.md`、`adapt/source.json`、`adapt/bible.json` | `review/stage-0-intake.html` |
+| 1 改編 | 小說目錄清洗（`extract_chapter.py`）、**角色設定 v4 十一大章節**（`validate_character_bible.py`）、保留分級、分集架構 | `adapt/character-bible.md`、故事地圖、`series-outline` | `review/stage-1-adaptation.html` |
 | 2 資產與設定圖 | 故事聖經→`assets.md`、**生圖工具詢問推薦（Codex CLI）與跨章節鎖定**、**生物純底設定圖**、**演員表主角優先排序** | `assets.md`、`images/` 設定板、**缺圖紅框攔截** | `review/stage-2-assets.html`（表格與圖片左右並排對照） |
 | 3 漫劇劇本 | 場景化改寫、時長與台詞預算審計（`estimate_duration.py --h3`）、HTML 註解元數據注入、交接 JSON、人工審核鎖（`sync_script.py`） | `script-ep01.md`、`handoff-ep01.json`、`adaptation-diff.md` | `review/stage-3-script.html` |
 | 4 導演分鏡 | 依內容編排分段、焦距物距與動作；需要構圖審核時可用 Qwen 九宮格、手繪或其他圖像工具 | `layer2/*.json`、`storyboard-ep01.md`、選用的對應 PNG | `review/stage-4-storyboard.html`（進 H3 編譯前需對應圖與人工核准） |
 | 5 提示詞包 | **逐鏡親手寫五小節（Layer 2 `five_part_en`，規範見 `references/prompt-authoring.md`）**→ **H3 官方六段式批次編譯（`compile_layer2_to_h3.py`，含九宮格門禁檢查）**、服裝狀態機解析、LoRA 精確適配、`--check` 雙重對帳＋逐鏡撰寫審查（E30–E38） | `prompts-ep01.md`、`segments-ep01.json` | `review/stage-5-prompts.html` |
-| 6 生成（選用） | 僅在使用者要求且相容的影片工具／adapter 可用時生成；**審核頁為「影片 × 九宮格 × 設定圖 × QA」四欄對照**（缺圖紅框不阻擋核准），QA 技術結果與人工核准分開 | `videos/`、`qa-report.json` | `review/stage-6-generation.html` |
-| 7 組裝（選用） | **旁白／畫外音走外部 TTS**（`--narration-policy external`，H3 這段只出環境音床），**畫內對白保留 H3 口型**；**TTS 引擎由 `tts_doctor.py` 盤點後選擇**（`--tts-engine`／`--tts-config`）；整片 `loudnorm` 對齊 EBU R128 | `final/`、`narration-ep01.md`、compiled segments 匯出的有效時間線 | `review/stage-7-assembly.html` |
+| 6 生成（選用） | 僅在使用者要求且相容的影片工具／adapter 可用時生成；**審核頁為「影片 × 九宮格 × 設定圖 × QA」四欄對照**（缺圖紅框不阻擋核准），QA 技術結果與人工核准分開 | `videos/`、`qa-report.json` | `review/stage-6-videos.html` |
+| 7 組裝（選用） | **旁白／畫外音走外部 TTS**（`--narration-policy external`，H3 這段只出環境音床），**畫內對白保留 H3 口型**；**TTS 引擎由 `tts_doctor.py` 盤點後選擇**（`--tts-engine`／`--tts-config`）；整片 `loudnorm` 對齊 EBU R128 | `final/`、`narration-ep01.md`、compiled segments 匯出的有效時間線 | `review/stage-7-final.html` |
 
 **詳細做法、每階段模板與檢查點見 `references/pipeline.md`。** 正式階段核准以 `review/project-state.json` 為準；純文字草稿可按指定範圍交付，無需自動推進到媒體生成。
 
@@ -92,14 +92,14 @@
 ├── videos/                 # 生成影片片段與審查報告
 └── review/                 # 八階段 Cinema Editorial Studio HTML 審核頁面與狀態檔
     ├── project-state.json  # 狀態機 SSoT
-    ├── stage-0-pitch.html
-    ├── stage-1-adapt.html
+    ├── stage-0-intake.html
+    ├── stage-1-adaptation.html
     ├── stage-2-assets.html
     ├── stage-3-script.html
     ├── stage-4-storyboard.html
     ├── stage-5-prompts.html
-    ├── stage-6-generation.html
-    └── stage-7-assembly.html
+    ├── stage-6-videos.html
+    └── stage-7-final.html
 ```
 
 用 `scripts/init_project.py` 一鍵建立骨架（自動初始化 `adapt/source.json`、`adapt/bible.json` 與 `project.md` 門禁欄位）。

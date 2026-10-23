@@ -31,9 +31,13 @@ import unicodedata
 from typing import Any, Dict, List, Optional, Tuple
 
 # 確保 Windows 終端輸出 UTF-8
+# 用 reconfigure 而不是換掉 sys.stdout／sys.stderr：被別的腳本 import（例如門禁在同一個行程裡
+# 呼叫 compare_adaptation → estimate_duration）時，換掉的舊物件被回收會關掉底層 buffer，
+# Windows 上會出現「lost sys.stderr」整個行程掛掉。
 if sys.platform.startswith("win"):
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+    for _stream in (sys.stdout, sys.stderr):
+        if hasattr(_stream, "reconfigure"):
+            _stream.reconfigure(encoding="utf-8", errors="replace")
 
 from validate_structure import parse_and_validate_script
 

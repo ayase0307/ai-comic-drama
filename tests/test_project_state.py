@@ -11,6 +11,14 @@ sys.path.insert(0, str(SCRIPTS))
 
 import project_state as ps
 
+from unittest import mock as _mock  # noqa: E402
+import sys as _sys, pathlib as _pl  # noqa: E401,E402
+_sys.path.insert(0, str(_pl.Path(__file__).resolve().parent))
+import _content_gate  # noqa: E402,F401  (確保 scripts 在 sys.path)
+
+_content_gate_off = _mock.patch("stage_content_checks.content_errors", new=lambda root, stage: [])
+
+
 
 class ProjectStateTests(unittest.TestCase):
     def setUp(self):
@@ -46,6 +54,8 @@ class ProjectStateTests(unittest.TestCase):
         ps.save_state(self.root, ps.initial_state("demo", "demo"))
         self.assertTrue((self.root / "review" / "project-state.json").exists())
         self.assertFalse((self.root / "project-state.json").exists())
+
+    @_content_gate_off  # 測的是下游階段，階段 0–3 內容門禁另有測試
 
     def test_valid_project_can_advance_through_all_eight_stages(self):
         from PIL import Image
