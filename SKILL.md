@@ -6,6 +6,15 @@ agent_created: true
 
 # AI 漫劇製作（純 Agent 版）
 
+## 開工規則（每次都照做，沒有例外）
+
+1. **先跑 `python scripts/h3d.py next --root <專案>`**，照它印的「唯一一條指令」做，並先讀它指定的 reference。不要自己排流程或跳步。
+2. **使用者定案一律 `h3d decide <id> <值> --quote "<使用者原話>"`** 寫進 `decisions.json`（畫風、比例、台詞政策、設定圖引擎、驗收政策、剪輯方式…）。不要只寫在筆記裡，也不要替使用者決定。
+3. **不准手改 `review/project-state.json`。** 狀態只能由 `build_stage_review.py` 寫；手改會被 `h3d next` 判為阻斷。階段 6 技術 QA 為 PARTIAL、使用者看過仍核准時，用 `--approve-stage 6 --override --reason "<使用者理由>"`。
+4. **階段 6 逐段結論一律 `h3d verdict`** 寫進 `review/verdicts.json`（pass／warn／fail＋一句原因＋證據圖），依 `acceptance_policy` 分類。
+5. **不同時跑兩個影片 runner**；ledger 有 waiting／running 的工作時只收件（`h3d collect`），不送新件。
+6. **遇到 `PARTIAL`、`duration_drift` 就停下**，照 `references/tooling.md` §4 處置並回報使用者，不要自行繞過。
+
 ## Overview
 
 依使用者指定的交付範圍，完成小說改編、劇本、導演分鏡、提示詞，或使用實際可用的圖片／影片工具生成媒體。文字規劃可獨立交付；媒體生成與後期需要相應工具、連線、模型或本機可執行檔案。

@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ai-comic-drama/verdicts.schema.json",
+  "title": "review/verdicts.json：階段 6 逐段目視結論",
+  "description": "segment_id → 結論。只能用 `h3d verdict` 寫入；有效結論由 h3d verdict --summary 依 decisions.json 的 acceptance_policy 計算。",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "segments"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "segments": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/verdict"
+      }
+    }
+  },
+  "$defs": {
+    "verdict": {
+      "type": "object",
+      "required": [
+        "verdict",
+        "reason",
+        "evidence",
+        "decided_by"
+      ],
+      "properties": {
+        "verdict": {
+          "enum": [
+            "pass",
+            "warn",
+            "fail"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "一句話原因"
+        },
+        "evidence": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          ],
+          "description": "證據圖路徑（抽幀九宮格、並排對照）"
+        },
+        "decided_by": {
+          "enum": [
+            "agent",
+            "user",
+            "policy"
+          ]
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "extra_person",
+              "burned_subtitle",
+              "face_mix",
+              "wardrobe_wrong",
+              "style_shift",
+              "composition_broken",
+              "grid_leak",
+              "paper_text",
+              "aged_face",
+              "low_chroma",
+              "color_jump",
+              "no_audio",
+              "other"
+            ]
+          }
+        },
+        "video_sha256": {
+          "type": "string",
+          "description": "判定時的影片 hash；影片重生後結論自動過期"
+        },
+        "decided_at": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

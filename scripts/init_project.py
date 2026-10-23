@@ -11,6 +11,7 @@
     script-epNN.md     劇本（只寫戲，不寫鏡頭術語）
     handoff-epNN.json  改編交接 JSON 的最小 stub（符合 handoff.schema.json 結構）
     narration-epNN.md  旁白與字幕稿
+    decisions.json     使用者定案（空檔；只能用 `h3d decide` 寫入）
     layer2/            分鏡 Layer 2 骨架輸出目錄
     images/ videos/
 
@@ -23,6 +24,7 @@ import json
 import re
 from pathlib import Path
 
+from decisions import empty_decisions
 from project_state import initial_state
 
 PROJECT_TEMPLATE = """# {title}
@@ -144,6 +146,7 @@ def flow_hint(root: Path) -> str:
 
     return f"""使用方式（從指定交付目標開始，不要求跑完整出片流程）：
   專案目錄：Set-Location -LiteralPath "{root}"
+  開工規則：每次開工先跑 python "{SCRIPTS_DIR / 'h3d.py'}" next --root "{root}"，照它印的唯一一條指令做；使用者定案一律用 h3d decide 寫進 decisions.json；不准手改 review/project-state.json。
   先依使用者要求選擇要交付的階段。若使用者只要文字劇本或分鏡，可交付 draft，不必生成圖片/影片；已提供的 brief、模型、參數沿用，不重問。文字規劃、圖片生成、影片生成是不同能力層，只有目前 Agent/本機後端確實提供相應工具時才執行媒體生成。
 
   完整生成路徑前置（stage 0–3；逐階段審核，不可跳過未完成的前置核准）：
@@ -324,6 +327,7 @@ def build_files(title: str, episodes: int, project_id: str) -> dict[str, str]:
         "adapt/bible.json": json.dumps(bible_stub(project_id), ensure_ascii=False, indent=2) + "\n",
         "adapt/character-bible.md": load_character_bible_template(title),
         "review/project-state.json": json.dumps(initial_project_state(title, project_id), ensure_ascii=False, indent=2) + "\n",
+        "decisions.json": json.dumps(empty_decisions(), ensure_ascii=False, indent=2) + "\n",
     }
     for ep in range(1, episodes + 1):
         tag = f"ep{ep:02d}"

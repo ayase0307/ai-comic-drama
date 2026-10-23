@@ -1201,7 +1201,8 @@ def main() -> int:
     )
     parser.add_argument("--layer2", type=Path, help="Layer 2 分鏡規格 JSON 路徑 (e.g. layer2/segment-01.json)")
     parser.add_argument("--layer2-dir", type=Path, help="批次審查整個目錄下的 layer2-*.json 檔案")
-    parser.add_argument("--segments", type=Path, help="compile_layer2_to_h3 產出的 segments-epXX.json 批次分段檔")
+    parser.add_argument("--segments", type=Path, nargs="+",
+                        help="compile_layer2_to_h3 產出的 segments-epXX.json；多集可一次給多個檔，產生全集 QA 報告")
     parser.add_argument("--videos-dir", type=Path, help="影片所在目錄 (搭配 --segments 或 --layer2-dir 批次尋找 mp4)")
     parser.add_argument("--shot", type=str, help="指定審查的單個 shot_id (如 SH01 或 EP01-S01-a-SH01)")
     parser.add_argument("--video", type=Path, help="指定要審查的 MP4 影片路徑")
@@ -1223,12 +1224,19 @@ def main() -> int:
     # 模式 1：--segments 批次分段審查
     # =========================================================================
     if args.segments:
-        if not args.segments.exists():
-            sys.exit(f"❌ 錯誤: 分段檔不存在: {args.segments}")
-        with args.segments.open("r", encoding="utf-8") as f:
-            seg_data = json.load(f)
-
-        raw_list = seg_data if isinstance(seg_data, list) else seg_data.get("segments", [seg_data])
+        segment_files: List[Path] = list(args.segments)
+        raw_list = []
+        seg_data: Any = None
+        for seg_file in segment_files:
+            if not seg_file.exists():
+                sys.exit(f"❌ 錯誤: 分段檔不存在: {seg_file}")
+            with seg_file.open("r", encoding="utf-8") as f:
+                one = json.load(f)
+            seg_data = one if seg_data is None else seg_data
+            raw_list.extend(one if isinstance(one, list) else one.get("segments", [one]))
+        multi = len(segment_files) > 1
+        # 單檔時沿用舊行為（args.segments 當成單一 Path）；多檔時 episode 標成 ALL。
+        args.segments = segment_files[0]
         v_dir = args.videos_dir or args.segments.parent / "videos"
         contact_dir = args.contact_dir or (v_dir / "reviews")
         contact_dir.mkdir(parents=True, exist_ok=True)
@@ -1311,8 +1319,11 @@ def main() -> int:
                 "expected_segments": expected_segments,
                 "source_segments_file": str(args.segments.resolve()),
                 "source_segments_sha256": compute_file_sha256(args.segments),
+                **({"source_segments_files": [
+                    {"path": str(f.resolve()), "sha256": compute_file_sha256(f)} for f in segment_files
+                ]} if multi else {}),
                 "evidence": segment_evidence,
-                "episode": (seg_data.get("episode") or seg_data.get("episode_id")
+                "episode": ("ALL" if multi else None) or (seg_data.get("episode") or seg_data.get("episode_id")
                             if isinstance(seg_data, dict) else None) or
                            (re.search(r"ep\d+", args.segments.stem, re.IGNORECASE).group(0).lower()
                             if re.search(r"ep\d+", args.segments.stem, re.IGNORECASE) else None),
