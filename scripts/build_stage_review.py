@@ -2488,6 +2488,10 @@ def main() -> int:
     parser.add_argument("--require-approved", type=int, choices=range(8), help="供下游腳本檢查指定前置階段是否已 approved")
     parser.add_argument("--force-unlock-prev", action="store_true", help="相容舊 CLI；不會授予核准，使用時明確拒絕並要求逐階段重審")
     parser.add_argument("--self-test", action="store_true", help="執行內建自檢")
+    parser.add_argument("--inbox", action="store_true",
+                        help="產生跨階段決策收件匣 review/inbox.html（只列需要使用者決定的事；舊八頁保留給除錯）")
+    parser.add_argument("--inbox-strips", choices=["all", "recent", "none"], default="all",
+                        help="搭配 --inbox：影片 10 幀條要內嵌全部／最近 6 段／不要")
     args = parser.parse_args()
 
     if args.self_test:
@@ -2507,6 +2511,16 @@ def main() -> int:
     if not project_dir.exists():
         print(f"❌ 錯誤：找不到專案目錄 {project_dir}", file=sys.stderr)
         return 1
+
+    if args.inbox:
+        review_dir = Path(__file__).resolve().parent / "review"
+        if str(review_dir) not in sys.path:
+            sys.path.insert(0, str(review_dir))
+        import inbox as inbox_mod
+        result = inbox_mod.build(project_dir, strips=args.inbox_strips)
+        print(f"✅ 決策收件匣：{result['html']}（{result['bytes'] / 1024 / 1024:.2f} MB）"
+              f"；待決 {result['open']}、已決定 {result['decided']}、自動處理 {result['auto']}")
+        return 0
 
     state = load_project_state(project_dir)
 

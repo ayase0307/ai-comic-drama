@@ -62,7 +62,17 @@ KNOWN_DECISIONS: Dict[str, Dict[str, Any]] = {
                           "reference": "references/tooling.md"},
     "edit_method": {"label": "剪輯方式（例如全集單一剪輯專案）", "stages": [7], "required_by": 7,
                     "reference": "references/tooling.md"},
+    # 選填：使用者授權哪些階段可以「沒有未決卡就自動核准」（h3d approve --auto）。
+    # required_by=99：永遠不會因為沒定案而擋路。
+    "auto_approve": {"label": "自動核准授權（哪些階段沒有未決卡就自動過）", "stages": [1, 3, 4, 5, 6, 7],
+                     "required_by": 99, "reference": "references/tooling.md"},
 }
+
+# 這些階段永遠要人決定，auto_approve 不能涵蓋：
+# 階段 0（定調五題）、階段 2（角色設定圖：看臉和服裝）。
+NEVER_AUTO_STAGES = (0, 2)
+# 每個角色的音色定案：id 為 voice:<角色 id>，只能由使用者本人（by=user）定。
+VOICE_PREFIX = "voice:"
 
 
 class DecisionError(ValueError):
@@ -163,7 +173,43 @@ def validate(data: Any) -> List[str]:
             errors.append(f"{where}.stages 必須是 0–7 的整數陣列（至少一個）")
         if did == "acceptance_policy" and "value" in item:
             errors.extend(validate_acceptance_policy(item["value"]))
+        if did == "auto_approve" and "value" in item:
+            errors.extend(validate_auto_approve(item["value"]))
+        if isinstance(did, str) and did.startswith(VOICE_PREFIX) and isinstance(source, dict) \
+                and source.get("by", "user") != "user":
+            errors.append(f"{where}: 音色定案 {did} 只能由使用者本人決定（source.by 必須是 user）")
     return errors
+
+
+def validate_auto_approve(value: Any) -> List[str]:
+    if not isinstance(value, dict) or not isinstance(value.get("stages"), list):
+        return ["auto_approve 的值必須是物件 {\"stages\": [1, 3, ...]}"]
+    errors: List[str] = []
+    for stage in value["stages"]:
+        if not isinstance(stage, int) or isinstance(stage, bool) or not 0 <= stage <= 7:
+            errors.append(f"auto_approve.stages 只能是 0–7 的整數（收到 {stage!r}）")
+        elif stage in NEVER_AUTO_STAGES:
+            errors.append(f"auto_approve 不能涵蓋階段 {stage}（定調與角色設定圖永遠要人決定）")
+    return errors
+
+
+def auto_approve_stages(data: Dict[str, Any]) -> Tuple[List[int], Optional[Dict[str, Any]]]:
+    """回傳 (使用者授權自動核准的階段, 該條定案)。沒有定案回傳 ([], None)。"""
+    item = get(data, "auto_approve")
+    if not item or not isinstance(item.get("value"), dict):
+        return [], None
+    stages = [s for s in item["value"].get("stages", []) if isinstance(s, int) and s not in NEVER_AUTO_STAGES]
+    return sorted(set(stages)), item
+
+
+def voice_decisions(data: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    """角色 id → 音色定案（只算使用者本人定的）。"""
+    out: Dict[str, Dict[str, Any]] = {}
+    for item in data.get("decisions", []):
+        did = str(item.get("id") or "")
+        if did.startswith(VOICE_PREFIX) and (item.get("source") or {}).get("by", "user") == "user":
+            out[did[len(VOICE_PREFIX):]] = item
+    return out
 
 
 def get(data: Dict[str, Any], decision_id: str) -> Optional[Dict[str, Any]]:
@@ -188,6 +234,16 @@ def parse_value(decision_id: str, raw: str) -> Any:
     """值先試 JSON（物件、陣列、數字），失敗就當字串。acceptance_policy 支援 `recommended`。"""
     if decision_id == "acceptance_policy" and raw.strip().lower() in ("recommended", "建議", "照建議"):
         return dict(RECOMMENDED_ACCEPTANCE_POLICY)
+    if decision_id == "auto_approve":
+        text = raw.strip()
+        if text[:1] not in ("{", "["):
+            # 允許 `h3d decide auto_approve 1,3,4,5,6`
+            try:
+                return {"stages": [int(x) for x in text.replace("，", ",").split(",") if x.strip()]}
+            except ValueError as exc:
+                raise DecisionError(f"auto_approve 的值應為階段清單，例如 1,3,4,5,6（收到 {raw}）") from exc
+        if text[:1] == "[":
+            return {"stages": json.loads(text)}
     text = raw.strip()
     if text[:1] in ("{", "[") or text in ("true", "false", "null"):
         try:
@@ -203,6 +259,8 @@ def default_rule(decision_id: str, value: Any) -> str:
         rerun = "、".join(ISSUE_CODES.get(c, c) for c in value.get("rerun_on", []))
         accept = "、".join(ISSUE_CODES.get(c, c) for c in value.get("accept", []))
         return f"{label}：只有「{rerun}」才重跑；「{accept}」可接受"
+    if decision_id == "auto_approve" and isinstance(value, dict):
+        return f"{label}：階段 {'、'.join(str(x) for x in value.get('stages', []))} 沒有未決卡且符合政策時自動核准"
     shown = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
     return f"{label}：{shown}"
 
@@ -218,6 +276,13 @@ def decide(root: Path, decision_id: str, raw_value: str, quote: str, *,
         raise DecisionError("必須用 --quote 附上使用者原話；沒有原話就不是定案")
     value = parse_value(decision_id, raw_value)
     known = KNOWN_DECISIONS.get(decision_id)
+    if decision_id.startswith(VOICE_PREFIX):
+        if by != "user":
+            raise DecisionError("音色定案只能由使用者本人決定（不能 --by user_delegated）")
+        if stages is None:
+            stages = [7]
+        if rule is None:
+            rule = f"角色 {decision_id[len(VOICE_PREFIX):]} 的音色：{raw_value}"
     if stages is None:
         if not known:
             raise DecisionError(f"自訂定案 {decision_id} 必須用 --stages 指定適用階段（例如 --stages 5,6）")
@@ -274,7 +339,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         epilog="例：h3d decide aspect_ratio 16:9 --quote \"比例用 16:9\" --root <專案>；"
                "h3d decide acceptance_policy recommended --quote \"照建議\"",
     )
-    parser.add_argument("id", nargs="?", help=f"定案 id（已知：{', '.join(KNOWN_DECISIONS)}；也可自訂）")
+    parser.add_argument("id", nargs="?", help=f"定案 id（已知：{', '.join(KNOWN_DECISIONS)}；"
+                                              f"角色音色用 voice:<角色id>；也可自訂）")
     parser.add_argument("value", nargs="?", help="定案值；JSON 物件／陣列會被解析，其餘當字串")
     parser.add_argument("--quote", help="使用者原話（必填）")
     parser.add_argument("--date", help="原話日期，預設今天（YYYY-MM-DD）")

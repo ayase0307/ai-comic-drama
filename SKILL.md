@@ -12,6 +12,7 @@ agent_created: true
 2. **使用者定案一律 `h3d decide <id> <值> --quote "<使用者原話>"`** 寫進 `decisions.json`（畫風、比例、台詞政策、設定圖引擎、驗收政策、剪輯方式…）。不要只寫在筆記裡，也不要替使用者決定。
 3. **不准手改 `review/project-state.json`。** 狀態只能由 `build_stage_review.py` 寫；手改會被 `h3d next` 判為阻斷。階段 6 技術 QA 為 PARTIAL、使用者看過仍核准時，用 `--approve-stage 6 --override --reason "<使用者理由>"`。
 4. **階段 6 逐段結論一律 `h3d verdict`** 寫進 `review/verdicts.json`（pass／warn／fail＋一句原因＋證據圖），依 `acceptance_policy` 分類。
+4a. **要使用者決定的事用 `h3d inbox` 產生決策收件匣交給使用者**（只列例外）；使用者授權過的階段照 `h3d next` 跑 `h3d approve --auto`。階段 0、角色設定圖、每個角色的音色永遠要人決定（見 `references/tooling.md` §2.6）。
 5. **不同時跑兩個影片 runner**；ledger 有 waiting／running 的工作時只收件（`h3d collect`），不送新件。
 6. **遇到 `PARTIAL`、`duration_drift` 就停下**，照 `references/tooling.md` §4 處置並回報使用者，不要自行繞過。
 

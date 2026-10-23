@@ -723,7 +723,8 @@ def _has_override(entry: dict[str, Any]) -> bool:
 
 
 def approve_stage_detailed(root: Path, stage: int, note: str = "使用者確認通過",
-                           override_reason: str | None = None) -> tuple[bool, str]:
+                           override_reason: str | None = None,
+                           auto_approval: dict[str, Any] | None = None) -> tuple[bool, str]:
     """核准一個階段；回傳 (成功與否, 原因)。
 
     override_reason 只用於階段 6：技術 QA 為 PARTIAL（低彩度等量化指標誤判）時，
@@ -776,6 +777,15 @@ def approve_stage_detailed(root: Path, stage: int, note: str = "使用者確認�
         entry["override_history"] = history
     else:
         entry.pop("override", None)
+    if auto_approval is not None:
+        # 自動核准（h3d approve --auto）：依據哪條政策、哪些 verdicts，永久留紀錄。
+        record = {**auto_approval, "at": now}
+        entry["auto_approval"] = record
+        history = list(entry.get("auto_approval_history") or [])
+        history.append(record)
+        entry["auto_approval_history"] = history
+    else:
+        entry.pop("auto_approval", None)
     save_state(root, state)
     return True, "OK"
 

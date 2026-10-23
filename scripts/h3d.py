@@ -12,7 +12,8 @@ verify_video_shot、submit_h3_segments、deps、doctor、failure_catalog）。
   4. **決定下一步**：`h3d next` 只印目前階段、卡在哪、下一步唯一一條指令與該讀的 reference。
 
 開工規則：先跑 `h3d next --root <專案>`；使用者定案一律 `h3d decide`；
-階段 6 逐段結論一律 `h3d verdict`；不准手改 review/project-state.json。
+階段 6 逐段結論一律 `h3d verdict`；要人決定的事用 `h3d inbox` 交給使用者；
+符合授權的階段用 `h3d approve --auto`；不准手改 review/project-state.json。
 
 設計原則：這裡不准有第二套邏輯。所有規則都留在原本的模組裡，
 h3d 只是名字好記、少打字的門面；每個子命令都保留 `--help`。
@@ -29,7 +30,8 @@ from typing import Any, Dict, List, Optional
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
 STORYBOARD_DIR = SCRIPTS_DIR / "storyboard"
-for candidate in (str(SCRIPTS_DIR), str(STORYBOARD_DIR)):
+REVIEW_DIR = SCRIPTS_DIR / "review"
+for candidate in (str(SCRIPTS_DIR), str(STORYBOARD_DIR), str(REVIEW_DIR)):
     if candidate not in sys.path:
         sys.path.insert(0, candidate)
 
@@ -37,7 +39,9 @@ for candidate in (str(SCRIPTS_DIR), str(STORYBOARD_DIR)):
 COMMANDS: Dict[str, str] = {
     "next": "下一步：目前階段、卡在哪、唯一一條指令、該讀的 reference（--json）",
     "decide": "把使用者定案寫進 decisions.json（必附 --quote 使用者原話）",
-    "verdict": "階段 6 逐段目視結論寫進 review/verdicts.json；--summary 依驗收政策分類",
+    "verdict": "階段 6 逐段目視結論寫進 review/verdicts.json；--summary 依驗收政策分類；import 轉舊格式",
+    "inbox": "決策收件匣 review/inbox.html：只列需要使用者決定的事（手機優先、內嵌縮圖）",
+    "approve": "--auto：沒有未決卡且符合 decisions 政策時自動核准並記錄依據",
     "doctor": "本機環境自檢（GPU／ffmpeg／服務 port／-vsync）",
     "sketch": "免生圖 SVG 構圖九宮格（階段 4 構圖來源，回寫 sketch_file 供審核門禁）",
     "compile": "Layer 2 → H3 六段式提示詞與 segments（--check 可同時審查）",
@@ -57,6 +61,8 @@ MODULE_FOR = {
     "next": "next_step",
     "decide": "decisions",
     "verdict": "verdicts",
+    "inbox": "inbox",
+    "approve": "auto_approve",
     "doctor": "doctor",
     "sketch": "svg_storyboard_grid",
     "compile": "compile_layer2_to_h3",
@@ -236,7 +242,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     if passthrough and passthrough[0] == "--":
         passthrough = passthrough[1:]
     passthrough = IMPLIED_FLAGS.get(command, []) + passthrough
-    if command in ("next", "decide", "verdict"):
+    if command in ("next", "decide", "verdict", "inbox", "approve"):
         # 允許 `h3d --root X next` 與 `h3d next --root X` 兩種寫法
         if args.root is not None and "--root" not in passthrough:
             passthrough += ["--root", str(args.root)]

@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
-for candidate in (str(SCRIPTS_DIR), str(SCRIPTS_DIR / "storyboard")):
+for candidate in (str(SCRIPTS_DIR), str(SCRIPTS_DIR / "storyboard"), str(SCRIPTS_DIR / "review")):
     if candidate not in sys.path:
         sys.path.insert(0, candidate)
 
@@ -179,6 +179,25 @@ def _stage6_work(res: Dict[str, Any], root: Path) -> Optional[Dict[str, Any]]:
     return None
 
 
+def _auto_step(res: Dict[str, Any], root: Path, stage: int) -> Optional[Dict[str, Any]]:
+    """使用者授權了本階段自動核准、且收件匣沒有未決卡時，下一步就是 h3d approve --auto。"""
+    try:
+        data = decisions_mod.load(root)
+        stages, _ = decisions_mod.auto_approve_stages(data)
+        if stage not in stages:
+            return None
+        import auto_approve
+        verdict = auto_approve.evaluate(root, stage)
+    except Exception:
+        return None
+    if not verdict.get("eligible"):
+        res["notes"].append("自動核准尚不符合：" + "；".join(verdict.get("blockers", [])[:2]))
+        return None
+    res["action"] = "本階段沒有未決卡，且符合使用者授權的自動核准政策：自動核准並記錄依據。"
+    res["next_command"] = f"{H3D} approve --auto --stage {stage} --root ."
+    return res
+
+
 def plan(root: Path) -> Dict[str, Any]:
     root = Path(root).expanduser().resolve()
     if not ps.state_path(root).is_file():
@@ -257,6 +276,10 @@ def plan(root: Path) -> Dict[str, Any]:
         res["next_command"] = f"{REVIEW} --project-dir . --stage {stage}"
         return res
 
+    auto = _auto_step(res, root, stage)
+    if auto is not None and status in ("awaiting_user_approval", "draft", "in_progress", "locked"):
+        return auto
+
     if status == "awaiting_user_approval":
         if entry.get("review_snapshot") != ps.stage_snapshot(root, stage):
             res["blocked_on"].append("審核頁產出後產物又改了，舊審核頁作廢")
@@ -265,6 +288,7 @@ def plan(root: Path) -> Dict[str, Any]:
             return res
         technical = ps.stage6_issues(root)[1] if stage == 6 else []
         res["blocked_on"].append("等使用者在審核頁明確回覆通過")
+        res["notes"].append(f"要使用者決定的事可用收件匣呈現：{H3D} inbox --root .（review/inbox.html）")
         res["action"] = ("把審核頁交給使用者並停下。只有使用者明確回覆「通過」後才執行下面指令，"
                          "--user-note 填使用者原話；不得代替使用者核准。")
         if technical:
