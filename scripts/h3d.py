@@ -8,7 +8,11 @@ verify_video_shot、submit_h3_segments、deps、doctor、failure_catalog）。
 
   1. **路由**：`h3d <command>` 轉呼叫既有模組，不改任何行為、不重複實作。
   2. **統一參數慣例**：`--root` 之類的相對路徑以專案根目錄解析。
-  3 **組合查詢**：`h3d status` 一次看階段門禁、依賴帳本、送件帳本、失敗目錄。
+  3. **組合查詢**：`h3d status` 一次看階段門禁、依賴帳本、送件帳本、失敗目錄。
+  4. **決定下一步**：`h3d next` 只印目前階段、卡在哪、下一步唯一一條指令與該讀的 reference。
+
+開工規則：先跑 `h3d next --root <專案>`；使用者定案一律 `h3d decide`；
+階段 6 逐段結論一律 `h3d verdict`；不准手改 review/project-state.json。
 
 設計原則：這裡不准有第二套邏輯。所有規則都留在原本的模組裡，
 h3d 只是名字好記、少打字的門面；每個子命令都保留 `--help`。
@@ -31,6 +35,9 @@ for candidate in (str(SCRIPTS_DIR), str(STORYBOARD_DIR)):
 
 # command -> (module, description)
 COMMANDS: Dict[str, str] = {
+    "next": "下一步：目前階段、卡在哪、唯一一條指令、該讀的 reference（--json）",
+    "decide": "把使用者定案寫進 decisions.json（必附 --quote 使用者原話）",
+    "verdict": "階段 6 逐段目視結論寫進 review/verdicts.json；--summary 依驗收政策分類",
     "doctor": "本機環境自檢（GPU／ffmpeg／服務 port／-vsync）",
     "sketch": "免生圖 SVG 構圖九宮格（階段 4 構圖來源，回寫 sketch_file 供審核門禁）",
     "compile": "Layer 2 → H3 六段式提示詞與 segments（--check 可同時審查）",
@@ -47,6 +54,9 @@ COMMANDS: Dict[str, str] = {
 }
 
 MODULE_FOR = {
+    "next": "next_step",
+    "decide": "decisions",
+    "verdict": "verdicts",
     "doctor": "doctor",
     "sketch": "svg_storyboard_grid",
     "compile": "compile_layer2_to_h3",
@@ -191,8 +201,8 @@ def build_parser() -> argparse.ArgumentParser:
         epilog="每個子命令都支援 --help，例如：h3d compile --help",
     )
     parser.add_argument("--list", action="store_true", help="列出所有子命令")
-    parser.add_argument("--root", type=Path, default=Path("."), help="專案根目錄（給 status 用）")
-    parser.add_argument("--json", action="store_true", help="status 以 JSON 輸出")
+    parser.add_argument("--root", type=Path, default=None, help="專案根目錄（給 status／next／decide／verdict 用）")
+    parser.add_argument("--json", action="store_true", help="status／next 以 JSON 輸出")
     parser.add_argument("command", nargs="?", help="子命令（見 --list）")
     parser.add_argument("args", nargs=argparse.REMAINDER, help="子命令參數")
     return parser
@@ -216,7 +226,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     if command == "status":
         # 允許 `h3d --root X status` 與 `h3d status --root X` 兩種寫法
         sub = argparse.ArgumentParser(add_help=False)
-        sub.add_argument("--root", type=Path, default=args.root)
+        sub.add_argument("--root", type=Path, default=args.root or Path("."))
         sub.add_argument("--json", action="store_true")
         known, _ = sub.parse_known_args(list(args.args))
         return cmd_status(Path(known.root).resolve(), known.json or args.json)
@@ -226,6 +236,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     if passthrough and passthrough[0] == "--":
         passthrough = passthrough[1:]
     passthrough = IMPLIED_FLAGS.get(command, []) + passthrough
+    if command in ("next", "decide", "verdict"):
+        # 允許 `h3d --root X next` 與 `h3d next --root X` 兩種寫法
+        if args.root is not None and "--root" not in passthrough:
+            passthrough += ["--root", str(args.root)]
+        if args.json and "--json" not in passthrough:
+            passthrough.append("--json")
     return _invoke(module, passthrough)
 
 

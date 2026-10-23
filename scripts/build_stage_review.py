@@ -46,12 +46,14 @@ import sys
 from typing import Any, Dict, List, Optional, Tuple
 from project_state import (
     approve_stage as state_approve_stage,
+    approve_stage_detailed as state_approve_stage_detailed,
     load_state as state_load,
     mark_awaiting_review,
     require_approved,
     save_state as state_save,
     stage4_artifacts,
     stage6_errors,
+    stage6_issues,
     stage7_errors,
     stage_key,
     stage_validation_errors,
@@ -2164,13 +2166,29 @@ def _segment_character_visuals(project_dir: Path, bible: Dict[str, Dict[str, Any
     return result
 
 
+def _stage6_split(project_dir: Path) -> Tuple[List[str], List[str]]:
+    """把 stage6_errors 拆成 (硬錯誤, 可覆寫的技術 QA 問題)；保留 stage6_errors 作為單一入口。"""
+    errors: List[str] = stage6_errors(project_dir)
+    if not errors:
+        return [], []
+    technical_set = set(stage6_issues(project_dir)[1])
+    return [e for e in errors if e not in technical_set], [e for e in errors if e in technical_set]
+
+
 def build_stage_6(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[str], str]:
     """階段 6：分段影片 × 九宮格構圖 × 角色設定圖 × QA 指標，四項並排驗收。
 
     九宮格與設定圖是「視覺對照」，缺圖只顯示紅框並在 KPI 揭示覆蓋率，
-    **不阻擋核准**——擋不擋由 QA 證據（stage6_errors）決定。
+    **不阻擋核准**——擋不擋由 QA 證據（stage6_issues）決定：
+    硬錯誤擋住審核頁；只有技術 QA 量化指標未過時仍產出審核頁，
+    核准時須 `--override --reason` 由使用者寫理由。
     """
-    errors: List[str] = stage6_errors(project_dir)
+    errors, technical_issues = _stage6_split(project_dir)
+    try:
+        import verdicts as verdicts_mod
+        verdict_rows = verdicts_mod.classify(project_dir)["segments"]
+    except Exception:
+        verdict_rows = {}
     videos: List[Path] = []
     qa_path = project_dir / "videos" / "qa-report.json"
     qa_map: Dict[str, Any] = {}
@@ -2205,6 +2223,11 @@ def build_stage_6(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
         v_rel = "../" + vp.relative_to(project_dir.resolve()).as_posix()
         q_item = qa_map.get(seg_id, {})
         q_pass = q_item.get("passed") is True
+        v_row = verdict_rows.get(seg_id) or {}
+        v_eff = v_row.get("effective", "unreviewed")
+        v_badge = {"pass": ("emerald", "✅ 驗收通過"), "warn": ("gold", "⚠️ 暫過"),
+                   "fail": ("rose", "❌ 需重跑"), "unreviewed": ("cyan", "… 未目視驗收")}[v_eff]
+        v_title = html.escape(str(v_row.get("reason") or ""))
 
         layer = _segment_layer2(project_dir, seg_id)
         sketches: List[Tuple[str, Path]] = []
@@ -2271,6 +2294,7 @@ def build_stage_6(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
             f'  <div class="sbs-header">'
             f'    <h3 class="sbs-title">🎞️ 影片片段：<code>{html.escape(vp.name)}</code></h3>'
             f'    <span class="tag-badge {"emerald" if q_pass else "rose"}">{"技術 QA PASS" if q_pass else "技術 QA FAIL"}</span>'
+            f'    <span class="tag-badge {v_badge[0]}" title="{v_title}">{v_badge[1]}</span>'
             f'  </div>'
             f'  <div class="sbs-body">'
             f'    <div class="sbs-spec">'
@@ -2307,6 +2331,10 @@ def build_stage_6(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
         "同一段的三方對照：左邊播放影片，右邊由上而下是階段 4 的構圖、階段 2 的設定圖、以及 verify_video_shot.py 的量化結果。缺圖會顯示紅框，但不會阻擋核准——擋不擋由 QA 證據決定。",
         kpis, body, checklist
     )
+    if technical_issues and not errors:
+        # 技術問題不擋審核頁，但要讓使用者在頁面上看到「核准＝覆寫」。
+        html_out = html_out.replace("<!--ISSUES-->", render_issues(
+            [f"［技術 QA，可由使用者帶理由覆寫］{t}" for t in technical_issues]) + "<!--ISSUES-->", 1)
     return len(errors) == 0, errors, html_out
 
 
@@ -2454,6 +2482,9 @@ def main() -> int:
     parser.add_argument("--stage", type=int, choices=range(8), help="建構並驗證指定階段 (0..7) 之 HTML 審核頁面")
     parser.add_argument("--approve-stage", type=int, choices=range(8), help="使用者明確確認沒問題後，標記該階段為 approved 解鎖下一關")
     parser.add_argument("--user-note", type=str, default="使用者確認通過", help="搭配 --approve-stage 記錄使用者簽核備註")
+    parser.add_argument("--override", action="store_true",
+                        help="僅階段 6：技術 QA 為 PARTIAL 時，使用者看過影片仍核准；必須搭配 --reason")
+    parser.add_argument("--reason", type=str, default=None, help="搭配 --override：使用者的覆寫理由（寫進 project-state）")
     parser.add_argument("--require-approved", type=int, choices=range(8), help="供下游腳本檢查指定前置階段是否已 approved")
     parser.add_argument("--force-unlock-prev", action="store_true", help="相容舊 CLI；不會授予核准，使用時明確拒絕並要求逐階段重審")
     parser.add_argument("--self-test", action="store_true", help="執行內建自檢")
@@ -2461,6 +2492,13 @@ def main() -> int:
 
     if args.self_test:
         return 0 if run_self_test() else 1
+
+    if args.override and (args.approve_stage is None):
+        parser.error("--override 只能搭配 --approve-stage 使用")
+    if args.override and not (args.reason or "").strip():
+        parser.error("--override 必須附 --reason \"理由\"（例如使用者原話）")
+    if args.reason and not args.override:
+        parser.error("--reason 只搭配 --override 使用；一般核准備註請用 --user-note")
 
     if not args.project_dir:
         parser.error("請提供 --project-dir 指定專案目錄，或使用 --self-test")
@@ -2502,8 +2540,10 @@ def main() -> int:
             if not ok:
                 print(f"❌ 無法簽核：前置階段已失效或未核准：{msg}", file=sys.stderr)
                 return 2
-        if not state_approve_stage(project_dir, s_idx, args.user_note):
-            print("❌ 無法簽核：該階段尚未產生可用審核快照，或審核後輸入/產物已變更；請重建審核頁。", file=sys.stderr)
+        ok_approve, why = state_approve_stage_detailed(
+            project_dir, s_idx, args.user_note, args.reason if args.override else None)
+        if not ok_approve:
+            print(f"❌ 無法簽核：{why}", file=sys.stderr)
             return 2
         state = load_project_state(project_dir)
         if s_idx + 1 in STAGE_META:
@@ -2512,6 +2552,9 @@ def main() -> int:
                 state["stages"][stage_key(s_idx + 1)]["status"] = "in_progress"
         save_project_state(project_dir, state)
         print(f"✅ 已記錄使用者簽核：「{STAGE_META[s_idx]['name']}」狀態更新為 `approved`！")
+        override = state["stages"][stage_key(s_idx)].get("override")
+        if override:
+            print(f"⚠️ 本次為人工覆寫技術 QA（{override['overridden_issue_count']} 項），理由已記錄：{override['reason']}")
         if s_idx + 1 in STAGE_META:
             print(f"🔓 已解鎖下一階段：「{STAGE_META[s_idx + 1]['name']}」。")
         return 0
@@ -2547,6 +2590,11 @@ def main() -> int:
             return 1
 
         mark_awaiting_review(project_dir, state, s_idx)
+        if s_idx == 6:
+            _hard, technical = stage6_issues(project_dir)
+            if technical:
+                print(f"⚠️ 技術 QA 有 {len(technical)} 項未過（例如 {technical[0]}）。", file=sys.stderr)
+                print("   使用者看過影片仍要核准時，核准指令須加 --override --reason \"使用者的理由\"。", file=sys.stderr)
 
         out_html = project_dir / "review" / STAGE_META[s_idx]["file"]
         print("\n" + "=" * 75)

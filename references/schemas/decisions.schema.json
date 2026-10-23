@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ai-comic-drama/decisions.schema.json",
+  "title": "decisions.json：使用者定案",
+  "description": "專案根目錄的使用者定案清單。只能用 `h3d decide <id> <value> --quote \"<原話>\"` 寫入；h3d next、QA 分類與審核頁會讀它。",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "decisions"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "decisions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/decision"
+      }
+    }
+  },
+  "$defs": {
+    "issueCode": {
+      "enum": [
+        "extra_person",
+        "burned_subtitle",
+        "face_mix",
+        "wardrobe_wrong",
+        "style_shift",
+        "composition_broken",
+        "grid_leak",
+        "paper_text",
+        "aged_face",
+        "low_chroma",
+        "color_jump",
+        "no_audio",
+        "other"
+      ],
+      "description": "驗收問題代碼：extra_person=多出人（不該出現的人物）；burned_subtitle=畫面燒進字幕；face_mix=混臉／身份錯亂／同框露臉；wardrobe_wrong=服裝錯；style_shift=畫風突變（例如半寫實變平塗卡通）；composition_broken=構圖嚴重問題；grid_leak=九宮格框線殘留；paper_text=紙面／道具出字（後製處理）；aged_face=人物稍老；low_chroma=技術 QA 低彩度（低彩度場景常誤判）；color_jump=相鄰段色調跳躍；no_audio=缺音軌；other=其他（需人工判斷）"
+    },
+    "acceptancePolicy": {
+      "type": "object",
+      "required": [
+        "rerun_on",
+        "accept"
+      ],
+      "properties": {
+        "rerun_on": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/issueCode"
+          },
+          "description": "出現就重跑"
+        },
+        "accept": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/issueCode"
+          },
+          "description": "可接受（最多 warn）"
+        },
+        "note": {
+          "type": "string"
+        }
+      }
+    },
+    "decision": {
+      "type": "object",
+      "required": [
+        "id",
+        "rule",
+        "value",
+        "source",
+        "stages"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "已知：style、aspect_ratio、dialogue_policy、design_engine、acceptance_policy、edit_method；也可自訂"
+        },
+        "rule": {
+          "type": "string",
+          "minLength": 1,
+          "description": "一句話規則"
+        },
+        "value": {
+          "description": "定案值；acceptance_policy 必須符合 acceptancePolicy"
+        },
+        "source": {
+          "type": "object",
+          "required": [
+            "quote",
+            "date"
+          ],
+          "properties": {
+            "quote": {
+              "type": "string",
+              "minLength": 1,
+              "description": "使用者原話"
+            },
+            "date": {
+              "type": "string",
+              "minLength": 1,
+              "description": "原話日期 YYYY-MM-DD"
+            },
+            "by": {
+              "enum": [
+                "user",
+                "user_delegated"
+              ]
+            }
+          }
+        },
+        "stages": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 7
+          }
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "description": "被取代的舊定案"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "id": {
+                "const": "acceptance_policy"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "$ref": "#/$defs/acceptancePolicy"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

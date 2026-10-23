@@ -81,13 +81,40 @@ def load_state(root: Path) -> dict[str, Any]:
     return _normalize_state({}, root)
 
 
+INTEGRITY_KEY = "_integrity"
+
+
+def _integrity_digest(payload: dict[str, Any]) -> str:
+    body = {k: v for k, v in payload.items() if k != INTEGRITY_KEY}
+    return hashlib.sha256(json.dumps(body, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
 def save_state(root: Path, state: dict[str, Any]) -> None:
     path = state_path(root)
     path.parent.mkdir(parents=True, exist_ok=True)
     normalized = _normalize_state(state, root)
+    normalized.pop(INTEGRITY_KEY, None)
+    # 只有本模組寫入時才蓋這個戳記；手改 project-state.json 會讓戳記對不上，
+    # `h3d next` 會把它當成阻斷項，要求走正門（build_stage_review.py）重建。
+    normalized[INTEGRITY_KEY] = {"writer": "project_state.save_state", "sha256": _integrity_digest(normalized)}
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(normalized, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     tmp.replace(path)
+
+
+def state_integrity(root: Path) -> str:
+    """回傳 ok／missing（舊檔或未經本模組寫入）／tampered（寫入後被手改）／absent（無狀態檔）。"""
+    path = state_path(root)
+    if not path.is_file():
+        return "absent"
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError):
+        return "tampered"
+    stamp = raw.get(INTEGRITY_KEY) if isinstance(raw, dict) else None
+    if not isinstance(stamp, dict) or not stamp.get("sha256"):
+        return "missing"
+    return "ok" if stamp["sha256"] == _integrity_digest(raw) else "tampered"
 
 
 def sha256_file(path: Path) -> str:
@@ -148,6 +175,11 @@ def _files_for_stage(root: Path, stage: int) -> list[Path]:
         files.extend(p for p in root.glob("handoff-ep*.json") if p.is_file())
     if stage == 6 and (root / "videos").exists():
         files.extend(p for p in (root / "videos").glob("*.mp4") if p.name != "final_assembled.mp4")
+    if stage == 6:
+        # 逐段目視結論也是核准依據；核准後改結論就要重審。
+        verdicts_file = root / "review" / "verdicts.json"
+        if verdicts_file.is_file():
+            files.append(verdicts_file)
     if stage == 7:
         files.extend(p for p in (root / "final").glob("*.mp4") if p.is_file())
     if stage in (4, 5):
@@ -325,35 +357,56 @@ def _sha_value(value: Any) -> str | None:
     return value.lower().removeprefix("sha256:")
 
 
-def stage6_errors(root: Path) -> list[str]:
+# 技術 QA 上「可由使用者覆寫」的問題前綴以外的 issue 都視為硬錯誤。
+_QA_HARD_PREFIXES = ("DURATION_MISMATCH", "ASPECT_RATIO_MISMATCH", "QA_ERROR")
+
+
+def stage6_issues(root: Path) -> tuple[list[str], list[str]]:
+    """階段 6 檢查，拆成 (硬錯誤, 技術 QA 問題)。
+
+    硬錯誤：檔案缺失、hash 不符、未生成、無法解碼、時長漂移、來源不一致、
+    verdicts 判定需重跑——這些不能人工覆寫。
+    技術 QA 問題：只有彩度、九宮格、音軌這類量化指標未過（例如教室低彩度誤判）
+    導致的 PARTIAL——使用者可用 `--approve-stage 6 --override --reason` 帶理由放行。
+    """
     report = root / "videos" / "qa-report.json"
     if not report.is_file():
-        return ["缺少 videos/qa-report.json"]
+        return ["缺少 videos/qa-report.json"], []
     try:
         data = json.loads(report.read_text(encoding="utf-8-sig"))
     except (OSError, json.JSONDecodeError) as exc:
-        return [f"QA 報告無法解析: {exc}"]
-    errors: list[str] = []
+        return [f"QA 報告無法解析: {exc}"], []
+    hard: list[str] = []
+    technical: list[str] = []
     evidence = data.get("evidence")
     if not isinstance(evidence, dict):
-        errors.append("QA 報告缺少 evidence 區塊：請用新版 verify_video_shot.py 重跑，舊報告不得作為階段 6 依據")
+        hard.append("QA 報告缺少 evidence 區塊：請用新版 verify_video_shot.py 重跑，舊報告不得作為階段 6 依據")
     elif evidence.get("verdict") != "VERIFIED":
-        errors.append(
+        message = (
             f"QA 證據等級為 {evidence.get('verdict')}"
             f"（已量測 {evidence.get('produced')}/{evidence.get('expected')}）：未達 VERIFIED 不得核准階段 6"
         )
+        structural = [str(x) for x in evidence.get("structural_issues", []) or []]
+        only_quality = (
+            evidence.get("verdict") == "PARTIAL"
+            and evidence.get("produced") == evidence.get("expected")
+            and not evidence.get("unmeasured")
+            and not evidence.get("unproduced")
+            and all(item.startswith("continuity:") for item in structural)
+        )
+        (technical if only_quality else hard).append(message)
     expected = set(data.get("expected_segments", []))
-    unproduced = set(data.get("unproduced_segments", []))
+    unproduced = set(data.get("unproduced_segments", []) or [])
     results = data.get("results", [])
     if not expected:
-        errors.append("QA 報告缺少 expected_segments")
+        hard.append("QA 報告缺少 expected_segments")
     current_expected, source_error = scoped_expected_segment_ids(root, data)
     if source_error:
-        errors.append(source_error)
+        hard.append(source_error)
     elif expected != current_expected:
-        errors.append("QA expected_segments 與其來源 segments 檔不一致")
+        hard.append("QA expected_segments 與其來源 segments 檔不一致（請用 `h3d qa --segments` 重跑 QA）")
     if unproduced:
-        errors.append("仍有未生成分段: " + ", ".join(sorted(unproduced)))
+        hard.append("仍有未生成分段: " + ", ".join(sorted(unproduced)))
     found: dict[str, dict[str, Any]] = {}
     for item in results:
         sid = item.get("segment_id")
@@ -362,31 +415,106 @@ def stage6_errors(root: Path) -> list[str]:
     for sid in sorted(expected):
         item = found.get(str(sid))
         if not item:
-            errors.append(f"{sid}: QA 結果缺失")
+            hard.append(f"{sid}: QA 結果缺失")
             continue
         raw_video = item.get("video_file")
         if not raw_video:
-            errors.append(f"{sid}: QA 缺少 video_file")
+            hard.append(f"{sid}: QA 缺少 video_file")
             continue
         vp = _resolve(root, raw_video)
         if not vp.is_file():
-            errors.append(f"{sid}: 影片不存在 {raw_video}")
+            hard.append(f"{sid}: 影片不存在 {raw_video}")
             continue
         expected_hash = _sha_value(item.get("video_sha256") or item.get("file_hash_sha256"))
         actual_hash = sha256_file(vp)
         if not expected_hash or expected_hash != actual_hash:
-            errors.append(f"{sid}: 影片 hash 缺失或不相符")
+            hard.append(f"{sid}: 影片 hash 缺失或不相符")
         if item.get("passed") is not True:
-            errors.append(f"{sid}: 技術 QA 未通過")
+            issues = [str(i) for i in item.get("issues", []) or []]
+            hard_issues = [i for i in issues if i.startswith(_QA_HARD_PREFIXES)]
+            if hard_issues:
+                hard.append(f"{sid}: 技術 QA 硬錯誤（不可覆寫）：{hard_issues[0][:120]}")
+            else:
+                brief = "、".join(i.split(":")[0].split(" ")[0] for i in issues) or "未列原因"
+                technical.append(f"{sid}: 技術 QA 未通過（{brief}）")
         if _ffprobe(vp) is None:
-            errors.append(f"{sid}: 影片無法完整解碼")
+            hard.append(f"{sid}: 影片無法完整解碼")
     extra = set(found) - expected
     if extra:
-        errors.append("QA 含非預期分段: " + ", ".join(sorted(extra)))
-    return errors
+        hard.append(
+            "QA 含非預期分段: " + ", ".join(sorted(extra))
+            + "（多集專案請用 `h3d qa --segments segments-ep01.json segments-ep02.json ...` 一次產生全集報告）"
+        )
+    hard.extend(_verdict_errors(root, data))
+    return hard, technical
+
+
+def _verdict_errors(root: Path, qa_report: dict[str, Any]) -> list[str]:
+    """有 review/verdicts.json 時，依驗收政策判為 fail 的段落擋核准（不可覆寫）。"""
+    if not (root / "review" / "verdicts.json").is_file():
+        return []
+    try:
+        import verdicts as verdicts_mod
+        report = verdicts_mod.classify(root, qa_report=qa_report)
+    except Exception as exc:  # 格式錯誤本身就是硬錯誤
+        return [f"review/verdicts.json 無法使用：{exc}"]
+    return [
+        f"{sid}: 驗收結論需重跑（{row['reason']}）"
+        for sid, row in report["segments"].items()
+        if row["effective"] == "fail" and row.get("source") != "qa"
+    ]
+
+
+def stage6_errors(root: Path) -> list[str]:
+    hard, technical = stage6_issues(root)
+    return hard + technical
+
+
+def _approved_stage5_hashes(root: Path) -> dict[str, Any]:
+    stage5 = load_state(root)["stages"][stage_key(5)]
+    return {
+        item.get("path"): item.get("sha256")
+        for item in (stage5.get("approval_snapshot") or {}).get("artifacts", [])
+    }
+
+
+def _segment_ids_from(source: Path) -> set[str]:
+    raw = json.loads(source.read_text(encoding="utf-8-sig"))
+    segments = raw if isinstance(raw, list) else raw.get("segments", [raw])
+    return {str(item["segment_id"]) for item in segments if isinstance(item, dict) and item.get("segment_id")}
+
+
+def _scoped_multi(root: Path, sources: Any) -> tuple[set[str], str | None]:
+    """多集：source_segments_files = [{path, sha256}, ...]，預期分段取聯集，每個檔都要在 stage-5 快照內。"""
+    if not isinstance(sources, list) or not sources:
+        return set(), "source_segments_files 必須是非空陣列"
+    approved = _approved_stage5_hashes(root)
+    ids: set[str] = set()
+    for entry in sources:
+        if not isinstance(entry, dict) or not entry.get("path"):
+            return set(), "source_segments_files 每一項都要有 path 與 sha256"
+        source = _resolve(root, entry["path"])
+        if not source.is_file():
+            return set(), f"來源分段檔不存在: {entry['path']}"
+        expected_hash = _sha_value(entry.get("sha256"))
+        if not expected_hash or expected_hash != sha256_file(source):
+            return set(), f"{source.name}: sha256 缺失或與目前分段檔不符"
+        try:
+            relative_source = source.relative_to(root.resolve()).as_posix()
+        except ValueError:
+            return set(), f"{source.name}: 位於專案外，無法確認其受 stage-5 核准"
+        if approved.get(relative_source) != expected_hash:
+            return set(), f"{source.name}: 不在 stage-5 核准快照中，或核准後內容已變更"
+        try:
+            ids |= _segment_ids_from(source)
+        except (OSError, json.JSONDecodeError, TypeError, KeyError):
+            return set(), f"來源分段檔無法解析: {source.name}"
+    return ids, None
 
 
 def scoped_expected_segment_ids(root: Path, payload: dict[str, Any]) -> tuple[set[str], str | None]:
+    if payload.get("source_segments_files"):
+        return _scoped_multi(root, payload["source_segments_files"])
     files = sorted(root.glob("segments-ep*.json"))
     raw_source = payload.get("source_segments_file")
     if raw_source:
@@ -396,7 +524,8 @@ def scoped_expected_segment_ids(root: Path, payload: dict[str, Any]) -> tuple[se
     elif not files:
         return set(), "缺少 segments-ep*.json，無法確認預期分段完整性"
     else:
-        return set(), "多集專案的 QA/manifest 必須提供 source_segments_file 才能確認當集完整性"
+        return set(), ("多集專案的 QA/manifest 必須提供 source_segments_files（全集）或 source_segments_file（單集）"
+                       "才能確認完整性；用 `h3d qa --segments segments-ep*.json` 重跑")
     if not source.is_file():
         return set(), f"來源分段檔不存在: {raw_source}"
     expected_hash = _sha_value(payload.get("source_segments_sha256"))
@@ -486,7 +615,10 @@ def stage7_errors(root: Path) -> list[str]:
     return errors
 
 
-def stage_validation_errors(root: Path, stage: int) -> list[str]:
+def stage_validation_errors(root: Path, stage: int, allow_technical: bool = False) -> list[str]:
+    """allow_technical=True 時，階段 6 只回硬錯誤（供已記錄 override 的核准使用）。"""
+    if stage == 6 and allow_technical:
+        return stage6_issues(root)[0]
     if stage == 4:
         return stage4_artifacts(root)[1]
     if stage == 5:
@@ -521,7 +653,7 @@ def _stage_matches(root: Path, state: dict[str, Any], stage: int) -> bool:
     entry = state["stages"][stage_key(stage)]
     if entry.get("status") != "approved" or not entry.get("approval_snapshot"):
         return False
-    if stage_validation_errors(root, stage):
+    if stage_validation_errors(root, stage, allow_technical=_has_override(entry)):
         return False
     if entry["approval_snapshot"] != stage_snapshot(root, stage):
         return False
@@ -538,25 +670,42 @@ def is_approved(root: Path, stage: int) -> bool:
 
 
 def require_approved(root: Path, stage: int) -> tuple[bool, str]:
+    failed, detail = first_unapproved(root, stage)
+    return (failed is None), detail
+
+
+def first_unapproved(root: Path, upto: int = 7) -> tuple[int | None, str]:
+    """由 stage-0 往上找第一個沒有有效核准的階段；全部有效回傳 (None, "OK")。
+
+    與 require_approved 同一套規則，只掃一遍（h3d next 用它避免重複解碼影片）。
+    """
     state = load_state(root)
-    for i in range(stage + 1):
-        entry = state["stages"][stage_key(i)]
-        if entry.get("status") != "approved":
-            return False, f"stage-{i} 尚未人工核准（目前狀態: {entry.get('status', 'draft')}）"
-        if not entry.get("approval_snapshot"):
-            return False, f"stage-{i} 是舊狀態或缺少核准快照，必須重新審核"
-        errors = stage_validation_errors(root, i)
-        if errors:
-            return False, f"stage-{i} 產物檢查失敗: {errors[0]}"
-        if entry["approval_snapshot"] != stage_snapshot(root, i):
-            return False, f"stage-{i} 核准後輸入或產物已變更，請重新審核"
-        if i > 0:
-            dependencies = entry.get("approval_dependencies", {})
-            for prev in range(i):
-                prior = state["stages"][stage_key(prev)]
-                if dependencies.get(stage_key(prev)) != _entry_fingerprint(prior):
-                    return False, f"stage-{i} 依賴的 stage-{prev} 核准版本已更新，請重新審核"
-    return True, "OK"
+    for i in range(upto + 1):
+        failed = _stage_failure(root, state, i)
+        if failed:
+            return i, failed
+    return None, "OK"
+
+
+def _stage_failure(root: Path, state: dict[str, Any], i: int) -> str | None:
+    """回傳 stage-i 不算有效核准的原因；有效則回傳 None。"""
+    entry = state["stages"][stage_key(i)]
+    if entry.get("status") != "approved":
+        return f"stage-{i} 尚未人工核准（目前狀態: {entry.get('status', 'draft')}）"
+    if not entry.get("approval_snapshot"):
+        return f"stage-{i} 是舊狀態或缺少核准快照，必須重新審核"
+    errors = stage_validation_errors(root, i, allow_technical=_has_override(entry))
+    if errors:
+        return f"stage-{i} 產物檢查失敗: {errors[0]}"
+    if entry["approval_snapshot"] != stage_snapshot(root, i):
+        return f"stage-{i} 核准後輸入或產物已變更，請重新審核"
+    if i > 0:
+        dependencies = entry.get("approval_dependencies", {})
+        for prev in range(i):
+            prior = state["stages"][stage_key(prev)]
+            if dependencies.get(stage_key(prev)) != _entry_fingerprint(prior):
+                return f"stage-{i} 依賴的 stage-{prev} 核准版本已更新，請重新審核"
+    return None
 
 
 def mark_awaiting_review(root: Path, state: dict[str, Any], stage: int) -> None:
@@ -568,23 +717,69 @@ def mark_awaiting_review(root: Path, state: dict[str, Any], stage: int) -> None:
     save_state(root, state)
 
 
-def approve_stage(root: Path, stage: int, note: str = "使用者確認通過") -> bool:
+def _has_override(entry: dict[str, Any]) -> bool:
+    override = entry.get("override")
+    return isinstance(override, dict) and bool(str(override.get("reason") or "").strip())
+
+
+def approve_stage_detailed(root: Path, stage: int, note: str = "使用者確認通過",
+                           override_reason: str | None = None) -> tuple[bool, str]:
+    """核准一個階段；回傳 (成功與否, 原因)。
+
+    override_reason 只用於階段 6：技術 QA 為 PARTIAL（低彩度等量化指標誤判）時，
+    使用者看過影片仍要核准，就必須寫理由。理由、時間與被覆寫的問題清單
+    會寫進 project-state，require_approved 視為通過但永遠留著這筆紀錄。
+    硬錯誤（缺片、hash 不符、時長漂移、verdicts 判重跑）不能覆寫。
+    """
+    override_reason = (override_reason or "").strip() or None
+    if override_reason is not None and stage != 6:
+        return False, "--override 只適用於階段 6 的技術 QA；其他階段請修正產物後重審"
     state = load_state(root)
     entry = state["stages"][stage_key(stage)]
     if entry.get("status") != "awaiting_user_approval" or not entry.get("review_snapshot"):
-        return False
-    if stage_validation_errors(root, stage) or entry["review_snapshot"] != stage_snapshot(root, stage):
-        return False
+        return False, "該階段尚未產生審核頁（狀態不是 awaiting_user_approval）；請先跑 --stage 產出審核頁"
+    if entry["review_snapshot"] != stage_snapshot(root, stage):
+        return False, "審核頁產出後輸入或產物已變更；請重建審核頁再請使用者確認"
+    technical: list[str] = []
+    if stage == 6:
+        hard, technical = stage6_issues(root)
+        if hard:
+            return False, f"階段 6 有不可覆寫的錯誤：{hard[0]}"
+        if technical and override_reason is None:
+            return False, (f"技術 QA 未過（{len(technical)} 項，例如 {technical[0]}）。"
+                           "若使用者已看過影片仍核准，請加 --override --reason \"使用者的理由\"")
+    else:
+        errors = stage_validation_errors(root, stage)
+        if errors:
+            return False, f"產物檢查失敗：{errors[0]}"
     if stage > 0:
-        ok, _ = require_approved(root, stage - 1)
+        ok, detail = require_approved(root, stage - 1)
         if not ok:
-            return False
+            return False, f"前置階段已失效或未核准：{detail}"
+    now = __import__("datetime").datetime.now().astimezone().isoformat()
     entry["status"] = "approved"
-    entry["approved_at"] = __import__("datetime").datetime.now().astimezone().isoformat()
+    entry["approved_at"] = now
     entry["user_note"] = note
     entry["approval_snapshot"] = stage_snapshot(root, stage)
     entry["approval_dependencies"] = {
         stage_key(i): _entry_fingerprint(state["stages"][stage_key(i)]) for i in range(stage)
     }
+    if override_reason is not None and technical:
+        entry["override"] = {
+            "reason": override_reason,
+            "at": now,
+            "overridden_issue_count": len(technical),
+            "overridden_issues": technical[:50],
+        }
+        history = list(entry.get("override_history") or [])
+        history.append(dict(entry["override"]))
+        entry["override_history"] = history
+    else:
+        entry.pop("override", None)
     save_state(root, state)
-    return True
+    return True, "OK"
+
+
+def approve_stage(root: Path, stage: int, note: str = "使用者確認通過",
+                  override_reason: str | None = None) -> bool:
+    return approve_stage_detailed(root, stage, note, override_reason)[0]
