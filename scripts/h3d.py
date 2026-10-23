@@ -31,7 +31,8 @@ from typing import Any, Dict, List, Optional
 SCRIPTS_DIR = Path(__file__).resolve().parent
 STORYBOARD_DIR = SCRIPTS_DIR / "storyboard"
 REVIEW_DIR = SCRIPTS_DIR / "review"
-for candidate in (str(SCRIPTS_DIR), str(STORYBOARD_DIR), str(REVIEW_DIR)):
+EXTRA_DIRS = [SCRIPTS_DIR / name for name in ("runner", "voice", "edit")]
+for candidate in (str(SCRIPTS_DIR), str(STORYBOARD_DIR), str(REVIEW_DIR), *map(str, EXTRA_DIRS)):
     if candidate not in sys.path:
         sys.path.insert(0, candidate)
 
@@ -49,6 +50,10 @@ COMMANDS: Dict[str, str] = {
     "qa": "影片自動審查（時長／色彩／九宮格／證據分級）",
     "submit": "送件到 FreeVideo（含能力校驗與時長斷言）",
     "collect": "只收已完成但沒下載的工作（不送新件）",
+    "run": "階段 6 送件 runner（--plan）：單例鎖、佇列檢查、暫停／續跑（--pause）、進度檔（--status）",
+    "probe": "送件前查 API schema 與已安裝 LoRA，缺的直接擋並列替代",
+    "voice": "階段 7 固定流程 voice align：ASR 對位、畫外句區間壓原聲（-22 dB）、響度標準化",
+    "concat": "Concat adapter：plan／build 全集單一剪輯專案（T1 影片、T2 字幕、T3 畫外音）",
     "resume": "先 collect，再補送尚未產出的分段（ledger 去重）",
     "assemble": "配音、字幕與成片組裝",
     "deps": "segment 級依賴帳本（--record／--status）",
@@ -70,6 +75,10 @@ MODULE_FOR = {
     "qa": "verify_video_shot",
     "submit": "submit_h3_segments",
     "collect": "submit_h3_segments",
+    "run": "fv_runner",
+    "probe": "fv_probe",
+    "voice": "voice_align",
+    "concat": "concat_adapter",
     "resume": "submit_h3_segments",
     "assemble": "assemble_episode",
     "deps": "deps",
@@ -242,7 +251,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     if passthrough and passthrough[0] == "--":
         passthrough = passthrough[1:]
     passthrough = IMPLIED_FLAGS.get(command, []) + passthrough
-    if command in ("next", "decide", "verdict", "inbox", "approve"):
+    if command in ("next", "decide", "verdict", "inbox", "approve", "run"):
         # 允許 `h3d --root X next` 與 `h3d next --root X` 兩種寫法
         if args.root is not None and "--root" not in passthrough:
             passthrough += ["--root", str(args.root)]

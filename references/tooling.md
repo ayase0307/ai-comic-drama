@@ -18,6 +18,10 @@ python scripts/h3d.py status --root . # 全局狀態（階段／依賴／送件�
 | `verdict` | 階段 6 逐段目視結論寫進 `review/verdicts.json`；`--summary` 依驗收政策分類；`verdict import` 轉舊格式 conclusions-*.json | 收件抽幀看完每一段後 |
 | `inbox` | 決策收件匣 `review/inbox.html`：只列**需要使用者決定的事**（卡片＋選項複製回覆），已決定／自動處理收合 | 每次要使用者拍板之前；取代逐階段審核頁 |
 | `approve --auto` | 沒有未決卡、且符合 `decisions.json` 政策（`auto_approve`）時自動核准並記錄依據 | `h3d next` 指示時 |
+| `run` | 階段 6 送件 runner（`--plan`）：單例鎖、佇列檢查、`--pause`／續跑、`--status` 進度檔 | 送整批分段時（取代專案自寫 runner） |
+| `probe` | 送件前查 API schema 與已安裝 LoRA，缺的直接擋並列替代 | 每次送件前（`run` 也會自動做） |
+| `voice` | `voice align`：ASR 對位、畫外句區間壓原聲（−22 dB）、響度標準化（−16 LUFS） | 階段 7 配音完成後 |
+| `concat` | `concat plan`／`concat build`：全集單一 Concat 剪輯專案（T1 影片、T2 字幕、T3 畫外音） | 剪輯方式定案為 Concat 時 |
 | `doctor` | GPU 顯存、ffmpeg（含 `-vsync` 回歸）、服務 port、磁碟 | 開工前、換機器後 |
 | `compile` | Layer 2 → H3 六段式提示詞＋`segments-*.json`；`--check` 同時跑 17 條自檢與失敗目錄 | 每次改完分鏡 |
 | `audit` | 參考圖／主體定義／台詞預算對帳 | 編譯後單獨重驗 |
@@ -135,6 +139,36 @@ python scripts/h3d.py deps --root . --status --strict
 **舊結論轉換**：`h3d verdict import <conclusions-*.json…> --root . [--dry-run] [--keep-unknown] [--overwrite] [--no-issues]`
 把「segment_id → 一句中文結論」轉成 verdicts.json：✅→pass、✅（附註）／⚠️→warn、❌→fail；`_老大裁示_*` 物件裡的段落記成 `decided_by=user`；
 只看「原判：」之前的文字；pass 只推可接受類問題代碼；證據依序取 `videos/qa/tiles/<段>.jpg`→`videos/<段>.mp4`→原檔。
+
+## 2.7 送件 runner、probe、階段 7 配音與 Concat 剪輯
+
+**`h3d run --plan plan.json --root .`**（`scripts/runner/fv_runner.py`）
+
+- 計畫檔是 JSON 陣列：`{"key", "segments", "segment_id", "out", "seed"}`；重抽用 `key` 加後綴（例如 `EP01-S04-b-take3`），避免與正式段的 ledger 互鎖。
+- **單例鎖**：同一台機器只允許一個影片 runner（鎖檔 `~/.ai-comic-drama/video-runner.lock`，`AICD_RUNNER_LOCK` 可改）。偵測到外部 runner（專案自寫的 `fv_run_multi.py`、等待者、另一個 `h3d run`）就停下回報；`--wait-lock <秒>` 改成等待。只等不殺。
+- **佇列**：`/queue` 有別人的工作就每 30 秒看一次，最多 `--blocked-wait` 秒（預設 900），仍忙就停下。
+- **受保護 job**：`--protect-job <id>`（例如使用者自己的影片）絕不取消。
+- **暫停／續跑**：`h3d run --pause --root .` → 目前這段收完就停（`paused_by_user`）；`--unpause` 後重跑同一指令續跑（已有輸出、ledger 進行中的段跳過）。
+- **進度檔**：`videos/_runner-progress.json`；`h3d run --status --root .`。
+- 結束碼：0 完成、1 審查失敗、2 無令牌、3 佇列／送件被擋、4 同錯兩次、5 輪詢逾時、6 暫停、7 有別的 runner、8 probe 擋下、9 例外。
+
+**`h3d probe --segments segments-ep*.json`**（`scripts/runner/fv_probe.py`）：GET agent 根取已安裝 LoRA、GET `openapi.json` 取 JobSpec；
+LoRA 沒裝 → error，附「拿掉 LoRA」與相近的已安裝名稱；多帶 `trigger`／`reason` → warning（送件端 `sanitize_loras` 只送 name＋strength）。
+離線：`--installed a,b --schema openapi.json`。
+
+**`h3d voice align --root .`**（`scripts/voice/voice_align.py`，階段 7 固定流程）
+
+1. `asr`：faster-whisper 轉寫 `videos/<段>.mp4` → `voice/h3-asr.json`（已有的段跳過）。
+2. `place`：畫內台詞（`timeline-plan-ep*.csv` 的 subtitle）對齊 ASR；畫外配音放在前一句畫內台詞結束後 0.15 秒、下一句前收，放不下加速 ≤ 1.2 倍，最後一句可溢入下一段開頭靜默；ASR 認不出的聲音＝亂語 → `mutes`（相鄰合併）。寫 `voice/placement.json`。人聽過的修正寫 `voice/placement-overrides.json`，重跑不會被蓋掉。
+3. `duck`：`mutes` 區間原聲 −22 dB（`--duck-db`）→ `voice/muted/<段>.mp4`。
+4. `loudnorm`：配音 −16 LUFS／TP −1.5（`--lufs`），套 tempo → `voice/final/<key>.wav`，寫回 `final`／`final_dur`。
+
+輸入 `voice/manifest.json`：`{key: {segment, speaker, line, file, dur}}`。`--steps place,duck,loudnorm` 可跳過 ASR；`--dry-run` 只算放置。
+
+**`h3d concat plan --name "<劇名> 全集粗剪" --root .`／`h3d concat build --location <資料夾> --root .`**（`scripts/edit/concat_adapter.py`）
+
+- plan → `edit/full-plan.json`：每段影片（有 `voice/muted/` 就用壓過原聲的版本）、字幕（畫內台詞對齊 ASR 實際時間，對不到沿用分鏡；畫外台詞跟配音）、配音起點、`episode_starts`、`total`。
+- build：Concat headless MCP（`concat.exe --mcp headless`）建**單一全集專案**：T1 影片（`clips_add_sequence`）、T2 字幕（`captions_add`）、T3 畫外音（`clip_add trackId=T3`）；專案已存在就停下不覆蓋。
 
 ## 3. 文件同步（references/h3）
 

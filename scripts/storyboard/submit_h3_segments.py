@@ -136,6 +136,24 @@ def record_job(path: Path, *, project: str, api_scope: str, batch_id: str,
     save_job_ledger(path, ledger)
 
 
+def sanitize_loras(loras: Any) -> List[Any]:
+    """API 的 loras 項只接受 name＋strength（additionalProperties=false）。
+
+    segments 裡的 trigger／reason 是給人看的說明欄位；原樣送出會被 API 擋
+    （《我修的是遺忘課》EP04-S02-a 2026-10-22 07:15 submit_error）。
+    """
+    cleaned: List[Any] = []
+    for item in loras or []:
+        if isinstance(item, str):
+            cleaned.append(item)
+        elif isinstance(item, dict) and item.get("name"):
+            entry: Dict[str, Any] = {"name": str(item["name"])}
+            if item.get("strength") is not None:
+                entry["strength"] = float(item["strength"])
+            cleaned.append(entry)
+    return cleaned
+
+
 def resolve_segment_frames(seg: Dict[str, Any]) -> Tuple[int, str]:
     """決定該段要送出的影格數，並回報來源。
 
@@ -1011,7 +1029,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             "media": media
         }
         if loras:
-            body["loras"] = loras
+            body["loras"] = sanitize_loras(loras)
 
         # 提交任務
         try:

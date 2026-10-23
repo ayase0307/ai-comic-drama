@@ -1,0 +1,58 @@
+{
+ "EP01-S01-a-N1": {
+  "segment": "EP01-S01-a",
+  "start": 6.3,
+  "tempo": 1.1,
+  "window": [
+   6.47,
+   13.87
+  ],
+  "note": "緊接呂懷素「忘掉它」後",
+  "mutes": [],
+  "final": "voice/final/EP01-S01-a-N1.wav",
+  "final_dur": 2.33,
+  "gain_db": -3.6
+ },
+ "EP01-S01-b-N1": {
+  "segment": "EP01-S01-b",
+  "start": 0.35,
+  "tempo": 1.0,
+  "window": [
+   0.15,
+   5.26
+  ],
+  "note": "",
+  "mutes": [],
+  "final": "voice/final/EP01-S01-b-N1.wav",
+  "final_dur": 2.51,
+  "gain_db": -3.0
+ },
+ "EP01-S03-d-N1": {
+  "segment": "EP01-S03-d",
+  "start": 5.69,
+  "tempo": 1.089,
+  "window": [
+   5.69,
+   7.82
+  ],
+  "note": "",
+  "mutes": [],
+  "final": "voice/final/EP01-S03-d-N1.wav",
+  "final_dur": 2.14,
+  "gain_db": 5.8
+ },
+ "EP01-S04-c-N1": {
+  "segment": "EP01-S04-c",
+  "start": 6.63,
+  "tempo": 1.0,
+  "window": [
+   6.63,
+   9.43
+  ],
+  "note": "",
+  "mutes": [],
+  "final": "voice/final/EP01-S04-c-N1.wav",
+  "final_dur": 0.74,
+  "gain_db": 4.5
+ }
+}
