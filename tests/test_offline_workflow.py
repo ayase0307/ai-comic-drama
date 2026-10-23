@@ -29,6 +29,24 @@ def run_cli(script: Path, *args: str, cwd: Path) -> subprocess.CompletedProcess[
     )
 
 
+FIVE_PART_BY_INDEX = {
+    1: {
+        "camera": "35mm from three metres at chest height, locked off for the shot with the doorway on the left third.",
+        "motion": "First the character's head turns toward the doorway, then the shoulders follow, as the weight rolls onto the front foot, finally one step lands on the threshold stone.",
+        "performance": "The eyes narrow at the open doorway and the jaw sets before the first step is taken.",
+        "light": "Grey daylight from the doorway falls across the face and leaves the far wall in soft shadow.",
+        "sound": "A shoe scuffs the stone at about 1.5 s over a low steady wind.",
+    },
+    2: {
+        "camera": "35mm from three metres, moving closer by about a fifth over the shot, ending in a medium close-up.",
+        "motion": "First the character stops inside the doorway, then the chest rises with one long breath, as the hands open at the sides, finally the gaze lifts and holds on the person ahead.",
+        "performance": "The brows ease, the mouth softens into a small nod, and the eye contact does not break.",
+        "light": "Daylight now rims the cheek and hair from behind while the front of the face takes a warm bounce from the floor.",
+        "sound": "One audible exhale at about 0.8 s; the wind drops away to room tone.",
+    },
+}
+
+
 class OfflineWorkflowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -70,7 +88,8 @@ class OfflineWorkflowTests(unittest.TestCase):
                                   "movement": "static" if index == 1 else "dollies in"},
                 "action_and_performance": {"action_stages": [
                     "the character turns toward the doorway", "then steps forward with a steady stance",
-                    "the character settles and holds eye contact"]},
+                    "the character settles and holds eye contact"],
+                    "five_part_en": FIVE_PART_BY_INDEX[index]},
                 "dialogue_and_audio": {"has_dialogue": False},
             })
         payload = {

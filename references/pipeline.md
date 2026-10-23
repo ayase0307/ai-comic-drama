@@ -290,6 +290,8 @@ python scripts/storyboard/compile_layer2_to_h3.py \
 編譯器輸出的提示詞嚴格遵照官方六段式語法結構（英文提示詞，只有 `<d>` 台詞保留原文；嚴禁負面詞）：
 
 > **Layer 2 英文欄位**：`action_stages` / `observable_expression` 寫中文給人審，`action_stages_en` / `observable_expression_en` 寫英文給 H3（lint E15 會擋中文動作）。骨架會預留 `TODO` 英文欄位；`--check` 遇到 TODO 直接算錯誤。
+>
+> **階段 5 逐鏡五小節**：每鏡在 `action_and_performance.five_part_en` 親手寫 `camera`／`motion`／`performance`／`light`／`sound`（英文），編譯器原樣編成五小節。必寫、必寫詳細與禁止偷懶的規則見 `references/prompt-authoring.md`；不准用腳本產生、不准編譯後覆寫 segments。
 > **段落選填欄位**：`asset_refs.primary_character`（指定綁圖主角）、`metadata.mood_en` / `music_en` / `soundscape_en`（英文摘要、配樂、音效）。
 > **畫風**：取自 `style_lock.anchor`，其次 `assets.md` 的 `style_anchor`，不再寫死 live-action。寫實皮膚 LoRA 只在寫實風格才掛；LoRA 只在含 `Combat_Impact` 鏡頭的段落推導。
 > **旁白**：`speaker` 為旁白／V.O. 時寫成 off-screen narrator，永不成為參考圖主體。

@@ -39,7 +39,7 @@ agent_created: true
 | 2 設定圖 | 主角優先出圖、自檢後重生；引擎定案後全集鎖定 | 換生圖引擎不並排比對；自動核准（永遠要人看臉和服裝） | `h3d decide design_engine`、審核頁 | `references/consistency.md`、`references/styles.md` |
 | 3 劇本 | 場景化改寫、台詞預算（4 字/秒、說話 ≤ 60%）、改編差異 | 超預算照送 | `estimate_duration.py --h3`、`sync_script.py` | `references/adapt/screenplay-format.md` |
 | 4 分鏡 | 一鏡一張臉、遠景不放人、焦距物距成對寫 | 沒有對應構圖 PNG 就進編譯 | `h3d sketch`、`validate_storyboard.py` | `references/storyboard/cinematic-director.md` |
-| 5 提示詞 | 編譯器產生六段式；agent 只填 Layer 2 欄位 | 自己手寫整段英文 prompt；沒 ack 就放過警告 | `h3d compile --check`、`h3d catalog --check` | `references/h3/prompt-formats.md`、`references/tooling.md` |
+| 5 提示詞 | **逐鏡親手寫** Layer 2 `five_part_en`（Camera／Motion／Performance／Light／Sound，Motion 與 Performance 必須詳寫），讀分鏡、構圖與前一鏡狀態後再寫；編譯器只負責組成六段式 | 寫程式產生五小節；編譯後覆寫 segments；用後設詞（authored／approved）或禁止句堆疊交差；沒 ack 就放過警告 | `h3d author`、`h3d compile --check`、`h3d catalog --check` | `references/prompt-authoring.md`、`references/h3/prompt-formats.md`、`references/tooling.md` |
 | 6 影片 | 送件 → 收件 → QA → 逐段結論 → 收件匣 | 兩個 runner 同時跑；碰別人的 job；漂移片拿去 QA | `h3d probe`、`h3d run --plan`、`h3d qa`、`h3d verdict`、`h3d inbox` | `references/tooling.md` §2.5–2.7、`references/skill-guide.md`「階段 6 生成」 |
 | 7 配音剪輯 | ASR 對位、畫外句壓原聲、響度、每角色音色一次定案、全集單一剪輯專案 | 旁白交給 H3 念；替使用者定音色 | `h3d voice align`、`h3d concat plan/build`、`h3d assemble` | `references/tooling.md` §2.7、`references/skill-guide.md`「階段 7」 |
 
