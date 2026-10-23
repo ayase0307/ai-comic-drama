@@ -72,10 +72,12 @@ try:  # 以 scripts/storyboard 為 sys.path 執行（CLI 慣例）
     import h3_spec
     import normalize as normalize_mod
     import failure_catalog
+    import prompt_authoring
 except ImportError:  # pragma: no cover - 套件匯入路徑
     from . import h3_spec
     from . import normalize as normalize_mod
     from . import failure_catalog
+    from . import prompt_authoring
 
 
 # ==============================================================================
@@ -708,6 +710,27 @@ def _stage5_reference_path_map(binding: Dict[str, Any]) -> Tuple[Dict[str, str],
 # ==============================================================================
 # H3 六段式 Prompt 編譯核心
 # ==============================================================================
+
+FIVE_PART_KEYS = (("camera", "Camera"), ("motion", "Motion"), ("performance", "Performance"),
+                  ("light", "Light"), ("sound", "Sound"))
+
+
+def _five_part_en(shot: Dict[str, Any]) -> Optional[Dict[str, str]]:
+    """讀 Layer 2 逐鏡五小節：shot.five_part_en 或 action_and_performance.five_part_en。
+
+    五節必須齊全且非空；缺一節就報錯，不默默退回自動拼句（那正是要禁止的偷懶路徑）。
+    """
+    raw = shot.get("five_part_en") or (shot.get("action_and_performance") or {}).get("five_part_en")
+    if not raw:
+        return None
+    if not isinstance(raw, dict):
+        raise ValueError(f"{shot.get('shot_id')}: five_part_en 必須是物件（camera/motion/performance/light/sound）")
+    out = {k: _clean(raw.get(k)) for k, _ in FIVE_PART_KEYS}
+    missing = [k for k, v in out.items() if not v]
+    if missing:
+        raise ValueError(f"{shot.get('shot_id')}: five_part_en 缺 {', '.join(missing)}；每鏡五節都要依分鏡寫出")
+    return out
+
 
 def format_timestamp(seconds: float) -> str:
     """將秒數格式化為 mm:ss.000 切點字串。"""
@@ -1818,7 +1841,21 @@ def compile_segment_h3(
                 marker += " <scenetrans>"
             if idx == n_shots:
                 marker += " <cutoff>"
-        body = f"{head} {action}." + (f" Expression: {expr}" if expr else "") + blocking_clause + stage_refs + f"{speech}.{tail}{marker}"
+        five = _five_part_en(s)
+        if five:
+            # 逐鏡五小節（references/prompt-authoring.md）：由 agent 依分鏡親手寫在 Layer 2，
+            # 取代自動拼出的 action／Expression／Blocking；台詞說明仍由編譯器接在最後。
+            speech_txt = speech.lstrip("; ").strip()
+            if speech_txt.lower().startswith("lips stay closed"):
+                speech_txt = "Lips stay closed."
+            five_txt = " ".join(f"{label}: {five[key].rstrip()}" + ("" if five[key].rstrip().endswith((".", "!", "?")) else ".")
+                                for key, label in FIVE_PART_KEYS)
+            body = f"{head} {five_txt}{stage_refs} {speech_txt}".rstrip()
+            if not body.endswith((".", "!", "?", ">")):
+                body += "."
+            body += f"{tail}{marker}"
+        else:
+            body = f"{head} {action}." + (f" Expression: {expr}" if expr else "") + blocking_clause + stage_refs + f"{speech}.{tail}{marker}"
         det_lines.append(sanitize_english_text(body))
 
     detailed_block = "detailed_description:\n" + "\n".join(det_lines)
@@ -1892,6 +1929,8 @@ def compile_segment_h3(
         "scene_id": scene_id,
         "metadata": {
             **metadata,
+            # 編譯指紋：送件與階段 5 審查會比對，編譯後再被腳本或手動覆寫就擋下（E38）。
+            "compiled_prompt_sha256": prompt_authoring.prompt_fingerprint(full_h3_prompt),
             "aspect_ratio": aspect,
             "target_duration_sec": target_dur,
             "effective_duration_sec": round(eff_d, 3),
@@ -2243,6 +2282,17 @@ def main() -> int:
             for note in seg.get("compile_notes", []):
                 print(f"    [編譯提醒] {note}")
                 total_warnings += 1
+
+        # 逐鏡撰寫審查（防偷懶，references/prompt-authoring.md）：E30–E38 擋、W 提醒
+        author_res = prompt_authoring.audit_segments(compiled_results)
+        if author_res["errors"] or author_res["warnings"]:
+            print("\n✍️ 逐鏡撰寫審查（references/prompt-authoring.md）")
+        for e in author_res["errors"]:
+            print(f"    [撰寫錯誤] {e}")
+        for w in author_res["warnings"]:
+            print(f"    [撰寫警告] {w}")
+        total_errors += len(author_res["errors"])
+        total_warnings += len(author_res["warnings"])
 
         print("\n" + "=" * 75)
         print(f"📊 雙重審查總結: 錯誤數: {total_errors} | 警告數: {total_warnings}")

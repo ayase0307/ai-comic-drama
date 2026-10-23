@@ -67,8 +67,10 @@ import provider_caps
 
 try:  # 以 scripts/storyboard 為 sys.path 執行（CLI 慣例）
     import failure_catalog
+    import prompt_authoring
 except ImportError:  # pragma: no cover - 套件匯入路徑
     from . import failure_catalog
+    from . import prompt_authoring
 
 
 DEFAULT_API_URL = "http://127.0.0.1:8189/freevideo/agent/v1"
@@ -529,6 +531,15 @@ def audit_segment_prompts(todo_segs: List[Dict[str, Any]], root_dir: Optional[Pa
                 errors.append(
                     f"[{sid}] {item['id']} 需明確確認：修正提示詞，或加 --ack-warnings {item['id']}"
                 )
+
+    # 逐鏡撰寫審查（防偷懶）：送出去的文字若是套模板、後設詞或編譯後被改寫，一律擋下
+    try:
+        author_res = prompt_authoring.audit_segments(todo_segs)
+    except Exception as exc:  # fail closed
+        return False, errors + [f"逐鏡撰寫審查無法執行（fail closed）：{exc}"]
+    errors.extend(f"撰寫審查 {e}" for e in author_res["errors"])
+    for w in author_res["warnings"]:
+        print(f"  ⚠️ 撰寫審查 {w}")
 
     return len(errors) == 0, errors
 

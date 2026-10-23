@@ -2023,6 +2023,11 @@ def build_stage_5(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
                 f'</article>'
             )
 
+    # 逐鏡撰寫審查（防偷懶）：最終送件文字要逐鏡親手寫，套模板／後設詞／禁止句堆疊直接擋核准
+    from prompt_authoring import audit_files as _author_audit  # noqa: E402
+    author_res = _author_audit(seg_files)
+    errors.extend(f"撰寫審查 {e}" for e in author_res["errors"])
+
     kpis = [
         ("已編譯分段數", f"{total_segs} 段", "gold"),
         ("17 條 H3 防偷懶自檢", "PASS (0 錯誤)" if not errors else f"FAIL ({len(errors)} 錯)", "emerald" if not errors else "rose"),

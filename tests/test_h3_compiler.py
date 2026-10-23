@@ -82,6 +82,36 @@ class H3CompilerRegressionTests(unittest.TestCase):
             ],
         }
 
+    FIVE_PART = [
+        {
+            "camera": "50mm from two metres at her standing eye height, locked off for 3.0 s with Mira on the right third line.",
+            "motion": "First her fingers crease the map along its old fold, then she presses the fold flat with the heel of her hand, as the paper slides a finger's width across the wood, finally she sets it square against the table edge.",
+            "performance": "Her lips press together while she smooths the crease, and her eyes flick once toward the door before returning to the map.",
+            "light": "Blue moonlight from the west window rakes across the paper, catching the raised fold and the ink lines on its back.",
+            "sound": "Paper crackles at about 0.6 s and the map taps the wood at about 2.4 s; rain keeps ticking on the glass.",
+        },
+        {
+            "camera": "50mm from two metres, same eye height, locked off for 3.0 s; the sealed letter sits in the lower left third.",
+            "motion": "First her gaze drops to the corner of the table, then her right hand stops halfway to the lamp, as she leans her weight onto her left palm, finally her fingertips slide the sealed letter out from under the map.",
+            "performance": "Her brows lift a fraction and her breath catches once; the corner of her mouth tightens as she recognises the red wax seal.",
+            "light": "The moonlight lands on the red wax seal so it glints darker than the paper; her knuckles stay in cool shadow.",
+            "sound": "A short intake of breath at about 0.9 s; the envelope rasps against the map at about 2.1 s under the rain.",
+        },
+        {
+            "camera": "50mm from two metres at her eye height, locked off for 3.0 s with her head turned toward frame left.",
+            "motion": "First her chin turns toward the door, then her left hand closes around the letter and draws it against her ribs, as her weight shifts back onto her heels, finally she holds her breath with the letter pressed flat.",
+            "performance": "Her eyes widen and stay on the door; her shoulders rise and do not drop while she listens for a step outside.",
+            "light": "Moonlight outlines the side of her face and the edge of the letter; the door behind the table falls into deep cobalt shadow.",
+            "sound": "The rain thins at about 1.0 s, a floorboard creaks somewhere beyond the door at about 2.2 s, and she does not answer.",
+        },
+    ]
+
+    def five_part_segment(self):
+        data = self.segment()
+        for shot, five in zip(data["shots"], self.FIVE_PART):
+            shot["action_and_performance"]["five_part_en"] = dict(five)
+        return data
+
     @staticmethod
     def shot(shot_id, start, end, action, movement="static", line=None, foley=""):
         return {
@@ -226,7 +256,7 @@ class H3CompilerRegressionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=ROOT) as directory:
             root = Path(directory)
             layer = root / "layer2.json"
-            layer.write_text(json.dumps(self.segment(), ensure_ascii=False), encoding="utf-8")
+            layer.write_text(json.dumps(self.five_part_segment(), ensure_ascii=False), encoding="utf-8")
             argv = [
                 "compile_layer2_to_h3.py", "--layer2", str(layer), "--skip-stage-gate",
                 "--project-root", str(root), "--output-md", str(root / "prompts.md"),

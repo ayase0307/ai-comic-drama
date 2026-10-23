@@ -101,6 +101,16 @@ python scripts/h3d.py deps --root . --status --strict
 （官方對這兩個 token 的語義我沒有可核對的來源）；要交給剪輯／拼接工具時再開。
 結構化的切點時間一直都在 `metadata.cut_markers`，不需要開這個旗標也能用。
 
+### (g) 逐鏡撰寫審查（author，防偷懶）
+
+`python scripts/h3d.py author --root <專案>`（或 `compile --check`、階段 5 審核頁、`submit` 自動跑）。只看**最終送件文字**，所以編譯後才套上的模板也逃不掉：
+
+- E30／E31／E32：每鏡五小節要齊，Motion、Performance 不得過薄，Motion 要寫動作過程。
+- E33／E34／E35：套句、後設詞（authored／approved…）、防禦性禁止句堆疊。
+- E36／E37：違背分鏡運鏡、嘴部可見的對白被寫成畫外音。
+- E38：`detailed_description` 與 `metadata.compiled_prompt_sha256` 不符＝編譯後被改寫。
+- 處置：回 Layer 2 的 `five_part_en` 逐鏡改稿再編譯。不准改檢查器門檻、不准手改 segments 過關。規範見 `references/prompt-authoring.md`。
+
 ## 2.5 使用者定案與逐段結論（decisions.json／verdicts.json）
 
 - `decisions.json`（專案根目錄，格式 `references/schemas/decisions.schema.json`）：每條定案含 `id`、一句話 `rule`、`value`、`source`（使用者原話＋日期）、適用 `stages`。重新定案時舊值進 `history`。
