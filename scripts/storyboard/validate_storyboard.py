@@ -30,8 +30,9 @@ PACING_PROFILES = ("Slow_Cinematic", "Standard_Narrative", "Fast_ShortDrama")
 _CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 
 if sys.platform.startswith("win"):
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+    for _st in (sys.stdout, sys.stderr):
+        if hasattr(_st, "reconfigure"):
+            _st.reconfigure(encoding="utf-8", errors="replace")
 
 # 嚴格攔截之偽精確度、醫學解剖學與 OCR 損壞詞黑名單
 FORBIDDEN_PSEUDO_TERMS = [
@@ -438,8 +439,25 @@ def validate_storyboard_data(data: dict, original_script_dialogues: list = None)
                         f"[{sid}] ⚠️ 台詞超速風險：本鏡 {n_chars} 字僅 {dur} 秒（建議 ≤ 4 字/秒、單句 ≤ 15 字、窗口 ≥ 2.5 秒，否則 H3 會加速念詞）"
                     )
         else:
-            if not dlg.get("lips_closed_lock", False):
+            _vis = " ".join(str(x) for x in [expr, *stages, (s.get("visual_description") or "")] if x).lower()
+            _hidden = any(k in _vis for k in ["背影", "剪影", "失焦", "局部", "back view", "silhouette", "blurred", "空景", "手部", "hand"])
+            _face_visible = bool(s.get("character_ids")) and shot_size not in ("ELS", "LS") and not _hidden
+            if _face_visible and not dlg.get("lips_closed_lock", False):
                 warnings.append(f"[{sid} 閉唇鎖提醒] 鏡頭無台詞，建議將 lips_closed_lock 設為 true 防止角色亂動嘴。")
+
+    # Check 8: asset_refs 佔位符（#43：骨架的 TODO／S-item1／C-item2 不可原樣通過）
+    _refs = data.get("asset_refs") or {}
+    _ph = re.compile(r"^(TODO.*|[A-Z]-item\d+)$")
+    _bad = []
+    if isinstance(_refs.get("scene_id"), str) and _ph.match(_refs["scene_id"]):
+        _bad.append(f"scene_id={_refs['scene_id']}")
+    for _c in (_refs.get("characters") or []) + (_refs.get("creatures") or []):
+        if isinstance(_c, dict):
+            for _k in ("id", "costume_id"):
+                if isinstance(_c.get(_k), str) and _ph.match(_c[_k]):
+                    _bad.append(f"{_k}={_c[_k]}")
+    if _bad:
+        warnings.append("[asset_refs 佔位符] 仍有骨架佔位值未替換：" + "、".join(_bad[:6]) + "；請改成 assets.md／bible.json 內真實的 ID。")
 
     # Check 7b: 同段內跨鏡頭複製貼上檢查 (background_idle_life / micro_physics_tail / observable_expression)
     for field_key, field_label in (

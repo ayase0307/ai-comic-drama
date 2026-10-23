@@ -46,7 +46,12 @@ def load_shots(project_dir: Path, episode: str, layer2_dir: Optional[Path] = Non
     return shots
 
 
+WIDE_CODES = {"ELS", "LS", "MLS"}
+
+
 def is_wide(size: str) -> bool:
+    if size.strip().upper() in WIDE_CODES:
+        return True
     low = size.lower()
     return any(w in low for w in WIDE)
 
