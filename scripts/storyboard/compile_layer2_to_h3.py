@@ -491,6 +491,62 @@ class AssetRegistry:
         return result
 
 
+# Stage5 英文層：binding 的 `en_overlay`（舊名 `x_en_overlay`，噩盡島包裝用過）。
+# 階段 4 的 Layer 2 常是中文（運鏡、走位、錨點物件、連戲錨、收尾狀態），layer2 檔案綁著階段 4 核准 hash 不能改，
+# 所以英文版放在 stage5 binding，編譯時寫進記憶體中的 Layer 2 的 *_en 欄位。
+SHOT_OVERRIDE_KEYS = {
+    "action_stages_en", "observable_expression_en",
+    "movement_en", "blocking_en", "anchor_objects_en", "lips",
+}
+LIPS_MODES = {"closed", "omit"}
+# 中文運鏡關鍵字 → H3 官方動詞（依序比對，先比較長、較具體的詞）。
+CJK_CAMERA_KEYWORDS: List[Tuple[Tuple[str, ...], str]] = [
+    (("環繞", "繞拍"), "camera trucks left while panning right"),
+    (("升降", "上升", "升高", "升鏡", "搖臂上"), "cranes up"),
+    (("下降", "降鏡", "搖臂下"), "cranes down"),
+    (("推近", "推進", "推鏡", "前推", "前移", "短推", "推向", "貼近"), "dollies in"),
+    (("拉遠", "拉開", "後拉", "拉鏡", "後退"), "dollies out"),
+    (("左搖", "向左搖", "搖向左"), "pans left"),
+    (("右搖", "向右搖", "搖向右", "搖攝", "橫搖", "移向"), "pans right"),
+    (("上搖", "仰搖", "上仰", "向上搖", "往上搖"), "tilts up"),
+    (("下搖", "俯搖", "下俯", "向下搖", "往下搖", "向下跟"), "tilts down"),
+    (("由右向左", "向左平移", "左移", "向左滑"), "trucks left"),
+    (("由左向右", "向右平移", "右移", "側向滑移", "向右滑", "平移"), "trucks right"),
+    (("跟拍", "跟隨", "追拍", "背後跟"), "tracks"),
+    (("手持", "晃動", "震動", "搖晃", "抖動"), "handheld"),
+    (("固定", "定鏡", "靜止", "鎖定", "不動", "定格"), "static"),
+]
+
+
+def stage5_en_overlay(binding: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """回傳 binding 的英文層（`en_overlay`，相容舊名 `x_en_overlay`）。"""
+    if not isinstance(binding, dict):
+        return {}
+    overlay = binding.get("en_overlay")
+    if overlay is None:
+        overlay = binding.get("x_en_overlay")
+    return overlay if isinstance(overlay, dict) else {}
+
+
+def ensure_global_shot_ids(layer2_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Layer 2 沒有 global_shot_id 時，在記憶體裡用 shot_id 補（段內唯一即可，綁定是逐段驗的）。
+
+    不改檔案：stage5 綁定驗的是 layer2 檔案的 SHA256，補欄位只發生在已讀進來的 dict。
+    """
+    for shot in layer2_data.get("shots", []) or []:
+        if isinstance(shot, dict) and not shot.get("global_shot_id") and shot.get("shot_id"):
+            shot["global_shot_id"] = str(shot["shot_id"])
+    return layer2_data
+
+
+def _has_cjk(value: Any) -> bool:
+    if isinstance(value, dict):
+        return any(_has_cjk(v) for v in value.values())
+    if isinstance(value, (list, tuple)):
+        return any(_has_cjk(v) for v in value)
+    return bool(CJK_RE.search(str(value or "")))
+
+
 def validate_stage5_binding(
     layer2_data: Dict[str, Any], binding: Dict[str, Any], layer2_path: pathlib.Path,
     project_root: pathlib.Path,
@@ -518,17 +574,26 @@ def validate_stage5_binding(
     actual_sha = hashlib.sha256(pathlib.Path(layer2_path).read_bytes()).hexdigest()
     if not re.fullmatch(r"[0-9a-f]{64}", expected_sha) or expected_sha != actual_sha:
         raise ValueError(f"Stage5 source SHA256 mismatch for {segment_id}: expected {expected_sha or '<missing>'}, got {actual_sha}")
+    ensure_global_shot_ids(layer2_data)
     shot_ids = [str(shot.get("global_shot_id") or "") for shot in (layer2_data.get("shots", []) or [])]
     if any(not sid for sid in shot_ids):
-        raise ValueError(f"Stage5 binding requires global_shot_id on every shot in {segment_id}")
+        raise ValueError(f"Stage5 binding requires global_shot_id (or shot_id) on every shot in {segment_id}")
     if len(shot_ids) != len(set(shot_ids)):
         raise ValueError(f"Layer2 contains duplicate global_shot_id in {segment_id}")
     known = set(shot_ids)
     for sid, override in (binding.get("shot_overrides", {}) or {}).items():
         if sid not in known:
             raise ValueError(f"Stage5 shot override does not resolve uniquely: {sid}")
-        if not isinstance(override, dict) or set(override) - {"action_stages_en", "observable_expression_en"}:
-            raise ValueError(f"Stage5 shot override {sid} may override only action_stages_en and observable_expression_en")
+        if not isinstance(override, dict) or set(override) - SHOT_OVERRIDE_KEYS:
+            raise ValueError(f"Stage5 shot override {sid} may override only {', '.join(sorted(SHOT_OVERRIDE_KEYS))}")
+    overlay = stage5_en_overlay(binding)
+    for sid, entry in (overlay.get("shots") or {}).items():
+        if sid not in known:
+            raise ValueError(f"Stage5 en_overlay shot does not resolve uniquely: {sid}")
+        if not isinstance(entry, dict):
+            raise ValueError(f"Stage5 en_overlay.shots[{sid}] must be an object")
+        if entry.get("lips") is not None and entry["lips"] not in LIPS_MODES:
+            raise ValueError(f"Stage5 en_overlay.shots[{sid}].lips must be 'closed' or 'omit'")
     seen_refs = set()
     for shot_binding in binding.get("shots", []) or []:
         if not isinstance(shot_binding, dict):
@@ -578,7 +643,7 @@ def validate_stage5_binding(
 
 def apply_stage5_binding(layer2_data: Dict[str, Any], binding: Dict[str, Any]) -> Dict[str, Any]:
     """Apply permitted derived asset and English translation bindings in memory."""
-    data = json.loads(json.dumps(layer2_data, ensure_ascii=False))
+    data = ensure_global_shot_ids(json.loads(json.dumps(layer2_data, ensure_ascii=False)))
     refs = data.setdefault("asset_refs", {})
     overrides = binding.get("asset_refs_override", {}) or {}
     if not isinstance(overrides, dict):
@@ -607,9 +672,12 @@ def apply_stage5_binding(layer2_data: Dict[str, Any], binding: Dict[str, Any]) -
         raise ValueError(f"Stage5 global_shot_id does not resolve uniquely: {', '.join(bad)}")
     for shot in data.get("shots", []) or []:
         sid = shot.get("global_shot_id")
-        override = shot_override_by_id.get(sid, {})
-        if set(override) - {"action_stages_en", "observable_expression_en"}:
-            raise ValueError(f"Stage5 shot override {sid} may override only action_stages_en and observable_expression_en")
+        override = dict(shot_override_by_id.get(sid, {}) or {})
+        if set(override) - SHOT_OVERRIDE_KEYS:
+            raise ValueError(f"Stage5 shot override {sid} may override only {', '.join(sorted(SHOT_OVERRIDE_KEYS))}")
+        en_shot = dict((stage5_en_overlay(binding).get("shots") or {}).get(sid) or {})
+        en_shot.update({k: override.pop(k) for k in list(override) if k not in ("action_stages_en", "observable_expression_en")})
+        _apply_en_shot(shot, en_shot)
         if override:
             action = shot.setdefault("action_and_performance", {})
             for key, value in override.items():
@@ -620,8 +688,46 @@ def apply_stage5_binding(layer2_data: Dict[str, Any], binding: Dict[str, Any]) -
                 action[key] = value
         if sid in shot_ref_by_id:
             shot["_stage5_reference_binding"] = shot_ref_by_id[sid]
+    _apply_en_segment(data, stage5_en_overlay(binding))
     data["_stage5_binding"] = binding
     return data
+
+
+def _apply_en_shot(shot: Dict[str, Any], en_shot: Dict[str, Any]) -> None:
+    """把逐鏡英文層寫進記憶體中的 Layer 2（只寫 *_en 欄位，原中文保留給人審）。"""
+    if en_shot.get("movement_en"):
+        shot.setdefault("camera_optics", {})["movement_en"] = str(en_shot["movement_en"])
+    blocking = shot.setdefault("spatial_blocking", {})
+    if "blocking_en" in en_shot:
+        blocking["blocking_desc_en"] = str(en_shot["blocking_en"] or "")
+    if "anchor_objects_en" in en_shot:
+        blocking["anchor_objects_en"] = [str(v) for v in (en_shot["anchor_objects_en"] or [])]
+    if en_shot.get("lips") in LIPS_MODES:
+        shot.setdefault("dialogue_and_audio", {})["lips_mode"] = en_shot["lips"]
+
+
+def _apply_en_segment(data: Dict[str, Any], overlay: Dict[str, Any]) -> None:
+    if not overlay:
+        return
+    style_lock = data.setdefault("style_lock", {})
+    if isinstance(overlay.get("continuity_anchors_en"), dict):
+        style_lock["continuity_anchors_en"] = dict(overlay["continuity_anchors_en"])
+    if overlay.get("lighting_lock_line_en"):
+        data.setdefault("metadata", {})["lighting_lock_line"] = str(overlay["lighting_lock_line_en"])
+    if isinstance(overlay.get("end_state_en"), dict):
+        end_state = data.get("segment_end_state") if isinstance(data.get("segment_end_state"), dict) else {}
+        end_state = dict(end_state)
+        end_state["planned_final_state_en"] = dict(overlay["end_state_en"])
+        data["segment_end_state"] = end_state
+    voices = overlay.get("voice_4d_spec_en") or {}
+    if isinstance(voices, dict):
+        for shot in data.get("shots", []) or []:
+            dlg = shot.setdefault("dialogue_and_audio", {})
+            spk = dlg.get("speaker")
+            if spk and voices.get(spk):
+                dlg["voice_4d_spec_en"] = str(voices[spk])
+    if isinstance(overlay.get("secondary_desc_en"), dict):
+        data["_secondary_desc_en"] = {str(k): str(v) for k, v in overlay["secondary_desc_en"].items() if v}
 
 
 def _stage5_reference_path_map(binding: Dict[str, Any]) -> Tuple[Dict[str, str], Optional[str], List[Dict[str, Any]], Optional[str], Dict[str, Dict[str, Any]]]:
@@ -764,10 +870,18 @@ def map_camera_motion(raw_movement: str, shot_index: int = 0) -> str:
         if re.search(rf"\b{om}\b", raw_lower):
             return om
 
-    # 4. Unknown movement is rejected; never substitute an unrelated motion.
+    # 4. 中文運鏡：依關鍵字對到官方動詞（階段 4 的 validator 接受中文，編譯器不能只認寫死的逐字句）。
+    if CJK_RE.search(raw_lower):
+        for keywords, verb in CJK_CAMERA_KEYWORDS:
+            if any(k in raw_lower for k in keywords):
+                return verb
+
+    # 5. Unknown movement is rejected; never substitute an unrelated motion.
     if not raw_lower or raw_lower in {"unknown", "n/a", "none"}:
         return "static"
-    raise ValueError(f"不支援的 camera movement: {raw_movement!r}")
+    raise ValueError(
+        f"不支援的 camera movement: {raw_movement!r}；請在 Layer 2 camera_optics.movement_en "
+        f"或 stage5 binding en_overlay.shots[<鏡>].movement_en 寫官方英文運鏡動詞")
 
 
 def sanitize_english_text(text: str) -> str:
@@ -947,6 +1061,53 @@ def _english_voice_descriptor(dlg: Dict[str, Any], notes: Optional[List[str]] = 
     return ""
 
 
+def _lips_closed_wanted(shot: Dict[str, Any], registry: "AssetRegistry", no_visual_ids: set) -> bool:
+    """這鏡要不要加閉唇句：只有「看得到臉且不說話」的鏡需要。
+
+    優先序：stage5 en_overlay 的 lips（closed／omit）→ Layer 2 `lips_closed_lock`（明寫 true／false）→
+    鏡內有沒有看得到的角色（空景、只有只出聲角色的鏡不加）。
+    """
+    dlg = shot.get("dialogue_and_audio", {}) or {}
+    mode = dlg.get("lips_mode")
+    if mode in LIPS_MODES:
+        return mode == "closed"
+    if "lips_closed_lock" in dlg and dlg.get("lips_closed_lock") is not None:
+        return bool(dlg.get("lips_closed_lock"))
+    if "character_ids" not in shot:
+        return True  # 舊格式沒標在場角色：維持舊行為
+    for cid in shot.get("character_ids", []) or []:
+        if not cid or is_narrator(cid) or cid in no_visual_ids:
+            continue
+        record = registry.characters.get(cid, {}) or {}
+        if record.get("no_visual_reference") or record.get("voice_only"):
+            continue
+        return True
+    return False
+
+
+def _english_anchor_objects(values: Any, registry: "AssetRegistry", notes: List[str], shot_id: Any) -> List[str]:
+    """錨點物件只輸出英文：道具 ID 換成道具英文描述，殘留中文的項目略過並記一條 note。"""
+    out: List[str] = []
+    dropped: List[str] = []
+    for raw in values or []:
+        text = str(raw or "").strip()
+        if not text:
+            continue
+        if text in getattr(registry, "props", {}):
+            desc = (registry.props[text].get("desc_en") or "").split(",")[0].strip()
+            text = desc or ""
+            if not text:
+                dropped.append(str(raw))
+                continue
+        if _has_cjk(text):
+            dropped.append(text)
+            continue
+        out.append(text)
+    if dropped:
+        notes.append(f"{shot_id} 錨點物件有中文或無英文描述的道具，未寫進英文提示詞：{'、'.join(dropped[:5])}；請補 anchor_objects_en")
+    return out
+
+
 def compile_segment_h3(
     layer2_data: Dict[str, Any],
     registry: AssetRegistry,
@@ -989,6 +1150,8 @@ def compile_segment_h3(
         layer2_data = apply_stage5_binding(layer2_data, stage5_binding)
     if stage5_binding is None:
         stage5_binding = layer2_data.get("_stage5_binding")
+    ensure_global_shot_ids(layer2_data)
+    secondary_desc_en: Dict[str, str] = dict(layer2_data.get("_secondary_desc_en") or {})
     seg_id = layer2_data.get("segment_id") or layer2_data.get("scene_id", "SEG01")
     scene_id = layer2_data.get("scene_id", "SC01")
     metadata = layer2_data.get("metadata", {}) or {}
@@ -1467,6 +1630,20 @@ def compile_segment_h3(
     secondary_short: Dict[str, str] = {}
     for cid in secondary:
         info = char_info(cid)
+        voice_only = (cid in no_visual_ids or info.get("no_visual_reference") or info.get("voice_only"))
+        if secondary_desc_en.get(cid):
+            # 段落專用描述（例如巨鳥成形前只是一片紅光）：取代角色聖經的完整外觀。
+            text = secondary_desc_en[cid].rstrip(" .")
+            retention_lines.append(f"Secondary presence described in text only, without reference image: {text}.")
+            secondary_short[cid] = text
+            continue
+        if voice_only:
+            # 只出聲的角色：不寫外觀，否則 H3 會把它畫出來（畫外說話者被畫成在場的人）。
+            retention_lines.append(
+                "A voice-only presence is heard in this segment but never appears on screen; "
+                "no figure, creature or face is drawn for it.")
+            secondary_short[cid] = "the unseen voice"
+            continue
         desc = info["desc_en"] or info["name"]
         retention_lines.append(f"Secondary character appears as pure text description without reference image: {desc}.")
         w = (info.get("wardrobe_states", {}).get(costume_of.get(cid) or "", {}) or {})
@@ -1607,12 +1784,25 @@ def compile_segment_h3(
         anchor = style_rules.video_anchor(anchor)
     lighting_line = (_clean(metadata.get("lighting_lock_line")) or _clean(style_lock.get("lighting_lock_line"))
                      or registry.style.get("lighting_lock_line", "") or "natural ambient light")
+    if _has_cjk(lighting_line):
+        notes.append("光線鎖是中文，未寫進英文提示詞；請在 en_overlay.lighting_lock_line_en 或 metadata_override.lighting_lock_line 補英文")
+        lighting_line = registry.style.get("lighting_lock_line", "") if not _has_cjk(registry.style.get("lighting_lock_line", "")) else ""
+        lighting_line = lighting_line or "natural ambient light"
     lighting_line_clean, _ = strip_hex(palette_names(lighting_line))
     if not any(re.search(rf"\b{lt}\b", lighting_line_clean, re.IGNORECASE) for lt in LIGHT_SOURCE_TERMS):
         lighting_line_clean += " with soft ambient light"
 
-    continuity = style_lock.get("continuity_anchors", {}) or {}
-    authored_anchors = [f"{key}: {continuity[key]}" for key in ("lighting", "axis", "blocking", "texture") if continuity.get(key)]
+    continuity = dict(style_lock.get("continuity_anchors", {}) or {})
+    continuity.update(style_lock.get("continuity_anchors_en", {}) or {})
+    authored_anchors = []
+    for key in ("lighting", "axis", "blocking", "texture"):
+        value = continuity.get(key)
+        if not value:
+            continue
+        if _has_cjk(value):
+            notes.append(f"連戲錨 {key} 是中文，未寫進英文提示詞；請在 en_overlay.continuity_anchors_en 補英文")
+            continue
+        authored_anchors.append(f"{key}: {value}")
     if anchor:
         authored_anchors.insert(0, f"style anchor: {anchor}")
     negative = (_clean(registry.style.get("style_negative")) if stage5_binding
@@ -1693,7 +1883,7 @@ def compile_segment_h3(
         else:
             focal = "the scene"
 
-        motion = map_camera_motion(cam.get("movement", "static"), idx).replace("camera ", "").strip()
+        motion = map_camera_motion(cam.get("movement_en") or cam.get("movement", "static"), idx).replace("camera ", "").strip()
         mclause = "the camera holds a static shot" if ("static" in motion or "steady" in motion) else f"the camera {motion}"
         if mclause in used_motion and "static" not in mclause:
             mclause += " slowly"
@@ -1719,6 +1909,7 @@ def compile_segment_h3(
         expr = TODO_RE.sub("", act.get("observable_expression_en") or act.get("observable_expression") or "").strip()
 
         dlg = s.get("dialogue_and_audio", {}) or {}
+        lips_closed = _lips_closed_wanted(s, registry, no_visual_ids)
         if dlg.get("has_dialogue") and dlg.get("line_verbatim"):
             line = dlg["line_verbatim"].strip()
             spk = dlg.get("speaker")
@@ -1755,10 +1946,14 @@ def compile_segment_h3(
                     "end": ((dlg.get("speech_window") or {}) or {}).get("end"),
                 })
                 verb = "narrates" if is_vo else "speaks"
-                delivery = (
-                    f"{subject_speaker} {verb} off-screen over this shot; the visible characters keep their "
-                    f"lips completely closed and continue their actions, and the shot carries only the location ambience. "
-                )
+                if lips_closed:
+                    delivery = (
+                        f"{subject_speaker} {verb} off-screen over this shot; the visible characters keep their "
+                        f"lips completely closed and continue their actions, and the shot carries only the location ambience. "
+                    )
+                else:
+                    # 空景、手部特寫、背影、張嘴嘶吼的鏡：沒有「看得到臉又不說話」的人，不加閉唇句。
+                    delivery = f"{subject_speaker} {verb} off-screen over this shot, and the shot carries only the location ambience. "
                 speech = f"; {window}{delivery}"
             elif is_vo:
                 # 官方畫外音句式：says in an off-screen voiceover + <d> 後立刻說明嘴閉合
@@ -1792,12 +1987,19 @@ def compile_segment_h3(
                     delivery = f"{subject_speaker} is the visible speaking character ({who}){voice_clause}, and says: "
                 speech = f"; {window}{delivery}<d>[Chinese] {line}</d>"
         else:
-            speech = "; lips stay closed"
+            speech = "; lips stay closed" if lips_closed else ""
 
         blocking = s.get("spatial_blocking", {}) or {}
-        blocking_bits = [blocking.get("blocking_desc", "")]
-        if blocking.get("anchor_objects"):
-            blocking_bits.append("anchor objects: " + ", ".join(blocking["anchor_objects"]))
+        blocking_desc = blocking.get("blocking_desc_en") or blocking.get("blocking_desc", "")
+        if blocking_desc and _has_cjk(blocking_desc):
+            notes.append(f"{s.get('shot_id')} 走位 blocking_desc 是中文，未寫進英文提示詞；請補 blocking_desc_en 或 en_overlay blocking_en")
+            blocking_desc = ""
+        blocking_bits = [blocking_desc]
+        anchor_objects = _english_anchor_objects(
+            blocking.get("anchor_objects_en") if blocking.get("anchor_objects_en") is not None else blocking.get("anchor_objects"),
+            registry, notes, s.get("shot_id"))
+        if anchor_objects:
+            blocking_bits.append("anchor objects: " + ", ".join(anchor_objects))
         blocking_clause = f" Blocking: {'; '.join(bit for bit in blocking_bits if bit)}." if any(blocking_bits) else ""
         stage_refs = ""
         global_shot_id = s.get("global_shot_id")
@@ -1827,7 +2029,11 @@ def compile_segment_h3(
                     f"{shot_size}{optics} of {focal}, as {mclause}.")
         tail = " The final second holds still before the cut." if (idx == n_shots and tail_hold) else ""
         if idx == n_shots and layer2_data.get("segment_end_state"):
-            final_state = layer2_data["segment_end_state"].get("planned_final_state") or {}
+            end_state = layer2_data["segment_end_state"]
+            final_state = end_state.get("planned_final_state_en") or end_state.get("planned_final_state") or {}
+            if final_state and _has_cjk(final_state):
+                notes.append("segment_end_state 是中文，未寫進英文提示詞；請在 en_overlay.end_state_en 補英文")
+                final_state = {}
             if final_state:
                 tail += " End state: " + json.dumps(final_state, ensure_ascii=False, sort_keys=True) + "."
         action = action[:1].upper() + action[1:]
@@ -1855,7 +2061,8 @@ def compile_segment_h3(
                 body += "."
             body += f"{tail}{marker}"
         else:
-            body = f"{head} {action}." + (f" Expression: {expr}" if expr else "") + blocking_clause + stage_refs + f"{speech}.{tail}{marker}"
+            closing = f"{speech}." if speech else ("." if (expr and not blocking_clause and not stage_refs and not expr.rstrip().endswith((".", "!", "?"))) else "")
+            body = f"{head} {action}." + (f" Expression: {expr}" if expr else "") + blocking_clause + stage_refs + f"{closing}{tail}{marker}"
         det_lines.append(sanitize_english_text(body))
 
     detailed_block = "detailed_description:\n" + "\n".join(det_lines)
