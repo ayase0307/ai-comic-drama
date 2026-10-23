@@ -374,6 +374,14 @@ def audit_refs_and_subjects(seg_data: Dict[str, Any], project_root: Optional[Pat
                 "缺了綁定，H3 會把聲音掛到畫面上唯一的那張臉上，長出複製人。"
             )
 
+        # ---------- E22b：<Subject k> 的代號必須是 (Sk)（#66） ----------
+        for _m in re.finditer(r"<Subject (\d+)> \(S(\d+)\)", prompt_text):
+            if _m.group(1) != _m.group(2):
+                errors.append(
+                    f"[E22: 說話者代號不一致] <Subject {_m.group(1)}> 被標成 (S{_m.group(2)})；"
+                    f"Subject k 的代號必須是 (Sk)，否則聲音會掛錯人。")
+                break
+
         # ---------- E23：畫外音必須用官方句式並說明嘴閉合 ----------
         if re.search(r"off-screen voiceover|off-screen voice over", prompt_text.lower()):
             if "lips remain completely closed" not in prompt_text.lower():
@@ -862,7 +870,9 @@ def lint_h3_prompt(
     # --------------------------------------------------------------------------
     # 規則 11 (W): 英文字數密度 (23.2 * D ~ 33.1 * D)
     # --------------------------------------------------------------------------
-    words = re.findall(r"\b[A-Za-z0-9_-]+\b", detailed_desc)
+    # #70：標註句（On screen: …）另計，不占描述密度
+    _counted = re.sub(r" On screen: [^\n]*?\.(?= |$|\n)", "", detailed_desc)
+    words = re.findall(r"\b[A-Za-z0-9_-]+\b", _counted)
     word_count = len(words)
     min_words = int(23.2 * eff_d)
     max_words = int(33.1 * eff_d)

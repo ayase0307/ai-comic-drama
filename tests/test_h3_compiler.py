@@ -426,7 +426,8 @@ class H3CompilerRegressionTests(unittest.TestCase):
                 prompt = compiled["h3_prompt"]
 
                 # 官方 base §4.4：發聲者一定要有穩定 (Sx) 代號
-                self.assertIn("(S1)", prompt)
+                # #66：Subject 1（Mira）佔 S1，畫外發聲者接在後面
+                self.assertRegex(prompt, r"\(S[12]\)")
                 self.assertIn(identity, prompt)
                 self.assertIn("off-screen", prompt)
                 self.assertIn("segment_seconds 0.500–2.000", prompt)
