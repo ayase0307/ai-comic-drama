@@ -2360,7 +2360,10 @@ def main() -> int:
                 validate_stage5_binding(data, bindings_by_segment[sid], path, args.project_root)
             extras = set(bindings_by_segment) - set(input_ids)
             if extras:
-                raise ValueError(f"Stage5 bindings contain segments outside this compile input: {', '.join(sorted(extras))}")
+                # 全集 bindings 可以只編其中幾段（#56）：其他段的綁定與這次輸入無關，略過即可。
+                print(f"[提示] bindings 另含 {len(extras)} 段不在這次輸入內，已略過（只編譯輸入的 {len(input_ids)} 段）")
+                for sid in extras:
+                    bindings_by_segment.pop(sid, None)
         except Exception as exc:
             print(f"[錯誤] Stage5 bindings rejected: {exc}", file=sys.stderr)
             return 1

@@ -125,6 +125,36 @@ def rel_img_src(project_dir: Path, img_path_str: str) -> Tuple[str, Optional[Pat
     return f"../{clean}", None
 
 
+_LOCAL_IMG_SRC = re.compile(r'(<img\b[^>]*?\bsrc=")(\.\./[^"]+?\.(?:png|jpe?g|webp|gif))(")', re.I)
+
+
+def inline_local_images(html_text: str, review_dir: Path, width: int = 1280, quality: int = 70) -> Tuple[str, int]:
+    """把 <img src="../..."> 換成內嵌 data URI，審核頁單檔傳出去也看得到圖（#24 #63）。
+
+    回傳 (新 HTML, 內嵌張數)。讀不到或沒裝 Pillow 的圖保留原相對路徑。
+    """
+    review_scripts = Path(__file__).resolve().parent / "review"
+    if str(review_scripts) not in sys.path:
+        sys.path.insert(0, str(review_scripts))
+    import inbox as inbox_mod
+    cache: Dict[str, Optional[str]] = {}
+    count = 0
+
+    def repl(m: "re.Match[str]") -> str:
+        nonlocal count
+        rel = m.group(2)
+        if rel not in cache:
+            from urllib.parse import unquote
+            cache[rel] = inbox_mod.image_b64((review_dir / unquote(rel)).resolve(), width, quality)
+        data = cache[rel]
+        if not data:
+            return m.group(0)
+        count += 1
+        return f"{m.group(1)}{data}{m.group(3)}"
+
+    return _LOCAL_IMG_SRC.sub(repl, html_text), count
+
+
 # ==============================================================================
 # 狀態機管理 (project-state.json)
 # ==============================================================================
@@ -1680,7 +1710,10 @@ def build_manifest_asset_review(project_dir: Path, state: Dict[str, Any], manife
                      f'<div class="sbs-body"><div class="sbs-spec">{spec}</div><div class="sbs-visual">{visual}</div></div></article>')
     intro = ('<p>圖片存在與人工核准分開記錄。無形體聲音不要求圖片；可選條目不造成缺圖阻斷。'
              '人物、服裝與原著依據另見 <a href="../assets/character-design-v2.md">人物設定</a>。'
-             '檢查結論見 <a href="asset-intake-review.html">本批資產驗收</a>。</p>')
+             + ('檢查結論見 <a href="asset-intake-review.html">本批資產驗收</a>。'
+                if (project_dir / "review" / "asset-intake-review.html").is_file()
+                else '各圖的 Agent 自檢結論列在每張卡片的規格欄。')
+             + '</p>')
     page = wrap_studio_html(project_dir, 2, state, "逐項核對實際收到的角色、服裝、生物、場景與道具圖；點圖放大。",
                            [("圖單條目",str(len(manifest["assets"])),"gold"),("必需圖",str(required),"cyan"),
                             ("實際收到",str(ready),"emerald" if not errors else "rose")],
@@ -2493,6 +2526,8 @@ def main() -> int:
     parser.add_argument("--require-approved", type=int, choices=range(8), help="供下游腳本檢查指定前置階段是否已 approved")
     parser.add_argument("--force-unlock-prev", action="store_true", help="相容舊 CLI；不會授予核准，使用時明確拒絕並要求逐階段重審")
     parser.add_argument("--self-test", action="store_true", help="執行內建自檢")
+    parser.add_argument("--self-contained", action="store_true",
+                        help="搭配 --stage：圖片內嵌進 HTML（webp 縮圖），單檔傳給使用者也不破圖")
     parser.add_argument("--inbox", action="store_true",
                         help="產生跨階段決策收件匣 review/inbox.html（只列需要使用者決定的事；舊八頁保留給除錯）")
     parser.add_argument("--inbox-strips", choices=["all", "recent", "none"], default="all",
@@ -2597,6 +2632,9 @@ def main() -> int:
             review_dir = project_dir / "review"
             review_dir.mkdir(parents=True, exist_ok=True)
             out_html = review_dir / STAGE_META[s_idx]["file"]
+            if args.self_contained:
+                html_content, embedded = inline_local_images(html_content, review_dir)
+                print(f"🖼️ 已內嵌 {embedded} 張圖片（單檔可攜）")
             out_html.write_text(html_content, encoding="utf-8")
             print(f"🎨 已產出高設計感視覺化審核介面: {out_html}")
 

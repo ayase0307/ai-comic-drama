@@ -292,6 +292,9 @@ def _valid_png(path: Path) -> bool:
         return False
 
 
+REJECTED_SKETCH_STATUSES = frozenset({"rejected", "retake", "redo", "needs_redo", "failed"})
+
+
 def stage4_artifacts(root: Path) -> tuple[list[Path], list[str]]:
     layer_files = sorted((root / "layer2").glob("layer2-*.json")) if (root / "layer2").exists() else []
     if not layer_files:
@@ -335,19 +338,28 @@ def stage4_artifacts(root: Path) -> tuple[list[Path], list[str]]:
             continue
         for index, shot in enumerate(shots, start=1):
             shot_id = str(shot.get("shot_id") or f"SH{index:02d}")
+            status = str(shot.get("sketch_status") or "").strip().lower()
+            if status in REJECTED_SKETCH_STATUSES:
+                # 自檢退回的構圖不認領，即使圖還留在 panels/（#45）
+                errors.append(f"{seg_id}/{shot_id}: 構圖自檢退回（sketch_status={status}），要重畫")
+                continue
             candidates = []
             if shot.get("sketch_file"):
+                # 有顯式綁定就只認綁定的檔，不再退回 panels/ 的同名圖
                 candidates.extend((_resolve(root, shot["sketch_file"]), (layer.parent / shot["sketch_file"]).resolve()))
-            candidates.extend((
-                root / "panels" / f"panel-{index:02d}-{shot_id}.png",
-                layer.parent / "panels" / f"panel-{index:02d}-{shot_id}.png",
-                root / f"panel-{index:02d}-{shot_id}.png",
-            ))
+            else:
+                candidates.extend((
+                    root / "panels" / f"panel-{index:02d}-{shot_id}.png",
+                    layer.parent / "panels" / f"panel-{index:02d}-{shot_id}.png",
+                    root / f"panel-{index:02d}-{shot_id}.png",
+                ))
             valid = next((p for p in candidates if _valid_png(p)), None)
             if valid:
                 matched.append(valid)
+            elif shot.get("sketch_file"):
+                errors.append(f"{seg_id}/{shot_id}: sketch_file 指向的構圖不存在或不是有效 PNG：{shot['sketch_file']}")
             else:
-                errors.append(f"{seg_id}/{shot_id}: 缺少有效且對應的九宮格或單格 PNG")
+                errors.append(f"{seg_id}/{shot_id}: 缺少有效且對應的構圖 PNG")
     return sorted(set(matched)), errors
 
 

@@ -298,6 +298,162 @@ def _review_page_link(root: Path, stage: int) -> List[Dict[str, str]]:
     return [{"label": "舊版審核頁（除錯用）", "href": f"review/{pages[0].name}"}] if pages else []
 
 
+# ------------------------------------------------------------------ 階段 2／4／5 例外卡
+FAIL_DISPOSITION = re.compile(r"不通過|未通過|退回|重生|淘汰|\bfail|\breject", re.I)
+FAIL_APPROVAL = {"rejected", "needs_regen", "retake", "failed", "agent_rejected"}
+MIXED_FACE_CODE = "mixed_face_refs"  # decisions.ISSUE_CODES；寫進 acceptance_policy.accept 即接受
+
+
+def reference_manifest(root: Path) -> List[Dict[str, Any]]:
+    """assets/reference-manifest.json 的 assets（讀不到回空清單）。"""
+    data = _read_json(Path(root) / "assets" / "reference-manifest.json")
+    items = data.get("assets") if isinstance(data, dict) else data
+    return [a for a in items if isinstance(a, dict)] if isinstance(items, list) else []
+
+
+def _asset_label(asset: Dict[str, Any]) -> str:
+    return str(asset.get("display_name_zh") or asset.get("stable_id") or asset.get("entry_id") or asset.get("target_path") or "?")
+
+
+def _asset_failed(asset: Dict[str, Any]) -> bool:
+    if str(asset.get("approval_status") or "").strip().lower() in FAIL_APPROVAL:
+        return True
+    disposition = str(asset.get("review_disposition") or "")
+    # 「自檢通過（有瑕疵）」不算不通過；只有明講不通過／退回才算
+    return bool(FAIL_DISPOSITION.search(disposition)) and "通過（" not in disposition.replace("不通過（", "")
+
+
+def _asset_path(root: Path, asset: Dict[str, Any]) -> Optional[Path]:
+    raw = asset.get("target_path") or asset.get("path")
+    if not raw:
+        return None
+    path = ps._resolve(root, raw)
+    return path if path.is_file() else None
+
+
+def stage2_sheet_paths(root: Path, limit: int = 6) -> List[Path]:
+    """階段 2 核准卡要內嵌的設定圖：manifest 的角色優先，沒有 manifest 就抓 images/*sheet*。"""
+    manifest = reference_manifest(root)
+    ordered = sorted(manifest, key=lambda a: (str(a.get("asset_type")) != "character", not a.get("required", True)))
+    paths = [p for p in (_asset_path(root, a) for a in ordered) if p]
+    if not paths:
+        paths = sorted(p for p in (Path(root) / "images").glob("*sheet*")
+                       if p.suffix.lower() in IMAGE_SUFFIXES and "_trials" not in p.parts)
+    seen: List[Path] = []
+    for p in paths:
+        if p not in seen:
+            seen.append(p)
+    return seen[:limit]
+
+
+def stage2_cards(root: Path) -> List[Dict[str, Any]]:
+    """manifest 標了自檢不通過的設定圖 → 卡（#22）。"""
+    failed = [a for a in reference_manifest(root) if _asset_failed(a)]
+    if not failed:
+        return []
+    names = "、".join(_asset_label(a) for a in failed[:4]) + ("…" if len(failed) > 4 else "")
+    notes = [n for a in failed for n in (a.get("technical_review_notes") or [])[:1]]
+    return [{
+        "id": "D2-asset-selfcheck", "kind": "asset_review", "stage": 2, "segment": f"{len(failed)} 張設定圖",
+        "title": f"{len(failed)} 張設定圖 Agent 自檢不通過：{names}",
+        "finding": "；".join(str(a.get("review_disposition") or "") for a in failed[:3]),
+        "impact": "設定圖是後面所有分鏡與影片的臉和服裝來源；帶著瑕疵核准，整季都會沿用。",
+        "recommendation": "先重生成再給你看臉；你看過覺得能用，也可以直接接受。"
+                          + (f" 自檢備註：{notes[0]}" if notes else ""),
+        "options": [{"label": "照建議重生成", "reply": f"階段 2：{names} 重生成後再給我看"},
+                    {"label": "我看過，可以用", "reply": f"階段 2：{names} 我看過，接受目前版本"}],
+        "blocking": 1, "blocking_label": "擋階段 2 核准",
+        "evidence_paths": [p for p in (_asset_path(root, a) for a in failed) if p][:3],
+        "evidence_caption": "自檢不通過的設定圖", "links": [], "source": "assets/reference-manifest.json"}]
+
+
+def _panel_evidence(root: Path, errors: List[str]) -> List[Path]:
+    rejected_dir = Path(root) / "panels" / "_rejected"
+    found = sorted(p for p in rejected_dir.glob("*.png")) if rejected_dir.is_dir() else []
+    return found[:3]
+
+
+def stage4_cards(root: Path) -> List[Dict[str, Any]]:
+    """缺構圖、自檢退回 → 卡（#44）。"""
+    _, errors = ps.stage4_artifacts(root)
+    if not errors:
+        return []
+    rejected = [e for e in errors if "自檢退回" in e]
+    missing = [e for e in errors if e not in rejected]
+    parts = []
+    if missing:
+        parts.append(f"{len(missing)} 鏡缺構圖")
+    if rejected:
+        parts.append(f"{len(rejected)} 鏡自檢退回")
+    shots = [e.split(":", 1)[0] for e in errors]
+    return [{
+        "id": "D4-sketch-gaps", "kind": "stage_gap", "stage": 4, "segment": f"{len(errors)} 鏡",
+        "title": f"階段 4 還有 {'、'.join(parts)}，不能送核准",
+        "finding": "、".join(shots[:6]) + ("…" if len(shots) > 6 else ""),
+        "impact": "每一鏡都要有對應構圖才能進提示詞編譯；退回的圖不會被認領。",
+        "recommendation": "我先補畫缺的鏡、重畫退回的鏡，齊了再出核准卡給你。",
+        "options": [{"label": "照建議補齊", "reply": "階段 4：照建議補齊構圖，齊了再給我核"},
+                    {"label": "先給我看退回的圖", "reply": "階段 4：先把自檢退回的構圖給我看"}],
+        "blocking": 2, "blocking_label": "擋階段 4 核准",
+        "evidence_paths": _panel_evidence(root, rejected),
+        "evidence_caption": "自檢退回的構圖" if rejected else "", "links": [],
+        "source": "layer2/layer2-*.json＋panels/"}]
+
+
+def _segment_items(path: Path) -> List[Dict[str, Any]]:
+    raw = _read_json(path)
+    items = raw if isinstance(raw, list) else (raw.get("segments", [raw]) if isinstance(raw, dict) else [])
+    return [i for i in items if isinstance(i, dict)]
+
+
+def mixed_face_segments(root: Path) -> List[str]:
+    """同段掛 >1 張可辨識人臉角色參考圖的段（與 audit 的混臉警告同一規則）。"""
+    out = []
+    for path in sorted(Path(root).glob("segments-ep*.json")):
+        for seg in _segment_items(path):
+            refs = [r for r in (seg.get("reference_images") or []) if isinstance(r, dict)]
+            faces = [r for r in refs if r.get("type") in ("character", "role", "actor")
+                     and r.get("reference_view") != "non_face"]
+            if len(faces) > 1:
+                out.append(str(seg.get("segment_id") or path.name))
+    return out
+
+
+def stage5_cards(root: Path, accept: set) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """缺參考圖、混臉 → 卡（#62）；混臉若已寫進驗收政策 accept（MIXED_FACE）就改列自動處理。"""
+    cards: List[Dict[str, Any]] = []
+    auto: List[Dict[str, Any]] = []
+    errors = ps.stage_validation_errors(root, 5)
+    if errors:
+        segs = sorted({e.split(":", 1)[0] for e in errors})
+        cards.append({
+            "id": "D5-missing-refs", "kind": "stage_gap", "stage": 5, "segment": f"{len(segs)} 段",
+            "title": f"{len(segs)} 段提示詞缺參考圖或參考圖檔不存在",
+            "finding": "；".join(errors[:3]) + ("…" if len(errors) > 3 else ""),
+            "impact": "缺參考圖的段送件後臉、場景會漂；不補齊不能核准階段 5。",
+            "recommendation": "缺的場景母版或設定圖我先補生成，補完重編這幾段。",
+            "options": [{"label": "照建議補圖重編", "reply": "階段 5：照建議補參考圖並重編"},
+                        {"label": "先列清單給我", "reply": "階段 5：先把缺圖清單給我看"}],
+            "blocking": 2, "blocking_label": "擋階段 5 核准", "evidence_paths": [], "links": [],
+            "source": "segments-ep*.json reference_images"})
+    mixed = mixed_face_segments(root)
+    if mixed and MIXED_FACE_CODE in accept:
+        auto.append({"text": f"{len(mixed)} 段同段多張臉，依驗收政策可接受（{MIXED_FACE_CODE}）",
+                     "detail": "、".join(mixed[:10]), "source": "segments-ep*.json＋decisions.json acceptance_policy"})
+    elif mixed:
+        cards.append({
+            "id": "D5-mixed-face", "kind": "mixed_face", "stage": 5, "segment": f"{len(mixed)} 段",
+            "title": f"{len(mixed)} 段同段掛了多張人臉參考圖（混臉風險）",
+            "finding": "、".join(mixed[:6]) + ("…" if len(mixed) > 6 else ""),
+            "impact": "H3 會把多張臉平均成一張；對手戲要兩人同框時才值得冒這個險。",
+            "recommendation": "非必要同框的段改一臉＋背影無臉裁切；確實要兩人露臉的段由你接受。",
+            "options": [{"label": "照建議改一臉", "reply": "階段 5：混臉段改成一張臉＋無臉裁切"},
+                        {"label": "我接受這些段", "reply": f"階段 5：接受混臉風險，驗收政策 accept 加 {MIXED_FACE_CODE}"}],
+            "blocking": 2, "blocking_label": "擋階段 5 核准", "evidence_paths": [], "links": [],
+            "source": "segments-ep*.json reference_images"})
+    return cards, auto
+
+
 def build_cards(root: Path, *, state: Optional[Dict[str, Any]] = None,
                 decisions_data: Optional[Dict[str, Any]] = None,
                 classified: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -448,6 +604,16 @@ def build_cards(root: Path, *, state: Optional[Dict[str, Any]] = None,
                 "source": "segments-ep*.json external_narration＋decisions.json voice:*",
                 "characters": missing_voice})
 
+    # 4b) 階段 2／4／5 的例外（manifest 自檢不通過、缺構圖／退回、缺參考圖／混臉）
+    if cur == 2:
+        open_cards.extend(stage2_cards(root))
+    elif cur == 4:
+        open_cards.extend(stage4_cards(root))
+    elif cur == 5:
+        s5_cards, s5_auto = stage5_cards(root, accept)
+        open_cards.extend(s5_cards)
+        auto.extend(s5_auto)
+
     # 5) 目前階段等使用者核准（只有在沒有其他同階段卡、也不符合自動核准時才出卡）
     cur_entry = stages[ps.stage_key(cur)]
     auto_stages, auto_item = decisions_mod.auto_approve_stages(decisions_data)
@@ -468,6 +634,17 @@ def build_cards(root: Path, *, state: Optional[Dict[str, Any]] = None,
                             {"label": "要改", "reply": f"階段 {cur}：要改，____"}],
                 "blocking": 1, "blocking_label": "擋下一步", "evidence_paths": [],
                 "links": _review_page_link(root, cur), "source": "review/project-state.json"})
+            if cur == 2:
+                # 角色設定圖永遠要人看臉：卡片內嵌設定圖，不說「沒有例外」（#22）
+                sheets = stage2_sheet_paths(root)
+                flawed = [a for a in reference_manifest(root) if "瑕疵" in str(a.get("review_disposition") or "")]
+                rec = "請看臉與服裝再決定；設定圖一經核准，全季沿用。"
+                if flawed:
+                    rec += f" Agent 自檢標了 {len(flawed)} 張有瑕疵：{'、'.join(_asset_label(a) for a in flawed[:3])}。"
+                open_cards[-1].update({
+                    "recommendation": rec, "evidence_paths": sheets, "max_evidence": len(sheets),
+                    "evidence_caption": "本批設定圖（臉與服裝由你決定）",
+                    "source": "review/project-state.json＋assets/reference-manifest.json"})
 
     # 已決定：decisions.json
     for item in decisions_data.get("decisions", []):
@@ -566,10 +743,11 @@ def collect(root: Path, *, images: bool = True, strips: str = "all", out_dir: Op
     cards = []
     for card in built["open"]:
         item = {k: v for k, v in card.items() if k != "evidence_paths"}
-        thumbs = [embed(p) for p in card.get("evidence_paths", [])[:3]]
+        limit = int(card.get("max_evidence") or 3)
+        thumbs = [embed(p, 520 if limit > 3 else 760) for p in card.get("evidence_paths", [])[:limit]]
         item["evidence_b64"] = [t for t in thumbs if t]
         item["evidence"] = [p.resolve().relative_to(root).as_posix() if p.resolve().is_relative_to(root) else str(p)
-                            for p in card.get("evidence_paths", [])[:3]]
+                            for p in card.get("evidence_paths", [])[:limit]]
         item["links"] = [{"label": l["label"], "href": rel_link(l["href"])} for l in card.get("links", [])]
         cards.append(item)
 
