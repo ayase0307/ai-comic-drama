@@ -170,8 +170,12 @@ python scripts/h3d.py deps --root . --status --strict
   2. verdicts 依政策判 fail（擋核准）／warn（不擋；超過 3 段併成一張）；`decided_by=user` 的結論列在「已決定」
   3. 技術 QA 量化指標未過、且不在政策 `accept` 內 → 問使用者要不要覆寫
   4. 有畫外台詞、但還沒有 `voice:<角色>` 定案的角色（一張卡列全部）
-  5. 階段等核准、且沒有其他卡也不在自動核准授權內 → 「階段 N 等你核准」
+  5. 階段 2：`assets/reference-manifest.json` 的 `review_disposition` 寫「不通過／退回」或 `approval_status` 為 rejected → 「設定圖自檢不通過」卡；階段 2 核准卡內嵌本批設定圖縮圖（角色優先，最多 6 張），並列出自檢標「瑕疵」的圖
+  6. 階段 4：缺構圖、`sketch_status: rejected` 的鏡 → 一張「還有 N 鏡缺構圖／M 鏡自檢退回」卡（退回圖放 `panels/_rejected/` 會當證據縮圖；退回的鏡不會被門禁認領，有 `sketch_file` 的鏡只認綁定檔）
+  7. 階段 5：缺 `reference_images` 或檔案不存在、同段 >1 張可辨識人臉角色圖（混臉）→ 卡；使用者接受混臉就在 `acceptance_policy.accept` 加 `mixed_face_refs`，之後改列「自動處理」
+  8. 階段等核准、且沒有其他卡也不在自動核准授權內 → 「階段 N 等你核准」
 - 卡片的影響／建議／選項可以在寫結論時指定：`h3d verdict <段> warn --reason ... --evidence ... --impact "..." --recommend "..." --option "後製疊墨線=EP01-S04-d：後製疊九道墨線" --option "維持現狀=EP01-S04-d：不處理"`。
+- 單獨把舊版階段審核頁傳給使用者時加 `--self-contained`（`build_stage_review.py --project-dir . --stage N --self-contained`）：`../images/…` 會內嵌成 webp，單檔不破圖。
 - 使用者回覆卡片上的文字後：定案用 `h3d decide`、段落裁示用 `h3d verdict <段> <結論> --by user`、角色音色用 `h3d decide voice:<角色id> "<音色>" --quote "<原話>"`。
 
 **自動核准**：`h3d approve --auto [--stage N] [--dry-run] --root .`

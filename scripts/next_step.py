@@ -49,6 +49,59 @@ STAGE_REFERENCES: Dict[int, List[str]] = {
     7: ["references/tooling.md §2.7", "references/skill-guide.md「階段 7 組裝交付與配音決策」"],
 }
 
+SKELETON = f'python "{(SCRIPTS_DIR / "storyboard" / "handoff_to_skeleton.py").as_posix()}"'
+
+
+def _episode_of(text: str) -> Optional[str]:
+    import re
+    m = re.search(r"\b(EP\d+)", text or "", re.I)
+    return m.group(1).upper() if m else None
+
+
+def _episodes(root: Path) -> List[str]:
+    import re
+    eps = set()
+    for pattern in ("handoff-ep*.json", "layer2/layer2-EP*.json", "script-ep*.md"):
+        for path in root.glob(pattern):
+            m = re.search(r"ep(\d+)", path.name, re.I)
+            if m:
+                eps.add(f"EP{m.group(1)}")
+    return sorted(eps, key=lambda e: int(e[2:]))
+
+
+def stage4_producer(root: Path, errors: List[str]) -> tuple:
+    """階段 4 下一步：還沒有 layer2 就先跑 handoff_to_skeleton（#36）；有了才補構圖，集號代換成真值（#44）。"""
+    if not list((root / "layer2").glob("layer2-*.json")):
+        handoffs = sorted(root.glob("handoff-ep*.json"))
+        if not handoffs:
+            return (f"{CHECK} --root . --stage 3",
+                    "找不到 handoff-ep*.json：先回階段 3 跑 sync_script.py 產 handoff，再轉分鏡骨架。")
+        return (f"{SKELETON} {handoffs[0].name} --out-dir layer2",
+                f"先把 handoff 轉成 layer2 分鏡骨架（共 {len(handoffs)} 集，逐集執行），填實鏡頭內容後再補構圖。")
+    rejected = [e for e in errors if "自檢退回" in e]
+    episode = next((_episode_of(e) for e in errors if _episode_of(e)), None)
+    ep_flag = f" --episode {episode}" if episode else ""
+    action = f"補齊每一鏡對應的構圖 PNG（缺 {len(errors) - len(rejected)} 鏡"
+    action += f"、自檢退回 {len(rejected)} 鏡要重畫）。" if rejected else "）。"
+    return (f"{H3D} sketch --root .{ep_flag}", action)
+
+
+def stage5_producer(root: Path, errors: List[str]) -> tuple:
+    """階段 5 下一步：印完整 compile 參數，照抄就會寫出 prompts／segments（#56）。"""
+    episodes = _episodes(root)
+    missing = [e for e in episodes if not (root / f"segments-{e.lower()}.json").is_file()]
+    episode = (missing[0] if missing else None) or next(
+        (_episode_of(e) for e in errors if _episode_of(e)), None) or (episodes[0] if episodes else "EP01")
+    parts = [f"{H3D} compile --layer2 \"layer2/layer2-{episode}-*.json\" --episode {episode} --project-root ."]
+    if (root / "video-bible.json").is_file():
+        parts.append("--bible video-bible.json")
+        if (root / "video-bindings.json").is_file():
+            parts.append("--bindings video-bindings.json")
+    parts.append(f"--output-md prompts-{episode.lower()}.md --output-segments segments-{episode.lower()}.json --check")
+    action = (f"編譯 {episode} 提示詞包並補齊參考圖" + (f"（還沒編的集：{'、'.join(missing)}）" if missing else "") + "。")
+    return (" ".join(parts), action)
+
+
 ACTIVE_JOB_STATUSES = {"waiting", "queued", "running"}
 
 
@@ -319,14 +372,13 @@ def plan(root: Path) -> Dict[str, Any]:
                     "把 assets.md 的模板卡片填實，並生成每張登記的設定圖。"),
                 3: (f"{CHECK} --root . --stage 3",
                     "寫完 script-ep*.md，跑 sync_script.py 產 handoff，修到 validate_structure／check_continuity／compare_adaptation 沒有 FAIL。"),
-                4: (f"{H3D} sketch --root . --episode <EPxx>", "補齊每一鏡對應的構圖 PNG。"),
-                5: (f"{H3D} compile --layer2 layer2/layer2-<段>.json --episode <EPxx> --project-root . --check",
-                    "重新編譯提示詞包並補齊參考圖。"),
+                4: stage4_producer(root, errors) if stage == 4 else None,
+                5: stage5_producer(root, errors) if stage == 5 else None,
                 7: (f"{H3D} voice align --root .",
                     "先跑階段 7 固定流程（ASR 對位、畫外句壓原聲、響度），再 h3d concat plan／build 建全集剪輯專案，"
                     "或 h3d assemble 組裝成片並產出 delivery manifest。"),
             }
-            command, action = producers.get(stage, (f"{H3D} status --root .", "先修正上面的錯誤。"))
+            command, action = producers.get(stage) or (f"{H3D} status --root .", "先修正上面的錯誤。")
             res["action"] = action
             res["next_command"] = command
             return res

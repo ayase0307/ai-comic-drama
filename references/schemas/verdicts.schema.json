@@ -81,6 +81,7 @@
               "low_chroma",
               "color_jump",
               "no_audio",
+              "mixed_face_refs",
               "other"
             ]
           }

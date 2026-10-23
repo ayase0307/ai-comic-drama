@@ -37,6 +37,7 @@ ISSUE_CODES: Dict[str, str] = {
     "low_chroma": "技術 QA 低彩度（低彩度場景常誤判）",
     "color_jump": "相鄰段色調跳躍",
     "no_audio": "缺音軌",
+    "mixed_face_refs": "同段多張臉參考圖（階段 5 混臉風險，使用者接受）",
     "other": "其他（需人工判斷）",
 }
 
