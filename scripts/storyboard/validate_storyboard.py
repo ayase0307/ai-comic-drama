@@ -30,8 +30,9 @@ PACING_PROFILES = ("Slow_Cinematic", "Standard_Narrative", "Fast_ShortDrama")
 _CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 
 if sys.platform.startswith("win"):
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+    for _st in (sys.stdout, sys.stderr):
+        if hasattr(_st, "reconfigure"):
+            _st.reconfigure(encoding="utf-8", errors="replace")
 
 # 嚴格攔截之偽精確度、醫學解剖學與 OCR 損壞詞黑名單
 FORBIDDEN_PSEUDO_TERMS = [
