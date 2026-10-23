@@ -238,7 +238,10 @@ python scripts/adapt/compare_adaptation.py --source adapt/source.json --script s
   2. **② 傳導路徑**：力量如何經身體傳遞、肌肉/鱗片變形與重心轉移（肩胛後縮、腰部擰轉、鱗片緊繃反光）；
   3. **③ 受擊反應與環境反饋**：受力後退距離、結構折疊挫傷、立刻反擊或掙扎，以及環境特效（碎石揚塵、環形氣浪、風切位移空氣、撞擊火花）。
 
-### 4.4 分鏡工具鏈操作與九宮格審核斷點（P0 強制斷點）
+### 4.4 分鏡工具鏈操作與分鏡總覽圖審核斷點（P0 強制斷點）
+
+> **構圖規格（2026-10 定案）**：階段 4 不再硬性要求 3×3 九宮格。做法是逐鏡一張 panel（`panels/panel-*.png`），再依段拼成總覽 `images/grid-<seg>.png`，格數跟段內鏡數（1→1×1、2→2×1、3→3×1、4→2×2、5–6→3×2、7–9→3×3）。影片分屏黑線偵測（verify_video_shot）照舊保留。
+
 
 ```bash
 # 1. 產生 Layer 2 骨架（預設 10s/3 鏡、動作力學三要素模板、INDEPENDENT_REF2VA 四大連戲錨點）
@@ -252,7 +255,7 @@ python scripts/storyboard/handoff_to_skeleton.py handoff-ep01.json --out-dir lay
 python scripts/storyboard/validate_storyboard.py --file layer2/layer2-EP01-*.json --handoff handoff-ep01.json
 python scripts/storyboard/layer2_to_table.py layer2/layer2-EP01-*.json --check --md storyboard-ep01.md --timeline timeline-plan-ep01.csv
 
-# 3. 可選：若 Qwen 圖像工具已可用，生成黑白鉛筆九宮格構圖
+# 3. 可選：若 Qwen 圖像工具已可用，生成黑白鉛筆分鏡總覽圖構圖
 python scripts/storyboard/qwen_storyboard_grid.py --layer2 layer2/layer2-EP01-S01-a.json --generate-all --assemble-grid
 
 # 若 Qwen 不可用，可用手繪或其他已授權的圖像工具提供對應 shot 的 PNG，並在 Layer 2 設定 sketch_file
@@ -266,7 +269,7 @@ python scripts/build_stage_review.py --project-dir . --stage 4
 python scripts/build_stage_review.py --project-dir . --approve-stage 4
 ```
 
-> **stage 4 審核門**：要進入 H3 編譯，每鏡須有對應的有效九宮格／單格 PNG，並通過人工 review。圖可由 Qwen、手繪或其他工具製作，需遵循相同 shot 對應與 hash 審核。文字分鏡 draft 可以先交付，不必生成圖或影片。
+> **stage 4 審核門**：要進入 H3 編譯，每鏡須有對應的有效分鏡總覽圖／單格 PNG，並通過人工 review。圖可由 Qwen、手繪或其他工具製作，需遵循相同 shot 對應與 hash 審核。文字分鏡 draft 可以先交付，不必生成圖或影片。
 
 ---
 
@@ -370,7 +373,7 @@ H3 的聲音與畫面在同一次 forward 生成，輸出是**單一 32 kHz 立�
   使用外部生圖模型（Qwen-Image / GPT-Image）轉繪彩色首幀再送 H3 I2VA，若穿插在純 Ref2VA 片段中，由於生圖模型與 H3 底層風格渲染差異極大，成片畫風嚴重割裂、強烈跳戲！
   **嚴禁單看生成的首幀圖片精美就判定流程成功！必須與已生成的 H3 片段並排對照畫風！**
 - **定案歸位**：
-  - Qwen 黑白鉛筆九宮格：**「✅ 階段 4 視覺化構圖與佔位審核工具」**。
+  - Qwen 黑白鉛筆分鏡總覽圖：**「✅ 階段 4 視覺化構圖與佔位審核工具」**。
   - Qwen 轉繪全彩首幀（`--to-color-keyframe`）：**「⚠️ 選用實驗功能（需整部片全部統一用同一圖片模型生首幀並排驗證）」**。一般情況下，一律走主力定案獨立 Ref2VA。
 
 ### 6.1 送件前確定性自檢與顯存保護（`submit_h3_segments.py`）
@@ -378,7 +381,7 @@ H3 的聲音與畫面在同一次 forward 生成，輸出是**單一 32 kHz 立�
 FreeVideo 可用時，可透過 adapter 提交 MiniMax H3 工作。可用模型、服務與 GPU 資源會依設備和版本變動：
 
 ```bash
-# 1. 乾跑驗證（安全檢查九宮格門禁、17 條 audit 自檢、參考圖 SHA256 與顯存狀態）
+# 1. 乾跑驗證（安全檢查分鏡總覽圖門禁、17 條 audit 自檢、參考圖 SHA256 與顯存狀態）
 python scripts/storyboard/submit_h3_segments.py --segments segments-ep01.json --root-dir . --output-dir videos/ --dry-run
 
 # 2. 正式批次提交（自動上傳參考圖 SHA256 快取、掛載 LoRA、輪詢進度並下載成品）
@@ -419,7 +422,7 @@ python scripts/storyboard/verify_video_shot.py --video videos/EP01-S01-seg01.mp4
 四大自動攔截檢驗：
 1. **時長與規格**：精確以分段規劃總秒數為基準比對，誤差 $\le 0.5\text{s}$（徹底解決分段 vs 單鏡時長粒度錯位誤判）。
 2. **彩度防灰階滲透**：$C^* \ge 10.0$，防止鉛筆草圖滲漏成黑白片。
-3. **九宮格分屏線殘留**：抽樣影格 $1/3, 2/3$ 無暗黑格線分割。
+3. **分屏線殘留**：抽樣影格 $1/3, 2/3$ 無暗黑格線分割。
 4. **跨鏡色彩連貫性**：串聯 `color_qa.py`，相鄰鏡頭色盤 $dE_{76} \le 25.0$。
 
 ---

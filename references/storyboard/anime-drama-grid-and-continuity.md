@@ -1,4 +1,4 @@
-# AI 漫劇九宮格鎖臉、首尾幀接龍與跨片段連戲狀態機 (v2.0)
+# AI 漫劇分鏡總覽圖鎖臉、首尾幀接龍與跨片段連戲狀態機 (v2.0)
 
 本手冊融合全網成熟 AI 漫劇/動態漫實戰工程、GitHub 高星專案（`HKUDS/ViMax`、`HVision-NKU/StoryDiffusion`、`ToonCrafter`）與 Lyra 場記清算體系，補齊 `cinematic-director-storyboard` 在**長序列連戲、多宮格資產鎖定與防禦性藏拙調度**上的工業管線。
 
@@ -11,7 +11,7 @@
 ```mermaid
 flowchart LR
     subgraph StageA["Stage A：前置資產與構圖審核階段 (T2I)"]
-        S1["1. 角色/生物純底三視圖資產卡<br/>(純灰/純白背景，嚴禁帶場景背景)"] --> S2["2. Qwen 鉛筆草圖九宮格構圖審核<br/>(確認焦距透視、走位與動勢箭頭)"]
+        S1["1. 角色/生物純底三視圖資產卡<br/>(純灰/純白背景，嚴禁帶場景背景)"] --> S2["2. Qwen 鉛筆草圖分鏡總覽圖構圖審核<br/>(確認焦距透視、走位與動勢箭頭)"]
         S2 --> S3["3. 單格零污染局部重繪與審核鎖定<br/>(patch_shot.py + --redraw-shot)"]
     end
 
@@ -28,7 +28,7 @@ flowchart LR
 > 3. **生物純色三視圖（Creature Sheet）**：純灰/純白底，嚴禁帶背景劇照；演員表按主角重要性排序。
 > 4. **同框人數與臉部錨定**（參考圖機制為實測；「單畫面 ≤ 2 人」為方法主張，未在 H3 驗證）：每段預設只掛 1 張角色圖，未掛圖的第二位角色若以正臉中近景入鏡，只靠文字描述，易變通用臉或被平均成主角。第二位角色同框時用過肩肩背、側臉、背影或景深外失焦；第三人以上改成分鏡切換（拆單人反應鏡）或不露臉。遠景／全景保留給空間交代，但人物只拍背影、側背或剪影。`validate_storyboard.py` 對 >2 人同框只發警告。
 
-### 1. Stage A：九宮格構圖審核與資產鎖定法
+### 1. Stage A：分鏡總覽圖構圖審核與資產鎖定法
 - **適用場景**：分鏡走位視覺化、焦距透視驗收、防止直接生影片盲抽翻車。
 - **角色與生物特異性視覺錨點（Unique Visual Anchors）**：
   - 禁用泛化詞（如「英俊青年、漂亮女孩」）。
@@ -119,7 +119,7 @@ Artistic technique: Pure grayscale pencil cross-hatching, hatching line shading,
 
 ### 2. 9 大標準分鏡鏡位即抄即用 Prompt 模板庫
 
-本庫收錄 9 種最核心的電影級分鏡鏡位，Agent 為任何新場景建立九宮格分鏡表（`panel-01` 至 `panel-09`）時可直接套用並填入具體走位與角色名：
+本庫收錄 9 種最核心的電影級分鏡鏡位，Agent 為任何新場景建立分鏡總覽圖表（`panel-01` 至 `panel-09`）時可直接套用並填入具體走位與角色名：
 
 #### 鏡位 1：大遠景空間建立 (ELS 24mm Establishing Shot)
 > **適用**：場景開端、世界觀震撼交代、環境壓迫感。  
@@ -174,7 +174,7 @@ Artistic technique: Pure grayscale pencil cross-hatching, hatching line shading,
 
 ```mermaid
 flowchart TD
-    Step1["步驟 1：Layer 2 SSoT 分鏡規範<br/>(validate_storyboard.py 靜態驗證通過)"] --> Step2["步驟 2：Qwen 鉛筆草圖 3x3 九宮格構圖審核<br/>(qwen_storyboard_grid.py 鎖死構圖與箭頭)"]
+    Step1["步驟 1：Layer 2 SSoT 分鏡規範<br/>(validate_storyboard.py 靜態驗證通過)"] --> Step2["步驟 2：Qwen 鉛筆草圖 分鏡總覽圖構圖審核<br/>(qwen_storyboard_grid.py 鎖死構圖與箭頭)"]
     
     Step2 --> PathA["【✅ 主力定案】分段級獨立 Ref2VA<br/>(每段獨立 7~10s，各自帶場景+單角色純底圖)"]
     Step2 -.-> PathB["【⚠️ 選用實驗】Qwen 轉繪全彩關鍵幀首幀<br/>(需全片統一生圖模型，並排對照畫風)"]
@@ -182,12 +182,12 @@ flowchart TD
     PathA --> Step4A["步驟 4A：MiniMax H3 獨立 Ref2VA 生成<br/>(四大連戲錨點 + 收尾交接格)"]
     PathB -.-> Step4B["步驟 4B：MiniMax H3 I2VA 生成<br/>(注入單鏡禁分屏鎖)"]
     
-    Step4A & Step4B --> Step5["步驟 5：verify_video_shot.py 自動審查門禁<br/>(檢驗時長、彩度、九宮格殘留與相鄰色盤連貫性)"]
+    Step4A & Step4B --> Step5["步驟 5：verify_video_shot.py 自動審查門禁<br/>(檢驗時長、彩度、分鏡總覽圖殘留與相鄰色盤連貫性)"]
 ```
 
 1. **步驟 1：Layer 2 SSoT 規格鎖定**：
    - 導演編寫並通過 `scripts/storyboard/validate_storyboard.py` 檢查，確認時長守恆、台詞預算（$\le 4$ 字/秒）、無醫學解剖黑名單、無遮擋衝突。
-2. **步驟 2：Qwen 鉛筆草圖逐格生成與九宮格審核（✅ 已驗證構圖工具）**：
+2. **步驟 2：Qwen 鉛筆草圖逐格生成與分鏡總覽圖審核（✅ 已驗證構圖工具）**：
    - 使用 `scripts/storyboard/qwen_storyboard_grid.py` 逐格生成 `panel-0{1..9}-{shot_id}.png`，拼合成 `grid-{segment_id}.png`。
    - 導演/人工審查員（HITL）簽核走位、焦距透視滅點與動態粗黑箭頭；未通過者使用 `patch_shot.py` 搭配 `--redraw-shot` 單格局部重抽。
 3. **步驟 3A：【✅ 主力定案】獨立 Ref2VA 提示詞編譯與程式對帳**：
@@ -200,7 +200,7 @@ flowchart TD
    - Ref2VA：注入六段式結構，嚴格鎖定四大連戲錨點與收尾交接格；
    - I2VA：以全彩關鍵幀為 `first_frame`，提示詞強制加入禁分屏鎖：`single continuous shot, no split screen, no multi-panel grid, no watermark, no text overlay`。
 6. **步驟 5：影片自動審查門禁 (`verify_video_shot.py`)**：
-   - 自動檢驗影片時長（誤差 $\le 0.5\text{s}$）、平均彩度（$C^* \ge 10.0$）、九宮格邊界殘留（$1/3, 2/3$ 無暗黑格線）、相鄰鏡頭色盤連貫性（$dE_{76} \le 25.0$）。
+   - 自動檢驗影片時長（誤差 $\le 0.5\text{s}$）、平均彩度（$C^* \ge 10.0$）、分鏡總覽圖邊界殘留（$1/3, 2/3$ 無暗黑格線）、相鄰鏡頭色盤連貫性（$dE_{76} \le 25.0$）。
    - 檢驗通過自動寫入 `shots[].review` 並鎖定；未通過自動退稿。
 
 > [!WARNING]
@@ -212,10 +212,10 @@ flowchart TD
 > 2. 除非全片統一用同一個生圖模型產出所有鏡頭首幀，否則主力一律走**分段級獨立 `Ref2VA`**。
 
 > [!CAUTION]
-> #### ⛔ 工業管線絕對禁忌：嚴禁黑白鉛筆九宮格直餵 H3！
-> 絕對禁止將「黑白鉛筆草圖」或「3x3 九宮格拼版圖」直接作為參考圖或首幀餵入 MiniMax H3（`I2VA` / `Ref2VA`）！
+> #### ⛔ 工業管線絕對禁忌：嚴禁黑白鉛筆分鏡總覽圖直餵 H3！
+> 絕對禁止將「黑白鉛筆草圖」或「分鏡總覽圖拼版圖」直接作為參考圖或首幀餵入 MiniMax H3（`I2VA` / `Ref2VA`）！
 > 1. **黑白污染慘劇**：直接餵黑白草圖會導致 H3 生成全片灰階褪色，平均彩度 $C^* < 10.0$，喪失全部色彩動態。
-> 2. **分屏魔幻動畫**：直接餵九宮格會導致 H3 將九宮格當作分屏畫布，在畫面中留下明顯的 $1/3, 2/3$ 黑線隔線，並在各小格子內獨立跳動。
+> 2. **分屏魔幻動畫**：直接餵分鏡總覽圖會導致 H3 將分鏡總覽圖當作分屏畫布，在畫面中留下明顯的 $1/3, 2/3$ 黑線隔線，並在各小格子內獨立跳動。
 > 
 > 此兩種違規行為均已被 `verify_video_shot.py` 納入確定性攔截規則（`STYLE_BLEED_GRAYSCALE` 與 `GRID_PANEL_BORDER_DETECTED`），一旦檢出將立即自動觸發退稿！
 

@@ -2408,7 +2408,7 @@ def render_markdown_package(
 def verify_stage4_gate(project_root: pathlib.Path, skip_gate: bool = False, layer2_files: Optional[List[pathlib.Path]] = None) -> bool:
     """要求有效 stage-4 人工核准，且核准快照涵蓋目前分鏡與對應草圖。"""
     if skip_gate:
-        print("⚠️ [警告] 已顯式指定 --skip-stage-gate，跳過階段 4 九宮格門禁檢查。")
+        print("⚠️ [警告] 已顯式指定 --skip-stage-gate，跳過階段 4 分鏡總覽圖門禁檢查。")
         return True
     try:
         matched, errors = stage4_artifacts(project_root)
@@ -2431,7 +2431,7 @@ def verify_stage4_gate(project_root: pathlib.Path, skip_gate: bool = False, laye
 
     if errors or not matched or not ok or unapproved_input:
         print("\n" + "=" * 78, file=sys.stderr)
-        print("❌ [Fatal Gate Error - 階段 4 九宮格分鏡門禁阻斷]", file=sys.stderr)
+        print("❌ [Fatal Gate Error - 階段 4 分鏡總覽圖門禁阻斷]", file=sys.stderr)
         print("=" * 78, file=sys.stderr)
         print("stage-4 必須完成人工核准，且目前 Layer 2 與其有效對應構圖圖檔須和核准快照一致。", file=sys.stderr)
         print(f"狀態：{detail}", file=sys.stderr)
@@ -2471,7 +2471,7 @@ def main() -> int:
         help="畫外音／旁白政策：external=不寫入 H3 <d>，改由外部 TTS 合成後於階段 7 混入（預設）；h3-native=沿用 H3 內建語音",
     )
     parser.add_argument("--project-root", type=pathlib.Path, default=pathlib.Path("."), help="專案根目錄（預設當前目錄）")
-    parser.add_argument("--skip-stage-gate", action="store_true", help="強制跳過階段 4 九宮格門禁檢查（僅限測試或除錯）")
+    parser.add_argument("--skip-stage-gate", action="store_true", help="強制跳過階段 4 分鏡總覽圖門禁檢查（僅限測試或除錯）")
 
     args = parser.parse_args()
 

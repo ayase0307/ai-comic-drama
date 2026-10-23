@@ -58,7 +58,7 @@ ENGINE_CONSISTENCY_GATE = """
    - 嚴格負向/排他詞：STRICTLY NO Pixar style, NO Disney cartoon style, NO Western cartoon proportions, NO exaggerated oversized eyes, NO freckles；
    - 嚴格禁止使用「wide bright eyes + wide grin」等會誘導歐美卡通大眼雀斑笑臉的詞彙組合。
 5. 生圖後必須以 view_file 進行親眼視覺驗收，禁止僅憑檔案大小與解析度交件！
-6. Qwen-Image 僅限用於階段 4 的黑白鉛筆分鏡草圖九宮格構圖審核。
+6. Qwen-Image 僅限用於階段 4 的黑白鉛筆分鏡草圖分鏡總覽圖構圖審核。
 ================================================================================
 """
 

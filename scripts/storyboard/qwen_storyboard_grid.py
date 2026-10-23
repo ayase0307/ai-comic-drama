@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Qwen-Image 2.1 Turbo 電影分鏡九宮格草圖生成、局部重繪與自動拼版工具
+Qwen-Image 2.1 Turbo 電影分鏡分鏡總覽圖草圖生成、局部重繪與自動拼版工具
 (Qwen Storyboard Grid Generator & Assembler v1.0)
 
 功能：
@@ -9,7 +9,7 @@ Qwen-Image 2.1 Turbo 電影分鏡九宮格草圖生成、局部重繪與自動�
 2. 分鏡轉黑白鉛筆手繪草圖 Prompt 編譯器（含透視線、動態黑箭頭與排線光影）。
 3. 嚴格 1:1 映射逐格生成（panel-{index:02d}-{shot_id}.png）與單格局部重繪（--redraw-shot）。
 4. 審核保護機制：審核通過（approved/locked）的格子自動跳過，防止重抽污染。
-5. 自動拼合 3x3 九宮格分鏡總覽圖（grid-{segment_id}.png），帶鏡頭規格資訊條與回寫 Layer 2 JSON。
+5. 自動拼合 分鏡總覽圖總覽圖（grid-{segment_id}.png），帶鏡頭規格資訊條與回寫 Layer 2 JSON。
 """
 
 from __future__ import annotations
@@ -1007,7 +1007,7 @@ def main():
     parser.add_argument("--layer2", type=str, default=None, help="單一 Layer 2 分鏡 JSON 檔案路徑")
     parser.add_argument("--layer2-dir", type=str, default=None, help="Layer 2 分段目錄 (批次處理整集多個 JSON)")
     parser.add_argument("--episode", type=str, default=None, help="指定集數過濾 (例如 EP01, EP02)")
-    parser.add_argument("--out-dir", type=str, default=None, help="輸出圖片與九宮格目錄 (預設為 layer2 所在目錄)")
+    parser.add_argument("--out-dir", type=str, default=None, help="輸出圖片與分鏡總覽圖目錄 (預設為 layer2 所在目錄)")
     parser.add_argument("--generate-all", action="store_true", help="逐格生成全部草圖 (自動跳過已鎖定/審核通過之單格)")
     parser.add_argument("--redraw-shot", type=str, default=None, help="指定單一 shot_id 進行局部重繪 (其餘格子完全不變)")
     parser.add_argument("--no-arrows", action="store_true", help="生成純淨無黑箭頭的鉛筆構圖底稿")
@@ -1016,8 +1016,8 @@ def main():
     parser.add_argument("--assemble-grid", action="store_true", help="執行拼版總覽圖")
     parser.add_argument("--assemble-only", action="store_true", help="純拼版模式 (不呼叫生圖 API，適合離線排版驗收)")
     parser.add_argument("--grid-mode", type=str, default="auto", choices=["auto", "compact", "3x3", "episode-pages", "segment-rep"],
-                        help="拼版模式: compact(自適應無空格), 3x3(固定九宮格), episode-pages(整集分頁九宮格), segment-rep(各段代表鏡總覽)")
-    parser.add_argument("--grid-name", type=str, default=None, help="指定產出九宮格的檔案名稱")
+                        help="拼版模式: compact(自適應無空格), 3x3(固定分鏡總覽圖), episode-pages(整集分頁分鏡總覽圖), segment-rep(各段代表鏡總覽)")
+    parser.add_argument("--grid-name", type=str, default=None, help="指定產出分鏡總覽圖的檔案名稱")
     parser.add_argument("--check-vram", action="store_true", help="執行 GPU 顯存 4.20 GiB 檢測與診斷")
     parser.add_argument("--dry-run", action="store_true", help="只編譯提示詞並驗證連線，不實際調用生圖 API")
 

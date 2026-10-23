@@ -378,7 +378,7 @@ def stage6_issues(root: Path) -> tuple[list[str], list[str]]:
 
     硬錯誤：檔案缺失、hash 不符、未生成、無法解碼、時長漂移、來源不一致、
     verdicts 判定需重跑——這些不能人工覆寫。
-    技術 QA 問題：只有彩度、九宮格、音軌這類量化指標未過（例如教室低彩度誤判）
+    技術 QA 問題：只有彩度、分鏡總覽圖、音軌這類量化指標未過（例如教室低彩度誤判）
     導致的 PARTIAL——使用者可用 `--approve-stage 6 --override --reason` 帶理由放行。
     """
     report = root / "videos" / "qa-report.json"

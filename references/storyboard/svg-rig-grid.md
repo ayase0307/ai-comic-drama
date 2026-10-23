@@ -1,6 +1,6 @@
-# 免生圖 SVG 構圖九宮格（階段 4 構圖來源）
+# 免生圖 SVG 構圖分鏡總覽圖（階段 4 構圖來源）
 
-`scripts/storyboard/svg_storyboard_grid.py` 讀 Layer 2，用 2.5D 針孔相機＋3D 骨架人偶算出每鏡構圖，輸出逐鏡 PNG 與每段九宮格，**不呼叫任何生圖 API**。它和 Qwen 九宮格、手繪一樣只是階段 4 的構圖來源：圖會回寫到 Layer 2，走同一個 stage-4 審核頁與 hash 門禁。
+`scripts/storyboard/svg_storyboard_grid.py` 讀 Layer 2，用 2.5D 針孔相機＋3D 骨架人偶算出每鏡構圖，輸出逐鏡 PNG 與每段分鏡總覽圖，**不呼叫任何生圖 API**。它和 Qwen 分鏡總覽圖、手繪一樣只是階段 4 的構圖來源：圖會回寫到 Layer 2，走同一個 stage-4 審核頁與 hash 門禁。
 
 構圖圖只拿來審走位、景別、180 度線，**不送 H3**（不放進 `reference_images`）。
 
@@ -10,14 +10,14 @@
 |---|---|
 | 想省圖片額度、先審走位 | ✅ 先跑 SVG 構圖，過了再決定要不要用 Qwen 精修個別鏡頭 |
 | 動作、站位、過肩、正反打多 | ✅ 幾何算出來的左右與 180 度線最穩 |
-| 要看光影、表情、服裝細節 | ❌ 用 Qwen 九宮格或手繪 |
+| 要看光影、表情、服裝細節 | ❌ 用 Qwen 分鏡總覽圖或手繪 |
 | 3 人以上＋巨獸、特效大場面 | ⚠️ 能出站位，但人偶與道具很簡化 |
 
 ## 安裝（選用依賴）
 
 ```bash
 pip install numpy resvg-py Pillow
-python scripts/check_environment.py   # 「免生圖 SVG 構圖九宮格（選用）」顯示 ready 即可
+python scripts/check_environment.py   # 「免生圖 SVG 構圖分鏡總覽圖（選用）」顯示 ready 即可
 ```
 
 中文標籤字型會自動找 Windows 的微軟正黑／雅黑、Linux 的 Noto Sans CJK、macOS 的蘋方；都沒有時用環境變數 `SVG_GRID_FONT=<字型檔>` 指定。
@@ -38,7 +38,7 @@ python scripts/storyboard/svg_storyboard_grid.py --root <專案> --episode EP04 
 | 產出 | 位置 | Layer 2 欄位 |
 |---|---|---|
 | 逐鏡構圖 | `panels/panel-NN-<shot_id>.png` | `sketch_file`、`sketch_sha256`、`sketch_status: generated` |
-| 每段九宮格 | `images/grid-<segment_id>.png` | `sketch_generation.grid_file`、`grid_preview_file`、`storyboard_panels` |
+| 每段分鏡總覽圖 | `images/grid-<segment_id>.png` | `sketch_generation.grid_file`、`grid_preview_file`、`storyboard_panels` |
 | 來源標記 | — | `sketch_generation.backend: svg-rig`、`api_calls: 0` |
 
 `sketch_status` 為 `locked`／`approved`／`manual` 的鏡頭不會被覆蓋（例如手繪替換過的格子），要重畫加 `--force`。重畫後 hash 改變，stage-4 核准會自動失效、需重審。

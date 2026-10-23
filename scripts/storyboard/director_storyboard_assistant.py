@@ -7,8 +7,8 @@ AI 電影與漫劇導演分鏡、鏡頭光學與多模型原生編譯輔助工�
 2. 視角與遮擋三路動態路由 (Dirty Frame 20-35% 偷窺 | 武戲 90° 垂直無遮擋 | 對白 OTS 反應藏拙)
 3. 畫幅幾何自適應 (16:9 橫屏三分展開 vs 9:16 直式縱深交錯與 UI 安全區)
 4. 台詞 100% 保真與四維配音氣口順延計算
-5. Layer 1/2/3 三層分離與多模型原生編譯器 (Seedance 2.0 自然流 / MiniMax H3 三欄 <d> / Kling 首尾幀 / 漫劇九宮格鎖臉)
-   影片模型輸出一律只用色名＋物件（不含 HEX）；HEX 只保留在 Layer 1 導演卡與九宮格（圖像模型）。
+5. Layer 1/2/3 三層分離與多模型原生編譯器 (Seedance 2.0 自然流 / MiniMax H3 三欄 <d> / Kling 首尾幀 / 漫劇分鏡總覽圖鎖臉)
+   影片模型輸出一律只用色名＋物件（不含 HEX）；HEX 只保留在 Layer 1 導演卡與分鏡總覽圖（圖像模型）。
 """
 
 import argparse
@@ -168,7 +168,7 @@ BUILT_IN_PRESETS = {
         "sfx": "鞋底蹬地爆裂聲、破空拳風、震耳欲聾的沉重金屬撞擊巨響、刺耳的戰靴刮地摩擦聲"
     },
     "anime_grid_9panel": {
-        "title": "AI 漫劇 3x3 九宮格同空間鎖臉關鍵幀 (Stage A 資產生成)",
+        "title": "AI 漫劇 分鏡總覽圖同空間鎖臉關鍵幀 (Stage A 資產生成)",
         "focal": "35mm",
         "pov": "objective",
         "aspect": "16:9",
@@ -182,7 +182,7 @@ BUILT_IN_PRESETS = {
         "palette": "國風冷冽青金 (#080C14 墨黑夜幕 + #16302B 竹林地面暗青 + #64E8FF 劍氣青光 + #C92A2A 髮帶緋紅)",
         "speaker": "",
         "dialogue": "",
-        "voice_4d": "Stage A 靜態九宮格關鍵幀出圖（無音訊）",
+        "voice_4d": "Stage A 靜態分鏡總覽圖關鍵幀出圖（無音訊）",
         "sfx": "Stage B 轉影片時注入雨聲與劍鳴"
     }
 }
@@ -596,7 +596,7 @@ def compile_to_models(spec: dict, warn_video: bool = False, enable_camera_lora: 
         f"Single continuous shot, NO split screen, NO 4-panel grid, NO text."
     )
 
-    # 5. Stage A: 漫劇 3x3 九宮格同空間鎖臉關鍵幀 Prompt
+    # 5. Stage A: 漫劇 分鏡總覽圖同空間鎖臉關鍵幀 Prompt
     grid_9panel = (
         f"3x3 grid cinematic storyboard sheet, 9 sequential panels (reading left-to-right, top-to-bottom), "
         f"{spec['aspect']} panel ratio, thin black borders.\n"
@@ -635,7 +635,7 @@ def main():
     parser.add_argument("--expression", default="瞳孔微縮，下頜線條緊繃，眼眶微紅", help="可見五官微表演 (禁醫學解剖詞)")
     parser.add_argument("--micro-tail", default="衣角與耳畔碎髮隨呼吸氣息輕微晃動後下墜", help="動作結束尾韻微物理")
     parser.add_argument("--palette", default="冷鋼夜黑 (#0A0E17 深夜藍牆面 + #D4AF37 暖金檯燈光)",
-                        help="色卡：色名＋物件＋HEX（HEX 僅出現在 Layer 1 與九宮格）")
+                        help="色卡：色名＋物件＋HEX（HEX 僅出現在 Layer 1 與分鏡總覽圖）")
     parser.add_argument("--speaker", default="主角", help="說話角色名稱")
     parser.add_argument("--dialogue", default="", help="劇本台詞原文 (100%%保真)")
     parser.add_argument("--voice-4d", default="壓抑低沉氣音，關鍵詞前稍作停頓，句尾下沉", help="配音演出描述（語速、停頓、氣息，用文字寫）")

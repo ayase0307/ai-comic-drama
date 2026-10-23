@@ -12,7 +12,7 @@
 > **導演的核心真理（v2.0 鐵律）**：
 > 1. **分鏡不是流水帳，而是替觀眾決定「看什麼」與「什麼時候看」**：減去冗餘只留戲核（找重點）➔ 水杯/鏡面倒影延遲滿足（找節奏）➔ 動態視角路由（懸疑用 `Dirty Frame 20%~35% 前景遮擋`；武戲碰撞瞬間強制切 `90° 垂直軸線無遮擋`；高風險對白用 `過肩反應鏡頭 Reaction OTS 藏拙`）。
 > 2. **焦距的本質是「物理物距」**：AI 不懂抽象的「大片感」，但嚴格服從「鏡頭焦距 + 攝影機物理物距（`<0.5m` vs `>6m`）+ 光圈景深 + 五層 HEX 色卡錨點」。
-> 3. **兩階段資產鎖定與實測連戲閉環**：前置關鍵幀階段善用「九宮格/四宮格同 Latent Space 一次出圖鎖臉 + 角色二度重打光」；最終影片階段嚴禁分屏，採「首尾幀接龍（FL2VA）」與 **`Observed End State > Planned State`（實測尾幀覆蓋規劃尾幀）**。
+> 3. **兩階段資產鎖定與實測連戲閉環**：前置關鍵幀階段善用「分鏡總覽圖/四宮格同 Latent Space 一次出圖鎖臉 + 角色二度重打光」；最終影片階段嚴禁分屏，採「首尾幀接龍（FL2VA）」與 **`Observed End State > Planned State`（實測尾幀覆蓋規劃尾幀）**。
 > 4. **三層產物分離，拒絕語義污染**：人類審閱看結構化表格與六要素卡（Layer 1），系統校驗用 JSON SSoT（Layer 2），餵給影片模型則必須剔除所有審計標籤、醫學解剖詞（如眼輪匝肌）與毫米級偽精確數值（如 3mm），編譯為目標模型的高信噪比原生語法（Layer 3）。
 
 ---
@@ -23,7 +23,7 @@
 - **劇本拆分鏡 / 小說改編 AI 短劇或動態漫**：需要從劇本生成不漏情節、台詞 100% 保真、具備電影呼吸節奏與跨片段連戲的分鏡腳本。
 - **AI 視頻分鏡流水帳、平淡無奇或等長碎剪**：需要運用「分鏡三步法」重構戲劇張力與懸念。
 - **無焦點、空間扁平像 2D 貼紙**：寫了 `24mm` 或 `100mm` 卻無透視感，需補齊物理物距與前景層次。
-- **角色跨鏡頭變臉、換裝或口型融化崩壞**：需要啟動「九宮格鎖臉 + 首尾幀接龍 + 防禦性藏拙調度（Reaction Shot / 2.5D 微動態）」。
+- **角色跨鏡頭變臉、換裝或口型融化崩壞**：需要啟動「分鏡總覽圖鎖臉 + 首尾幀接龍 + 防禦性藏拙調度（Reaction Shot / 2.5D 微動態）」。
 - **高速戰鬥與動作碰撞穿模**：需要「武戲四步走（蓄力→出擊→接觸→反應 ≤5 階段）+ 90° 接觸點垂直無遮擋法則」。
 - **多模型提示詞編譯與三位一體聯動**：需輸出適配 **Seedance 2.0、MiniMax H3、Kling、Runway** 的原生 Prompt，並與 `four-dimensional-voice-acting` 及 `lighting-color-palette-card` 深度協同。
 
@@ -37,9 +37,9 @@ flowchart TB
     E1["引擎 1：劇本解構與三步法節奏規劃<br/>(找重點做減法 + 屏息延遲 + 台詞100%保真與500ms氣口順延)"] --> E2
     E2["引擎 2：ViMax 連戲狀態機與雙模式握手<br/>(連續順接 J/L-Cut vs 時空跳躍硬切 + 實體參照物錨定 + Observed>Planned)"] --> E3
     E3["引擎 3：動態視角路由與物距光學定焦<br/>(懸疑 Dirty Frame 20-35% | 武戲 90°無遮擋 | 對白 OTS藏拙 + 24mm/100mm物距)"] --> E4
-    E4["引擎 4：鐵三角聲畫色卡綁定 & 兩階段漫劇管線<br/>(五層HEX色卡 + 四維生理配音 + 前置九宮格鎖臉 ➔ 首尾幀接龍)"] --> QA
+    E4["引擎 4：鐵三角聲畫色卡綁定 & 兩階段漫劇管線<br/>(五層HEX色卡 + 四維生理配音 + 前置分鏡總覽圖鎖臉 ➔ 首尾幀接龍)"] --> QA
     QA["引擎 5：靜態驗證審查 (validate_storyboard.py)<br/>(時長加總 / 台詞核對 / 偽精確與解剖詞攔截 / 9:16安全區檢查)"] --> E6
-    E6["引擎 6：三層產物輸出與多模型原生編譯器<br/>(Layer 1 導演表 | Layer 2 JSON SSoT | Layer 3 Seedance/H3/Kling/九宮格)"]
+    E6["引擎 6：三層產物輸出與多模型原生編譯器<br/>(Layer 1 導演表 | Layer 2 JSON SSoT | Layer 3 Seedance/H3/Kling/分鏡總覽圖)"]
 ```
 
 ### 規則衝突 9 級優先級（Authority Order，由高至低）
@@ -93,7 +93,7 @@ flowchart TB
 2. **按需輸出三層產物**：
    - **Layer 1（人類導演審閱層）**：輸出 9 欄 Markdown 分鏡表或六要素光學卡片。
    - **Layer 2（結構化資料層 SSoT）**：輸出符合 [`templates/layer2-storyboard.schema.json`](./templates/layer2-storyboard.schema.json) 的 JSON 結構。
-   - **Layer 3（生成模型執行層）**：依目標模型與 adapter 實際支援編譯；本 repo 的 MiniMax H3 Ref2VA CLI 使用官方六段式與 `<d>` 對白。其他模型的運鏡、首尾幀或九宮格輸入須依其媒體契約確認。
+   - **Layer 3（生成模型執行層）**：依目標模型與 adapter 實際支援編譯；本 repo 的 MiniMax H3 Ref2VA CLI 使用官方六段式與 `<d>` 對白。其他模型的運鏡、首尾幀或分鏡總覽圖輸入須依其媒體契約確認。
 
 ---
 
@@ -102,7 +102,7 @@ flowchart TB
 本 repo 的提示詞與靜態檢查以 Python 標準庫為主；部分圖片 review 需要 Pillow，影片 QA／組裝需要 FFmpeg 與 ffprobe。多模型生成需另有相容且可用的後端：
 
 ```bash
-# 1. 查看所有內建電影與漫劇預設配置 (懸疑密室 / 廢土史詩 / 王家衛綠金 / 武戲90度破盾 / 漫劇九宮格鎖臉)
+# 1. 查看所有內建電影與漫劇預設配置 (懸疑密室 / 廢土史詩 / 王家衛綠金 / 武戲90度破盾 / 漫劇分鏡總覽圖鎖臉)
 python scripts/storyboard/director_storyboard_assistant.py --list-presets
 
 # 2. 一鍵生成「懸疑密室」分鏡範例；不同模型輸出格式依其 adapter 契約
@@ -111,7 +111,7 @@ python scripts/storyboard/director_storyboard_assistant.py --preset suspense_int
 # 3. 針對高速武戲生成「90度垂直無遮擋 + 24mm近距衝擊」之 Seedance 2.0 自然流 Prompt
 python scripts/storyboard/director_storyboard_assistant.py --preset combat_impact_90deg --target-model seedance-v8
 
-# 4. 生成 AI 漫劇「3x3 九宮格同空間鎖臉關鍵幀」生圖 Prompt
+# 4. 生成 AI 漫劇「分鏡總覽圖同空間鎖臉關鍵幀」生圖 Prompt
 python scripts/storyboard/director_storyboard_assistant.py --preset anime_grid_9panel --target-model grid-9panel
 
 # 5. 自訂台詞與 9:16 豎屏短劇模式，自動計算語速氣口並輸出 MiniMax H3 格式
@@ -127,7 +127,7 @@ python scripts/storyboard/validate_storyboard.py --demo
 
 ```mermaid
 graph TD
-    A["導演分鏡、物距光學與連戲主宰 v2.0<br/>(cinematic-director-storyboard)"] -->|決定視角路由/物距透視/九宮格首尾幀/跨段握手| B["視覺與時序調度層"]
+    A["導演分鏡、物距光學與連戲主宰 v2.0<br/>(cinematic-director-storyboard)"] -->|決定視角路由/物距透視/分鏡總覽圖首尾幀/跨段握手| B["視覺與時序調度層"]
     C["光影配色色卡 v3.0<br/>(lighting-color-palette-card)"] -->|決定五層HEX色階/暗部走向/角色二度重打光| B
     D["四維配音工程<br/>(four-dimensional-voice-acting)"] -->|決定語速與停頓/500ms氣口順延點/句尾語調| E["聲音與台詞定軌層"]
     B <-->|台詞前半/後半句動作定軌 / J-Cut & L-Cut 音畫同頻| E
@@ -139,7 +139,7 @@ graph TD
 
 - **導演分鏡三步法核心手冊**：[`director-three-step-method.md`](./director-three-step-method.md)
 - **焦距與物距物理光學手冊**：[`lens-optics-physics.md`](./lens-optics-physics.md)
-- **【v2.0 新增】漫劇九宮格鎖臉、首尾幀接龍與 ViMax 連戲狀態機**：[`anime-drama-grid-and-continuity.md`](./anime-drama-grid-and-continuity.md)
+- **【v2.0 新增】漫劇分鏡總覽圖鎖臉、首尾幀接龍與 ViMax 連戲狀態機**：[`anime-drama-grid-and-continuity.md`](./anime-drama-grid-and-continuity.md)
 - **【v2.0 新增】武戲 90° 防遮擋調度、去偽精確翻譯與多模型編譯器**：[`combat-physics-and-model-adapters.md`](./combat-physics-and-model-adapters.md)
 - **底層教學影片深度偵察報告**：[`source-analysis.md`](./source-analysis.md)
 - **三層產物與多模型提示詞標準模板庫 (v2.0)**：[`templates/director-storyboard-templates.md`](./templates/director-storyboard-templates.md)

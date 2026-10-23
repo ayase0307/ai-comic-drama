@@ -1,4 +1,4 @@
-"""Layer 2 → 免生圖 SVG 構圖九宮格（stage-4 構圖來源之一，與 Qwen 九宮格、手繪並列）。
+"""Layer 2 → 免生圖 SVG 構圖分鏡總覽圖（stage-4 構圖來源之一，與 Qwen 分鏡總覽圖、手繪並列）。
 
 做法：2.5D 針孔相機（焦距／36mm 片幅、依景別反推物距、OTS 貼前景肩後）＋3D 骨架人偶（站／跪／走、IK 手、
 可見性五官）＋程式搭景（房間、門窗、桌燈書碗等），SVG 以 resvg 轉 PNG。完全不呼叫生圖 API。
@@ -1056,7 +1056,7 @@ def main(argv=None):
     s = run_project(root, files, staging=staging, cast=args.cast, rules=args.rules, force=args.force,
                     write_back=not args.no_write_back, dry_run=args.dry_run)
     for w in WARN: print("⚠ 方向", w)
-    print(f"完成：渲染 {s['rendered']} 鏡、略過鎖定 {s['skipped']} 鏡、九宮格 {s['segments']} 段；API 呼叫 0 次")
+    print(f"完成：渲染 {s['rendered']} 鏡、略過鎖定 {s['skipped']} 鏡、分鏡總覽圖 {s['segments']} 段；API 呼叫 0 次")
     return 0
 
 
