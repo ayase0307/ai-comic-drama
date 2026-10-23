@@ -12,8 +12,10 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "storyboard"))
 from speech_utils import normalize_speech  # noqa: E402
+from audio_keywords import classify_note  # noqa: E402
 
 # 場景標題正規表達式：支援「1-1 舊公寓 夜/內（閃回）」或緊湊格式「1-1卧室日/内」
 SCENE_HEADER_RE = re.compile(
@@ -266,7 +268,7 @@ def parse_and_validate_script(script_text: str) -> Dict[str, Any]:
             speaker, note, text = dlg_match.groups()
             total_dialogues += 1
             note_str = note or ""
-            if any(k in note_str for k in ["畫外音", "画外音", "內心獨白", "内心独白", "VO", "V.O."]):
+            if classify_note(note_str) == "voiceover":
                 total_vo_dialogues += 1
             if len(note_str) > 12:
                 warnings.append(

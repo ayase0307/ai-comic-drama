@@ -11,6 +11,9 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _common import duration_seconds, keep_agent_section  # noqa: E402,F401
+
 LENS = "mckee"
 SIGNS = {"+", "-", "+/-", "0"}
 ON_THE_NOSE = re.compile(r"我(很|好|真的|非常|太)(生氣|生气|難過|难过|開心|开心|傷心|伤心|害怕|緊張|紧张|失望|愛你|爱你)|我的意思是|我想告訴你|我想告诉你")
@@ -42,7 +45,7 @@ def review(handoff: Dict[str, Any], episode: str) -> Tuple[List[Finding], List[s
             if vo == vc:
                 out.append(("⚠️", "Nonevent", f"{sid}：價值「{val}」從 {vo} 到 {vc} 沒有變化，建議刪掉、合併，或補一個轉折"))
             closes.append(vc)
-        dur = float(sc.get("estimated_duration_seconds") or 0)
+        dur = duration_seconds(sc.get("estimated_duration_seconds"))
         if dur > SHORT_DRAMA_SCENE_MAX_S:
             out.append(("ℹ️", "場長", f"{sid}：{dur:.0f}s，超過短劇建議的 {SHORT_DRAMA_SCENE_MAX_S}s【推論】，請確認裡面有不止一個轉折"))
         for d in sc.get("dialogue", []):
@@ -58,7 +61,7 @@ def review(handoff: Dict[str, Any], episode: str) -> Tuple[List[Finding], List[s
         worst, prev = max(worst, streak), c
     if closes:
         out.append(("✅" if worst < 3 else "⚠️", "正負交替", f"收場正負號最多連續 {worst} 場相同（McKee：重複是節奏的敵人）"))
-    debts = [d for d in handoff.get("debt_ledger", []) if d.get("status") == "open" and not d.get("payoff_ep")]
+    debts = [d for d in handoff.get("debt_ledger", []) if d.get("status") == "open" and (not d.get("payoff_ep") or str(d.get("payoff_ep")).upper() in ("TBD", "UNSCHEDULED"))]
     if debts:
         out.append(("⚠️", "Setup/Payoff", f"{len(debts)} 個鋪梗還沒排定回收集數：{', '.join(d.get('debt_id', '?') for d in debts)}"))
     if not any(f[0] == "⚠️" for f in out):
@@ -84,7 +87,7 @@ def run(project_dir: Path, episode: str, handoff: Optional[Path] = None, out: Op
         findings, table = [("⚠️", "輸入", f"找不到 {hp.name}，略過")], []
     target = out or project_dir / "review" / "craft" / f"stage-3-{LENS}-script-review-{episode.lower()}.md"
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(render(episode, findings, table), encoding="utf-8")
+    target.write_text(keep_agent_section(render(episode, findings, table), target), encoding="utf-8")
     return target
 
 

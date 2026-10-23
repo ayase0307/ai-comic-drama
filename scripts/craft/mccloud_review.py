@@ -11,6 +11,9 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _common import duration_seconds, keep_agent_section  # noqa: E402,F401
+
 LENS = "mccloud"
 WIDE = ("全景", "遠景", "远景", "大全景", "establishing", "wide", "extreme long", "long shot")
 MONOTONE_RATIO = 0.6
@@ -103,7 +106,7 @@ def run(project_dir: Path, episode: str, layer2_dir: Optional[Path] = None, out:
     findings, rows = review(load_shots(project_dir, episode, layer2_dir))
     target = out or project_dir / "review" / "craft" / f"stage-4-{LENS}-{episode.lower()}.md"
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(render(episode, findings, rows), encoding="utf-8")
+    target.write_text(keep_agent_section(render(episode, findings, rows), target), encoding="utf-8")
     return target
 
 
