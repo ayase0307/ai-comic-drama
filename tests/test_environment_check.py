@@ -17,7 +17,7 @@ class EnvironmentCheckTests(unittest.TestCase):
              patch.object(check_environment, "_package_version", return_value={"available": False, "version": None}):
             report = check_environment.build_report()
         self.assertEqual([item["name"] for item in report["capabilities"]], [
-            "企劃與文本改編", "構圖與圖片檔檢查", "免生圖 SVG 構圖九宮格（選用）", "影片片段技術審查", "影片組裝與交付驗證",
+            "企劃與文本改編", "構圖與圖片檔檢查", "免生圖 SVG 構圖分鏡總覽圖（選用）", "影片片段技術審查", "影片組裝與交付驗證",
         ])
         self.assertNotIn("jsonschema", report["dependencies"])
         self.assertEqual(report["generation"]["status"], "not_checked")

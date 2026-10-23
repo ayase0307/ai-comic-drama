@@ -5,15 +5,15 @@ build_stage_review.py — 八階段強制斷點狀態機與高設計感 HTML 視
 
 核心職責：
 1. 強制執行「每完成一階段 → 產出高設計感 HTML 審核介面 → 停下等待使用者明確同意 → 才解鎖下一階段」的斷點紀律。
-2. 維護專案根目錄下的 `project-state.json`，防止 Agent 私自跳關（例如從階段 2 資產圖跳過階段 4 九宮格直接跑去階段 6 生影片）。
+2. 維護專案根目錄下的 `project-state.json`，防止 Agent 私自跳關（例如從階段 2 資產圖跳過階段 4 分鏡總覽圖直接跑去階段 6 生影片）。
 3. 針對階段 0～7 產出 Cinema Editorial Studio 級別之互動式 HTML 審核頁面 (`review/stage-{0..7}.html`)：
    - 階段 0 (`stage-0-intake.html`)：專案定調、體量反推試算與風格色票儀表板
    - 階段 1 (`stage-1-adaptation.html`)：《完整角色設定文件 v4.0》十一章節完整卡片 + 故事地圖與分集大綱
    - 階段 2 (`stage-2-assets.html`)：【核心重點】角色設定表格 × 產出設定圖片 左右並排（Side-by-Side）審核藝廊（含 Lightbox 全螢幕放大、缺圖紅燈攔截）
    - 階段 3 (`stage-3-script.html`)：漫劇劇本 × 原著對照 × H3 台詞預算進度條審核台
-   - 階段 4 (`stage-4-storyboard.html`)：【必經斷點】黑白分鏡九宮格/單格構圖 × 導演分鏡表（含動作力學三要素與綁定服裝圖縮圖）並排確認台
+   - 階段 4 (`stage-4-storyboard.html`)：【必經斷點】黑白分鏡分鏡總覽圖/單格構圖 × 導演分鏡表（含動作力學三要素與綁定服裝圖縮圖）並排確認台
    - 階段 5 (`stage-5-prompts.html`)：H3 六段式提示詞 × `<Picture 1..N>` 實際參考圖縮圖 × LoRA 對帳中心
-   - 階段 6 (`stage-6-videos.html`)：HTML5 影片播放器 × 九宮格草圖 × 角色設定圖 × QA 指標並排驗收室
+   - 階段 6 (`stage-6-videos.html`)：HTML5 影片播放器 × 分鏡總覽圖草圖 × 角色設定圖 × QA 指標並排驗收室
    - 階段 7 (`stage-7-final.html`)：最終成片劇院放映室與全階段簽核總覽
 
 用法：
@@ -79,9 +79,9 @@ STAGE_META: Dict[int, Dict[str, str]] = {
     1: {"slug": "adaptation", "name": "階段 1｜原著改編與完整角色設定 v4", "short": "1 改編與角色聖經", "file": "stage-1-adaptation.html"},
     2: {"slug": "assets", "name": "階段 2｜角色設定表 × 核心資產圖並排審核", "short": "2 資產設定圖", "file": "stage-2-assets.html"},
     3: {"slug": "script", "name": "階段 3｜分集漫劇劇本與台詞預算審計", "short": "3 漫劇劇本", "file": "stage-3-script.html"},
-    4: {"slug": "storyboard", "name": "階段 4｜導演分鏡表 × 九宮格草圖構圖確認", "short": "4 九宮格分鏡", "file": "stage-4-storyboard.html"},
+    4: {"slug": "storyboard", "name": "階段 4｜導演分鏡表 × 分鏡總覽圖草圖構圖確認", "short": "4 分鏡總覽圖", "file": "stage-4-storyboard.html"},
     5: {"slug": "prompts", "name": "階段 5｜H3 六段式提示詞與參考圖綁定對帳", "short": "5 提示詞包", "file": "stage-5-prompts.html"},
-    6: {"slug": "videos", "name": "階段 6｜分段影片 × 九宮格 × 設定圖並排驗收", "short": "6 影片生成驗收", "file": "stage-6-videos.html"},
+    6: {"slug": "videos", "name": "階段 6｜分段影片 × 分鏡總覽圖 × 設定圖並排驗收", "short": "6 影片生成驗收", "file": "stage-6-videos.html"},
     7: {"slug": "final", "name": "階段 7｜配音字幕組裝成片交付放映室", "short": "7 最終成片", "file": "stage-7-final.html"},
 }
 
@@ -1802,7 +1802,7 @@ def build_stage_3(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
 
 
 def build_stage_4(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[str], str]:
-    """階段 4：【必經斷點】強制檢查九宮格分鏡草圖 (`images/grid-*.png`) 並與導演分鏡表左右並排！"""
+    """階段 4：【必經斷點】強制檢查分鏡總覽圖草圖 (`images/grid-*.png`) 並與導演分鏡表左右並排！"""
     errors: List[str] = []
     l2_files = sorted((project_dir / "layer2").glob("layer2-*.json")) if (project_dir / "layer2").exists() else []
     if not l2_files:
@@ -1827,7 +1827,7 @@ def build_stage_4(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
     cross_slop_errors = check_cross_segment_slop([d for _, d in all_l2_data])
     errors.extend(cross_slop_errors)
 
-    # 渲染九宮格總覽區
+    # 渲染分鏡總覽圖區
     grid_gallery_html = ""
     if grid_files:
         g_boxes = []
@@ -1839,7 +1839,7 @@ def build_stage_4(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
                 f'<div class="asset-img-box">'
                 f'  <img src="{src_rel}" alt="{html.escape(gf.name)}">'
                 f'  <div class="asset-meta-bar">'
-                f'    <span class="tag-badge gold">九宮格構圖總覽</span>'
+                f'    <span class="tag-badge gold">分鏡總覽圖構圖總覽</span>'
                     f'    <code>{html.escape(gf.relative_to(project_dir).as_posix())}</code>'
                 f'    <span class="tag-badge emerald">{dim_str}</span>'
                 f'  </div>'
@@ -1847,12 +1847,12 @@ def build_stage_4(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
             )
         grid_gallery_html = (
             '<section class="section-panel">'
-            '<h2 class="md-h2">🎨 階段 4 必經確認：黑白鉛筆分鏡九宮格構圖總覽 (點擊放大檢視走位與滅點)</h2>'
+            '<h2 class="md-h2">🎨 階段 4 必經確認：黑白鉛筆分鏡分鏡總覽圖構圖總覽 (點擊放大檢視走位與滅點)</h2>'
             f'<div class="grid-gallery">{"".join(g_boxes)}</div>'
             '</section>'
         )
 
-    # 逐段並排卡片：左側分鏡表（含動作力學三要素），右側對應單格草圖或九宮格
+    # 逐段並排卡片：左側分鏡表（含動作力學三要素），右側對應單格草圖或分鏡總覽圖
     seg_cards: List[str] = []
     for p, d in all_l2_data:
         seg_id = d.get("segment_id") or p.stem.replace("layer2-", "")
@@ -1896,7 +1896,7 @@ def build_stage_4(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
                     )
                     break
 
-        # 尋找該段對應的九宮格圖
+        # 尋找該段對應的分鏡總覽圖圖
         seg_grid_html = ""
         explicit_grids: List[Path] = []
         valid_grid_paths = {path.resolve() for path in grid_files}
@@ -1933,7 +1933,7 @@ def build_stage_4(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
             grid_boxes.append(
                 f'<div class="asset-img-box">'
                 f'  <img src="{src_rel}" alt="{html.escape(gf.name)}">'
-                f'  <div class="asset-meta-bar"><span class="tag-badge gold">對應九宮格</span><code>{html.escape(grid_rel)}</code></div>'
+                f'  <div class="asset-meta-bar"><span class="tag-badge gold">對應分鏡總覽圖</span><code>{html.escape(grid_rel)}</code></div>'
                 f'</div>'
             )
         if grid_boxes:
@@ -1943,7 +1943,7 @@ def build_stage_4(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
         if panel_boxes:
             right_visual += f'<div class="thumb-strip">{"".join(panel_boxes)}</div>'
         if not right_visual:
-            right_visual = '<div class="missing-box">❌ 尚未產出本段九宮格或單格分鏡草圖！</div>'
+            right_visual = '<div class="missing-box">❌ 尚未產出本段分鏡總覽圖或單格分鏡草圖！</div>'
 
         seg_cards.append(
             f'<article class="sbs-card">'
@@ -1960,7 +1960,7 @@ def build_stage_4(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
 
     kpis = [
         ("分鏡段落數", f"{len(l2_files)} 段", "gold"),
-        ("九宮格拼版圖", f"{len(grid_files)} 張 (單格 {len(panel_files)} 張)", "emerald" if (grid_files or panel_files) else "rose"),
+        ("分鏡總覽圖拼版圖", f"{len(grid_files)} 張 (單格 {len(panel_files)} 張)", "emerald" if (grid_files or panel_files) else "rose"),
         ("防偷懶與物理門禁", "PASS (0 罐頭詞)" if not errors else f"FAIL ({len(errors)} 錯)", "emerald" if not errors else "rose"),
     ]
     by_ep: Dict[str, List[Tuple[str, float]]] = {}
@@ -1975,14 +1975,14 @@ def build_stage_4(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
     )
     body = budget + grid_gallery_html + f'<div class="side-by-side-list">{"".join(seg_cards)}</div>'
     checklist = [
-        "已檢視黑白鉛筆九宮格構圖（`images/grid-*.png`），確認每鏡人物站位、景別遠近與動作張力符合預期",
+        "已檢視黑白鉛筆分鏡總覽圖構圖（`images/grid-*.png`），確認每鏡人物站位、景別遠近與動作張力符合預期",
         "無任何單鏡同時塞入「主角＋路人＋道具＋巨獸」四方複雜碰撞（已拆分為慢動作感知特寫 ➔ 90度純粹打擊 ➔ 受擊翻滾）",
         "無任何未掛載參考圖之路人單獨佔據正面特寫／中景主鏡",
         "每鏡動作力學三要素（①施力點 ➔ ②傳導路徑 ➔ ③受擊反饋）具象無罐頭複製貼上",
     ]
     html_out = wrap_studio_html(
         project_dir, 4, state,
-        "必經斷點：將黑白分鏡九宮格/單格草圖與導演分鏡表（景別、焦距物距、動作力學三要素）並排確認，確認無誤後才可進入提示詞編譯與影片生成。",
+        "必經斷點：將黑白分鏡分鏡總覽圖/單格草圖與導演分鏡表（景別、焦距物距、動作力學三要素）並排確認，確認無誤後才可進入提示詞編譯與影片生成。",
         kpis, body, checklist
     )
     return len(errors) == 0, errors, html_out
@@ -2139,18 +2139,18 @@ def _segment_layer2(project_dir: Path, seg_id: str) -> Optional[Tuple[Path, Dict
 
 def _sketch_visuals(project_dir: Path, layer2_path: Path,
                     data: Dict[str, Any]) -> List[Tuple[str, Path]]:
-    """該段的九宮格與逐鏡構圖（沿用 stage4_artifacts 的候選規則，但容忍部分缺圖）。"""
+    """該段的分鏡總覽圖與逐鏡構圖（沿用 stage4_artifacts 的候選規則，但容忍部分缺圖）。"""
     seg_id = str(data.get("segment_id") or layer2_path.stem.replace("layer2-", ""))
     found: List[Tuple[str, Path]] = []
     for cand in (project_dir / "images" / f"grid-{seg_id}.png",
                  layer2_path.parent / f"grid-{seg_id}.png"):
         if cand.is_file():
-            found.append((f"九宮格總覽 {seg_id}", cand))
+            found.append((f"分鏡總覽圖 {seg_id}", cand))
             break
     for index, shot in enumerate(data.get("shots", []) or [], 1):
         shot_id = str(shot.get("shot_id") or f"SH{index:02d}")
         candidates: List[Path] = []
-        # 專案實務的兩種映射：shot.sketch_file（逐鏡）與 grid_file（整頁九宮格，
+        # 專案實務的兩種映射：shot.sketch_file（逐鏡）與 grid_file（整頁分鏡總覽圖，
         # 例如 layer2/grids-batch/grid-EP01-G03.png）。兩者都要能顯示。
         grid_ref = None
         generation = shot.get("sketch_generation") or shot.get("metadata") or {}
@@ -2160,7 +2160,7 @@ def _sketch_visuals(project_dir: Path, layer2_path: Path,
         if isinstance(grid_ref, str) and grid_ref.strip():
             for g in (project_dir / grid_ref, layer2_path.parent / grid_ref):
                 if g.is_file():
-                    found.append((f"九宮格 {Path(grid_ref).stem}", g))
+                    found.append((f"分鏡總覽圖 {Path(grid_ref).stem}", g))
                     break
         sketch = shot.get("sketch_file")
         if isinstance(sketch, str) and sketch.strip():
@@ -2214,9 +2214,9 @@ def _stage6_split(project_dir: Path) -> Tuple[List[str], List[str]]:
 
 
 def build_stage_6(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[str], str]:
-    """階段 6：分段影片 × 九宮格構圖 × 角色設定圖 × QA 指標，四項並排驗收。
+    """階段 6：分段影片 × 分鏡總覽圖構圖 × 角色設定圖 × QA 指標，四項並排驗收。
 
-    九宮格與設定圖是「視覺對照」，缺圖只顯示紅框並在 KPI 揭示覆蓋率，
+    分鏡總覽圖與設定圖是「視覺對照」，缺圖只顯示紅框並在 KPI 揭示覆蓋率，
     **不阻擋核准**——擋不擋由 QA 證據（stage6_issues）決定：
     硬錯誤擋住審核頁；只有技術 QA 量化指標未過時仍產出審核頁，
     核准時須 `--override --reason` 由使用者寫理由。
@@ -2317,7 +2317,7 @@ def build_stage_6(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
             grid_html = f'<div class="grid-gallery">{"".join(grid_boxes)}</div>'
         else:
             grid_html = (
-                '<div class="missing-box">❌ 這一段找不到九宮格或逐鏡構圖 PNG'
+                '<div class="missing-box">❌ 這一段找不到分鏡總覽圖或逐鏡構圖 PNG'
                 '（<code>images/grid-*.png</code> 或 <code>panels/panel-*.png</code>）<br>'
                 '請先完成階段 4 並核准，再回來對照。</div>'
             )
@@ -2337,10 +2337,10 @@ def build_stage_6(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
             f'  <div class="sbs-body">'
             f'    <div class="sbs-spec">'
             f'      <video controls preload="metadata" src="{v_rel}"></video>'
-            f'      <p class="md-p">① 先看動作與表演：穿模／染色／布偶化；② 再對右上九宮格看走位與景別；③ 最後對右下設定圖看臉與服裝。</p>'
+            f'      <p class="md-p">① 先看動作與表演：穿模／染色／布偶化；② 再對右上分鏡總覽圖看走位與景別；③ 最後對右下設定圖看臉與服裝。</p>'
             f'    </div>'
             f'    <div class="sbs-visual">'
-            f'      <h4 class="md-h4">九宮格／逐鏡構圖（階段 4）</h4>'
+            f'      <h4 class="md-h4">分鏡總覽圖／逐鏡構圖（階段 4）</h4>'
             f'      {grid_html}'
             f'      <h4 class="md-h4">角色設定圖（階段 2）</h4>'
             f'      {design_html}'
@@ -2353,14 +2353,14 @@ def build_stage_6(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
 
     kpis = [
         ("已生成影片片段", f"{len(videos)} 支", "gold"),
-        ("九宮格覆蓋", f"{grid_covered}/{len(videos)} 段", "emerald" if grid_covered == len(videos) else "rose"),
+        ("分鏡總覽圖覆蓋", f"{grid_covered}/{len(videos)} 段", "emerald" if grid_covered == len(videos) else "rose"),
         ("設定圖覆蓋", f"{design_covered}/{max(1, len(videos))} 段", "emerald" if design_covered == len(videos) else "rose"),
         ("QA 報告狀態", "已產出" if qa_path.exists() else "待執行", "emerald" if qa_path.exists() else "cyan"),
     ]
     body = f'<div class="side-by-side-list">{"".join(cards)}</div>'
     checklist = [
         "已逐支播放影片，確認無道具懸空吸附穿模、無角色衣服染色、無怪獸布偶化",
-        "影片走位／景別與同卡九宮格一致；若不一致，標記為重拍，不要只看 QA 綠燈",
+        "影片走位／景別與同卡分鏡總覽圖一致；若不一致，標記為重拍，不要只看 QA 綠燈",
         "人物臉部五官與同卡設定圖一致（同一個人、同一套服裝狀態）",
         "技術 QA 通過不代表表演、光影與台詞已通過人工審核",
     ]
@@ -2467,7 +2467,7 @@ def run_self_test() -> bool:
         st = load_project_state(pdir)
         print("  ✅ Stage 0 HTML 生成與簽核鎖測試通過！")
 
-        # 3. 測試 Stage 4 無九宮格草圖時必被攔截
+        # 3. 測試 Stage 4 無分鏡總覽圖草圖時必被攔截
         (pdir / "layer2" / "layer2-EP01-S01.json").write_text(
             json.dumps({
                 "project_id": "test",
@@ -2504,11 +2504,11 @@ def run_self_test() -> bool:
         )
         passed4, errs4, _ = build_stage_4(pdir, st)
         has_grid_err = any("缺少有效且對應" in e for e in errs4)
-        print(f"[Test 2] Stage 4 缺少九宮格圖 (`images/grid-*.png`) 硬性阻斷測試: blocked={has_grid_err} (預期: True)")
+        print(f"[Test 2] Stage 4 缺少分鏡總覽圖圖 (`images/grid-*.png`) 硬性阻斷測試: blocked={has_grid_err} (預期: True)")
         if not has_grid_err:
-            print("  ❌ 未攔截缺少九宮格:", errs4)
+            print("  ❌ 未攔截缺少分鏡總覽圖:", errs4)
             return False
-        print("  ✅ 成功攔截跳過九宮格行為！")
+        print("  ✅ 成功攔截跳過分鏡總覽圖行為！")
 
     print("\n🎉 build_stage_review.py 自檢 100% 通過！")
     return True

@@ -202,7 +202,7 @@ def review_summary_lines(data: dict) -> list[str]:
     if "review" in data and data["review"]:
         parts.append(f"審核狀態：{format_review_badge(data['review'])}")
     if data.get("grid_preview_file"):
-        parts.append(f"九宮格預覽：![九宮格預覽]({data['grid_preview_file']})")
+        parts.append(f"分鏡總覽圖預覽：![分鏡總覽圖預覽]({data['grid_preview_file']})")
     if parts:
         return [f"> {' | '.join(parts)}", ""]
     return []

@@ -86,7 +86,7 @@ python scripts/h3d.py deps --root . --status --strict
 
 > ack 的定位是「人看過並接受」，不是「讓 gate 閉嘴」。沒有 ack 就送不出去，這是刻意的。
 
-### (e) 階段 6 的「影片 × 九宮格 × 設定圖 × QA」頁
+### (e) 階段 6 的「影片 × 分鏡總覽圖 × 設定圖 × QA」頁
 
 `review/stage-6-videos.html` 每張卡左邊是影片，右邊由上而下是階段 4 構圖（`grid-*` 或逐鏡 `panel-*`）、階段 2 角色設定圖（`adapt/bible.json` 或 `assets/reference-manifest.json` 對映）、以及 `qa-report.json` 的量化欄位。缺圖只顯示紅框，**不阻擋核准**。
 
@@ -171,7 +171,7 @@ python scripts/h3d.py compile --layer2 layer2/ --bible video-bible.json --bindin
 - `decisions.json`（專案根目錄，格式 `references/schemas/decisions.schema.json`）：每條定案含 `id`、一句話 `rule`、`value`、`source`（使用者原話＋日期）、適用 `stages`。重新定案時舊值進 `history`。
   `h3d next` 會在需要的階段前要求定案存在（畫風／比例／設定圖引擎→階段 2、台詞政策→3、驗收政策→6、剪輯方式→7）。
 - `acceptance_policy` 的值是 `{rerun_on: [...], accept: [...]}`，只能用固定問題代碼：
-  `extra_person` 多出人、`burned_subtitle` 燒字幕、`face_mix` 混臉／同框露臉、`wardrobe_wrong` 服裝錯、`style_shift` 畫風突變、`composition_broken` 構圖嚴重問題、`grid_leak` 九宮格殘留、`paper_text` 紙面出字、`aged_face` 人物稍老、`low_chroma` 低彩度、`color_jump` 色調跳躍、`no_audio` 缺音軌、`other`。
+  `extra_person` 多出人、`burned_subtitle` 燒字幕、`face_mix` 混臉／同框露臉、`wardrobe_wrong` 服裝錯、`style_shift` 畫風突變、`composition_broken` 構圖嚴重問題、`grid_leak` 分鏡總覽圖殘留、`paper_text` 紙面出字、`aged_face` 人物稍老、`low_chroma` 低彩度、`color_jump` 色調跳躍、`no_audio` 缺音軌、`other`。
   `h3d decide acceptance_policy recommended --quote "照建議"` 會寫入建議值（前七項重跑；紙面出字、人物稍老、低彩度、色調跳躍可接受）。
 - `review/verdicts.json`（格式 `references/schemas/verdicts.schema.json`）：segment_id → `verdict`（pass／warn／fail）、`reason`、`evidence`（證據圖）、`decided_by`（agent／user／policy）、`issues`。結論綁影片 hash，影片重生後自動過期。
   分類規則：技術硬錯誤（時長漂移、比例錯）一律 fail；`decided_by=user` 最大；其餘套政策（碰到 `rerun_on` → fail，fail 但問題全在 `accept` → warn）；沒有結論＝未驗收（技術綠燈也一樣）。
@@ -275,7 +275,7 @@ python scripts/sync_h3_reference.py --sync --write-manifest   # 同步並更新�
 | `失敗目錄: [F-...]` | 命中已知失敗模式且該條 `enforce=error` | 依 `minimal_fix` 改稿 |
 | `需明確確認：... --ack-warnings` | 命中警告，尚未 ack | 改稿，或改用 `h3d ack` |
 | `已有 waiting 的 job` | 服務端還有活著的工作 | 先 `collect`，不要重送（會重複計費） |
-| `QA 證據等級為 PARTIAL` | 缺段或未達 VERIFIED | 缺段：補跑後重驗。全段都有、只是彩度／九宮格等量化指標未過：先 `h3d verdict` 逐段目視，使用者看過仍要核准時用 `--approve-stage 6 --override --reason "<使用者理由>"`（理由寫進 project-state） |
+| `QA 證據等級為 PARTIAL` | 缺段或未達 VERIFIED | 缺段：補跑後重驗。全段都有、只是彩度／分鏡總覽圖等量化指標未過：先 `h3d verdict` 逐段目視，使用者看過仍要核准時用 `--approve-stage 6 --override --reason "<使用者理由>"`（理由寫進 project-state） |
 | `QA 含非預期分段` | QA 報告只對一集的 segments 檔，卻含其他集的結果 | 多集一次跑：`h3d qa --segments segments-ep01.json segments-ep02.json ... --videos-dir videos --out-json videos/qa-report.json` |
 | `驗收結論需重跑` | `review/verdicts.json` 依 `acceptance_policy` 判為 fail | 改提示詞後只重跑這些段；不能用 `--override` 放行 |
 | `project-state.json 在最後一次正式寫入後被手改過` | 有人手改狀態檔 | 停下回報；從備份還原或重建審核頁請使用者重核。**不准手改 project-state** |

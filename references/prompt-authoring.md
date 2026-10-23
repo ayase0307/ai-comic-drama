@@ -58,7 +58,7 @@
 
 每一鏡依序做：
 
-1. **讀這一鏡的資料**：Layer 2 shot（景別、焦距物距、運鏡、`action_stages`、`observable_expression`、對白與 `speech_events`）、這一鏡的構圖圖（`sketch_file`／九宮格那一格）、劇本裡對應的 beat、上一鏡結束時的狀態。
+1. **讀這一鏡的資料**：Layer 2 shot（景別、焦距物距、運鏡、`action_stages`、`observable_expression`、對白與 `speech_events`）、這一鏡的構圖圖（`sketch_file`／分鏡總覽圖那一格）、劇本裡對應的 beat、上一鏡結束時的狀態。
 2. **先想清楚四件事**（不用寫出來）：
    - 這一鏡**和上一鏡比，什麼變了**？（位置、視線、光、情緒）只寫變化，不重述不變的外觀。
    - 主動作的**施力點、方向、重心轉移、結束姿勢**是什麼？

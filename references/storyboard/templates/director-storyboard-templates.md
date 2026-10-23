@@ -1,6 +1,6 @@
 # 導演分鏡、鏡頭光學與多模型編譯：三層工程模板庫 (Templates v2.0)
 
-本模板庫採用 **「三層產物分離架構（Layer 1 人類導演表 ➔ Layer 2 JSON SSoT ➔ Layer 3 多模型原生 Prompt）」**，將「萬能分鏡三步法」、「焦距×物距物理光學」、「漫劇九宮格鎖臉與首尾幀接龍」及「跨片段雙模式握手」參數化為可直接調用的標準模板。
+本模板庫採用 **「三層產物分離架構（Layer 1 人類導演表 ➔ Layer 2 JSON SSoT ➔ Layer 3 多模型原生 Prompt）」**，將「萬能分鏡三步法」、「焦距×物距物理光學」、「漫劇分鏡總覽圖鎖臉與首尾幀接龍」及「跨片段雙模式握手」參數化為可直接調用的標準模板。
 
 ---
 
@@ -62,7 +62,7 @@ non_diegetic_music:
 A single tense cello sustained low note with sparse, slow piano high-register drops, building claustrophobic suspense.
 ```
 
-### 模板 C：AI 漫劇 Stage A「3x3 九宮格同空間鎖臉關鍵幀」模板 (`grid-9panel`)
+### 模板 C：AI 漫劇 Stage A「分鏡總覽圖同空間鎖臉關鍵幀」模板 (`grid-9panel`)
 *(用於 Midjourney / 即夢 / Nano Banana / GPT-Image 一次性生成 9 格連戲分鏡大圖)*
 
 ```text
@@ -82,7 +82,7 @@ No speech bubbles, no text overlays, no watermarks, consistent facial features a
 ```
 
 ### 模板 D：Stage B「首尾幀接龍（FL2VA）」運動過渡模板 (`kling-fl2va`)
-*(當上傳九宮格裁切出的 Panel 5 作為首幀、Panel 6 作為尾幀時使用)*
+*(當上傳分鏡總覽圖裁切出的 Panel 5 作為首幀、Panel 6 作為尾幀時使用)*
 
 ```text
 Single continuous camera shot transitioning smoothly from First Frame to Last Frame, 90-degree perpendicular side view with zero foreground obstruction. Camera tracks rapidly rightward (Truck right) following the silver-ponytail swordsman as he shifts his center of gravity onto his front foot, rotates his torso, and swings the cyan-glowing sword horizontally into a direct, heavy collision with the opponent's raised iron gauntlets. Upon blade-to-gauntlet contact at the 1.5s mark, bright metallic sparks and a ring of rainwater mist burst outward, and the opponent's arms buckle backward slightly under the momentum while both characters' robes ripple naturally in the wind. Strictly maintain weapon geometry and character identity; no split screen, no multi-panel grid.

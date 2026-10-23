@@ -73,20 +73,20 @@ class Stage6ReviewTests(unittest.TestCase):
         ok, errors, html = self._render()
         self.assertTrue(ok, errors)
         self.assertIn("EP01-S01-a.mp4", html)
-        self.assertIn("九宮格總覽 EP01-S01-a", html)
+        self.assertIn("分鏡總覽圖 EP01-S01-a", html)
         self.assertIn("../images/grid-EP01-S01-a.png", html)
         self.assertIn("../images/mira.png", html)
         self.assertIn("技術 QA PASS", html)
         self.assertNotIn("缺漏設定圖", html)
-        self.assertNotIn("找不到九宮格", html)
+        self.assertNotIn("找不到分鏡總覽圖", html)
 
     def test_missing_visuals_are_flagged_but_not_blocking(self):
         build_project(self.root, with_visuals=False)
         ok, errors, html = self._render()
         self.assertTrue(ok, "缺圖只紅框，不阻擋核准")
-        self.assertIn("找不到九宮格", html)
+        self.assertIn("找不到分鏡總覽圖", html)
         self.assertIn("缺漏設定圖", html)
-        self.assertIn("九宮格覆蓋", html)
+        self.assertIn("分鏡總覽圖覆蓋", html)
 
     def test_qa_failure_badge_is_shown(self):
         build_project(self.root, with_visuals=True)
@@ -120,7 +120,7 @@ class Stage6ReviewTests(unittest.TestCase):
         data["shots"][0]["metadata"] = {"grid_file": "images/grid-page.png"}
         write_json(self.root / "layer2" / "layer2-EP01-S01-a.json", data)
         _ok, _errors, html = self._render()
-        self.assertIn("九宮格 grid-page", html)
+        self.assertIn("分鏡總覽圖 grid-page", html)
         self.assertIn("../images/grid-page.png", html)
 
 
