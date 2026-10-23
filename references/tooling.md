@@ -111,6 +111,29 @@ python scripts/h3d.py deps --root . --status --strict
 - E38：`detailed_description` 與 `metadata.compiled_prompt_sha256` 不符＝編譯後被改寫。
 - 處置：回 Layer 2 的 `five_part_en` 逐鏡改稿再編譯。不准改檢查器門檻、不准手改 segments 過關。規範見 `references/prompt-authoring.md`。
 
+## 2.3 階段 5 英文層（stage5 binding 的 en_overlay）
+
+階段 4 的 Layer 2 常用中文寫運鏡、走位、錨點物件、連戲錨與收尾狀態；Layer 2 綁著階段 4 核准 hash，不能為了英文去改。
+英文版寫在 `--bindings` 檔每段的 `en_overlay`（舊名 `x_en_overlay` 也認），編譯器在記憶體裡寫進 `*_en` 欄位：
+
+```json
+"en_overlay": {
+  "shots": {"EP01-S01-a-SH01": {"movement_en": "dolly in", "blocking_en": "...", "anchor_objects_en": ["..."], "lips": "closed|omit"}},
+  "continuity_anchors_en": {"lighting": "...", "axis": "...", "blocking": "...", "texture": "..."},
+  "lighting_lock_line_en": "...",
+  "end_state_en": {"<who/what>": "<state>"},
+  "voice_4d_spec_en": {"<speaker id>": "..."},
+  "secondary_desc_en": {"<character id>": "這一段專用的英文描述（例如成形前只是一片紅光）"}
+}
+```
+
+- `shot_overrides` 也接受 `movement_en`／`blocking_en`／`anchor_objects_en`／`lips`。Layer 2 本身寫了 `camera_optics.movement_en`、`spatial_blocking.blocking_desc_en`／`anchor_objects_en`、`style_lock.continuity_anchors_en`、`segment_end_state.planned_final_state_en` 也優先採用。
+- 沒有 `global_shot_id` 的 Layer 2：編譯時以 `shot_id` 補（只在記憶體，不改檔、不影響階段 4 核准）。
+- 中文運鏡會依關鍵字對到官方動詞（推近→dollies in、跟拍→tracks、手持→handheld…）；對不到就報錯並指向 `movement_en`。
+- 仍是中文、沒有英文版的走位／錨點／連戲錨／收尾狀態**不會**寫進提示詞，改記一條 compile note；audit E15 對所有英文提示詞檢查（`<d>` 台詞除外）。
+- 閉唇句只加在「看得到臉且不說話」的鏡：`lips`（en_overlay）→ `lips_closed_lock`（明寫 true／false）→ 鏡內有沒有可見角色。
+- `no_visual_reference`／`voice_only` 的角色只寫「只聞其聲、畫面上不出現」，不寫外觀；`secondary_desc_en` 可為某段改寫次要角色描述。
+
 ## 2.4 階段 0–3 產物內容門禁（stage_content_checks.py）
 
 `h3d next`、`h3d approve --auto` 與 `build_stage_review.py --approve-stage` 判斷階段 0–3「產物齊了沒」時，會跑

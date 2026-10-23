@@ -801,7 +801,9 @@ def lint_h3_prompt(
     # --------------------------------------------------------------------------
     # 規則 15 (E): 未翻譯中文混雜攔截 (防 compile_layer2_to_h3 丟失中文動作直接硬拼)
     # --------------------------------------------------------------------------
-    if "the target video is" in detailed_desc.lower():
+    # 舊版只在含 "the target video is" 時才檢查，但編譯器的開頭是 "The target video follows"，
+    # 等於永遠不觸發；英文提示詞一律檢查（<d> 台詞除外）。
+    if detailed_desc.strip():
         # 移除 <d>...</d> 中的中文台詞後，檢查是否仍有未翻譯的中文動作句
         non_dlg_desc = re.sub(r"<d>.*?</d>", "", detailed_desc, flags=re.DOTALL)
         raw_chinese_chars = re.findall(r"[\u4e00-\u9fff]", non_dlg_desc)
