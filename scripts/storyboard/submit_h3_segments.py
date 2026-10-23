@@ -897,6 +897,12 @@ def main(argv: Optional[List[str]] = None) -> int:
             if suffix not in SUPPORTED_AUDIO_SUFFIXES:
                 bad_audio.append(f"{p_str}（{suffix or '無副檔名'}）")
 
+        # 編譯時宣告「待補」的參考圖（pending_references）只放行審稿，不放行送件（#55）
+        pending_refs = [str(x) for x in ((seg.get("metadata") or {}).get("pending_references") or [])]
+        for pending in pending_refs:
+            if pending not in missing_refs:
+                missing_refs.append(pending)
+
         status_flag = "✅"
         if missing_refs or bad_audio:
             status_flag = "❌"
@@ -911,6 +917,8 @@ def main(argv: Optional[List[str]] = None) -> int:
               f" | 參考素材: {len(ref_paths)} 個{audio_note} | LoRA: {lora_desc}")
         if missing_refs:
             print(f"     ❌ 缺失參考素材檔案: {missing_refs}")
+        if pending_refs:
+            print("     ❌ 這些圖在編譯時被宣告為待補（pending_references）：補齊圖檔後重編再送")
         if bad_audio:
             print(f"     ❌ 音色母帶副檔名不受支援（需 {', '.join(sorted(SUPPORTED_AUDIO_SUFFIXES))}）: {bad_audio}")
 
