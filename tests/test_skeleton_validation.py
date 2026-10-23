@@ -17,7 +17,7 @@ class SkeletonValidationTest(unittest.TestCase):
 
     def _data(self):
         import ast
-        src = (ROOT / "scripts/storyboard/validate_storyboard.py").read_text(encoding="utf-8")
+        src = (ROOT / "scripts/storyboard/validate_storyboard.py").read_text(encoding="utf-8").replace("\r\n", "\n")
         i = src.index("valid_case = {")
         j = src.index("\n    }\n", i) + 6
         return ast.literal_eval(src[i + len("valid_case = "):j].strip())
