@@ -987,6 +987,9 @@ def run_project(root, layer2_files, staging=None, cast=None, rules=None, force=F
     if cast is None and staging and os.path.isdir(staging):
         cast = next(iter(sorted(_glob.glob(os.path.join(staging, "cast*.json")))), None)
     load_cast(cast)
+    if FONT_PATH is None:
+        WARN.append("找不到 CJK 字型，標題與文字會變豆腐字；請設環境變數 SVG_GRID_FONT 指向 .ttc/.ttf")
+        log("  ⚠ 找不到 CJK 字型（可設 SVG_GRID_FONT）")
     # 同一場景的全部段落都先登記（自動搭景要看整場文字），只渲染指定的檔案
     layer2_dir = {os.path.dirname(os.path.abspath(f)) for f in layer2_files}
     all_files = sorted({os.path.abspath(f) for d_ in layer2_dir for f in _glob.glob(os.path.join(d_, "layer2-*.json"))} | {os.path.abspath(f) for f in layer2_files})
@@ -1011,7 +1014,14 @@ def run_project(root, layer2_files, staging=None, cast=None, rules=None, force=F
             if dry_run:
                 log(f"  [dry-run] {s['shot_id']} → {_rel(pp, root)}"); continue
             os.makedirs(os.path.dirname(pp), exist_ok=True)
-            render_panel(s, pp); panel_paths.append(pp); summary["rendered"] += 1
+            try:
+                render_panel(s, pp)
+            except Exception as exc:  # 單鏡畫不出來（如道具位置為 None）不拖垮整批（#40）
+                WARN.append(f"{s['shot_id']} 渲染失敗（{type(exc).__name__}: {exc}），請改用生圖構圖")
+                log(f"  ✗ {s['shot_id']} 渲染失敗：{type(exc).__name__}: {exc}")
+                summary["failed"] = summary.get("failed", 0) + 1
+                continue
+            panel_paths.append(pp); summary["rendered"] += 1
             log(f"  {s['shot_id']} → {_rel(pp, root)}")
             if write_back:
                 s["sketch_file"] = _rel(pp, root); s["sketch_sha256"] = _sha256(pp); s["sketch_status"] = "generated"
@@ -1019,7 +1029,8 @@ def run_project(root, layer2_files, staging=None, cast=None, rules=None, force=F
                                               grid_file=f"images/grid-{seg}.png", api_calls=0)
                 changed = True
         if dry_run or not panel_paths: continue
-        gp = draw_grid(shots[:len(panel_paths)], panel_paths, os.path.join(root, "images", f"grid-{seg}.png"), title=f"{seg}  ·  SVG 構圖（免生圖）")
+        ok_shots = [x for x in shots if any(os.path.basename(pp_).startswith(f'panel-') and x['shot_id'] in os.path.basename(pp_) for pp_ in panel_paths)] if summary.get('failed') else shots[:len(panel_paths)]
+        gp = draw_grid(ok_shots[:len(panel_paths)], panel_paths, os.path.join(root, "images", f"grid-{seg}.png"), title=f"{seg}  ·  SVG 構圖（免生圖）")
         summary["segments"] += 1
         if write_back and changed:
             d["grid_preview_file"] = _rel(gp, root)
@@ -1055,7 +1066,7 @@ def main(argv=None):
     staging = args.staging or os.path.join(root, "staging")
     s = run_project(root, files, staging=staging, cast=args.cast, rules=args.rules, force=args.force,
                     write_back=not args.no_write_back, dry_run=args.dry_run)
-    for w in WARN: print("⚠ 方向", w)
+    for w in WARN: print("⚠ 方向" if "構圖卻朝" in w else "⚠", w)
     print(f"完成：渲染 {s['rendered']} 鏡、略過鎖定 {s['skipped']} 鏡、分鏡總覽圖 {s['segments']} 段；API 呼叫 0 次")
     return 0
 

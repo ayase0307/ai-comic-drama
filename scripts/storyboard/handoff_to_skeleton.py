@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import hashlib
 import re
 import sys
 from pathlib import Path
@@ -132,7 +133,10 @@ def make_id(prefix: str, raw: str, index: int) -> str:
     """把名稱轉成 PREFIX-slug；已是 PREFIX- 格式就原樣保留；無法轉 ASCII（如純中文）時用序號。"""
     if re.fullmatch(rf"{prefix}-[a-z0-9-]+", raw):
         return raw
-    return f"{prefix}-{slugify(raw) or f'item{index + 1}'}"
+    slug = slugify(raw)
+    if not slug:  # 純中文名：用名稱雜湊，穩定且不會變 item1／item2（#37）
+        slug = "x" + hashlib.sha1(raw.encode("utf-8")).hexdigest()[:6]
+    return f"{prefix}-{slug}"
 
 
 def segment_suffix(index: int) -> str:
@@ -176,10 +180,25 @@ def split_long_line(text: str, max_sec: float = MAX_SHOT_SEC) -> list[str]:
     return split_long_line(text[:cut], max_sec=max_sec) + split_long_line(text[cut:], max_sec=max_sec)
 
 
+MERGE_BEAT_TARGET_SEC = 5.0
+
+
+def merge_beats(beats: list[str]) -> list[dict]:
+    """相鄰的 △ 動作合成同一拍（累積到 5 秒為止），避免「一行 △＝一鏡 2.5 秒」把同一拍拆碎（#37）。"""
+    items: list[dict] = []
+    for text in beats:
+        if items and items[-1]["duration"] + ACTION_SHOT_SEC <= MERGE_BEAT_TARGET_SEC:
+            items[-1]["text"] += "；" + text
+            items[-1]["duration"] = round(items[-1]["duration"] + ACTION_SHOT_SEC, 2)
+        else:
+            items.append({"kind": "beat", "text": text, "duration": ACTION_SHOT_SEC})
+    return items
+
+
 def build_items(scene: dict, max_sec: float = DEFAULT_MAX_SEGMENT_SEC) -> list[dict]:
     """先動作拍、後對白（對白為必保留項目，動作拍是段落的填充物）。超長對白會切成多個對白鏡。"""
     beats = scene.get("action_beats") or scene.get("storyboard_handoff", {}).get("required_visual_beats") or []
-    items: list[dict] = [{"kind": "beat", "text": text, "duration": ACTION_SHOT_SEC} for text in beats]
+    items = merge_beats(beats)
     split_threshold = min(max_sec, MAX_SHOT_SEC)
     for line in scene.get("dialogue", []):
         speech_len = count_speech_chars(line["text"])
@@ -271,7 +290,7 @@ def make_shot(item: dict, shot_id: str, start: float, duration: float,
             "has_dialogue": False,
             "speaker": None,
             "line_verbatim": None,
-            "lips_closed_lock": True,
+            "lips_closed_lock": False,  # 只在露臉不說話鏡由人工／validate 建議後再鎖（#37 #38）
             "audio_bridge": "NONE",
             "foley_and_ambience": TODO,
         }
@@ -282,7 +301,8 @@ def make_shot(item: dict, shot_id: str, start: float, duration: float,
             f"{TODO}：【傳導路徑】重心轉移與肢體/武器運動軌跡",
             f"{TODO}：【受擊與環境反饋】形變/位移與揚塵/氣浪特效",
         ]
-        character_ids = [char_map[c] for c in scene.get("characters", [])]
+        named = [char_map[c] for c in scene.get("characters", []) if c and c in beat_text]
+        character_ids = named or [char_map[c] for c in scene.get("characters", [])]  # 動作文字點名者優先，沒點名才退回全場
 
     stages_en = [
         f"{TODO}: force origin in English",
