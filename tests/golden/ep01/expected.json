@@ -1,0 +1,145 @@
+{
+ "import": {
+  "EP01-S01-a": [
+   "pass",
+   "agent",
+   []
+  ],
+  "EP01-S01-b": [
+   "pass",
+   "agent",
+   []
+  ],
+  "EP01-S02": [
+   "pass",
+   "agent",
+   []
+  ],
+  "EP01-S03-a": [
+   "pass",
+   "agent",
+   [
+    "aged_face"
+   ]
+  ],
+  "EP01-S03-b": [
+   "pass",
+   "agent",
+   []
+  ],
+  "EP01-S03-c": [
+   "pass",
+   "agent",
+   []
+  ],
+  "EP01-S03-d": [
+   "pass",
+   "agent",
+   []
+  ],
+  "EP01-S03-e": [
+   "pass",
+   "agent",
+   []
+  ],
+  "EP01-S04-a": [
+   "pass",
+   "agent",
+   []
+  ],
+  "EP01-S04-b": [
+   "pass",
+   "agent",
+   []
+  ],
+  "EP01-S04-c": [
+   "pass",
+   "agent",
+   [
+    "paper_text"
+   ]
+  ],
+  "EP01-S04-d": [
+   "warn",
+   "agent",
+   []
+  ]
+ },
+ "counts": {
+  "pass": 11,
+  "warn": 1,
+  "fail": 0,
+  "unreviewed": 0
+ },
+ "effective": {
+  "EP01-S01-a": "pass",
+  "EP01-S01-b": "pass",
+  "EP01-S02": "pass",
+  "EP01-S03-a": "pass",
+  "EP01-S03-b": "pass",
+  "EP01-S03-c": "pass",
+  "EP01-S03-d": "pass",
+  "EP01-S03-e": "pass",
+  "EP01-S04-a": "pass",
+  "EP01-S04-b": "pass",
+  "EP01-S04-c": "pass",
+  "EP01-S04-d": "warn"
+ },
+ "inbox_open": [
+  "D7-voice-cast",
+  "D6-EP01-S04-d"
+ ],
+ "inbox_voice_characters": [
+  "C-func-disciple-a",
+  "C-lu-huaisu",
+  "C-chen-yan"
+ ],
+ "next": {
+  "stage": 6,
+  "status": "locked",
+  "command_head": "build_stage_review.py\""
+ },
+ "auto_approve_eligible": false,
+ "placement": {
+  "EP01-S01-a-N1": [
+   6.47,
+   1.0,
+   []
+  ],
+  "EP01-S01-b-N1": [
+   0.15,
+   1.0,
+   []
+  ],
+  "EP01-S03-d-N1": [
+   5.69,
+   1.089,
+   []
+  ],
+  "EP01-S04-c-N1": [
+   6.63,
+   1.0,
+   []
+  ]
+ },
+ "concat": {
+  "total": 99.608,
+  "stats": {
+   "asr_aligned": 10,
+   "storyboard_time": 5,
+   "voice": 4
+  },
+  "captions": 19,
+  "first_caption": {
+   "start": 2.82,
+   "end": 6.25,
+   "text": "說出它。忘掉它。"
+  },
+  "voices": [
+   6.3,
+   9.058,
+   57.248,
+   89.513
+  ]
+ }
+}

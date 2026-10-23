@@ -38,14 +38,14 @@ REVIEW = f'python "{(SCRIPTS_DIR / "build_stage_review.py").as_posix()}"'
 INIT = f'python "{(SCRIPTS_DIR / "init_project.py").as_posix()}"'
 
 STAGE_REFERENCES: Dict[int, List[str]] = {
-    0: ["references/pipeline.md"],
+    0: ["references/pipeline.md", "references/styles.md"],
     1: ["references/adapt/novel-to-manju.md"],
     2: ["references/consistency.md", "references/styles.md"],
     3: ["references/adapt/screenplay-format.md"],
     4: ["references/storyboard/cinematic-director.md"],
     5: ["references/h3/prompt-formats.md", "references/tooling.md"],
-    6: ["references/tooling.md"],
-    7: ["references/tooling.md"],
+    6: ["references/tooling.md §2.5–2.7", "references/skill-guide.md「階段 6 生成：怎麼做才穩」"],
+    7: ["references/tooling.md §2.7", "references/skill-guide.md「階段 7 組裝交付與配音決策」"],
 }
 
 ACTIVE_JOB_STATUSES = {"waiting", "queued", "running"}
@@ -309,8 +309,9 @@ def plan(root: Path) -> Dict[str, Any]:
                 4: (f"{H3D} sketch --root . --episode <EPxx>", "補齊每一鏡對應的構圖 PNG。"),
                 5: (f"{H3D} compile --layer2 layer2/layer2-<段>.json --episode <EPxx> --project-root . --check",
                     "重新編譯提示詞包並補齊參考圖。"),
-                7: (f"{H3D} assemble --segments segments-<epxx>.json --videos-dir videos --output final/<EPxx>.mp4",
-                    "組裝成片並產出 delivery manifest。"),
+                7: (f"{H3D} voice align --root .",
+                    "先跑階段 7 固定流程（ASR 對位、畫外句壓原聲、響度），再 h3d concat plan／build 建全集剪輯專案，"
+                    "或 h3d assemble 組裝成片並產出 delivery manifest。"),
             }
             command, action = producers.get(stage, (f"{H3D} status --root .", "先修正上面的錯誤。"))
             res["action"] = action

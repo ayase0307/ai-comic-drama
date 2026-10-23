@@ -1,0 +1,46 @@
+{
+ "EP01-S01-a-N1": {
+  "segment": "EP01-S01-a",
+  "speaker": "C-func-disciple-a",
+  "line": "我忘掉母親教我說的第一句話。",
+  "shot": "EP01-S01-a-SH03",
+  "start": 5.0,
+  "end": 8.5,
+  "file": "voice/out/EP01-S01-a-N1.wav",
+  "dur": 2.55,
+  "ref": "Fish 內建音色 冯老师_男_旁白-温暖磁性 (4d0e64e39e4b4f31a816f133795c0db5)"
+ },
+ "EP01-S01-b-N1": {
+  "segment": "EP01-S01-b",
+  "speaker": "C-func-disciple-a",
+  "line": "師父，方才我說了什麼？",
+  "shot": "EP01-S01-b-SH01",
+  "start": 0.0,
+  "end": 2.5,
+  "file": "voice/out/EP01-S01-b-N1.wav",
+  "dur": 2.51,
+  "ref": "Fish 內建音色 冯老师_男_旁白-温暖磁性 (4d0e64e39e4b4f31a816f133795c0db5)"
+ },
+ "EP01-S03-d-N1": {
+  "segment": "EP01-S03-d",
+  "speaker": "C-lu-huaisu",
+  "line": "不刪，你走不出這堂課。",
+  "shot": "EP01-S03-d-SH02",
+  "start": 3.5,
+  "end": 6.0,
+  "file": "voice/out/EP01-S03-d-N1.wav",
+  "dur": 2.32,
+  "ref": "in-frame H3"
+ },
+ "EP01-S04-c-N1": {
+  "segment": "EP01-S04-c",
+  "speaker": "C-chen-yan",
+  "line": "記誰？",
+  "shot": "EP01-S04-c-SH04",
+  "start": 6.5,
+  "end": 9.0,
+  "file": "voice/out/EP01-S04-c-N1.wav",
+  "dur": 0.74,
+  "ref": "in-frame H3"
+ }
+}

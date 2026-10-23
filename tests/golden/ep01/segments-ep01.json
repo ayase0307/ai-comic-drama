@@ -1,0 +1,429 @@
+{
+ "episode": "EP01",
+ "segments": [
+  {
+   "segment_id": "EP01-S01-a",
+   "scene_id": "EP01-S01",
+   "metadata": {
+    "aspect_ratio": "16:9",
+    "target_duration_sec": 8.5,
+    "frames": 209,
+    "frame_spec": "17n+5@24fps"
+   },
+   "reference_images": [
+    {
+     "id": "S-forgetting-classroom",
+     "type": "scene",
+     "description": "long rectangular stone classroom carved into a mountain, rough grey-teal stone walls with damp marks along the base, a low worn wooden lecture desk at the front, two facing rows of ten straw cushions each with a coarse clay bowl of clear water in front, a heavy wooden door on the left wall leaking a thin line of morning light, grey daylight falling from a crack in the stone ceiling, worn grey flagstone floor, cold grey-teal tones, early morning",
+     "path": "images/scene-forgetting-classroom-master.png"
+    },
+    {
+     "id": "C-lu-huaisu",
+     "type": "character",
+     "description": "about 40-year-old slender upright East Asian woman, oval face with a clean jawline, slightly downturned outer eye corners, very dark eyes with faint red veins and tired shadows beneath, pale greyish skin, black hair streaked with early grey strands pulled into a tight bun with a single plain wooden hairpin, pale unpainted lips, wearing deep ink-teal cross-collar long robe with tightly bound cuffs, dark plain sash, small square white jade instructor token on a teal cord at the left hip",
+     "path": "refs/crop-LuHuaisu-head.png",
+     "is_primary_character": true,
+     "costume_id": "W-lu-huaisu-01"
+    }
+   ],
+   "h3_loras": [],
+   "speaker_ids": {
+    "C-lu-huaisu": "S1",
+    "C-func-disciple-a": "S2"
+   },
+   "external_narration": [
+    {
+     "shot_id": "EP01-S01-a-SH03",
+     "global_shot_id": "EP01-S01-a-SH03",
+     "speaker": "C-func-disciple-a",
+     "speaker_id": "S2",
+     "line": "我忘掉母親教我說的第一句話。",
+     "language": "Chinese",
+     "is_voiceover": true,
+     "start": null,
+     "end": null
+    }
+   ]
+  },
+  {
+   "segment_id": "EP01-S01-b",
+   "scene_id": "EP01-S01",
+   "metadata": {
+    "aspect_ratio": "16:9",
+    "target_duration_sec": 9.0,
+    "frames": 226,
+    "frame_spec": "17n+5@24fps"
+   },
+   "reference_images": [
+    {
+     "id": "S-forgetting-classroom",
+     "type": "scene",
+     "description": "side angle at kneeling height along the right row, a straw cushion and a full coarse clay bowl of clear water in the foreground reflecting grey ceiling light, the row of cushions and bowls receding toward the lecture desk, opposite row softly out of focus at frame left",
+     "path": "images/scene-forgetting-classroom-side.png"
+    },
+    {
+     "id": "C-lu-huaisu",
+     "type": "character",
+     "description": "about 40-year-old slender upright East Asian woman, oval face with a clean jawline, slightly downturned outer eye corners, very dark eyes with faint red veins and tired shadows beneath, pale greyish skin, black hair streaked with early grey strands pulled into a tight bun with a single plain wooden hairpin, pale unpainted lips, wearing deep ink-teal cross-collar long robe with tightly bound cuffs, dark plain sash, small square white jade instructor token on a teal cord at the left hip",
+     "path": "refs/crop-LuHuaisu-head.png",
+     "is_primary_character": true,
+     "costume_id": "W-lu-huaisu-01"
+    }
+   ],
+   "h3_loras": [],
+   "speaker_ids": {
+    "C-func-disciple-a": "S1",
+    "C-lu-huaisu": "S2"
+   },
+   "external_narration": [
+    {
+     "shot_id": "EP01-S01-b-SH01",
+     "global_shot_id": "EP01-S01-b-SH01",
+     "speaker": "C-func-disciple-a",
+     "speaker_id": "S1",
+     "line": "師父，方才我說了什麼？",
+     "language": "Chinese",
+     "is_voiceover": true,
+     "start": null,
+     "end": null
+    }
+   ]
+  },
+  {
+   "segment_id": "EP01-S02",
+   "scene_id": "EP01-S02",
+   "metadata": {
+    "aspect_ratio": "16:9",
+    "target_duration_sec": 8.0,
+    "frames": 192,
+    "frame_spec": "17n+5@24fps"
+   },
+   "reference_images": [
+    {
+     "id": "S-zhaoxue-old-street",
+     "type": "scene",
+     "description": "memory of an old city street corner in warm faded amber tones with edges dissolving like ink in water, a sweet-water stall with a ragged cloth awning propped on three blue bricks and patched on its left side, coarse bowls on the stall, low wooden houses with door frames and a cracked threshold behind, hot afternoon light, flagstone street",
+     "path": "images/scene-zhaoxue-old-street-master.png"
+    },
+    {
+     "id": "C-chen-yan-child",
+     "type": "character",
+     "description": "a seven-year-old boy about 120 cm tall, short black hair tied into a small knot at the back of the head, wearing coarse earth-brown child's tunic with an old cloth belt, two patches of darker and lighter cloth with uneven stitches on the left cuff",
+     "path": "refs/crop-ChenYan-child-back.png",
+     "is_primary_character": true,
+     "costume_id": "W-chen-yan-child",
+     "reference_view": "non_face",
+     "crop_status": "single_view"
+    }
+   ],
+   "h3_loras": [],
+   "speaker_ids": {},
+   "external_narration": []
+  },
+  {
+   "segment_id": "EP01-S03-a",
+   "scene_id": "EP01-S03",
+   "metadata": {
+    "aspect_ratio": "16:9",
+    "target_duration_sec": 8.0,
+    "frames": 192,
+    "frame_spec": "17n+5@24fps"
+   },
+   "reference_images": [
+    {
+     "id": "S-forgetting-classroom",
+     "type": "scene",
+     "description": "side angle at kneeling height along the right row, a straw cushion and a full coarse clay bowl of clear water in the foreground reflecting grey ceiling light, the row of cushions and bowls receding toward the lecture desk, opposite row softly out of focus at frame left",
+     "path": "images/scene-forgetting-classroom-side.png"
+    },
+    {
+     "id": "C-lu-huaisu",
+     "type": "character",
+     "description": "about 40-year-old slender upright East Asian woman, oval face with a clean jawline, slightly downturned outer eye corners, very dark eyes with faint red veins and tired shadows beneath, pale greyish skin, black hair streaked with early grey strands pulled into a tight bun with a single plain wooden hairpin, pale unpainted lips, wearing deep ink-teal cross-collar long robe with tightly bound cuffs, dark plain sash, small square white jade instructor token on a teal cord at the left hip",
+     "path": "refs/crop-LuHuaisu-head.png",
+     "is_primary_character": true,
+     "costume_id": "W-lu-huaisu-01"
+    }
+   ],
+   "h3_loras": [],
+   "speaker_ids": {
+    "C-lu-huaisu": "S1"
+   },
+   "external_narration": []
+  },
+  {
+   "segment_id": "EP01-S03-b",
+   "scene_id": "EP01-S03",
+   "metadata": {
+    "aspect_ratio": "16:9",
+    "target_duration_sec": 9.0,
+    "frames": 226,
+    "frame_spec": "17n+5@24fps"
+   },
+   "reference_images": [
+    {
+     "id": "S-forgetting-classroom",
+     "type": "scene",
+     "description": "side angle at kneeling height along the right row, a straw cushion and a full coarse clay bowl of clear water in the foreground reflecting grey ceiling light, the row of cushions and bowls receding toward the lecture desk, opposite row softly out of focus at frame left",
+     "path": "images/scene-forgetting-classroom-side.png"
+    },
+    {
+     "id": "C-chen-yan",
+     "type": "character",
+     "description": "27-year-old lean East Asian man, long face with slightly prominent cheekbones, straight flat brows, narrow dark-brown eyes with an unblinking focused gaze, pale cool-toned skin, black hair in a low bun tied with an old grey cloth strip, a few loose strands at the temples, thin pressed lips, wearing plain grey-brown hemp cross-collar outer-disciple robe, dark grey cloth sash, plain wooden disciple token on a red cord at the left hip, hemp trousers with leg wraps, straw-hemp shoes",
+     "path": "refs/crop-ChenYan-head.png",
+     "is_primary_character": true,
+     "costume_id": "W-chen-yan-01"
+    }
+   ],
+   "h3_loras": [],
+   "speaker_ids": {
+    "C-chen-yan": "S1"
+   },
+   "external_narration": []
+  },
+  {
+   "segment_id": "EP01-S03-c",
+   "scene_id": "EP01-S03",
+   "metadata": {
+    "aspect_ratio": "16:9",
+    "target_duration_sec": 8.0,
+    "frames": 192,
+    "frame_spec": "17n+5@24fps"
+   },
+   "reference_images": [
+    {
+     "id": "S-forgetting-classroom",
+     "type": "scene",
+     "description": "side angle at kneeling height along the right row, a straw cushion and a full coarse clay bowl of clear water in the foreground reflecting grey ceiling light, the row of cushions and bowls receding toward the lecture desk, opposite row softly out of focus at frame left",
+     "path": "images/scene-forgetting-classroom-side.png"
+    },
+    {
+     "id": "C-lu-huaisu",
+     "type": "character",
+     "description": "about 40-year-old slender upright East Asian woman, oval face with a clean jawline, slightly downturned outer eye corners, very dark eyes with faint red veins and tired shadows beneath, pale greyish skin, black hair streaked with early grey strands pulled into a tight bun with a single plain wooden hairpin, pale unpainted lips, wearing deep ink-teal cross-collar long robe with tightly bound cuffs, dark plain sash, small square white jade instructor token on a teal cord at the left hip",
+     "path": "refs/crop-LuHuaisu-head.png",
+     "is_primary_character": true,
+     "costume_id": "W-lu-huaisu-01"
+    }
+   ],
+   "h3_loras": [],
+   "speaker_ids": {
+    "C-lu-huaisu": "S1"
+   },
+   "external_narration": []
+  },
+  {
+   "segment_id": "EP01-S03-d",
+   "scene_id": "EP01-S03",
+   "metadata": {
+    "aspect_ratio": "16:9",
+    "target_duration_sec": 9.0,
+    "frames": 226,
+    "frame_spec": "17n+5@24fps"
+   },
+   "reference_images": [
+    {
+     "id": "S-forgetting-classroom",
+     "type": "scene",
+     "description": "side angle at kneeling height along the right row, a straw cushion and a full coarse clay bowl of clear water in the foreground reflecting grey ceiling light, the row of cushions and bowls receding toward the lecture desk, opposite row softly out of focus at frame left",
+     "path": "images/scene-forgetting-classroom-side.png"
+    },
+    {
+     "id": "C-chen-yan",
+     "type": "character",
+     "description": "27-year-old lean East Asian man, long face with slightly prominent cheekbones, straight flat brows, narrow dark-brown eyes with an unblinking focused gaze, pale cool-toned skin, black hair in a low bun tied with an old grey cloth strip, a few loose strands at the temples, thin pressed lips, wearing plain grey-brown hemp cross-collar outer-disciple robe, dark grey cloth sash, plain wooden disciple token on a red cord at the left hip, hemp trousers with leg wraps, straw-hemp shoes",
+     "path": "refs/crop-ChenYan-head.png",
+     "is_primary_character": true,
+     "costume_id": "W-chen-yan-01"
+    }
+   ],
+   "h3_loras": [],
+   "speaker_ids": {
+    "C-chen-yan": "S1",
+    "C-lu-huaisu": "S2"
+   },
+   "external_narration": [
+    {
+     "shot_id": "EP01-S03-d-SH02",
+     "global_shot_id": "EP01-S03-d-SH02",
+     "speaker": "C-lu-huaisu",
+     "speaker_id": "S2",
+     "line": "不刪，你走不出這堂課。",
+     "language": "Chinese",
+     "is_voiceover": false,
+     "start": null,
+     "end": null
+    }
+   ]
+  },
+  {
+   "segment_id": "EP01-S03-e",
+   "scene_id": "EP01-S03",
+   "metadata": {
+    "aspect_ratio": "16:9",
+    "target_duration_sec": 7.0,
+    "frames": 175,
+    "frame_spec": "17n+5@24fps"
+   },
+   "reference_images": [
+    {
+     "id": "S-forgetting-classroom",
+     "type": "scene",
+     "description": "side angle at kneeling height along the right row, a straw cushion and a full coarse clay bowl of clear water in the foreground reflecting grey ceiling light, the row of cushions and bowls receding toward the lecture desk, opposite row softly out of focus at frame left",
+     "path": "images/scene-forgetting-classroom-side.png"
+    },
+    {
+     "id": "C-lu-huaisu",
+     "type": "character",
+     "description": "about 40-year-old slender upright East Asian woman, oval face with a clean jawline, slightly downturned outer eye corners, very dark eyes with faint red veins and tired shadows beneath, pale greyish skin, black hair streaked with early grey strands pulled into a tight bun with a single plain wooden hairpin, pale unpainted lips, wearing deep ink-teal cross-collar long robe with tightly bound cuffs, dark plain sash, small square white jade instructor token on a teal cord at the left hip",
+     "path": "refs/crop-LuHuaisu-head.png",
+     "is_primary_character": true,
+     "costume_id": "W-lu-huaisu-01"
+    }
+   ],
+   "h3_loras": [],
+   "speaker_ids": {
+    "C-lu-huaisu": "S1"
+   },
+   "external_narration": []
+  },
+  {
+   "segment_id": "EP01-S04-a",
+   "scene_id": "EP01-S04",
+   "metadata": {
+    "aspect_ratio": "16:9",
+    "target_duration_sec": 7.0,
+    "frames": 175,
+    "frame_spec": "17n+5@24fps"
+   },
+   "reference_images": [
+    {
+     "id": "S-forgetting-classroom",
+     "type": "scene",
+     "description": "same stone classroom after class from the master camera position, the door shut and its light line gone, all bowls removed except one clay bowl in front of the last cushion of the right row, a clay bowl and a clay pitcher on the lecture desk, a single grey shaft of ceiling light, darker and quieter",
+     "path": "images/scene-forgetting-classroom-afterclass.png"
+    },
+    {
+     "id": "C-lu-huaisu",
+     "type": "character",
+     "description": "about 40-year-old slender upright East Asian woman, oval face with a clean jawline, slightly downturned outer eye corners, very dark eyes with faint red veins and tired shadows beneath, pale greyish skin, black hair streaked with early grey strands pulled into a tight bun with a single plain wooden hairpin, pale unpainted lips, wearing deep ink-teal cross-collar long robe with tightly bound cuffs, dark plain sash, small square white jade instructor token on a teal cord at the left hip",
+     "path": "refs/crop-LuHuaisu-head.png",
+     "is_primary_character": true,
+     "costume_id": "W-lu-huaisu-01"
+    }
+   ],
+   "h3_loras": [],
+   "speaker_ids": {
+    "C-lu-huaisu": "S1"
+   },
+   "external_narration": []
+  },
+  {
+   "segment_id": "EP01-S04-b",
+   "scene_id": "EP01-S04",
+   "metadata": {
+    "aspect_ratio": "16:9",
+    "target_duration_sec": 7.0,
+    "frames": 175,
+    "frame_spec": "17n+5@24fps"
+   },
+   "reference_images": [
+    {
+     "id": "S-forgetting-classroom",
+     "type": "scene",
+     "description": "same stone classroom after class from the master camera position, the door shut and its light line gone, all bowls removed except one clay bowl in front of the last cushion of the right row, a clay bowl and a clay pitcher on the lecture desk, a single grey shaft of ceiling light, darker and quieter",
+     "path": "images/scene-forgetting-classroom-afterclass.png"
+    },
+    {
+     "id": "C-chen-yan",
+     "type": "character",
+     "description": "27-year-old lean East Asian man, long face with slightly prominent cheekbones, straight flat brows, narrow dark-brown eyes with an unblinking focused gaze, pale cool-toned skin, black hair in a low bun tied with an old grey cloth strip, a few loose strands at the temples, thin pressed lips, wearing plain grey-brown hemp cross-collar outer-disciple robe, dark grey cloth sash, plain wooden disciple token on a red cord at the left hip, hemp trousers with leg wraps, straw-hemp shoes",
+     "path": "refs/crop-ChenYan-head.png",
+     "is_primary_character": true,
+     "costume_id": "W-chen-yan-01"
+    }
+   ],
+   "h3_loras": [],
+   "speaker_ids": {
+    "C-chen-yan": "S1"
+   },
+   "external_narration": []
+  },
+  {
+   "segment_id": "EP01-S04-c",
+   "scene_id": "EP01-S04",
+   "metadata": {
+    "aspect_ratio": "16:9",
+    "target_duration_sec": 9.0,
+    "frames": 226,
+    "frame_spec": "17n+5@24fps"
+   },
+   "reference_images": [
+    {
+     "id": "S-forgetting-classroom",
+     "type": "scene",
+     "description": "same stone classroom after class from the master camera position, the door shut and its light line gone, all bowls removed except one clay bowl in front of the last cushion of the right row, a clay bowl and a clay pitcher on the lecture desk, a single grey shaft of ceiling light, darker and quieter",
+     "path": "images/scene-forgetting-classroom-afterclass.png"
+    },
+    {
+     "id": "C-lu-huaisu",
+     "type": "character",
+     "description": "about 40-year-old slender upright East Asian woman, oval face with a clean jawline, slightly downturned outer eye corners, very dark eyes with faint red veins and tired shadows beneath, pale greyish skin, black hair streaked with early grey strands pulled into a tight bun with a single plain wooden hairpin, pale unpainted lips, wearing deep ink-teal cross-collar long robe with tightly bound cuffs, dark plain sash, small square white jade instructor token on a teal cord at the left hip",
+     "path": "refs/crop-LuHuaisu-head.png",
+     "is_primary_character": true,
+     "costume_id": "W-lu-huaisu-01"
+    }
+   ],
+   "h3_loras": [],
+   "speaker_ids": {
+    "C-lu-huaisu": "S1",
+    "C-chen-yan": "S2"
+   },
+   "external_narration": [
+    {
+     "shot_id": "EP01-S04-c-SH04",
+     "global_shot_id": "EP01-S04-c-SH04",
+     "speaker": "C-chen-yan",
+     "speaker_id": "S2",
+     "line": "記誰？",
+     "language": "Chinese",
+     "is_voiceover": false,
+     "start": null,
+     "end": null
+    }
+   ]
+  },
+  {
+   "segment_id": "EP01-S04-d",
+   "scene_id": "EP01-S04",
+   "metadata": {
+    "aspect_ratio": "16:9",
+    "target_duration_sec": 7.0,
+    "frames": 175,
+    "frame_spec": "17n+5@24fps"
+   },
+   "reference_images": [
+    {
+     "id": "S-forgetting-classroom",
+     "type": "scene",
+     "description": "same stone classroom after class from the master camera position, the door shut and its light line gone, all bowls removed except one clay bowl in front of the last cushion of the right row, a clay bowl and a clay pitcher on the lecture desk, a single grey shaft of ceiling light, darker and quieter",
+     "path": "images/scene-forgetting-classroom-afterclass.png"
+    },
+    {
+     "id": "C-lu-huaisu",
+     "type": "character",
+     "description": "about 40-year-old slender upright East Asian woman, oval face with a clean jawline, slightly downturned outer eye corners, very dark eyes with faint red veins and tired shadows beneath, pale greyish skin, black hair streaked with early grey strands pulled into a tight bun with a single plain wooden hairpin, pale unpainted lips, wearing deep ink-teal cross-collar long robe with tightly bound cuffs, dark plain sash, small square white jade instructor token on a teal cord at the left hip",
+     "path": "refs/crop-LuHuaisu-head.png",
+     "is_primary_character": true,
+     "costume_id": "W-lu-huaisu-01"
+    }
+   ],
+   "h3_loras": [],
+   "speaker_ids": {
+    "C-lu-huaisu": "S1"
+   },
+   "external_narration": []
+  }
+ ]
+}
