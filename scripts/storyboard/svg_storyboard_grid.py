@@ -1066,7 +1066,7 @@ def main(argv=None):
     staging = args.staging or os.path.join(root, "staging")
     s = run_project(root, files, staging=staging, cast=args.cast, rules=args.rules, force=args.force,
                     write_back=not args.no_write_back, dry_run=args.dry_run)
-    for w in WARN: print("⚠ 方向", w)
+    for w in WARN: print("⚠ 方向" if "構圖卻朝" in w else "⚠", w)
     print(f"完成：渲染 {s['rendered']} 鏡、略過鎖定 {s['skipped']} 鏡、分鏡總覽圖 {s['segments']} 段；API 呼叫 0 次")
     return 0
 
