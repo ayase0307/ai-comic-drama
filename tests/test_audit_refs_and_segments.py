@@ -143,5 +143,22 @@ class AuthoredShotLintTests(unittest.TestCase):
                 self.assertFalse(any("E16:" in e for e in result["errors"]))
 
 
+    def test_match_door_and_clock_are_not_combat(self):
+        for description in (
+            "She strikes a match and lights the oil lamp.",
+            "Match strike crackles softly in the dark.",
+            "The cellar door swings open on its hinges.",
+            "The hanging lantern swings slowly.",
+            "A distant bell strikes six.",
+        ):
+            with self.subTest(description=description):
+                result = lint_h3_prompt(
+                    make_prompt([description]),
+                    nominal_duration=9.0,
+                    authored_shots=authored_shots([9.0]),
+                )
+                self.assertFalse(any("E16:" in e for e in result["errors"]))
+
+
 if __name__ == "__main__":
     unittest.main()

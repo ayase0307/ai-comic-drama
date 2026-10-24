@@ -847,6 +847,12 @@ def lint_h3_prompt(
         r"\b(?:does\s+not|doesn't|never)\s+(?:swing|strike|hit|smash|punch|slash|whip)\b",
         r"\bwithout\s+(?:swinging|striking|hitting|smashing|punching|slashing|whipping)\b",
         r"\bavoids?\s+(?:swinging|striking|hitting|smashing|punching|slashing|whipping)\b",
+        # 非打擊語意：劃火柴、門扇／吊燈擺動、鐘聲敲響
+        r"\bstrik(?:es?|ing)\s+(?:a\s+|the\s+)?match(?:es)?\b",
+        r"\bmatch(?:es)?\s+strik(?:e|es|ing)\b",
+        r"\bswings?\s+(?:open|shut|closed|gently|slowly|back\s+and\s+forth)\b",
+        r"\b(?:door|gate|shutter|lamp|lantern|curtain|sign)s?\s+(?:\w+\s+)?swing(?:s|ing)?\b",
+        r"\b(?:clock|bell)s?\s+strikes?\b",
     )
     for pattern in non_executed_combat_patterns:
         executed_combat_desc = re.sub(pattern, "", executed_combat_desc, flags=re.IGNORECASE)
