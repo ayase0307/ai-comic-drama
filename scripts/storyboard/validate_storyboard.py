@@ -459,6 +459,15 @@ def validate_storyboard_data(data: dict, original_script_dialogues: list = None)
     if _bad:
         warnings.append("[asset_refs 佔位符] 仍有骨架佔位值未替換：" + "、".join(_bad[:6]) + "；請改成 assets.md／bible.json 內真實的 ID。")
 
+    # Check 8b（#46）：場景結尾有不可逆破壞，卻仍附含該道具的場景母版 → 警告（母版會把已毀道具畫回來）
+    _pws = " ".join(str(x) for x in ((data.get("continuity_handshake") or {}).get("persistent_world_state") or []))
+    _irrev = re.search(r"destroyed|shattered|burst|exploded|burned|broken|爆裂|破壞|毀|碎|燒毀|崩", _pws, re.I)
+    _meta = data.get("metadata") or {}
+    if _irrev and not _meta.get("scene_master_disabled"):
+        warnings.append("[不可逆狀態仍附場景母版] persistent_world_state 含已破壞／已毀狀態（"
+                        + _irrev.group(0) + "）；含該道具的場景母版會讓生圖把它畫回完整狀態。"
+                        "請對破壞後的鏡頭停用該母版（改用文字描述或裁掉道具的母版），並在 metadata 設 scene_master_disabled=true 確認後即不再警告。")
+
     # Check 7c（#58）：同段多個說話人露臉 → 警告；使用者接受後設 metadata.accepted_mixed_face=true
     _spk = []
     for s in shots:
