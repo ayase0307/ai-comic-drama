@@ -13,6 +13,8 @@ from typing import Any, Dict, List, Optional, Set
 
 from check_continuity import audit_continuity
 from estimate_duration import estimate_script_duration
+from event_coverage import analyze_event_coverage
+from series_format import LONGFORM, SHORT_EPISODE_DEFAULT_SECONDS, project_format
 from validate_structure import parse_and_validate_script
 
 # 非爽文題材中禁止強行植入的狗血打臉套路黑名單詞彙
@@ -38,6 +40,7 @@ def evaluate_adaptation(
     bible_data: Optional[Dict[str, Any]] = None,
     target_episode: Optional[str] = None,
     h3_mode: bool = False,
+    series_format: str = LONGFORM,
 ) -> Dict[str, Any]:
     """對改編成果執行原著對帳、四大退稿閘門檢測與 100 分制量化評分。支援多集合併與單集過濾。"""
     errors: List[str] = []
@@ -53,11 +56,17 @@ def evaluate_adaptation(
         if matched_eps:
             episodes = matched_eps
 
+    # 長篇漫劇（預設）沒有單集秒數：只有 handoff 明寫了目標／已接受秒數才做預算比對。
+    # 短劇短集（使用者明確選擇）缺目標時沿用 90 秒單集預設。
     target_sec = None
     if episodes:
-        target_sec = sum((ep.get("accepted_duration_seconds") or ep.get("target_duration_seconds", 90)) for ep in episodes)
+        default_ep = SHORT_EPISODE_DEFAULT_SECONDS if series_format == "short" else None
+        per_ep = [ep.get("accepted_duration_seconds") or ep.get("target_duration_seconds") or default_ep for ep in episodes]
+        if all(per_ep):
+            target_sec = sum(per_ep)
 
-    dur_res = estimate_script_duration(script_text, genre_mode=genre_mode, target_seconds=target_sec, h3_mode=h3_mode)
+    dur_res = estimate_script_duration(script_text, genre_mode=genre_mode, target_seconds=target_sec,
+                                       h3_mode=h3_mode, series_format=series_format)
     cont_res = (
         audit_continuity(bible_data, handoff_data, script_text)
         if bible_data
@@ -242,7 +251,18 @@ def evaluate_adaptation(
         "errors": errors,
         "warnings": warnings,
         "h3_audit": dur_res.get("h3_audit"),
+        "series_format": series_format,
+        # 事件交代完整性（只給審核看，不改變上面的分數與閘門）
+        "event_coverage": analyze_event_coverage(
+            {**source_data, "story_units": source_units}, [{"episodes": episodes}]),
     }
+
+
+def _project_root(path: Path) -> Optional[Path]:
+    for parent in path.resolve().parents:
+        if (parent / "decisions.json").exists() or (parent / "project.md").exists():
+            return parent
+    return None
 
 
 def main() -> int:
@@ -265,6 +285,8 @@ def main() -> int:
     parser.add_argument("--bible", type=str, default=None, help="選填：Story Bible JSON 路徑")
     parser.add_argument("--episode", type=str, default=None, help="選填：指定單集代號（例如 EP01）以進行單集過濾驗收")
     parser.add_argument("--h3", action="store_true", help="開啟 H3 漫劇台詞預算嚴格檢查（4字/秒、單句≤15字、說話秒數佔比≤60%%）")
+    parser.add_argument("--format", choices=["longform", "short"], default=None, dest="series_format",
+                        help="成片形式（預設讀專案 decisions.json 的 series_format，沒有就是 longform 長篇漫劇）")
     parser.add_argument("--json", action="store_true", help="輸出 JSON 格式")
     args = parser.parse_args()
 
@@ -324,6 +346,7 @@ def main() -> int:
         bible_data=bible_data,
         target_episode=args.episode,
         h3_mode=args.h3,
+        series_format=args.series_format or project_format(_project_root(Path(args.source))),
     )
 
     if args.json:
@@ -354,6 +377,12 @@ def main() -> int:
                 f"說話時長佔比: {h3['speech_ratio']:.1%} (上限 60.0%) | 最長單句: {h3['max_line_chars']} 字 (上限 15 字)"
             )
 
+        cov = res["event_coverage"]
+        if cov["needs_decision"]:
+            print(f"【事件交代完整性】{len(cov['needs_decision'])}/{cov['event_count']} 個事件未確認完整交代（交代不全／未標註／被壓縮／被跳過），"
+                  f"需使用者決定：{', '.join(cov['needs_decision'])}（詳見 event_coverage.py）")
+        else:
+            print(f"【事件交代完整性】{cov['event_count']} 個事件都已完整交代或依分級處理")
         print("各維度得分明細:")
         for k, v in res["dimension_scores"].items():
             print(f"  - {k}: {v}")

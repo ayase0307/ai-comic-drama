@@ -26,12 +26,13 @@
 
 | | |
 |---|---|
+| 📖 **預設長篇漫劇：把故事講清楚** | 預設整部一支連續長片，每個原著關鍵事件都交代起因→經過→結果（含動機、時地轉換），不以每集秒數壓縮事件；`event_coverage.py` 逐條對帳，被壓縮／跳過的事件在階段 1 交你決定。短劇／竪屏爆款短集（1–2 分鐘、強鉤子）改為你明確選擇才啟用（`--format short`、`h3d decide series_format short`）。 |
 | 🧩 **分層工作流程** | 文字規劃可獨立完成；圖片與影片生成依目前 Agent 工具或可用後端，不假設內建影片能力。 |
 | 🧭 **單一入口 `h3d`** | `h3d doctor／compile／submit／collect／resume／qa／deps／catalog／ack／status`：一條指令走完產線，`status` 一次看階段門禁、依賴帳本、送件帳本與失敗目錄。 |
 | 📑 **小說切章與 6 重清洗** | `extract_chapter.py` 大檔目錄掃描（`--list`）、單章抽取與 Pandoc 6 重自動清洗。 |
-| ⏱️ **台詞預算與 H3 實戰審計** | `estimate_duration.py` Unicode P 類別統一計字、`--novel` 體量反推門禁（四大台詞政策試算）與 `--h3` 實戰台詞預算審計（4字/秒、單句 ≤15 字、說話佔比 ≤60%）。 |
+| ⏱️ **台詞預算與 H3 實戰審計** | `estimate_duration.py` Unicode P 類別統一計字、`--events` 依事件數與交代需求估總片長、`--novel` 體量反推（四大台詞政策試算；短劇模式才有單集門禁）與 `--h3` 實戰台詞預算審計（4字/秒、單句 ≤15 字、說話佔比 ≤60%）。 |
 | 📝 **劇本 HTML 註解與雙向同步** | `sync_script.py` 支援 Markdown 註解元數據注入、從零建立 handoff、多場景自動擴展與 `--prune-extra` 修剪。 |
-| ⚖️ **單章拆多集跨集驗收** | `compare_adaptation.py` 支援 `--episode` 單集過濾與多檔合併總體驗收，連動 `--h3`。 |
+| ⚖️ **改編對帳與（選用）跨集驗收** | `compare_adaptation.py` 附事件交代完整性摘要；使用者要求分集時支援 `--episode` 單集過濾與多檔合併總體驗收，連動 `--h3`。 |
 | 🎬 **分段級導演分鏡** | 可由約 10s / 3 鏡作為起點；依內容調整，含焦距物距、動作表演與 `INDEPENDENT_REF2VA` 連戲錨點。 |
 | 🖼️ **構圖審核** | Qwen 分鏡總覽圖為可用選項；手繪或其他工具輸出的 shot 對應 PNG 也可使用同一審核門。 |
 | 🧱 **免生圖構圖分鏡總覽圖** | `h3d sketch` 用 2.5D 相機＋3D 人偶直接算出每鏡構圖，**0 次生圖 API**；依景別取景、過肩貼肩、畫左／畫右跟著 180 度線走，回寫 `sketch_file` 走同一個 stage-4 門禁。 |
@@ -69,7 +70,9 @@ python scripts/h3d.py status --root . # 階段門禁／依賴帳本／送件帳�
 
 把要處理的原稿放入新專案的 `source/` 後，再對 Agent 說：
 
-> 「幫我把這篇小說改編成 12 集、每集 90 秒的漫劇，畫風 3D 國漫，9:16，台詞只留重點句，到分鏡圖。」
+> 「幫我把這篇小說改編成長篇漫劇，每個事件都要講清楚，畫風 3D 國漫，16:9，台詞只留重點句，到分鏡圖。」
+
+預設就是長篇漫劇（整部一支連續長片）；想做短劇／竪屏爆款短集時要明講，例如「做成 12 集、每集 90 秒的竪屏短劇」。
 
 Agent 會依你指定的交付範圍開始工作，沿用已提供的 brief、工具與參數；只詢問會阻礙當前工作的必要缺項。純文字劇本或分鏡可獨立交付，不必生成圖片或影片。
 
@@ -79,7 +82,8 @@ Agent 會依你指定的交付範圍開始工作，沿用已提供的 brief、�
 
 ```powershell
 # 1. 建立專案骨架（自動產生 adapt/source.json 與 adapt/bible.json）
-python scripts/init_project.py my-drama --title "我的漫劇" --episodes 12
+python scripts/init_project.py my-drama --title "我的漫劇"
+# 預設長篇漫劇（不分集）；短劇短集要明確選：--format short --episodes 12 --episode-seconds 90
 # 在 repo 根目錄執行；init_project 只建立專案資料夾，不會把 scripts 複製進去
 $skillRoot = (Resolve-Path .).Path
 Set-Location my-drama
@@ -88,7 +92,9 @@ python "$skillRoot/scripts/run_offline_checks.py"
 # 先把原稿放入專案 source/；再掃描目錄並抽取所需章節
 python "$skillRoot/scripts/adapt/extract_chapter.py" --input source/novel.txt --list
 python "$skillRoot/scripts/adapt/extract_chapter.py" --input source/novel.txt --volume 1 --chapter 1 --output source/ch01.txt
-python "$skillRoot/scripts/adapt/estimate_duration.py" --novel --novel-file source/ch01.txt --target-seconds 90
+python "$skillRoot/scripts/adapt/estimate_duration.py" --novel --novel-file source/ch01.txt
+python "$skillRoot/scripts/adapt/estimate_duration.py" --events adapt/source.json   # 依事件交代需求估總片長
+python "$skillRoot/scripts/adapt/event_coverage.py" --project-dir . --out adapt/event-coverage.md   # 事件交代完整性
 
 # 2. 劇本 HTML 註解同步回寫 handoff 與 H3 台詞審計
 python "$skillRoot/scripts/adapt/sync_script.py" --handoff handoff-ep01.json --script script-ep01.md --prune-extra
@@ -158,7 +164,7 @@ python "$skillRoot/scripts/storyboard/assemble_episode.py" --segments segments-e
 | 階段 | 做什麼 | 產出 |
 |---|---|---|
 | 0 定調 | 依交付範圍確認題材、比例、聲音與必要片長；沿用已提供資料 | `project.md`、選用的規劃文件 |
-| 1 改編 | 小說目錄掃描與單章清洗抽取（`extract_chapter.py`）、保留分級、A/B/C 方案、分集架構、跨集驗收（`compare_adaptation.py --episode`） | 故事地圖、分集大綱 |
+| 1 改編 | 小說目錄掃描與單章清洗抽取（`extract_chapter.py`）、保留分級、**事件交代完整性**（`event_coverage.py`）、A/B/C 方案、段落架構（使用者要求才分集）、跨集驗收（`compare_adaptation.py --episode`） | 故事地圖、分集大綱 |
 | 2 資產與設定圖 | 若目標包含設定圖，使用實際可用且已選擇的工具；維護資產參考 | `assets.md`、可選設定板 |
 | 3 漫劇劇本 | 場景化改寫、時長與台詞預算審計（`estimate_duration.py --h3`）、HTML 註解元數據注入、交接 JSON、人工審核鎖（`sync_script.py`） | `script-ep01.md`、`handoff-ep01.json`、`adaptation-diff.md` |
 | 4 導演分鏡 | **分段級分鏡（預設 10s/3 鏡，`handoff_to_skeleton.py`）**、焦距物距、**動作力學三要素**、`INDEPENDENT_REF2VA` 四大錨點、構圖審核（免生圖 SVG／Qwen 鉛筆分鏡總覽圖／手繪） | `layer2/*.json`、`storyboard-ep01.md`、`grid-*.png` |
@@ -288,7 +294,7 @@ ai-comic-drama/
 
 ```
 <專案名>/
-├── project.md              # 定調 + 分集規劃
+├── project.md              # 定調 + 成片形式 + 事件清單／段落規劃
 ├── source/  adapt/         # 原著與改編中間產物（source.json、bible.json、故事地圖）
 ├── assets.md               # 風格錨 + 角色 / 場景 / 道具 / 音色聖經
 ├── script-ep01.md          # 漫劇劇本
@@ -339,7 +345,7 @@ ai-comic-drama/
 - 單段最長約 60 秒，更長的自動接續；也能生成圖片、抽影格、問視覺模型畫面內容
 
 **為什麼要搭配它**
-- 本技能負責「想清楚」：分集、角色、分鏡、提示詞；FreeVideo 負責「做出來」。接上之後 Agent 能從分鏡一路做到成片，不必你手動搬提示詞、下載、剪接。
+- 本技能負責「想清楚」：改編與事件交代、角色、分鏡、提示詞；FreeVideo 負責「做出來」。接上之後 Agent 能從分鏡一路做到成片，不必你手動搬提示詞、下載、剪接。
 - 吃官方 H3 提示詞格式，`prompts-ep01.md` 寫好就能直接送，不用再轉寫。
 - 在本機跑，沒有額度與排隊費用，素材不離開你的電腦。
 - 角色卡讓「角色一致」從靠貼描述片段，升級成直接沿用角色圖。

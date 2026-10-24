@@ -6,7 +6,7 @@
 
 | lens | 類型 | 接入的階段 | 腳本 |
 |---|---|---|---|
-| `ai-drama-hit-method` | 主題（AI 漫劇爆款方法論） | 0 定調、1 改編、3 劇本 | `scripts/craft/hit_review.py` |
+| `ai-drama-hit-method` | 主題（AI 漫劇爆款方法論）；**只在短劇短集模式使用**（長篇漫劇預設下報告會標「僅供參考」） | 0 定調、1 改編、3 劇本 | `scripts/craft/hit_review.py` |
 | `araki-manga-craft` | 人物（荒木飛呂彥） | 2 資產、3 劇本 | `scripts/craft/araki_review.py` |
 | `mckee-scene` | 人物（Robert McKee） | 3 劇本（`script-review-epXX.md`） | `scripts/craft/mckee_review.py` |
 | `mccloud-panels` | 人物，薄版（Scott McCloud） | 4 分鏡 | `scripts/craft/mccloud_review.py` |

@@ -184,6 +184,13 @@ def parse_and_validate_script(script_text: str) -> Dict[str, Any]:
                 if mk_m:
                     mks = _extract_ids(mk_m.group(1))
                     current_scene.setdefault("must_keep_ids", []).extend(mks)
+                # 事件交代要素：<!-- exposition: U01 起因 經過 結果 -->（供 event_coverage.py 對帳）
+                ex_m = re.match(r"^exposition[：:]\s*(\S+)\s*[|｜]?\s*(.*)$", c_text, re.IGNORECASE)
+                if ex_m:
+                    beats = [b for b in re.split(r"[\s,，、/／|｜]+", ex_m.group(2)) if b]
+                    expo = current_scene.setdefault("event_exposition", {})
+                    expo.setdefault(ex_m.group(1), [])
+                    expo[ex_m.group(1)].extend(b for b in beats if b not in expo[ex_m.group(1)])
                 chg_m = re.match(r"^change[：:]\s*(.+)$", c_text, re.IGNORECASE)
                 if chg_m:
                     current_scene.setdefault("adaptation_changes", []).append(

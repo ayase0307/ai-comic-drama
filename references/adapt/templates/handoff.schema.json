@@ -114,7 +114,6 @@
         "required": [
           "episode_id",
           "title",
-          "target_duration_seconds",
           "episode_goal",
           "act_out_type",
           "scenes"
@@ -125,7 +124,11 @@
             "pattern": "^EP[0-9]{2,3}$"
           },
           "title": { "type": "string" },
-          "target_duration_seconds": { "type": "integer", "minimum": 15 },
+          "target_duration_seconds": {
+            "type": "integer",
+            "minimum": 15,
+            "description": "選填。短劇短集模式（使用者明確選擇）才需要的單集目標秒數；長篇漫劇（預設）不設單集秒數，片長由事件交代需求決定。"
+          },
           "accepted_duration_seconds": { "type": "integer", "minimum": 15 },
           "episode_goal": { "type": "string" },
           "obstacle": { "type": "string" },
@@ -196,6 +199,11 @@
                 "scene_id": {
                   "type": "string",
                   "pattern": "^EP[0-9]{2,3}-S[0-9]{2}$"
+                },
+                "event_exposition": {
+                  "type": "object",
+                  "description": "選填。這場戲替哪個原著事件交代了哪些要素，例：{\"U01\": [\"起因\", \"經過\"]}；供 scripts/adapt/event_coverage.py 檢查事件交代完整性。",
+                  "additionalProperties": { "type": "array", "items": { "type": "string" } }
                 },
                 "source_refs": {
                   "type": "array",

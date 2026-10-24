@@ -32,5 +32,108 @@
     "max_line_chars": 20,
     "passed": false
   },
+  "series_format": "longform",
+  "event_coverage": {
+    "status": "WARN",
+    "event_count": 3,
+    "has_adaptation": true,
+    "counts": {
+      "full": 0,
+      "partial": 0,
+      "unverified": 1,
+      "compressed": 1,
+      "skipped": 1,
+      "missing": 0
+    },
+    "must_keep_missing": [],
+    "needs_decision": [
+      "ch02:u1_main"
+    ],
+    "events": [
+      {
+        "order": 1,
+        "unit_id": "ch02:u1_main",
+        "summary": "趙坤逼林澈交出礦場帳冊",
+        "grade": "MUST_KEEP",
+        "required_beats": [
+          "起因",
+          "經過",
+          "結果"
+        ],
+        "covered_beats": [],
+        "missing_beats": [
+          "起因",
+          "經過",
+          "結果"
+        ],
+        "scenes": [
+          "EP01-S01"
+        ],
+        "estimated_seconds": 18.5,
+        "changes": [
+          "must_keep"
+        ],
+        "status": "unverified",
+        "status_label": "❔ 未標註交代要素",
+        "planned_by_grade": false,
+        "needs_decision": true,
+        "reason": "場景有引用，但沒標註 event_exposition，請確認起因／經過／結果是否都演到"
+      },
+      {
+        "order": 2,
+        "unit_id": "ch02:u2_sub_tea",
+        "summary": "路人茶博士閒聊南城米價上漲三成",
+        "grade": "REMOVE",
+        "required_beats": [
+          "起因",
+          "經過",
+          "結果"
+        ],
+        "covered_beats": [],
+        "missing_beats": [
+          "起因",
+          "經過",
+          "結果"
+        ],
+        "scenes": [],
+        "estimated_seconds": 0.0,
+        "changes": [
+          "remove"
+        ],
+        "status": "skipped",
+        "status_label": "⛔ 被刪除／跳過",
+        "planned_by_grade": true,
+        "needs_decision": false,
+        "reason": "改編稿刪除／跳過這個事件（原著分級即為刪除）"
+      },
+      {
+        "order": 3,
+        "unit_id": "ch02:u3_sub_henchman",
+        "summary": "小嘍囉甲與小嘍囉乙分別威脅林澈",
+        "grade": "MERGE",
+        "required_beats": [
+          "起因",
+          "經過",
+          "結果"
+        ],
+        "covered_beats": [],
+        "missing_beats": [
+          "起因",
+          "經過",
+          "結果"
+        ],
+        "scenes": [],
+        "estimated_seconds": 0.0,
+        "changes": [
+          "merge"
+        ],
+        "status": "compressed",
+        "status_label": "🟧 被壓縮／合併",
+        "planned_by_grade": true,
+        "needs_decision": false,
+        "reason": "改編稿把這個事件壓縮或合併（原著分級即為壓縮／合併）"
+      }
+    ]
+  },
   "schema_errors": []
 }

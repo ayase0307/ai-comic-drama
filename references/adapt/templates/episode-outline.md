@@ -2,7 +2,9 @@
 
 - **集數 ID**：`{{episode_id}}`｜`{{episode_title}}`
 - **題材模式**：`{{genre_mode}}`｜**畫幅**：`{{aspect_ratio}}`｜**載體**：`{{target_medium}}`
-- **目標時長**：`{{target_seconds}}` 秒（允許區間：`{{min_allowed}}`–`{{max_allowed}}` 秒）
+- **長度**：長篇漫劇（預設）不設目標秒數，由本段／本集要交代的事件決定（`estimate_duration.py --events`）；
+  短劇短集模式（使用者明確選擇）才填：`{{target_seconds}}` 秒（允許區間：`{{min_allowed}}`–`{{max_allowed}}` 秒）
+- **本段／本集完整交代的事件**：`{{unit_ids}}`（每個都要有起因 → 經過 → 結果）
 
 ---
 

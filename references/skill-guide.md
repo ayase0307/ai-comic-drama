@@ -25,7 +25,9 @@
 
 ## 核心原則
 
-0. **小說不得直接當劇本用。** 吃進小說一律先走階段 1 改編（保留分級、A/B/C 方案、分集、因果債務），再改寫成漫劇劇本；原稿已是劇本或原創梗概才可略過解析。規範見 `references/adapt/novel-to-manju.md`。
+> **成片形式預設＝長篇漫劇。** 把故事講清楚是第一優先：每個原著關鍵事件都要交代起因→經過→結果（含動機、因果、時地轉換），不以每集秒數壓縮事件；預設不分集，整部一支連續長片，使用者明確要求才分集（每集＝完整劇情單元）。短劇／竪屏爆款短集（1–2 分鐘、強鉤子）是 opt-in（`h3d decide series_format short`），`ai-drama-hit-method` lens 只在短劇模式使用。規範見 `references/adapt/structure-and-pacing.md` §零。
+
+0. **小說不得直接當劇本用。** 吃進小說一律先走階段 1 改編（保留分級、事件交代完整性、A/B/C 方案、段落架構（使用者要求才分集）、因果債務），再改寫成漫劇劇本；原稿已是劇本或原創梗概才可略過解析。規範見 `references/adapt/novel-to-manju.md`。
 1. **先確認交付範圍與已知資料。** 確認使用者要劇本、分鏡、提示詞、圖片或成片；沿用已提供的 brief、模型與參數，不重問。只有缺少且會阻礙當前交付的決策才詢問。台詞政策與原文體量估算依改編範圍選用，不強加到純分鏡請求。
 2. **一致性靠登記、參考鏈與驗收。** 可用角色／服裝／場景／道具 ID、固定描述與設定圖追蹤資產。沿用已選的生圖工具；若需換工具，先將候選輸出與已核准素材並排比較風格，再交使用者核准。設定板與分鏡構圖可由已連線的 Qwen、手繪或其他圖像工具提供；逐格需能對應 shot，並通過同一 stage-4 review。
 3. **先分鏡，後生成。** 分鏡走導演分鏡體系（`references/storyboard/cinematic-director.md`），焦距與物距成對寫。使用者只要文字分鏡時，分鏡 draft 本身即可交付，不要求出圖或影片；若要進入 H3 編譯，依 stage-4 gate 提供每鏡對應構圖圖並完成人工審核。
@@ -59,7 +61,7 @@
 | 階段 | 做什麼 | 產出與驗證門禁 | HTML 審核介面 |
 |---|---|---|---|
 | 0 定調 | 鎖定題材、載體、畫風錨、比例、**台詞政策（4選1）與體量反推秒數門禁**（`estimate_duration.py --novel`、`init_project.py`） | `project.md`、`adapt/source.json`、`adapt/bible.json` | `review/stage-0-intake.html` |
-| 1 改編 | 小說目錄清洗（`extract_chapter.py`）、**角色設定 v4 十一大章節**（`validate_character_bible.py`）、保留分級、分集架構 | `adapt/character-bible.md`、故事地圖、`series-outline` | `review/stage-1-adaptation.html` |
+| 1 改編 | 小說目錄清洗（`extract_chapter.py`）、**角色設定 v4 十一大章節**（`validate_character_bible.py`）、保留分級、**事件交代完整性**（`event_coverage.py`）、段落架構（預設長篇不分集） | `adapt/character-bible.md`、故事地圖、`series-outline` | `review/stage-1-adaptation.html` |
 | 2 資產與設定圖 | 故事聖經→`assets.md`、**生圖工具詢問推薦（Codex CLI）與跨章節鎖定**、**生物純底設定圖**、**演員表主角優先排序** | `assets.md`、`images/` 設定板、**缺圖紅框攔截** | `review/stage-2-assets.html`（表格與圖片左右並排對照） |
 | 3 漫劇劇本 | 場景化改寫、時長與台詞預算審計（`estimate_duration.py --h3`）、HTML 註解元數據注入、交接 JSON、人工審核鎖（`sync_script.py`） | `script-ep01.md`、`handoff-ep01.json`、`adaptation-diff.md` | `review/stage-3-script.html` |
 | 4 導演分鏡 | 依內容編排分段、焦距物距與動作；需要構圖審核時可用 Qwen 分鏡總覽圖、手繪或其他圖像工具 | `layer2/*.json`、`storyboard-ep01.md`、選用的對應 PNG | `review/stage-4-storyboard.html`（進 H3 編譯前需對應圖與人工核准） |
@@ -73,7 +75,7 @@
 
 ```
 <專案名>/
-├── project.md              # 定調 + 分集規劃
+├── project.md              # 定調 + 成片形式 + 事件清單／段落規劃
 ├── source/                 # 專案原稿；送往外部工具時依工具資料處理方式確認
 ├── adapt/                  # 改編中間產物（character-bible.md、source.json、bible.json、故事地圖）
 ├── assets.md               # 風格錨 + 角色 / 場景 / 道具 / 音色聖經（ID、固定片段）

@@ -8,7 +8,7 @@ build_stage_review.py — 八階段強制斷點狀態機與高設計感 HTML 視
 2. 維護專案根目錄下的 `project-state.json`，防止 Agent 私自跳關（例如從階段 2 資產圖跳過階段 4 分鏡總覽圖直接跑去階段 6 生影片）。
 3. 針對階段 0～7 產出 Cinema Editorial Studio 級別之互動式 HTML 審核頁面 (`review/stage-{0..7}.html`)：
    - 階段 0 (`stage-0-intake.html`)：專案定調、體量反推試算與風格色票儀表板
-   - 階段 1 (`stage-1-adaptation.html`)：《完整角色設定文件 v4.0》十一章節完整卡片 + 故事地圖與分集大綱
+   - 階段 1 (`stage-1-adaptation.html`)：《完整角色設定文件 v4.0》十一章節完整卡片 + 故事地圖、事件交代完整性表與段落／分集大綱
    - 階段 2 (`stage-2-assets.html`)：【核心重點】角色設定表格 × 產出設定圖片 左右並排（Side-by-Side）審核藝廊（含 Lightbox 全螢幕放大、缺圖紅燈攔截）
    - 階段 3 (`stage-3-script.html`)：漫劇劇本 × 原著對照 × H3 台詞預算進度條審核台
    - 階段 4 (`stage-4-storyboard.html`)：【必經斷點】黑白分鏡分鏡總覽圖/單格構圖 × 導演分鏡表（含動作力學三要素與綁定服裝圖縮圖）並排確認台
@@ -72,13 +72,15 @@ for p in (SCRIPTS_DIR, ADAPT_DIR, STORYBOARD_DIR):
         sys.path.insert(0, str(p))
 
 from validate_character_bible import parse_character_blocks, validate_character_bible  # noqa: E402
+from event_coverage import project_coverage, render_markdown as render_event_coverage_md  # noqa: E402
+from series_format import LABELS as SERIES_FORMAT_LABELS, SHORT, project_format  # noqa: E402
 
 
 STAGE_META: Dict[int, Dict[str, str]] = {
     0: {"slug": "intake", "name": "階段 0｜專案定調與體量試算", "short": "0 定調", "file": "stage-0-intake.html"},
     1: {"slug": "adaptation", "name": "階段 1｜原著改編與完整角色設定 v4", "short": "1 改編與角色聖經", "file": "stage-1-adaptation.html"},
     2: {"slug": "assets", "name": "階段 2｜角色設定表 × 核心資產圖並排審核", "short": "2 資產設定圖", "file": "stage-2-assets.html"},
-    3: {"slug": "script", "name": "階段 3｜分集漫劇劇本與台詞預算審計", "short": "3 漫劇劇本", "file": "stage-3-script.html"},
+    3: {"slug": "script", "name": "階段 3｜漫劇劇本與台詞預算審計", "short": "3 漫劇劇本", "file": "stage-3-script.html"},
     4: {"slug": "storyboard", "name": "階段 4｜導演分鏡表 × 分鏡總覽圖草圖構圖確認", "short": "4 分鏡總覽圖", "file": "stage-4-storyboard.html"},
     5: {"slug": "prompts", "name": "階段 5｜H3 六段式提示詞與參考圖綁定對帳", "short": "5 提示詞包", "file": "stage-5-prompts.html"},
     6: {"slug": "videos", "name": "階段 6｜分段影片 × 分鏡總覽圖 × 設定圖並排驗收", "short": "6 影片生成驗收", "file": "stage-6-videos.html"},
@@ -1361,7 +1363,9 @@ def render_budget(rows: List[Dict[str, Any]], legend: str) -> str:
         else:
             drift = (total - tgt) / tgt
             if lo > tgt * (1 + DURATION_BAND) if r.get("range") else drift > DURATION_BAND:
-                cls, tip = "over", "超出目標：確認是否為因果需要；若是，考慮於場次邊界拆成上下集，而非壓縮分鏡"
+                cls, tip = "over", ("超出目標：確認是否為因果需要；若是，考慮於場次邊界拆成上下集，而非壓縮分鏡"
+                                    if r.get("short") else
+                                    "超出原估：長篇模式以把事件交代清楚為先，多出的若是交代鏡頭就接受實際長度，不為秒數壓縮事件")
             elif hi < tgt * (1 - DURATION_BAND) if r.get("range") else drift < -DURATION_BAND:
                 cls, tip = "under", "低於目標：確認是否漏掉因果交代或收尾留白"
             else:
@@ -1461,14 +1465,18 @@ def build_stage_0(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
         ("原著目錄", f"{len(list((project_dir / 'source').glob('*')))} 個檔案" if (project_dir / "source").exists() else "無", "cyan"),
     ]
     body = f'<section class="section-panel">{render_markdown_block(text)}</section>'
+    fmt = project_format(project_dir)
+    kpis.append(("成片形式", "短劇短集（使用者選擇）" if fmt == SHORT else "長篇漫劇（預設）", "gold"))
     checklist = [
+        f"已確認成片形式：{SERIES_FORMAT_LABELS[fmt]}（短劇短集只在使用者明確要求時啟用）",
         "已確認台詞政策（① 100%保留 / ② 只留重點句 / ③ 改寫影視對白 / ④ 純旁白）",
-        "已執行 `estimate_duration.py --novel` 完成原文體量反推片長與集數配置",
+        ("已執行 `estimate_duration.py --novel` 完成原文體量反推片長與集數配置" if fmt == SHORT else
+         "已執行 `estimate_duration.py --novel`／`--events` 依原著體量與事件交代需求估出整部總長（不以集數 × 固定秒數估算）"),
         "已鎖定全劇唯一畫風錨點（style_anchor）與畫面比例（aspect_ratio）",
     ]
     html_out = wrap_studio_html(
         project_dir, 0, state,
-        "檢視集數、每集目標秒數、台詞政策與原文體量反推公式試算結果。",
+        "檢視成片形式（預設長篇漫劇）、台詞政策與原文體量反推公式試算結果。",
         kpis, body, checklist
     )
     return len(errors) == 0, errors, html_out
@@ -1508,23 +1516,39 @@ def build_stage_1(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
             '</section>'
         )
 
+    coverage = project_coverage(project_dir) if source_json_path.exists() else None
+    coverage_html = ""
+    if coverage is not None:
+        coverage_html = (
+            '<section class="section-panel" id="event-coverage">'
+            '<h2 class="md-h2">🧩 事件交代完整性（請逐條決定被壓縮／跳過／交代不全的事件）</h2>'
+            f'{render_markdown_block(render_event_coverage_md(coverage).split(chr(10), 2)[-1])}'
+            '</section>'
+        )
+
     kpis = [
         ("角色設定深層審查", "PASS" if val_res["passed"] else "FAIL", "emerald" if val_res["passed"] else "rose"),
         ("核心與重要配角數", f"{val_res['character_count']} 位", "gold"),
         ("原著事件單元數", f"{unit_count} 個單元", "cyan"),
     ]
+    if coverage is not None:
+        pending = len(coverage["needs_decision"])
+        kpis.append(("事件交代待決定", f"{pending} / {coverage['event_count']} 個事件",
+                     "rose" if coverage["must_keep_missing"] else ("gold" if pending else "emerald")))
     toc_entries: List[Tuple[int, str, str]] = []
     doc_html = render_markdown_block(md_text, fold=True, toc=toc_entries, id_prefix="bible")
     body = (
         f'<div class="doc-layout">{toc_html(toc_entries, "角色設定目錄")}'
         f'<section class="section-panel doc-body">{doc_html}</section></div>'
         f'{source_html}'
+        f'{coverage_html}'
     )
     checklist = [
         "《完整角色設定文件 v4.0》已包含全部 11 大章節，且每位角色皆有表深層性格、能力、弧光、金句與原著 `(Lxxx)` 行號依據",
         "已跨章節查證所有登場角色的真實中文姓名（如瑪蓮、奇雅、賴一心），無自創英文代號或張冠李戴",
         "每位角色的「視覺與服裝狀態機」已明確區分不同日夜/場次的服裝設定圖路徑",
-        "原著事件保留分級與分集架構已確認無誤",
+        "原著事件保留分級與成片形式已確認無誤（預設長篇漫劇整部一支連續長片；只有使用者要求才分集，且依完整劇情單元切）",
+        "已逐條檢視「事件交代完整性」表：每個關鍵事件都交代了起因→經過→結果（含動機、時地轉換）；被壓縮／跳過／交代不全的事件已由使用者決定補鏡頭或接受",
     ]
     html_out = wrap_studio_html(
         project_dir, 1, state,
@@ -1896,14 +1920,15 @@ def build_stage_3(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
     predicted = predicted_skeleton_seconds(project_dir)
     for eid, t in episode_targets(project_dir).items():
         mid = (t["est_min"] + t["est_max"]) / 2
-        row = {"label": eid, "target": t["target"], "accepted": t["accepted"], "estimated": True}
+        row = {"label": eid, "target": t["target"], "accepted": t["accepted"], "estimated": True,
+               "short": project_format(project_dir) == SHORT}
         if predicted.get(eid):
             budget_rows.append({**row, "parts": [(f"{eid} 預測分鏡", round(predicted[eid], 1))]})
         elif mid:
             budget_rows.append({**row, "parts": [(f"{eid} 預估中位數", round(mid, 1))], "range": (t["est_min"], t["est_max"])})
     budget = render_budget(
         budget_rows,
-        "斜紋＝依骨架估時預測的分鏡總長（與階段 4 同一套算法，台詞 ÷ 4 字/秒、動作拍 2.5s），這只是骨架下限，導演細化後通常更長（《噩盡島》骨架約 81–94s，細化後 129–185s）。超出目標不算錯：請在此決定接受（寫入 accepted_duration_seconds）、於場次邊界拆集，或回頭刪去非因果內容。",
+        "斜紋＝依骨架估時預測的分鏡總長（與階段 4 同一套算法，台詞 ÷ 4 字/秒、動作拍 2.5s），這只是骨架下限，導演細化後通常更長（《噩盡島》骨架約 81–94s，細化後 129–185s）。超出目標不算錯：長篇漫劇（預設）以把事件交代清楚為先，接受實際長度（寫入 accepted_duration_seconds）或只刪冗餘；短劇短集模式才考慮於場次邊界拆集。",
     )
     body = budget + f'<div class="side-by-side-list">{"".join(sbs_items)}</div>'
     checklist = [
@@ -2088,8 +2113,9 @@ def build_stage_4(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
         by_ep.setdefault(eid, []).append((str(seg_id), _num(d.get("metadata", {}).get("target_duration_sec"))))
     targets = episode_targets(project_dir)
     budget = render_budget(
-        [{"label": eid, "target": targets.get(eid, {}).get("target", 0), "accepted": targets.get(eid, {}).get("accepted", False), "parts": parts} for eid, parts in sorted(by_ep.items())],
-        "每個色塊是一個分段（寬度＝秒數），虛線＝目標（已接受則為接受秒數）。分鏡後變長是正常的；若明顯超出，請在此決定：接受、於場次邊界拆集，或刪去非因果鏡頭。",
+        [{"label": eid, "target": targets.get(eid, {}).get("target", 0), "accepted": targets.get(eid, {}).get("accepted", False),
+          "short": project_format(project_dir) == SHORT, "parts": parts} for eid, parts in sorted(by_ep.items())],
+        "每個色塊是一個分段（寬度＝秒數），虛線＝目標（已接受則為接受秒數）。分鏡後變長是正常的；長篇漫劇以事件交代清楚為先，明顯超出時只刪冗餘或接受實際長度，不刪事件交代鏡頭（短劇短集模式才考慮拆集）。",
     )
     body = budget + grid_gallery_html + f'<div class="side-by-side-list">{"".join(seg_cards)}</div>'
     checklist = [

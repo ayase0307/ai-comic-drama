@@ -2,7 +2,12 @@
 """建立 AI 漫劇專案骨架（新流程：改編 → 資產 → 劇本 → 分鏡）。
 
 用法：
-    python init_project.py <專案目錄> [--title 專案名] [--episodes 集數]
+    python init_project.py <專案目錄> [--title 專案名]                       # 預設：長篇漫劇，整部一支連續長片
+    python init_project.py <專案目錄> --episodes 3                           # 使用者明確要求分集（依完整劇情單元切）
+    python init_project.py <專案目錄> --format short --episodes 12 --episode-seconds 90   # 短劇短集（使用者明確選擇）
+
+成片形式預設＝長篇漫劇：以「把故事講清楚」為第一優先，每個原著事件都交代起因→經過→結果，
+不以每集秒數上限壓縮事件；短劇短集（1–2 分鐘、強鉤子）只有使用者明確選擇才用。
 
 目錄結構：
     project.md、assets.md
@@ -22,15 +27,19 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 from pathlib import Path
 
 from decisions import empty_decisions
 from project_state import initial_state, save_state
 
+sys.path.insert(0, str(Path(__file__).resolve().parent / "adapt"))
+from series_format import LONGFORM, SHORT, SHORT_EPISODE_DEFAULT_SECONDS  # noqa: E402
+
 PROJECT_TEMPLATE = """# {title}
 
 ## 設定
-- 集數 / 每集時長：{episodes} 集 / 90 秒
+- 成片形式：{format_line}
 - 畫風：
 - aspect_ratio：<9:16 | 16:9 | 1:1，與 h3d decide aspect_ratio 定案一致>
 - 語言：繁體中文
@@ -43,12 +52,32 @@ PROJECT_TEMPLATE = """# {title}
 - source_rights：<原著版權來源與授權說明，未確認就寫 unconfirmed 與待辦>
 - 風格錨點 ID：STYLE-<slug>（對應 assets.md 的 style_anchor 行）
 - 台詞政策：<① 100%逐字保留／② 只留重點句／③ 全改影視對白／④ 無台詞純旁白>
-- 原文體量反推試算：<原著對白字數 ÷ 4 × 1.6 = 預估總秒數，例：300 字 ÷ 4 × 1.6 = 120 秒（約 1.3 集）>
+- 原文體量反推試算：<原著對白字數 ÷ 4 × 1.6 = 預估總秒數，例：300 字 ÷ 4 × 1.6 = 120 秒（約 2 分鐘）；長篇再用 estimate_duration.py --events 依事件交代需求估總長>
 
 ## 一句話賣點
 <主角 + 目標 + 阻礙>
 
-## 分集規劃
+{plan_section}
+"""
+
+LONGFORM_PLAN = """## 事件清單與段落規劃（長篇漫劇：整部一支連續長片）
+> 每個原著關鍵事件都要交代起因 → 經過 → 結果（需要時加人物動機、時間地點轉換）；不以秒數壓縮事件。
+> 階段 1 用 `scripts/adapt/event_coverage.py` 逐條對帳，被壓縮或跳過的事件交使用者決定。
+
+| # | 原著事件 | 起因 | 經過 | 結果 | 動機／時地交代 |
+|---|---|---|---|---|---|
+| 1 | | | | | |
+"""
+
+LONGFORM_SPLIT_PLAN = """## 分集規劃（長篇漫劇・使用者要求分 {episodes} 集）
+> 每集是一個完整劇情單元，長度由它要交代的事件決定，不設每集秒數上限；切點放在劇情單元邊界。
+
+| 集 | 標題 | 本集完整交代的事件（起因→經過→結果） | 收尾 |
+|---|---|---|---|
+{episode_rows}
+"""
+
+SHORT_PLAN = """## 分集規劃（短劇短集・使用者明確選擇）
 | 集 | 標題 | 集內主事件 | 結尾鉤子 |
 |---|---|---|---|
 {episode_rows}
@@ -205,6 +234,8 @@ def source_stub(title: str) -> dict:
                 "unit_id": "U01",
                 "summary": "開場核心原著事件",
                 "expected_grade": "MUST_KEEP",
+                # 這個事件要交代的要素（長篇漫劇預設：起因→經過→結果；需要時加 needs_motivation／time_place_shift）
+                "exposition_needs": ["起因", "經過", "結果"],
             }
         ],
         "foreshadowing": [],
@@ -247,8 +278,10 @@ def bible_stub(project_id: str) -> dict:
     }
 
 
-def handoff_stub(project_id: str, episode: int) -> dict:
-    """最小結構 stub：必要欄位齊全、enum 取合法值，但內容皆為待填。"""
+def handoff_stub(project_id: str, episode: int, series_format: str = LONGFORM,
+                 episode_seconds: float = SHORT_EPISODE_DEFAULT_SECONDS) -> dict:
+    """最小結構 stub：必要欄位齊全、enum 取合法值，但內容皆為待填。
+    長篇漫劇（預設）不寫 target_duration_seconds（沒有單集秒數）；短劇短集才寫單集目標秒數。"""
     tag = f"EP{episode:02d}"
     scene = {
         "project_id": project_id,
@@ -265,6 +298,7 @@ def handoff_stub(project_id: str, episode: int) -> dict:
         "continuity_initial": {},
         "continuity_final": {},
         "estimated_duration_seconds": {"min": 10, "max": 20},
+        "event_exposition": {"U01": []},
         "adaptation_changes": [
             {
                 "type": "must_keep",
@@ -279,6 +313,15 @@ def handoff_stub(project_id: str, episode: int) -> dict:
             "must_preserve": [],
         },
     }
+    episode_entry = {
+        "episode_id": tag,
+        "title": "TODO",
+        "episode_goal": "TODO",
+        "act_out_type": "jeopardy_cliffhanger",
+        "scenes": [scene],
+    }
+    if series_format == SHORT:
+        episode_entry["target_duration_seconds"] = int(episode_seconds)
     return {
         "project_id": project_id,
         "rights_status": "unconfirmed",
@@ -286,14 +329,7 @@ def handoff_stub(project_id: str, episode: int) -> dict:
         "genre_mode": "healing_literary",
         "aspect_ratio": "9:16",
         "target_medium": "ai_animation",
-        "episodes": [{
-            "episode_id": tag,
-            "title": "TODO",
-            "target_duration_seconds": 90,
-            "episode_goal": "TODO",
-            "act_out_type": "jeopardy_cliffhanger",
-            "scenes": [scene],
-        }],
+        "episodes": [episode_entry],
     }
 
 
@@ -325,10 +361,30 @@ def load_character_bible_template(title: str) -> str:
     return f"# 《{title}》完整角色設定文件 v4.0\n\n## 一、角色總覽\n\n待填寫（遵循角色設定 v4 十一大章節規範）\n"
 
 
-def build_files(title: str, episodes: int, project_id: str) -> dict[str, str]:
+def format_line(series_format: str, episodes: int, episode_seconds: float) -> str:
+    if series_format == SHORT:
+        return f"短劇短集（使用者明確選擇）：{episodes} 集 / 每集約 {episode_seconds:g} 秒（±15%）"
+    if episodes > 1:
+        return (f"長篇漫劇・使用者要求分 {episodes} 集：每集是完整劇情單元，長度由要交代的事件決定，"
+                "不設每集秒數上限")
+    return "長篇漫劇（預設）：整部一支連續長片，每個事件交代清楚，不以秒數壓縮事件；使用者明確要求才分集"
+
+
+def plan_section(series_format: str, episodes: int) -> str:
     rows = "\n".join(f"| {i} | | | |" for i in range(1, episodes + 1))
+    if series_format == SHORT:
+        return SHORT_PLAN.format(episode_rows=rows)
+    if episodes > 1:
+        return LONGFORM_SPLIT_PLAN.format(episodes=episodes, episode_rows=rows)
+    return LONGFORM_PLAN
+
+
+def build_files(title: str, episodes: int, project_id: str, series_format: str = LONGFORM,
+                episode_seconds: float = SHORT_EPISODE_DEFAULT_SECONDS) -> dict[str, str]:
     files: dict[str, str] = {
-        "project.md": PROJECT_TEMPLATE.format(title=title, episodes=episodes, episode_rows=rows),
+        "project.md": PROJECT_TEMPLATE.format(
+            title=title, format_line=format_line(series_format, episodes, episode_seconds),
+            plan_section=plan_section(series_format, episodes)),
         "assets.md": ASSETS_TEMPLATE,
         "adapt/README.md": ADAPT_README,
         "adapt/source.json": json.dumps(source_stub(title), ensure_ascii=False, indent=2) + "\n",
@@ -341,7 +397,7 @@ def build_files(title: str, episodes: int, project_id: str) -> dict[str, str]:
         tag = f"ep{ep:02d}"
         files[f"script-{tag}.md"] = SCRIPT_TEMPLATE.format(episode=ep)
         files[f"handoff-{tag}.json"] = json.dumps(
-            handoff_stub(project_id, ep), ensure_ascii=False, indent=2
+            handoff_stub(project_id, ep, series_format, episode_seconds), ensure_ascii=False, indent=2
         ) + "\n"
         files[f"narration-{tag}.md"] = NARRATION_TEMPLATE.format(episode=ep)
     return files
@@ -354,7 +410,12 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="建立 AI 漫劇專案骨架")
     ap.add_argument("project_dir", help="專案目錄（不存在會建立）")
     ap.add_argument("--title", default="未命名漫劇", help="專案名稱")
-    ap.add_argument("--episodes", type=int, default=1, help="集數（預設 1）")
+    ap.add_argument("--episodes", type=int, default=1,
+                    help="集數（預設 1＝長篇漫劇整部一支連續長片；只有使用者明確要求分集才給 >1）")
+    ap.add_argument("--format", choices=[LONGFORM, SHORT], default=LONGFORM, dest="series_format",
+                    help="成片形式：longform 長篇漫劇（預設）｜short 短劇短集（使用者明確選擇才用）")
+    ap.add_argument("--episode-seconds", type=float, default=SHORT_EPISODE_DEFAULT_SECONDS,
+                    help="短劇短集模式的單集目標秒數（預設 90；長篇模式忽略）")
     args = ap.parse_args()
 
     root = Path(args.project_dir).expanduser().resolve()
@@ -362,7 +423,8 @@ def main() -> None:
     for d in DIRS:
         (root / d).mkdir(exist_ok=True)
 
-    files = build_files(args.title, args.episodes, slugify_project(root.name))
+    files = build_files(args.title, args.episodes, slugify_project(root.name),
+                        args.series_format, args.episode_seconds)
     created, skipped = [], []
     for name, content in files.items():
         p = root / name

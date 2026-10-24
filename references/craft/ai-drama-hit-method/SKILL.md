@@ -1,9 +1,13 @@
 ---
 name: ai-drama-hit-method
-description: AI 漫劇爆款方法論（主題 lens）。用短劇和 AI 漫劇從業者公開的方法，審查定調、分集與劇本的受眾定位、鉤子層次、爽點兌現、快慢節奏和平台合規。觸發語：「用爆款方法論審」「這集鉤子夠嗎」「hit-method review」。只給建議、不擋關，一般問題不自動觸發。
+description: AI 漫劇爆款方法論（主題 lens）。用短劇和 AI 漫劇從業者公開的方法，審查定調、分集與劇本的受眾定位、鉤子層次、爽點兌現、快慢節奏和平台合規。觸發語：「用爆款方法論審」「這集鉤子夠嗎」「hit-method review」。只給建議、不擋關，一般問題不自動觸發。**只在短劇短集模式（使用者明確選擇 series_format=short）使用**；長篇漫劇（預設）專案不得據此切短集或壓縮事件。
 ---
 
 # AI 漫劇爆款方法論（主題 lens）
+
+> **適用範圍：只在短劇短集模式使用。** 本技能預設是長篇漫劇（整部一支連續長片、每個事件交代清楚）。
+> 只有使用者明確選了短劇／竪屏爆款短集（`h3d decide series_format short`）時，本 lens 的 1–2 分鐘一集、
+> 開場 5 秒鉤子、60 秒空窗、集尾鉤子等標準才適用。長篇專案跑 `hit_review.py` 會在報告開頭標明「僅供參考」。
 
 > 本 lens 由 [女媧 · Skill造人術](https://github.com/alchaincyf/nuwa-skill) 的「主題 Skill」路徑生成。
 > 調研時間：2026-10-21。來源見 `references/research/`。保真度與限制見 `FIDELITY.md`。

@@ -38,6 +38,82 @@
         "max_line_chars": 11,
         "passed": true
       },
+      "series_format": "longform",
+      "event_coverage": {
+        "status": "WARN",
+        "event_count": 2,
+        "has_adaptation": true,
+        "counts": {
+          "full": 0,
+          "partial": 0,
+          "unverified": 1,
+          "compressed": 1,
+          "skipped": 0,
+          "missing": 0
+        },
+        "must_keep_missing": [],
+        "needs_decision": [
+          "ch01:u2"
+        ],
+        "events": [
+          {
+            "order": 1,
+            "unit_id": "ch01:u1",
+            "summary": "暴雨夜林澈面對浸濕的帳目信件陷入抉擇",
+            "grade": "COMPRESS",
+            "required_beats": [
+              "起因",
+              "經過",
+              "結果"
+            ],
+            "covered_beats": [],
+            "missing_beats": [
+              "起因",
+              "經過",
+              "結果"
+            ],
+            "scenes": [
+              "EP01-S01"
+            ],
+            "estimated_seconds": 9.2,
+            "changes": [
+              "compress"
+            ],
+            "status": "compressed",
+            "status_label": "🟧 被壓縮／合併",
+            "planned_by_grade": true,
+            "needs_decision": false,
+            "reason": "改編稿把這個事件壓縮或合併（原著分級即為壓縮／合併）"
+          },
+          {
+            "order": 2,
+            "unit_id": "ch01:u2",
+            "summary": "沈寧敲門指出林澈已看過信",
+            "grade": "MUST_KEEP",
+            "required_beats": [
+              "起因",
+              "經過",
+              "結果"
+            ],
+            "covered_beats": [],
+            "missing_beats": [
+              "起因",
+              "經過",
+              "結果"
+            ],
+            "scenes": [
+              "EP01-S01"
+            ],
+            "estimated_seconds": 9.2,
+            "changes": [],
+            "status": "unverified",
+            "status_label": "❔ 未標註交代要素",
+            "planned_by_grade": false,
+            "needs_decision": true,
+            "reason": "場景有引用，但沒標註 event_exposition，請確認起因／經過／結果是否都演到"
+          }
+        ]
+      },
       "schema_errors": []
     },
     {
@@ -75,6 +151,109 @@
         "speech_ratio": 0.475,
         "max_line_chars": 20,
         "passed": false
+      },
+      "series_format": "longform",
+      "event_coverage": {
+        "status": "WARN",
+        "event_count": 3,
+        "has_adaptation": true,
+        "counts": {
+          "full": 0,
+          "partial": 0,
+          "unverified": 1,
+          "compressed": 1,
+          "skipped": 1,
+          "missing": 0
+        },
+        "must_keep_missing": [],
+        "needs_decision": [
+          "ch02:u1_main"
+        ],
+        "events": [
+          {
+            "order": 1,
+            "unit_id": "ch02:u1_main",
+            "summary": "趙坤逼林澈交出礦場帳冊",
+            "grade": "MUST_KEEP",
+            "required_beats": [
+              "起因",
+              "經過",
+              "結果"
+            ],
+            "covered_beats": [],
+            "missing_beats": [
+              "起因",
+              "經過",
+              "結果"
+            ],
+            "scenes": [
+              "EP01-S01"
+            ],
+            "estimated_seconds": 18.5,
+            "changes": [
+              "must_keep"
+            ],
+            "status": "unverified",
+            "status_label": "❔ 未標註交代要素",
+            "planned_by_grade": false,
+            "needs_decision": true,
+            "reason": "場景有引用，但沒標註 event_exposition，請確認起因／經過／結果是否都演到"
+          },
+          {
+            "order": 2,
+            "unit_id": "ch02:u2_sub_tea",
+            "summary": "路人茶博士閒聊南城米價上漲三成",
+            "grade": "REMOVE",
+            "required_beats": [
+              "起因",
+              "經過",
+              "結果"
+            ],
+            "covered_beats": [],
+            "missing_beats": [
+              "起因",
+              "經過",
+              "結果"
+            ],
+            "scenes": [],
+            "estimated_seconds": 0.0,
+            "changes": [
+              "remove"
+            ],
+            "status": "skipped",
+            "status_label": "⛔ 被刪除／跳過",
+            "planned_by_grade": true,
+            "needs_decision": false,
+            "reason": "改編稿刪除／跳過這個事件（原著分級即為刪除）"
+          },
+          {
+            "order": 3,
+            "unit_id": "ch02:u3_sub_henchman",
+            "summary": "小嘍囉甲與小嘍囉乙分別威脅林澈",
+            "grade": "MERGE",
+            "required_beats": [
+              "起因",
+              "經過",
+              "結果"
+            ],
+            "covered_beats": [],
+            "missing_beats": [
+              "起因",
+              "經過",
+              "結果"
+            ],
+            "scenes": [],
+            "estimated_seconds": 0.0,
+            "changes": [
+              "merge"
+            ],
+            "status": "compressed",
+            "status_label": "🟧 被壓縮／合併",
+            "planned_by_grade": true,
+            "needs_decision": false,
+            "reason": "改編稿把這個事件壓縮或合併（原著分級即為壓縮／合併）"
+          }
+        ]
       },
       "schema_errors": []
     },
@@ -114,6 +293,53 @@
         "max_line_chars": 12,
         "passed": true
       },
+      "series_format": "longform",
+      "event_coverage": {
+        "status": "WARN",
+        "event_count": 1,
+        "has_adaptation": true,
+        "counts": {
+          "full": 0,
+          "partial": 0,
+          "unverified": 1,
+          "compressed": 0,
+          "skipped": 0,
+          "missing": 0
+        },
+        "must_keep_missing": [],
+        "needs_decision": [
+          "ch01:plant"
+        ],
+        "events": [
+          {
+            "order": 1,
+            "unit_id": "ch01:plant",
+            "summary": "沈寧手腕有一道舊燙傷疤痕（第5章才揭曉她是礦長孤女）",
+            "grade": "MUST_KEEP",
+            "required_beats": [
+              "起因",
+              "經過",
+              "結果"
+            ],
+            "covered_beats": [],
+            "missing_beats": [
+              "起因",
+              "經過",
+              "結果"
+            ],
+            "scenes": [
+              "EP01-S01"
+            ],
+            "estimated_seconds": 18.5,
+            "changes": [],
+            "status": "unverified",
+            "status_label": "❔ 未標註交代要素",
+            "planned_by_grade": false,
+            "needs_decision": true,
+            "reason": "場景有引用，但沒標註 event_exposition，請確認起因／經過／結果是否都演到"
+          }
+        ]
+      },
       "schema_errors": []
     },
     {
@@ -151,6 +377,53 @@
         "speech_ratio": 0.375,
         "max_line_chars": 16,
         "passed": false
+      },
+      "series_format": "longform",
+      "event_coverage": {
+        "status": "WARN",
+        "event_count": 1,
+        "has_adaptation": true,
+        "counts": {
+          "full": 0,
+          "partial": 0,
+          "unverified": 1,
+          "compressed": 0,
+          "skipped": 0,
+          "missing": 0
+        },
+        "must_keep_missing": [],
+        "needs_decision": [
+          "ch04:u1"
+        ],
+        "events": [
+          {
+            "order": 1,
+            "unit_id": "ch04:u1",
+            "summary": "沈寧稱呼林澈為七師兄，趙坤稱呼林澈為林小友",
+            "grade": "MUST_KEEP",
+            "required_beats": [
+              "起因",
+              "經過",
+              "結果"
+            ],
+            "covered_beats": [],
+            "missing_beats": [
+              "起因",
+              "經過",
+              "結果"
+            ],
+            "scenes": [
+              "EP01-S01"
+            ],
+            "estimated_seconds": 18.5,
+            "changes": [],
+            "status": "unverified",
+            "status_label": "❔ 未標註交代要素",
+            "planned_by_grade": false,
+            "needs_decision": true,
+            "reason": "場景有引用，但沒標註 event_exposition，請確認起因／經過／結果是否都演到"
+          }
+        ]
       },
       "schema_errors": []
     },
@@ -192,6 +465,86 @@
         "max_line_chars": 11,
         "passed": true
       },
+      "series_format": "longform",
+      "event_coverage": {
+        "status": "WARN",
+        "event_count": 2,
+        "has_adaptation": true,
+        "counts": {
+          "full": 0,
+          "partial": 0,
+          "unverified": 2,
+          "compressed": 0,
+          "skipped": 0,
+          "missing": 0
+        },
+        "must_keep_missing": [],
+        "needs_decision": [
+          "ch05:u1_market",
+          "ch05:u2_bedroom"
+        ],
+        "events": [
+          {
+            "order": 1,
+            "unit_id": "ch05:u1_market",
+            "summary": "菜市場妻子邊走邊接丈夫關心電話，五百元從口袋滑落地面未察覺",
+            "grade": "MUST_KEEP",
+            "required_beats": [
+              "起因",
+              "經過",
+              "結果"
+            ],
+            "covered_beats": [],
+            "missing_beats": [
+              "起因",
+              "經過",
+              "結果"
+            ],
+            "scenes": [
+              "EP01-S02"
+            ],
+            "estimated_seconds": 13.0,
+            "changes": [
+              "must_keep"
+            ],
+            "status": "unverified",
+            "status_label": "❔ 未標註交代要素",
+            "planned_by_grade": false,
+            "needs_decision": true,
+            "reason": "場景有引用，但沒標註 event_exposition，請確認起因／經過／結果是否都演到"
+          },
+          {
+            "order": 2,
+            "unit_id": "ch05:u2_bedroom",
+            "summary": "回到臥室翻找外套與皮包無果，撫摸孕肚自責落淚",
+            "grade": "MUST_KEEP",
+            "required_beats": [
+              "起因",
+              "經過",
+              "結果"
+            ],
+            "covered_beats": [],
+            "missing_beats": [
+              "起因",
+              "經過",
+              "結果"
+            ],
+            "scenes": [
+              "EP01-S01",
+              "EP01-S03"
+            ],
+            "estimated_seconds": 18.5,
+            "changes": [
+              "reorder"
+            ],
+            "status": "unverified",
+            "status_label": "❔ 未標註交代要素",
+            "planned_by_grade": false,
+            "needs_decision": true,
+            "reason": "場景有引用，但沒標註 event_exposition，請確認起因／經過／結果是否都演到"
+          }
+        ]
+      },
       "schema_errors": []
     },
     {
@@ -230,6 +583,53 @@
         "max_line_chars": 10,
         "passed": true
       },
+      "series_format": "longform",
+      "event_coverage": {
+        "status": "WARN",
+        "event_count": 1,
+        "has_adaptation": true,
+        "counts": {
+          "full": 0,
+          "partial": 0,
+          "unverified": 1,
+          "compressed": 0,
+          "skipped": 0,
+          "missing": 0
+        },
+        "must_keep_missing": [],
+        "needs_decision": [
+          "ch06:u1_fight"
+        ],
+        "events": [
+          {
+            "order": 1,
+            "unit_id": "ch06:u1_fight",
+            "summary": "林澈左臂帶傷在窄巷攔截趙坤，以折斷短刀為代價奪回帳冊",
+            "grade": "MUST_KEEP",
+            "required_beats": [
+              "起因",
+              "經過",
+              "結果"
+            ],
+            "covered_beats": [],
+            "missing_beats": [
+              "起因",
+              "經過",
+              "結果"
+            ],
+            "scenes": [
+              "EP01-S01"
+            ],
+            "estimated_seconds": 18.5,
+            "changes": [],
+            "status": "unverified",
+            "status_label": "❔ 未標註交代要素",
+            "planned_by_grade": false,
+            "needs_decision": true,
+            "reason": "場景有引用，但沒標註 event_exposition，請確認起因／經過／結果是否都演到"
+          }
+        ]
+      },
       "schema_errors": []
     },
     {
@@ -267,6 +667,82 @@
         "speech_ratio": 0.225,
         "max_line_chars": 11,
         "passed": true
+      },
+      "series_format": "longform",
+      "event_coverage": {
+        "status": "WARN",
+        "event_count": 2,
+        "has_adaptation": true,
+        "counts": {
+          "full": 0,
+          "partial": 0,
+          "unverified": 1,
+          "compressed": 1,
+          "skipped": 0,
+          "missing": 0
+        },
+        "must_keep_missing": [],
+        "needs_decision": [
+          "ch01:u2"
+        ],
+        "events": [
+          {
+            "order": 1,
+            "unit_id": "ch01:u1",
+            "summary": "暴雨夜林澈面對浸濕的帳目信件陷入抉擇",
+            "grade": "COMPRESS",
+            "required_beats": [
+              "起因",
+              "經過",
+              "結果"
+            ],
+            "covered_beats": [],
+            "missing_beats": [
+              "起因",
+              "經過",
+              "結果"
+            ],
+            "scenes": [
+              "EP01-S01"
+            ],
+            "estimated_seconds": 9.2,
+            "changes": [
+              "compress"
+            ],
+            "status": "compressed",
+            "status_label": "🟧 被壓縮／合併",
+            "planned_by_grade": true,
+            "needs_decision": false,
+            "reason": "改編稿把這個事件壓縮或合併（原著分級即為壓縮／合併）"
+          },
+          {
+            "order": 2,
+            "unit_id": "ch01:u2",
+            "summary": "沈寧敲門指出林澈已看過信",
+            "grade": "MUST_KEEP",
+            "required_beats": [
+              "起因",
+              "經過",
+              "結果"
+            ],
+            "covered_beats": [],
+            "missing_beats": [
+              "起因",
+              "經過",
+              "結果"
+            ],
+            "scenes": [
+              "EP01-S01"
+            ],
+            "estimated_seconds": 9.2,
+            "changes": [],
+            "status": "unverified",
+            "status_label": "❔ 未標註交代要素",
+            "planned_by_grade": false,
+            "needs_decision": true,
+            "reason": "場景有引用，但沒標註 event_exposition，請確認起因／經過／結果是否都演到"
+          }
+        ]
       },
       "schema_errors": []
     },
@@ -308,6 +784,53 @@
         "max_line_chars": 11,
         "passed": true
       },
+      "series_format": "longform",
+      "event_coverage": {
+        "status": "WARN",
+        "event_count": 1,
+        "has_adaptation": true,
+        "counts": {
+          "full": 0,
+          "partial": 0,
+          "unverified": 1,
+          "compressed": 0,
+          "skipped": 0,
+          "missing": 0
+        },
+        "must_keep_missing": [],
+        "needs_decision": [
+          "ch08:u1_incomplete"
+        ],
+        "events": [
+          {
+            "order": 1,
+            "unit_id": "ch08:u1_incomplete",
+            "summary": "林澈打開暗格發現半枚銅鑰匙（原稿至此中斷，缺下半章）",
+            "grade": "MUST_KEEP",
+            "required_beats": [
+              "起因",
+              "經過",
+              "結果"
+            ],
+            "covered_beats": [],
+            "missing_beats": [
+              "起因",
+              "經過",
+              "結果"
+            ],
+            "scenes": [
+              "EP01-S01"
+            ],
+            "estimated_seconds": 18.5,
+            "changes": [],
+            "status": "unverified",
+            "status_label": "❔ 未標註交代要素",
+            "planned_by_grade": false,
+            "needs_decision": true,
+            "reason": "場景有引用，但沒標註 event_exposition，請確認起因／經過／結果是否都演到"
+          }
+        ]
+      },
       "schema_errors": []
     },
     {
@@ -345,6 +868,81 @@
         "speech_ratio": 0.311,
         "max_line_chars": 14,
         "passed": true
+      },
+      "series_format": "longform",
+      "event_coverage": {
+        "status": "WARN",
+        "event_count": 2,
+        "has_adaptation": true,
+        "counts": {
+          "full": 0,
+          "partial": 0,
+          "unverified": 2,
+          "compressed": 0,
+          "skipped": 0,
+          "missing": 0
+        },
+        "must_keep_missing": [],
+        "needs_decision": [
+          "ch09:ep1",
+          "ch09:ep2"
+        ],
+        "events": [
+          {
+            "order": 1,
+            "unit_id": "ch09:ep1",
+            "summary": "第1集林澈拿到濕信封並翻開背面",
+            "grade": "MUST_KEEP",
+            "required_beats": [
+              "起因",
+              "經過",
+              "結果"
+            ],
+            "covered_beats": [],
+            "missing_beats": [
+              "起因",
+              "經過",
+              "結果"
+            ],
+            "scenes": [
+              "EP01-S01"
+            ],
+            "estimated_seconds": 18.5,
+            "changes": [],
+            "status": "unverified",
+            "status_label": "❔ 未標註交代要素",
+            "planned_by_grade": false,
+            "needs_decision": true,
+            "reason": "場景有引用，但沒標註 event_exposition，請確認起因／經過／結果是否都演到"
+          },
+          {
+            "order": 2,
+            "unit_id": "ch09:ep2",
+            "summary": "第2集林澈手持同一封濕信與進門的沈寧對質",
+            "grade": "MUST_KEEP",
+            "required_beats": [
+              "起因",
+              "經過",
+              "結果"
+            ],
+            "covered_beats": [],
+            "missing_beats": [
+              "起因",
+              "經過",
+              "結果"
+            ],
+            "scenes": [
+              "EP02-S01"
+            ],
+            "estimated_seconds": 18.5,
+            "changes": [],
+            "status": "unverified",
+            "status_label": "❔ 未標註交代要素",
+            "planned_by_grade": false,
+            "needs_decision": true,
+            "reason": "場景有引用，但沒標註 event_exposition，請確認起因／經過／結果是否都演到"
+          }
+        ]
       },
       "schema_errors": []
     },
@@ -386,6 +984,53 @@
         "max_line_chars": 11,
         "passed": true
       },
+      "series_format": "longform",
+      "event_coverage": {
+        "status": "WARN",
+        "event_count": 1,
+        "has_adaptation": true,
+        "counts": {
+          "full": 0,
+          "partial": 0,
+          "unverified": 1,
+          "compressed": 0,
+          "skipped": 0,
+          "missing": 0
+        },
+        "must_keep_missing": [],
+        "needs_decision": [
+          "ch10:u1_contra"
+        ],
+        "events": [
+          {
+            "order": 1,
+            "unit_id": "ch10:u1_contra",
+            "summary": "原文前稱盲眼後稱親眼看信",
+            "grade": "MUST_KEEP",
+            "required_beats": [
+              "起因",
+              "經過",
+              "結果"
+            ],
+            "covered_beats": [],
+            "missing_beats": [
+              "起因",
+              "經過",
+              "結果"
+            ],
+            "scenes": [
+              "EP01-S01"
+            ],
+            "estimated_seconds": 18.5,
+            "changes": [],
+            "status": "unverified",
+            "status_label": "❔ 未標註交代要素",
+            "planned_by_grade": false,
+            "needs_decision": true,
+            "reason": "場景有引用，但沒標註 event_exposition，請確認起因／經過／結果是否都演到"
+          }
+        ]
+      },
       "schema_errors": []
     }
   ],
@@ -415,7 +1060,7 @@
           "max": 72.8,
           "mid": 59.2
         },
-        "vo_ratio": 0.143,
+        "vo_ratio": 0.0,
         "error_count": 1,
         "warning_count": 1,
         "errors": [
@@ -431,6 +1076,81 @@
           "speech_ratio": 0.153,
           "max_line_chars": 15,
           "passed": true
+        },
+        "series_format": "longform",
+        "event_coverage": {
+          "status": "WARN",
+          "event_count": 2,
+          "has_adaptation": true,
+          "counts": {
+            "full": 0,
+            "partial": 0,
+            "unverified": 2,
+            "compressed": 0,
+            "skipped": 0,
+            "missing": 0
+          },
+          "must_keep_missing": [],
+          "needs_decision": [
+            "ch05:u1_market",
+            "ch05:u2_bedroom"
+          ],
+          "events": [
+            {
+              "order": 1,
+              "unit_id": "ch05:u1_market",
+              "summary": "菜市場妻子邊走邊接丈夫關心電話，五百元從口袋滑落地面未察覺",
+              "grade": "MUST_KEEP",
+              "required_beats": [
+                "起因",
+                "經過",
+                "結果"
+              ],
+              "covered_beats": [],
+              "missing_beats": [
+                "起因",
+                "經過",
+                "結果"
+              ],
+              "scenes": [
+                "EP01-S02"
+              ],
+              "estimated_seconds": 15.0,
+              "changes": [],
+              "status": "unverified",
+              "status_label": "❔ 未標註交代要素",
+              "planned_by_grade": false,
+              "needs_decision": true,
+              "reason": "場景有引用，但沒標註 event_exposition，請確認起因／經過／結果是否都演到"
+            },
+            {
+              "order": 2,
+              "unit_id": "ch05:u2_bedroom",
+              "summary": "回到臥室翻找外套與皮包無果，撫摸孕肚自責落淚",
+              "grade": "MUST_KEEP",
+              "required_beats": [
+                "起因",
+                "經過",
+                "結果"
+              ],
+              "covered_beats": [],
+              "missing_beats": [
+                "起因",
+                "經過",
+                "結果"
+              ],
+              "scenes": [
+                "EP01-S01"
+              ],
+              "estimated_seconds": 18.5,
+              "changes": [],
+              "status": "unverified",
+              "status_label": "❔ 未標註交代要素",
+              "planned_by_grade": false,
+              "needs_decision": true,
+              "reason": "場景有引用，但沒標註 event_exposition，請確認起因／經過／結果是否都演到"
+            }
+          ]
         }
       },
       "novel_to_manju_result": {
@@ -468,6 +1188,86 @@
           "speech_ratio": 0.5,
           "max_line_chars": 11,
           "passed": true
+        },
+        "series_format": "longform",
+        "event_coverage": {
+          "status": "WARN",
+          "event_count": 2,
+          "has_adaptation": true,
+          "counts": {
+            "full": 0,
+            "partial": 0,
+            "unverified": 2,
+            "compressed": 0,
+            "skipped": 0,
+            "missing": 0
+          },
+          "must_keep_missing": [],
+          "needs_decision": [
+            "ch05:u1_market",
+            "ch05:u2_bedroom"
+          ],
+          "events": [
+            {
+              "order": 1,
+              "unit_id": "ch05:u1_market",
+              "summary": "菜市場妻子邊走邊接丈夫關心電話，五百元從口袋滑落地面未察覺",
+              "grade": "MUST_KEEP",
+              "required_beats": [
+                "起因",
+                "經過",
+                "結果"
+              ],
+              "covered_beats": [],
+              "missing_beats": [
+                "起因",
+                "經過",
+                "結果"
+              ],
+              "scenes": [
+                "EP01-S02"
+              ],
+              "estimated_seconds": 13.0,
+              "changes": [
+                "must_keep"
+              ],
+              "status": "unverified",
+              "status_label": "❔ 未標註交代要素",
+              "planned_by_grade": false,
+              "needs_decision": true,
+              "reason": "場景有引用，但沒標註 event_exposition，請確認起因／經過／結果是否都演到"
+            },
+            {
+              "order": 2,
+              "unit_id": "ch05:u2_bedroom",
+              "summary": "回到臥室翻找外套與皮包無果，撫摸孕肚自責落淚",
+              "grade": "MUST_KEEP",
+              "required_beats": [
+                "起因",
+                "經過",
+                "結果"
+              ],
+              "covered_beats": [],
+              "missing_beats": [
+                "起因",
+                "經過",
+                "結果"
+              ],
+              "scenes": [
+                "EP01-S01",
+                "EP01-S03"
+              ],
+              "estimated_seconds": 18.5,
+              "changes": [
+                "reorder"
+              ],
+              "status": "unverified",
+              "status_label": "❔ 未標註交代要素",
+              "planned_by_grade": false,
+              "needs_decision": true,
+              "reason": "場景有引用，但沒標註 event_exposition，請確認起因／經過／結果是否都演到"
+            }
+          ]
         }
       }
     },
@@ -499,7 +1299,7 @@
           "max": 53.7,
           "mid": 45.9
         },
-        "vo_ratio": 0.667,
+        "vo_ratio": 0.0,
         "error_count": 21,
         "warning_count": 2,
         "errors": [
@@ -536,6 +1336,80 @@
           "speech_ratio": 0.294,
           "max_line_chars": 51,
           "passed": false
+        },
+        "series_format": "longform",
+        "event_coverage": {
+          "status": "FAIL",
+          "event_count": 2,
+          "has_adaptation": true,
+          "counts": {
+            "full": 0,
+            "partial": 0,
+            "unverified": 0,
+            "compressed": 0,
+            "skipped": 0,
+            "missing": 2
+          },
+          "must_keep_missing": [
+            "ch01:u1",
+            "ch01:u2"
+          ],
+          "needs_decision": [
+            "ch01:u1",
+            "ch01:u2"
+          ],
+          "events": [
+            {
+              "order": 1,
+              "unit_id": "ch01:u1",
+              "summary": "林澈發現信背字跡遭篡改",
+              "grade": "MUST_KEEP",
+              "required_beats": [
+                "起因",
+                "經過",
+                "結果"
+              ],
+              "covered_beats": [],
+              "missing_beats": [
+                "起因",
+                "經過",
+                "結果"
+              ],
+              "scenes": [],
+              "estimated_seconds": 0.0,
+              "changes": [],
+              "status": "missing",
+              "status_label": "❌ 未交代（未登記）",
+              "planned_by_grade": false,
+              "needs_decision": true,
+              "reason": "改編稿完全沒有這個事件，也沒在 adaptation_changes 登記理由"
+            },
+            {
+              "order": 2,
+              "unit_id": "ch01:u2",
+              "summary": "沈寧門外試探",
+              "grade": "MUST_KEEP",
+              "required_beats": [
+                "起因",
+                "經過",
+                "結果"
+              ],
+              "covered_beats": [],
+              "missing_beats": [
+                "起因",
+                "經過",
+                "結果"
+              ],
+              "scenes": [],
+              "estimated_seconds": 0.0,
+              "changes": [],
+              "status": "missing",
+              "status_label": "❌ 未交代（未登記）",
+              "planned_by_grade": false,
+              "needs_decision": true,
+              "reason": "改編稿完全沒有這個事件，也沒在 adaptation_changes 登記理由"
+            }
+          ]
         }
       },
       "novel_to_manju_result": {
@@ -571,6 +1445,82 @@
           "speech_ratio": 0.225,
           "max_line_chars": 11,
           "passed": true
+        },
+        "series_format": "longform",
+        "event_coverage": {
+          "status": "WARN",
+          "event_count": 2,
+          "has_adaptation": true,
+          "counts": {
+            "full": 0,
+            "partial": 0,
+            "unverified": 1,
+            "compressed": 1,
+            "skipped": 0,
+            "missing": 0
+          },
+          "must_keep_missing": [],
+          "needs_decision": [
+            "ch01:u2"
+          ],
+          "events": [
+            {
+              "order": 1,
+              "unit_id": "ch01:u1",
+              "summary": "暴雨夜林澈面對浸濕的帳目信件陷入抉擇",
+              "grade": "COMPRESS",
+              "required_beats": [
+                "起因",
+                "經過",
+                "結果"
+              ],
+              "covered_beats": [],
+              "missing_beats": [
+                "起因",
+                "經過",
+                "結果"
+              ],
+              "scenes": [
+                "EP01-S01"
+              ],
+              "estimated_seconds": 9.2,
+              "changes": [
+                "compress"
+              ],
+              "status": "compressed",
+              "status_label": "🟧 被壓縮／合併",
+              "planned_by_grade": true,
+              "needs_decision": false,
+              "reason": "改編稿把這個事件壓縮或合併（原著分級即為壓縮／合併）"
+            },
+            {
+              "order": 2,
+              "unit_id": "ch01:u2",
+              "summary": "沈寧敲門指出林澈已看過信",
+              "grade": "MUST_KEEP",
+              "required_beats": [
+                "起因",
+                "經過",
+                "結果"
+              ],
+              "covered_beats": [],
+              "missing_beats": [
+                "起因",
+                "經過",
+                "結果"
+              ],
+              "scenes": [
+                "EP01-S01"
+              ],
+              "estimated_seconds": 9.2,
+              "changes": [],
+              "status": "unverified",
+              "status_label": "❔ 未標註交代要素",
+              "planned_by_grade": false,
+              "needs_decision": true,
+              "reason": "場景有引用，但沒標註 event_exposition，請確認起因／經過／結果是否都演到"
+            }
+          ]
         }
       }
     }
