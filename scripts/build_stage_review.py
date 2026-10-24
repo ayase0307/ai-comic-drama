@@ -103,6 +103,19 @@ def get_png_dimensions(path: Path) -> Optional[Tuple[int, int]]:
     return None
 
 
+def scene_master_image(project_dir: Path, loc: Dict[str, Any], lid: str) -> str:
+    """場景母版圖路徑：bible 明指 > images/<lid>.png > export_asset_prompts 的 images/scene-<slug>-master.png。"""
+    explicit = loc.get("reference_image") or loc.get("image_path") or loc.get("image_file")
+    if explicit:
+        return str(explicit)
+    default = f"images/{lid}.png"
+    slug = lid[2:] if lid.startswith("S-") else lid
+    exported = f"images/scene-{slug}-master.png"
+    if not (Path(project_dir) / default).exists() and (Path(project_dir) / exported).exists():
+        return exported
+    return default
+
+
 def scenes_without_master(project_dir) -> List[str]:
     """layer2 分鏡用到的 scene_id，若 bible.json 沒有對應存在的母版圖就列出（#42）。"""
     project_dir = Path(project_dir)
@@ -132,7 +145,7 @@ def scenes_without_master(project_dir) -> List[str]:
             for loc in (b.get("locations") or []):
                 if isinstance(loc, dict):
                     lid = str(loc.get("location_id") or loc.get("id") or "")
-                    img = loc.get("reference_image") or loc.get("image_path") or loc.get("image_file") or f"images/{lid}.png"
+                    img = scene_master_image(project_dir, loc, lid)
                     if lid and (project_dir / img).exists():
                         have.add(lid)
         except Exception:
@@ -1632,7 +1645,7 @@ def build_stage_2(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
     for loc in locs:
         lid = loc.get("location_id") or loc.get("id") or ""
         lname = loc.get("name") or lid
-        l_img = loc.get("reference_image") or loc.get("image_path") or loc.get("image_file") or f"images/{lid}.png"
+        l_img = scene_master_image(project_dir, loc, lid)
         src_rel, real_p = rel_img_src(project_dir, l_img)
         loc_rows = [
             "| 項目 | 內容 |",
