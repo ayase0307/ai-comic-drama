@@ -280,3 +280,9 @@ python scripts/sync_h3_reference.py --sync --write-manifest   # 同步並更新�
 | `驗收結論需重跑` | `review/verdicts.json` 依 `acceptance_policy` 判為 fail | 改提示詞後只重跑這些段；不能用 `--override` 放行 |
 | `project-state.json 在最後一次正式寫入後被手改過` | 有人手改狀態檔 | 停下回報；從備份還原或重建審核頁請使用者重核。**不准手改 project-state** |
 | `影片 hash 缺失或不相符` | 影片被動過 | 重跑該段或重新產 QA 報告 |
+
+## reference-manifest.json／bible 圖片欄位（schema 摘要）
+- `assets/reference-manifest.json`：`{"<asset_id>": {"image_path": "images/x.png", "review_disposition": "...", "technical_review_notes": "...", "approval_status": "..."}}`；階段 2 審核頁與收件匣讀 `review_disposition`／`approval_status`。
+- `adapt/bible.json` 角色／場景圖片欄位認 `reference_image`、`image_path`、`image_file`（含 `wardrobe_states[]`）。
+- assets.md 每個資產區塊可加一行 `反美化：…` 或 `禁止特徵：…`（例：不帥、蠟黃、非偶像臉／無鱗無牙、不分叉舌），會併進該資產提示詞的負面約束。
+- 劇本用到、但無場景母版圖的場景，階段 2 審核頁建置時會在 stderr 提醒（不阻斷）。
