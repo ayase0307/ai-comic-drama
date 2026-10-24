@@ -126,12 +126,15 @@ STYLE_PRESETS = {
     "semi-real": {
         "name": "UE5 半寫實東亞 CG",
         "line": (
-            "Photorealistic-stylized East Asian 3D CG character concept sheet (Unreal Engine 5 / Korean-Chinese "
-            "next-gen CG cinema aesthetic, realistic East Asian facial bone structure and eye proportions, delicate "
-            "subsurface-scattering pore skin texture; STRICTLY NO Pixar style, NO Disney cartoon style, NO Western "
-            "cartoon proportions, NO exaggerated oversized eyes, NO freckles)。"
+            "Stylized East Asian 3D CG character concept sheet, a Unreal Engine 5 real-time 3D render, "
+            "NOT a photograph, NOT a real-person photo shoot (Korean-Chinese next-gen CG cinema aesthetic, "
+            "realistic East Asian facial bone structure and eye proportions, delicate subsurface-scattering skin "
+            "with visible CG material feel; STRICTLY NO Pixar style, NO Disney cartoon style, NO Western "
+            "cartoon proportions, NO exaggerated oversized eyes, NO freckles, NO photographic portrait look)。"
+            "一般人／配角要依角色描述畫出真實年齡、胖瘦與不完美的臉，不要一律畫成偶像臉。"
         ),
-        "quality": "8K超高清，电影级半写实CG渲染，毛孔级皮肤质感与次表面散射。",
+        "quality": "8K超高清，电影级半写实3D CG渲染（UE5即时渲染质感，不是照片），皮肤细腻带次表面散射。",
+        "needs_reference": "assets/styles/sheet-13-semi-real-ue5.jpg",
     },
 }
 STYLE_CHOICES = (f"{style_rules.STYLE14_KEY} 或 14（古風寫實厚塗・電影感，預設）／master（母版3D厚塗）／"
@@ -169,8 +172,18 @@ def build_character_prompt(subject_desc: str, style: Optional[Dict[str, str]] = 
         f"画质：{quality}"
     )
 
+def env_style_line(style: Optional[Dict[str, str]] = None) -> str:
+    """生物／場景／道具共用的風格句：跟角色同一個 --style，避免風格不一致。"""
+    style = style or resolve_style(None)
+    line = style.get("line", "")
+    if style.get("key") == "master" or style.get("key") == "semi-real":
+        return "Stylized 3D CG render, not a photograph, " + (
+            "Unreal Engine 5 real-time render" if style.get("key") == "semi-real" else "cinematic 3D CG")
+    return line.rstrip("。")
+
+
 CREATURE_TURNAROUND_TEMPLATE = (
-    "Photorealistic-stylized 3D CG creature concept sheet, cinematic creature design, "
+    "{style_line}, creature concept sheet, cinematic creature design, "
     "realistic textures and volume, neutral studio lighting, 16:9 aspect ratio. "
     "Creature turnaround model sheet against a seamless flat neutral medium-grey background showing "
     "front view, side profile view, and head close-up. "
@@ -178,7 +191,7 @@ CREATURE_TURNAROUND_TEMPLATE = (
 )
 
 SCENE_PLATE_TEMPLATE = (
-    "Photorealistic-stylized 3D CG environment plate, realistic architectural and environmental rendering, "
+    "{style_line}, environment plate, realistic architectural and environmental rendering, "
     "cinematic volumetric lighting, deep perspective view, 16:9 aspect ratio. "
     "{subject_desc}, completely empty of people, cinematic establishing plate."
 )
@@ -311,13 +324,13 @@ def compile_full_prompt(asset: Dict[str, Any], style: Optional[Dict[str, str]] =
     if atype == "character":
         return build_character_prompt(desc, style, asset.get("style_lock", ""))
     elif atype == "creature":
-        return CREATURE_TURNAROUND_TEMPLATE.format(subject_desc=desc)
+        return CREATURE_TURNAROUND_TEMPLATE.format(style_line=env_style_line(style), subject_desc=desc)
     elif atype == "scene":
-        return SCENE_PLATE_TEMPLATE.format(subject_desc=desc)
+        return SCENE_PLATE_TEMPLATE.format(style_line=env_style_line(style), subject_desc=desc)
     else:
         # 道具或其他
         return (
-            f"3D animated series prop concept sheet, stylized realistic CG render, "
+            f"{env_style_line(style)}, prop concept sheet, "
             f"neutral studio lighting, seamless flat neutral medium-grey background, 16:9. "
             f"Subject: {desc}"
         )
@@ -415,11 +428,13 @@ def main():
         })
 
     # 4. 輸出列印或儲存
+    if style.get("needs_reference"):
+        print(f"[提醒] {style['name']} 純提示詞容易滑向照片寫實：出圖時請附 repo 樣圖 {style['needs_reference']} 當風格參考。")
     print(f"✅ 成功解析並組裝 {len(compiled_results)} 項核心資產提示詞：\n")
     for idx, c in enumerate(compiled_results, 1):
         print(f"[{idx:02d}] 【{c['type'].upper()}】{c['name']}")
         print(f"     目標檔名: {c['filename']}")
-        print(f"     規格類型: {'四格橫排純灰底轉面圖' if c['type'] == 'character' else ('三視圖純灰底' if c['type'] == 'creature' else '無人空景底圖')}")
+        print(f"     規格類型: {'四格橫排純灰底轉面圖' if c['type'] == 'character' else ('三視圖純灰底' if c['type'] == 'creature' else ('純灰底道具設定圖' if c['type'] == 'prop' else '無人空景底圖'))}")
         print(f"     標準 Prompt:\n     {c['full_prompt']}\n")
 
     if args.out_json:
