@@ -50,7 +50,9 @@
 | **E37** 對白路由矛盾 | 分鏡標嘴部可見的對白（`visible_mouth_dialogue`），提示詞卻寫畫外音、嘴閉著。 | 畫內對白留 `<d>` 讓 H3 對口型；真的要外部配音就回分鏡改 visibility。 |
 | **E38** 編譯後改寫 | `detailed_description` 和編譯器留下的指紋（`metadata.compiled_prompt_sha256`）不符。 | 五小節只能寫在 Layer 2 的 `five_part_en`，再重新編譯。不准在編譯後用腳本或手動覆寫。`subject_definitions`／`retention_analysis` 的自動修正不受影響。 |
 
-警告（不擋，但要看）：W30 舊產物沒有編譯指紋；W33 零星重複句；W39 八成以上是固定鏡（運鏡是階段 4 的決定，確認是刻意的）。
+| **E40** 抹背景 | `the background is empty`、`blank/plain background`、`empty backdrop`：為了消「背景未鎖」把背景整個抹掉。 | 照綁定的場景圖寫出看得到的東西（vine-wrapped pillars behind her）；只是不要路人就寫 `no one else behind her`。 |
+
+警告（不擋，但要看）：W40 沒有視覺線索的氣氛詞（cinematic、dramatic、tense atmosphere…，同句沒有光、手、眼、動作等具體線索）；W30 舊產物沒有編譯指紋；W33 零星重複句；W39 八成以上是固定鏡（運鏡是階段 4 的決定，確認是刻意的）。
 
 ## 動作鏡怎麼寫才不慢（打擊、追逐、被炸飛）
 
@@ -96,6 +98,14 @@ Motion: After the guide's opening line, he indicates the stone with an open hand
 ```text
 Motion: First he walks backward two steps along the rim, then he turns his torso toward the boulder, as his right arm sweeps open with the palm up, finally his hand stops level with the stone's flat top. Performance: A practised tour-guide grin, eyebrows lifted on the name of the stone; he glances back at the group once to check they are following, and the grin widens.
 ```
+
+## 嚴謹度：每句都要對生成有幫助
+
+寫每一句前問：刪掉這句，影片會不一樣嗎？不會就刪。要寫的是站位（frame left third）、視線、起始與**結束姿勢**、關鍵道具英文名與位置、場景圖裡看得到的背景；不要寫參考圖已有的髮型服裝、沒有線索的氣氛詞。一鏡只放一個主要動作，塞不下回階段 4 拆鏡。每鏡的寫法從 `shot_intent` 推（`references/storyboard/shot-intent.md` §三）。
+
+## 處理警告
+
+逐鏡回到該鏡的 `shot_intent` 決定改法，不准按警告類型一次套用（全部 2 m→1.5 m、全部補 empty）；不准為了過關改核准內容（人群改空坐墊）；交給使用者的每條警告都附「哪一鏡、怎麼改、為什麼、取捨」。詳見 `references/storyboard/shot-intent.md` §四。
 
 ## 五、檢查器本身的規矩
 

@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from handoff_to_skeleton import MAX_SHOT_SEC, find_todo, segment_sort_key  # noqa: E402
 from speech_utils import count_speech_chars, normalize_speech  # noqa: E402
 from audit_refs_and_segments import effective_duration  # noqa: E402
+from shot_intent import cross_segment_intent_errors, segment_intent_errors, shot_intent_errors  # noqa: E402
 
 BEAT_TYPES = ("Expository_Fast", "Suspense_Delay", "Dramatic_Core", "Combat_Impact", "Reaction_OTS")
 PACING_PROFILES = ("Slow_Cinematic", "Standard_Narrative", "Fast_ShortDrama")
@@ -90,7 +91,7 @@ def _shot_format_errors(shot, path: str) -> list:
     _expect(shot, "shot_id", "str", path, errors)
     _expect(shot, "duration", "num", path, errors)
     _expect(shot, "dramatic_beat_type", "str", path, errors)
-    for key in ("camera_optics", "action_and_performance", "dialogue_and_audio"):
+    for key in ("camera_optics", "action_and_performance", "dialogue_and_audio", "shot_intent", "choice_why"):
         _expect(shot, key, "obj", path, errors)
     for key in ("shot_size", "pov_routing", "physical_distance"):
         _expect(_as_dict(shot.get("camera_optics")), key, "str", f"{path}.camera_optics", errors)
@@ -323,6 +324,8 @@ def validate_storyboard_data(data: dict, original_script_dialogues: list = None)
         dur = float(s.get("duration", 1.0))
         if dur > MAX_SHOT_SEC:
             errors.append(f"[{sid} 鏡頭過長] 鏡頭時長 {dur}s 超過 {MAX_SHOT_SEC:.0f} 秒（H3 單鏡上限），請拆成兩鏡。")
+        # Check 0b: 鏡頭意圖先於技術欄位（I01–I03、I05），規範見 references/storyboard/shot-intent.md
+        errors += shot_intent_errors(s, sid)
         beat_type = s.get("dramatic_beat_type", "")
         if beat_type and beat_type not in BEAT_TYPES:
             errors.append(f"[{sid} enum 錯誤] dramatic_beat_type '{beat_type}' 不在 {BEAT_TYPES}")
@@ -455,6 +458,9 @@ def validate_storyboard_data(data: dict, original_script_dialogues: list = None)
             if _face_visible and not dlg.get("lips_closed_lock", False):
                 warnings.append(f"[{sid} 閉唇鎖提醒] 鏡頭無台詞，建議將 lips_closed_lock 設為 true 防止角色亂動嘴。")
 
+    # Check 7d: 同段鏡頭意圖／理由不准複製（I04、I05）
+    errors += segment_intent_errors(shots)
+
     # Check 8: asset_refs 佔位符（#43：骨架的 TODO／S-item1／C-item2 不可原樣通過）
     _refs = data.get("asset_refs") or {}
     _ph = re.compile(r"^(TODO.*|[A-Z]-item\d+)$")
@@ -570,6 +576,7 @@ def check_cross_segment_slop(datas: list) -> list:
     errors = []
     if len(datas) < 2:
         return errors
+    errors += cross_segment_intent_errors(datas)
     for field_key, label in (
         ("background_idle_life", "background_idle_life"),
         ("micro_physics_tail", "micro_physics_tail"),
@@ -645,6 +652,33 @@ def run_demo_suite():
         ],
         "segment_end_state": {"planned_final_state": {"envelope": "creased"}, "observed_final_state": None}
     }
+
+
+    # 每鏡先寫鏡頭意圖，再為技術選擇寫理由（references/storyboard/shot-intent.md）
+    _intents = [
+        ({"audience": "A 早就在等 B，B 一進門就落入 A 的地盤", "story_beat": "B 赴約進門，兩人第一次同處一室",
+          "pov": "旁觀者，同時看見兩人", "emotional_shift": "安靜等待轉成戒備對峙"},
+         {"shot_size": "MLS 才能同時框進窗前的 A 與門口的 B，交代兩人距離", "lens_distance": "35mm 2 公尺接近人眼，不偏袒任何一方",
+          "movement": "焦點由 A 移到 B，代替切鏡把注意力交給剛進門的人", "blocking": "A 背對鏡頭在左、B 在右門口，背對的 A 顯得從容",
+          "background": "落地窗冷光與門縫暖光同框，冷暖分別屬於 A 與 B"}),
+        ({"audience": "A 不必回頭就掌握了 B，台詞是宣告而不是寒暄", "story_beat": "A 先開口定調",
+          "pov": "貼近 A，觀眾和 A 一起看玻璃倒影", "emotional_shift": "沉默轉成壓迫"},
+         {"shot_size": "CU 讓觀眾讀到 A 眼簾下垂與下頜收緊", "lens_distance": "85mm 3.5 公尺壓扁背景，窗上倒影貼在 A 臉旁",
+          "movement": "慢推在台詞前完成，推近的壓力落在第一個字上", "blocking": "A 側臉在畫左三分之一，視線朝畫右看玻璃裡的 B",
+          "background": "只留窗玻璃與 B 的模糊倒影，提醒 B 就在身後", "line_timing": "推鏡停住後 0.5 秒才開口，讓台詞在靜止畫面裡落地"}),
+        ({"audience": "B 被那句話刺中，手比臉先洩漏情緒", "story_beat": "B 的反應：信封被捏皺",
+          "pov": "B 自己都沒察覺的身體反應，觀眾比 A 先看到", "emotional_shift": "強裝鎮定轉成失控"},
+         {"shot_size": "ECU 只拍手與信封，表情交給動作", "lens_distance": "85mm 1.5 公尺讓指節和紙紋清楚可讀",
+          "movement": "從停下的腳搖到手，跟著緊張往上爬", "blocking": "B 停在桌角，手在畫面中央下方，信封白色面朝鏡頭",
+          "background": "紅木桌面暗沉，襯出白信封與發白指節"}),
+        ({"audience": "B 想退卻，A 的背影仍佔著畫面一角", "story_beat": "B 回答，落下本段結尾",
+          "pov": "站在 A 身後看 B，觀眾與 A 同一陣線", "emotional_shift": "失控收成無力的後悔"},
+         {"shot_size": "OTS_CU 讓 A 的肩擋住一角，B 被夾在 A 的陰影裡", "lens_distance": "100mm 6 公尺壓縮兩人距離，B 無處可退",
+          "movement": "固定，讓 B 下唇的顫動成為畫面唯一的動", "blocking": "A 暗部右肩在畫左前景虛焦，B 在畫右三分之一抬眼看 A",
+          "background": "門縫暖光在 B 身後，是她進來的路，也是退路", "line_timing": "抬眼後才開口，說完垂眼嘆氣做收尾停格"}),
+    ]
+    for _shot, (_intent, _why) in zip(valid_case["shots"], _intents):
+        _shot["shot_intent"], _shot["choice_why"] = _intent, _why
 
     res1 = validate_storyboard_data(valid_case, original_script_dialogues=["你終於來了。", "我不該來的。"])
     print("\n✅ [測試 1：標準合規分鏡 (實驗 A 辦公室對峙)] 審查結果:", "PASS" if res1["passed"] else "FAIL")

@@ -318,6 +318,21 @@ def make_shot(item: dict, shot_id: str, start: float, duration: float,
         "character_ids": character_ids,
         "reference_refs": [],
         "status": "pending",
+        # 鏡頭意圖先於技術欄位：先想這一鏡要讓觀眾懂什麼，再推出景別與運鏡（references/storyboard/shot-intent.md）
+        "shot_intent": {
+            "audience": f"{TODO}：觀眾看完這一鏡必須看懂／感受到什麼",
+            "story_beat": f"{TODO}：這一鏡推進的劇情節拍",
+            "pov": f"{TODO}：誰的視角，觀眾站在誰那邊",
+            "emotional_shift": f"{TODO}：情緒從哪裡變到哪裡",
+        },
+        "choice_why": {
+            "shot_size": f"{TODO}：為什麼是這個景別（扣回意圖）",
+            "lens_distance": f"{TODO}：為什麼是這個焦距與物距",
+            "movement": f"{TODO}：為什麼這樣動（或固定）",
+            "blocking": f"{TODO}：人物在畫面哪裡、看向哪裡、為什麼",
+            "background": f"{TODO}：背景要露出場景圖裡的什麼、為什麼",
+            **({"line_timing": f"{TODO}：台詞在動作前、中、後哪一刻開口，為什麼"} if audio.get("has_dialogue") else {}),
+        },
         "camera_optics": {
             "shot_size": "MS",
             "focal_length": "35mm",

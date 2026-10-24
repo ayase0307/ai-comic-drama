@@ -7,6 +7,8 @@
 > 上游來源：E:\MinimaxH3\影片分鏡大師\cinematic-director-storyboard v2.0。
 > 本 repo 對應說明：《四維配音法》（four-dimensional-voice-acting）與《光影配色色卡》（lighting-color-palette-card）未收錄於本 repo。本 repo 的對應為：聲音 → `references/h3/audio-and-dialogue.md` + `references/h3/audio-pipeline.md`；光影配色 → `references/h3/lighting-and-color.md`。
 
+> **本 repo 強制（先於下文所有技法）**：每鏡先寫 `shot_intent`，每個技術選擇在 `choice_why` 寫理由，見 `shot-intent.md`。下文的景別、焦距、運鏡技法是用來實現意圖的工具，不是可以先選的預設值。
+
 # 影視與 AI 漫劇雙棲導演分鏡、鏡頭光學與連戲主宰體系 (Cinematic Director Storyboard v2.0)
 
 > **導演的核心真理（v2.0 鐵律）**：
