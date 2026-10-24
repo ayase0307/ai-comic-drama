@@ -10,6 +10,10 @@
 | `araki-manga-craft` | 人物（荒木飛呂彥） | 2 資產、3 劇本 | `scripts/craft/araki_review.py` |
 | `mckee-scene` | 人物（Robert McKee） | 3 劇本（`script-review-epXX.md`） | `scripts/craft/mckee_review.py` |
 | `mccloud-panels` | 人物，薄版（Scott McCloud） | 4 分鏡 | `scripts/craft/mccloud_review.py` |
+| `murch-cut` | 人物（Walter Murch，剪點與聲音） | 7 組裝 | `scripts/craft/edit_review.py --lens murch-cut` |
+| `hamilton-action` | 人物（Eddie Hamilton，動作節奏） | 7 組裝 | `scripts/craft/edit_review.py --lens hamilton-action` |
+
+階段 7 的兩個剪輯 lens 共用一支腳本，讀 `timeline-plan-<ep>.csv`、`edit/full-plan.json`、`videos/speed-ramps.json`（加 `--video <成片.mp4>` 會用 ffmpeg 實測剪點與響度），報告寫到 `review/craft/stage-7-edit-<ep>.md`。剪輯技巧與數值見 `references/edit/manju-editing-playbook.md`。
 
 （後三個 lens 各自用獨立的 PR 加入；還沒合併的話，對應的資料夾不會存在。）
 
