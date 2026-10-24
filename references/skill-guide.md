@@ -189,6 +189,12 @@ H3 的聲音與畫面在同一次 forward 生成，輸出是**單一 32 kHz 立�
 - **拼接成片**：使用 ffmpeg 拼接影片片段、燒錄字幕與混音，整片再套 `loudnorm` 對齊 EBU R128（−23 LUFS／−1.5 dBTP）。
 - **交付清單**：列出已生成檔案、未完成鏡號。
 
+### 7.3 剪輯技巧與剪輯 lens（只給建議）
+- **技巧手冊**：`references/edit/manju-editing-playbook.md`——前 3 秒鉤子、鏡長與卡點、轉場紀律（硬切 ≥ 85%）、打擊感四件套（閃白／速度線／震屏／音效提前 1 幀）、靜圖運鏡與分層視差、字幕硬規則（≤ 15 字、≤ 9 字/秒、9:16 安全框）、角色專屬字幕色、角色登場介紹卡、調色、三層音效、配樂 ducking（6–12 dB）、片頭片尾、響度與匯出規格；每項附剪映對應功能與已實測的 ffmpeg 寫法。
+- **剪輯 lens**：草剪或成片出來後跑 `python scripts/craft/edit_review.py --project-dir . --episode EP01 [--lens murch-cut|hamilton-action] [--video final/ep01_final.mp4]`，報告寫 `review/craft/stage-7-edit-ep01.md`；Agent 讀 `references/craft/murch-cut/SKILL.md`（剪點、念頭斷點、最後一格、聲音密度、留白）與 `references/craft/hamilton-action/SKILL.md`（觀眾跟得上、先壓再放 air、先裸剪再讓聲音說故事、蓄力、試映迭代）補「Agent 審查」段。不改任何門禁。
+- **響度**：豎屏串流成片建議 −14～−16 LUFS、TP ≤ −1 dBTP；送審母帶另出 EBU −23（`assemble_episode.py --target-lufs`）。哪個當交付預設由使用者決定。
+- **剪映草稿路線（未實作，調查見 `references/edit/concat-and-jianying-drafts.md`）**：Concat（jub0t/Concat，AGPL-3.0）是自有格式的獨立剪輯器，不讀寫剪映草稿；要交給剪映人工精修，可從 `edit/full-plan.json` 用 pyJianYingDraft（Apache-2.0）寫 `draft_info.json`，需家機實測剪映版本。
+
 ---
 
 ## 資源
