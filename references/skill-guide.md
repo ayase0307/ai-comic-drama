@@ -230,6 +230,7 @@ H3 的聲音與畫面在同一次 forward 生成，輸出是**單一 32 kHz 立�
 - `scripts/storyboard/audit_refs_and_segments.py` — 分段參考圖、主體定義、說話者與字數預算多維程式對帳工具（支援雙重審查：模式 A 序對 + 模式 B 17 條自檢）。
 - `scripts/storyboard/patch_shot.py` — 單鏡局部修改與審核鎖定工具（支援秒數吸收、自動重算時間軸）。
 - `scripts/storyboard/svg_storyboard_grid.py` — 免生圖 SVG 構圖分鏡總覽圖（2.5D 相機＋3D 人偶，依景別取景、過肩貼肩、依 180 度線換算左右；回寫 `sketch_file`／`sketch_sha256`／`sketch_generation.grid_file`；鎖定格不覆蓋；外觀與站位走專案 `staging/`，動作關鍵字走 `svg_rig_actions.json`）。選用依賴 numpy、resvg-py。
+- `scripts/storyboard/codex_storyboard_panels.py` — Codex CLI 內建生圖的彩色分鏡圖（每鏡一張、每段總覽圖），自動綁定已核准參考圖（角色正面裁切、異獸設定圖、場景母版，依序為 <Picture N>），`--model` 必填；角色關鍵字／逐鏡覆寫放 `staging/codex-panel-refs.json`；輸出與回寫契約同 SVG 構圖（backend=codex）。使用者指定「分鏡圖用 Codex」時走這條。
 - `scripts/storyboard/qwen_storyboard_grid.py` — Qwen-Image 2.1 電影分鏡鉛筆草圖、單格局部重繪、分鏡總覽圖拼版與去黑箭頭轉全彩首幀工具。
 - `scripts/storyboard/submit_h3_segments.py` — 階段 6 FreeVideo H3 批次提交與顯存保護工具（4.20 GiB 顯存臨界點安全保護、不足時差額診斷、--dry-run 乾跑檢查、參考圖 SHA256 快取、音色母帶（音訊參考）上傳與副檔名檢查、LoRA 自動適配與任務輪詢下載）。
 - `scripts/storyboard/verify_video_shot.py` — AI 影片自動審查與分鏡規格差異檢驗門禁工具（分段總時長精確對齊、彩度防黑白污染、分屏殘留、串聯 `color_qa.py` 輸出 `qa-report.json`）。
