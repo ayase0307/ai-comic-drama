@@ -459,6 +459,16 @@ def validate_storyboard_data(data: dict, original_script_dialogues: list = None)
     if _bad:
         warnings.append("[asset_refs 佔位符] 仍有骨架佔位值未替換：" + "、".join(_bad[:6]) + "；請改成 assets.md／bible.json 內真實的 ID。")
 
+    # Check 7c（#58）：同段多個說話人露臉 → 警告；使用者接受後設 metadata.accepted_mixed_face=true
+    _spk = []
+    for s in shots:
+        _d = s.get("dialogue_and_audio") or {}
+        if _d.get("has_dialogue") and _d.get("speaker") and _d["speaker"] not in _spk:
+            _spk.append(_d["speaker"])
+    if len(_spk) > 1 and not (data.get("metadata") or {}).get("accepted_mixed_face"):
+        warnings.append(f"[同段多說話人露臉] 本段有 {len(_spk)} 位說話人（{'、'.join(map(str, _spk))}）；H3 單段容易混臉。"
+                        "建議拆段；若接受風險，在 metadata 設 accepted_mixed_face=true 即不再警告。")
+
     # Check 7b: 同段內跨鏡頭複製貼上檢查 (background_idle_life / micro_physics_tail / observable_expression)
     for field_key, field_label in (
         ("background_idle_life", "背景動態 (background_idle_life)"),
