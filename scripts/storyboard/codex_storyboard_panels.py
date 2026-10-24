@@ -102,6 +102,24 @@ def scene_ref(root: pathlib.Path, scene_id: str, assets: Dict[str, Dict[str, str
     return None
 
 
+def orientation_matches(path, aspect: str) -> bool:
+    """輸出圖的橫／直方向須與專案畫幅一致（模型偶爾忽略比例指示）。"""
+    try:
+        from PIL import Image
+        w, h = Image.open(path).size
+    except Exception:
+        return False
+    a, b = (float(x) for x in aspect.split(":"))
+    return (w >= h) == (a >= b) or abs(a - b) < 1e-6
+
+CROWD_WORDS = ("crowd", "disciples", "群", "眾")
+
+def has_crowd(shot: Dict[str, Any]) -> bool:
+    """分鏡明寫群眾時允許無名路人，否則一律禁止背景人物。"""
+    text = json.dumps([shot.get(k) for k in ("camera_optics", "spatial_blocking", "action_and_performance")],
+                      ensure_ascii=False)
+    return any(w in text for w in CROWD_WORDS)
+
 def build_panel_prompt(shot: Dict[str, Any], seg: Dict[str, Any], subjects: List[str],
                        assets: Dict[str, Dict[str, str]], ref_labels: List[Tuple[str, str]]) -> str:
     cam = shot.get("camera_optics") or {}
@@ -124,7 +142,11 @@ def build_panel_prompt(shot: Dict[str, Any], seg: Dict[str, Any], subjects: List
         who = ", ".join(f"{assets.get(a, {}).get('name') or a} = <Picture {pic[a]}>" for a in people if a in pic)
         if who:
             lines.insert(1, f"Main subject(s): {who}. Draw these exact people, never a different character from another picture.")
-        lines.append(f"Exactly {len(people)} person(s) may be visible ({', '.join(assets.get(a, {}).get('name') or a for a in people)}); nobody else, no background figures.")
+        names = ', '.join(assets.get(a, {}).get('name') or a for a in people)
+        if has_crowd(shot):
+            lines.append(f"Named characters: exactly {len(people)} ({names}); the unnamed background crowd described in the framing must be drawn as anonymous extras who do not resemble any reference picture.")
+        else:
+            lines.append(f"Exactly {len(people)} person(s) may be visible ({names}); nobody else, no background figures.")
     else:
         lines.append("No people in frame (hands only if the action names them).")
     lines.append(f"Framing: {cam.get('shot_size', '')} {cam.get('focal_length', '')}, camera {five.get('camera') or blk.get('blocking_desc_en', '')}")
@@ -287,6 +309,9 @@ def main(argv: Optional[List[str]] = None) -> int:
                                                 timeout_sec=args.timeout, codex_bin=exe, aspect=j["aspect"])
         except rc.UsageLimitHit as hit:
             print(f"⏸ Codex 用量上限（{hit.retry_at}）：{j['shot_id']}")
+            ok = False
+        if ok and not orientation_matches(out_dir / j["filename"], j["aspect"]):
+            print(f"⚠ {j['shot_id']} 畫幅方向與 {j['aspect']} 不符，視為失敗")
             ok = False
         return j, ok
 

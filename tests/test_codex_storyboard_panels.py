@@ -87,5 +87,20 @@ class CodexPanelTests(unittest.TestCase):
             cp.main(["--root", str(self.r)])
 
 
+class OrientationTest(unittest.TestCase):
+    def test_orientation(self):
+        import tempfile
+        from PIL import Image
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "a.png"; Image.new("RGB", (90, 160)).save(p)
+            self.assertFalse(cp.orientation_matches(p, "16:9"))
+            self.assertTrue(cp.orientation_matches(p, "9:16"))
+
 if __name__ == "__main__":
     unittest.main()
+
+
+class CrowdTest(unittest.TestCase):
+    def test_crowd_detection(self):
+        self.assertTrue(cp.has_crowd({"spatial_blocking": {"zh": "鵝黃衣群中"}}))
+        self.assertFalse(cp.has_crowd({"spatial_blocking": {"zh": "艾露獨坐"}}))
