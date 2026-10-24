@@ -103,6 +103,43 @@ def get_png_dimensions(path: Path) -> Optional[Tuple[int, int]]:
     return None
 
 
+def scenes_without_master(project_dir) -> List[str]:
+    """layer2 分鏡用到的 scene_id，若 bible.json 沒有對應存在的母版圖就列出（#42）。"""
+    project_dir = Path(project_dir)
+    used: set = set()
+    for f in project_dir.glob("**/layer2*.json"):
+        if "_" in f.parent.name and f.parent.name.startswith("_"):
+            continue
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        stack = [data]
+        while stack:
+            o = stack.pop()
+            if isinstance(o, dict):
+                ar = o.get("asset_refs")
+                if isinstance(ar, dict) and ar.get("scene_id"):
+                    used.add(str(ar["scene_id"]))
+                stack.extend(o.values())
+            elif isinstance(o, list):
+                stack.extend(o)
+    have: set = set()
+    bp = project_dir / "adapt" / "bible.json"
+    if bp.exists():
+        try:
+            b = json.loads(bp.read_text(encoding="utf-8"))
+            for loc in (b.get("locations") or []):
+                if isinstance(loc, dict):
+                    lid = str(loc.get("location_id") or loc.get("id") or "")
+                    img = loc.get("reference_image") or loc.get("image_path") or loc.get("image_file") or f"images/{lid}.png"
+                    if lid and (project_dir / img).exists():
+                        have.add(lid)
+        except Exception:
+            pass
+    return sorted(used - have)
+
+
 def rel_img_src(project_dir: Path, img_path_str: str) -> Tuple[str, Optional[Path]]:
     """將專案相對路徑轉為相對於 review/stage-X.html 的 `../...` 路徑並回傳實體路徑。"""
     if not img_path_str:
@@ -1537,12 +1574,13 @@ def build_stage_2(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
 
         # 收集該角色所有關聯圖片（預設 reference_image + wardrobe_states + character-bible.md 內標註的 images/*.png）
         img_candidates: List[Tuple[str, str]] = []
-        primary_img = ch.get("reference_image") or ch.get("image_path") or ""
+        primary_img = ch.get("reference_image") or ch.get("image_path") or ch.get("image_file") or ""
         if primary_img:
             img_candidates.append(("主設定圖", primary_img))
         for ws in ch.get("wardrobe_states", []):
-            if isinstance(ws, dict) and ws.get("image_path"):
-                img_candidates.append((ws.get("label") or ws.get("wardrobe_id") or "服裝變體", ws["image_path"]))
+            _wimg = ws.get("image_path") or ws.get("image_file") if isinstance(ws, dict) else ""
+            if _wimg:
+                img_candidates.append((ws.get("label") or ws.get("wardrobe_id") or "服裝變體", _wimg))
         for m_img in re.findall(r"images/[A-Za-z0-9_.-]+\.png", spec_md):
             if all(m_img != p for _, p in img_candidates):
                 img_candidates.append(("設定圖／服裝狀態", m_img))
@@ -1594,7 +1632,7 @@ def build_stage_2(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
     for loc in locs:
         lid = loc.get("location_id") or loc.get("id") or ""
         lname = loc.get("name") or lid
-        l_img = loc.get("reference_image") or loc.get("image_path") or f"images/{lid}.png"
+        l_img = loc.get("reference_image") or loc.get("image_path") or loc.get("image_file") or f"images/{lid}.png"
         src_rel, real_p = rel_img_src(project_dir, l_img)
         loc_rows = [
             "| 項目 | 內容 |",
@@ -1634,6 +1672,13 @@ def build_stage_2(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
             f'</article>'
         )
 
+    # #42：劇本用到卻沒有場景母版的場景（只提醒、不阻斷）
+    try:
+        _no_master = scenes_without_master(project_dir)
+    except Exception:
+        _no_master = []
+    if _no_master:
+        print(f"[階段 2 提醒] 劇本用到但沒有場景母版圖的場景：{', '.join(_no_master)}", file=sys.stderr)
     if missing_assets:
         errors.append(f"[階段 2 缺圖阻斷] 共有 {len(missing_assets)} 項核心資產圖片尚未生成或路徑不存在：{', '.join(missing_assets)}")
 
@@ -2197,7 +2242,7 @@ def _segment_character_visuals(project_dir: Path, bible: Dict[str, Dict[str, Any
     for cid in ordered:
         entry = bible.get(cid) or {}
         name = str(entry.get("canonical_name") or entry.get("name") or cid)
-        raw = entry.get("reference_image") or entry.get("image_path") or manifest.get(cid) or f"images/{cid}.png"
+        raw = entry.get("reference_image") or entry.get("image_path") or entry.get("image_file") or manifest.get(cid) or f"images/{cid}.png"
         raw = str(raw)
         _src, real = rel_img_src(project_dir, raw)
         result.append((cid, name, real))

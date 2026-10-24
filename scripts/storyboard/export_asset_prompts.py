@@ -267,12 +267,14 @@ def parse_assets_markdown(assets_path: pathlib.Path) -> List[Dict[str, Any]]:
                 slug = re.sub(r"[^A-Za-z0-9_-]+", "", title_line.replace(" ", "-"))
                 filename = f"{asset_type}-{slug}.png"
 
+        anti_m = re.search(r"(?:反美化|禁止特徵|禁止特征)[：:]\s*([^\n]+)", body)
         assets.append({
             "name": title_line,
             "type": asset_type,
             "filename": filename,
             "description": desc_raw,
             "style_lock": style_lock,
+            "avoid": anti_m.group(1).strip().strip("`") if anti_m else "",
         })
 
     if not assets:
@@ -337,7 +339,15 @@ def read_style_index(assets_path: pathlib.Path) -> Optional[str]:
 
 
 def compile_full_prompt(asset: Dict[str, Any], style: Optional[Dict[str, str]] = None) -> str:
-    """根據資產類型編譯完整標準 Prompt。"""
+    """根據資產類型編譯完整標準 Prompt；assets.md 的「反美化／禁止特徵」(#18) 併入負面約束。"""
+    base = _compile_base_prompt(asset, style)
+    avoid = (asset.get("avoid") or "").strip()
+    if avoid:
+        base += f"\n負面約束（不得出現／不得美化）：{avoid}"
+    return base
+
+
+def _compile_base_prompt(asset: Dict[str, Any], style: Optional[Dict[str, str]] = None) -> str:
     atype = asset.get("type", "character")
     desc = asset.get("description", "")
 
