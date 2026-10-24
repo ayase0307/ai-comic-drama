@@ -73,11 +73,13 @@ try:  # 以 scripts/storyboard 為 sys.path 執行（CLI 慣例）
     import normalize as normalize_mod
     import failure_catalog
     import prompt_authoring
+    import continuity_lint
 except ImportError:  # pragma: no cover - 套件匯入路徑
     from . import h3_spec
     from . import normalize as normalize_mod
     from . import failure_catalog
     from . import prompt_authoring
+    from . import continuity_lint
 
 
 # ==============================================================================
@@ -1218,6 +1220,8 @@ def compile_segment_h3(
     narration_policy: str = "external",
     allow_normalize_warnings: bool = False,
     embed_cut_markers: bool = False,
+    previous_end_state: Optional[Dict[str, Any]] = None,
+    no_lettering: bool = True,
 ) -> Dict[str, Any]:
     """將單個 Layer 2 JSON 分鏡檔編譯為符合 H3 官方六段式規範的資料結構。
 
@@ -1228,6 +1232,12 @@ def compile_segment_h3(
       - "external"（預設）：畫外音／旁白不寫入 H3 的 <d> 標籤，改由外部 TTS
         合成後在階段 7 混入；H3 這一段只出環境與動作音。
       - "h3-native"：保留舊行為，畫外音仍以 <d> 交給 H3 原生語音。
+
+    previous_end_state：同場景前一段的 segment_end_state（#133）。有英文終態時，
+    寫成本段第 1 鏡的「Starting state carried over from the previous segment」句，
+    讓人物從前段終態接起，而不是回到參考圖站姿。
+    no_lettering：提示詞出現校徽、計程車、斑駁牆這類燒字來源時，自動補一句
+    「表面素淨、無文字無塗鴉」（#138）；metadata.allow_lettering=true 的段不加。
     """
     if narration_policy not in ("external", "h3-native"):
         raise ValueError(f"narration_policy 必須是 external 或 h3-native，收到 {narration_policy!r}")
@@ -1974,6 +1984,22 @@ def compile_segment_h3(
     det_header = f"The target video follows the authored visual style ({aspect}), illuminated by {lighting_line_clean}."
     if metadata.get("palette_preset"):
         det_header += f" Color palette: {metadata['palette_preset']}."
+    # #138 燒字來源可預測（校徽、車門、斑駁牆）：正向補一句素淨表面，放在逐鏡之前的總述行。
+    lettering_texts = list(subject_def_lines) + [lighting_line_clean, anchor or ""]
+    for _s in shots:
+        _act = _s.get("action_and_performance", {}) or {}
+        _blk = _s.get("spatial_blocking", {}) or {}
+        lettering_texts += [str(x) for x in (_act.get("action_stages_en") or [])]
+        lettering_texts += [str(_blk.get("blocking_desc_en") or ""), " ".join(str(x) for x in (_blk.get("anchor_objects_en") or []))]
+        _five = _five_part_en(_s) or {}
+        lettering_texts += [str(v) for v in _five.values()]
+    added_no_lettering = bool(no_lettering and not metadata.get("allow_lettering")
+                              and continuity_lint.needs_no_lettering(*lettering_texts))
+    if added_no_lettering:
+        det_header += continuity_lint.NO_LETTERING_SENTENCE
+    carry_text = continuity_lint.carry_sentence(continuity_lint.english_end_state(previous_end_state)) if previous_end_state else ""
+    if previous_end_state and not carry_text:
+        notes.append("同場景前一段的 segment_end_state 沒有英文終態，未帶入本段第 1 鏡；請在前段 en_overlay.end_state_en 補英文")
     det_lines = [det_header]
     tail_hold = style_lock.get("tail_freeze_hold", True)
     final_shot_start = float(shots[-1].get("start_time", 0))
@@ -2164,6 +2190,8 @@ def compile_segment_h3(
         _show = ((stage5_en_overlay(stage5_binding).get("shots") or {}).get(global_shot_id) or {}).get("show") if stage5_binding else None
         if _show:
             head += _on_screen_sentence(_show, [(k, c, subject_picture_no[c]) for k, c in enumerate(selected, start=1)])
+        if idx == 1 and carry_text:
+            head += carry_text
         tail = " The final second holds still before the cut." if (idx == n_shots and tail_hold) else ""
         if idx == n_shots and layer2_data.get("segment_end_state"):
             end_state = layer2_data["segment_end_state"]
@@ -2301,6 +2329,9 @@ def compile_segment_h3(
             "qa_exclusions": negative,
             "palette_preset": metadata.get("palette_preset", ""),
             "narration_policy": narration_policy,
+            "lighting_lock_line": lighting_line_clean,
+            **({"carried_end_state": True} if carry_text else {}),
+            **({"no_lettering_added": True} if added_no_lettering else {}),
             **({"pending_references": pending_missing} if pending_missing else {}),
         },
         "reference_images": reference_images,
@@ -2445,6 +2476,45 @@ def verify_stage4_gate(project_root: pathlib.Path, skip_gate: bool = False, laye
     return True
 
 
+def collect_segment_end_states(
+    layer2_files: List[pathlib.Path],
+    bindings: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> Tuple[Dict[str, str], Dict[str, Any]]:
+    """#133：收集輸入段與同目錄其他 layer2 段的 scene_id 與 segment_end_state。
+
+    只編部分段時，前一段可能不在這次輸入；從同目錄的 layer2-*.json 找回來。
+    bindings 的 en_overlay.end_state_en 優先（階段 5 的英文終態）。
+    """
+    scenes: Dict[str, str] = {}
+    end_states: Dict[str, Any] = {}
+    pool: List[pathlib.Path] = []
+    for path in layer2_files:
+        if path not in pool:
+            pool.append(path)
+        for sib in sorted(path.parent.glob("layer2-*.json")):
+            if sib not in pool:
+                pool.append(sib)
+    for path in pool:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(data, dict):
+            continue
+        sid = str(data.get("segment_id") or data.get("scene_id") or "")
+        if not sid:
+            continue
+        if data.get("scene_id"):
+            scenes[sid] = str(data["scene_id"])
+        state = data.get("segment_end_state") if isinstance(data.get("segment_end_state"), dict) else {}
+        overlay = stage5_en_overlay((bindings or {}).get(sid))
+        if isinstance(overlay.get("end_state_en"), dict) and overlay["end_state_en"]:
+            state = dict(state)
+            state["planned_final_state_en"] = dict(overlay["end_state_en"])
+        end_states[sid] = state
+    return scenes, end_states
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Layer 2 分鏡轉 H3 官方六段式 Prompt 與分段對帳 JSON 批次編譯器"
@@ -2470,6 +2540,10 @@ def main() -> int:
         "--narration-policy", type=str, default="external", choices=["external", "h3-native"],
         help="畫外音／旁白政策：external=不寫入 H3 <d>，改由外部 TTS 合成後於階段 7 混入（預設）；h3-native=沿用 H3 內建語音",
     )
+    parser.add_argument("--no-carry-end-state", action="store_false", dest="carry_end_state", default=True,
+                        help="不把同場景前一段的英文終態帶入本段第 1 鏡（#133；預設帶入）")
+    parser.add_argument("--no-lettering-guard", action="store_false", dest="lettering_guard", default=True,
+                        help="不自動補「表面素淨、無文字無塗鴉」句（#138；預設遇到校徽／車門／斑駁牆等字詞時補）")
     parser.add_argument("--project-root", type=pathlib.Path, default=pathlib.Path("."), help="專案根目錄（預設當前目錄）")
     parser.add_argument("--skip-stage-gate", action="store_true", help="強制跳過階段 4 分鏡總覽圖門禁檢查（僅限測試或除錯）")
 
@@ -2491,6 +2565,7 @@ def main() -> int:
             return 1
         try:
             bindings_by_segment = load_stage5_bindings(args.bindings)
+            all_bindings = dict(bindings_by_segment)
             input_ids = []
             parsed_inputs: Dict[pathlib.Path, Dict[str, Any]] = {}
             for path in layer2_files:
@@ -2514,6 +2589,11 @@ def main() -> int:
             return 1
     else:
         parsed_inputs = {}
+        all_bindings = {}
+
+    carry = getattr(args, "carry_end_state", True)
+    neighbor_scenes, neighbor_end_states = collect_segment_end_states(layer2_files, all_bindings)
+    previous_of = continuity_lint.previous_segment_map(neighbor_scenes.items())
 
     print("=" * 75)
     print(f"🎬 正在執行 Layer 2 ➔ H3 官方六段式批次編譯器")
@@ -2531,6 +2611,8 @@ def main() -> int:
                 with p.open("r", encoding="utf-8") as f:
                     l2_data = json.load(f)
                 stage5_binding = None
+            this_sid = str(l2_data.get("segment_id") or l2_data.get("scene_id") or "")
+            prev_sid = previous_of.get(this_sid)
             seg_res = compile_segment_h3(
                 l2_data,
                 registry=registry,
@@ -2540,6 +2622,8 @@ def main() -> int:
                 narration_policy=args.narration_policy,
                 allow_normalize_warnings=getattr(args, "allow_normalize_warnings", False),
                 embed_cut_markers=getattr(args, "embed_cut_markers", False),
+                previous_end_state=(neighbor_end_states.get(prev_sid) if (carry and prev_sid) else None),
+                no_lettering=getattr(args, "lettering_guard", True),
             )
             compiled_results.append(seg_res)
             print(f"  ✅ 成功編譯段落: {seg_res['segment_id']} ({len(seg_res['shots'])} 鏡, {seg_res['metadata']['target_duration_sec']}s)")
@@ -2637,6 +2721,14 @@ def main() -> int:
             for note in seg.get("compile_notes", []):
                 print(f"    [編譯提醒] {note}")
                 total_warnings += 1
+
+        # 段間連戲（#133 #139）：前段終態、相鄰段姿勢矛盾、同場光線鎖一致；只警告不擋
+        cont_res = continuity_lint.lint_adjacent(compiled_results, neighbor_end_states, neighbor_scenes)
+        if cont_res["warnings"]:
+            print("\n🔗 段間連戲檢查")
+        for w in cont_res["warnings"]:
+            print(f"    [連戲警告] {w}")
+        total_warnings += len(cont_res["warnings"])
 
         # 逐鏡撰寫審查（防偷懶，references/prompt-authoring.md）：E30–E38 擋、W 提醒
         author_res = prompt_authoring.audit_segments(compiled_results)

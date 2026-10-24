@@ -152,6 +152,17 @@ python scripts/h3d.py compile --layer2 layer2/ --bible video-bible.json --bindin
 
 逐集 `segments-epXX.json` 則用 `--episode EPxx` 另編；`--bindings` 含其他集的段會自動略過。`--check` 的「17 條」是 `audit_refs_and_segments.py --lint-h3` 的 E1–E9、W10–W13、E14–E16、E18；E19 起是參考圖對帳與逐鏡撰寫審查。
 
+### 2.3.3 段間連戲、無文字句、同場光線（#133 #138 #139）
+
+- **前段終態自動帶入**：同一 `scene_id` 內依段號排序（`-a`、`-b`…`-z`、`-aa`），前一段有英文終態（`segment_end_state.planned_final_state_en` 或 binding `en_overlay.end_state_en`）時，本段第 1 鏡會加一句 `Starting state carried over from the previous segment: <who> <state>.`，人物從前段終態接起，不再回到參考圖站姿。只編部分段時，前一段從同目錄的 `layer2-*.json` 找。跨場景不帶入。關掉：`--no-carry-end-state`。前段終態只有中文 → 不寫，記 compile note。
+- **終態要寫成姿勢**：例如 `{"Shen Luonian": "lies on his back at the bottom of the crater, pinned under the rock"}`；寫「結束」「同上」帶不出東西。
+- **`--check` 連戲警告**（只警告不擋，已核准的包不受影響）：
+  - `C1 前段無終態`：同場景前一段沒有英文終態，本段無從接起。
+  - `C2 段間姿勢矛盾`：前段終態是躺／坐／跪／被吞，本段第 1 鏡卻寫站／走，且沒有 gets up／rises／pushes himself up 這類起身過程。
+  - `C3 同場光線分裂`：同一場景的段落用了不同光線鎖（例如只為生物段改成中性白光）。改光線以整個場景為單位，或改用後製統一調色。劇情本來就換光（火光亮起）時可忽略。
+- **無文字句**：角色描述、走位、動作或五小節出現 crest／badge／emblem／logo／taxi／bus／car door／sign／poster／banner／斑駁或水泥牆這類燒字來源時，逐鏡前的總述行自動補 `Badges, crests, vehicle doors, signs and wall surfaces stay plain and unmarked, with no lettering, no logos and no graffiti.`。需要可讀文字的段（招牌是劇情重點）在 Layer 2 `metadata.allow_lettering: true`；全專案關掉：`--no-lettering-guard`。物件描述本身也建議寫正向的 `plain embroidered badge with no lettering`。
+- 編譯結果 `metadata` 會記 `lighting_lock_line`、`carried_end_state`、`no_lettering_added`，方便 QA 對照。
+
 ## 2.4 階段 0–3 產物內容門禁（stage_content_checks.py）
 
 `h3d next`、`h3d approve --auto` 與 `build_stage_review.py --approve-stage` 判斷階段 0–3「產物齊了沒」時，會跑
