@@ -239,6 +239,14 @@ LoRA 沒裝 → error，附「拿掉 LoRA」與相近的已安裝名稱；多帶
 - plan → `edit/full-plan.json`：每段影片（有 `voice/muted/` 就用壓過原聲的版本）、字幕（畫內台詞對齊 ASR 實際時間，對不到沿用分鏡；畫外台詞跟配音）、配音起點、`episode_starts`、`total`。
 - build：Concat headless MCP（`concat.exe --mcp headless`）建**單一全集專案**：T1 影片（`clips_add_sequence`）、T2 字幕（`captions_add`）、T3 畫外音（`clip_add trackId=T3`）；專案已存在就停下不覆蓋。
 
+## 2.8 階段 6 動態 QA 與後製變速（h3d motion／h3d ramp）
+
+- `h3d motion --root . [--vad] [--segment <段>] [--force] [--report-only]`：光流量凍結、定住、起手延遲（需 opencv-python-headless、numpy），合併寫 `videos/speed-ramps.json`（status=proposed）；已 approved／rendered 且原片 sha 沒變的段不動。
+- 人審清單、補 `float`（光流抓不到）、確認後 status 改 `approved`。
+- `h3d ramp --root . [--segment <段>] [--rerender] [--dry-run]`：產 `videos/ramped/<段>.mp4`，原片不動；斷言台詞保護區 1×，驗證保護區音訊相關 ≥ 0.98。
+- `h3d assemble`、`h3d concat plan` 自動改用變速版並以 `time_map` 換算字幕／旁白／配音時間（`--no-speed-ramps` 關掉）。
+- 規則、清單格式與實測：`references/speed-ramp.md`。
+
 ## 3. 文件同步（references/h3）
 
 `references/h3/` 是上游 `h3-video-prompting` 的 `references/` 同步副本，**不是手寫的**。
