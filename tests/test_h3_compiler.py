@@ -585,3 +585,17 @@ class H3CompilerRegressionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ExtrasAssetRegistryTest(unittest.TestCase):
+    def test_extras_card_is_a_group_not_a_face(self):
+        import compile_layer2_to_h3 as c
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "assets.md"
+            p.write_text("## 角色\n\n### EXTRAS-crowd　弟子群（群演）\n"
+                         "- **固定描述片段**：`seated disciples`\n- **設定圖**：`images/extras-crowd.png`\n",
+                         encoding="utf-8")
+            reg = c.AssetRegistry(assets_path=p, project_root=d)
+            rec = reg.get_character("EXTRAS-crowd")
+            self.assertTrue(rec["is_group"])
+            self.assertEqual(rec["ref_img"], "images/extras-crowd.png")

@@ -349,7 +349,10 @@ def audit_refs_and_subjects(seg_data: Dict[str, Any], project_root: Optional[Pat
         # 逐鏡判斷：同一鏡裡若出現沒有參考圖的人群，而這一鏡沒有任何
         # 「不可辨識／失焦／剪影」的寫法，就是會被補成複製臉的風險。
         # 逐鏡而非逐句：避免中英混排的同一段內容被拆成兩半而誤判。
-        for block in re.split(r"(?=\[Shot \d+\])", detail_body):
+        # 定律一第④條：人群有自己的群演參考圖（type=extras）時，人群已被錨定，不算 E21。
+        has_extras_ref = any(isinstance(r, dict) and r.get("type") == "extras" and str(r.get("path") or "").strip()
+                             for r in (ref_images if isinstance(ref_images, list) else []))
+        for block in ([] if has_extras_ref else re.split(r"(?=\[Shot \d+\])", detail_body)):
             if not block.strip():
                 continue
             low = block.lower()

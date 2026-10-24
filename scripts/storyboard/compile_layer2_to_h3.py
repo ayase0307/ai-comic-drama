@@ -291,6 +291,7 @@ class AssetRegistry:
                 "ref_img": char.get("reference_image") or char.get("image_path") or "",
                 "wardrobe_states": wardrobes if isinstance(wardrobes, dict) else {},
                 "is_creature": bool(char.get("is_creature", False)) or cid.startswith("CREATURE"),
+                "is_group": bool(char.get("is_group", False)) or cid.startswith("EXTRAS"),
                 "voice_only": bool(char.get("voice_only", False)),
                 "no_visual_reference": bool(char.get("no_visual_reference", False)) or bool(char.get("voice_only", False)),
                 "variants": char.get("variants") or char.get("visual_variants") or {},
@@ -360,12 +361,13 @@ class AssetRegistry:
                 self.style[m.group(1)] = m.group(2).strip()
                 continue
             # 卡片標題
-            m = re.match(r"^#{2,4}\s*((?:C|CREATURE)-[\w-]+|CREATURE-\d+)\s*[　\s]*(.*)$", line)
+            m = re.match(r"^#{2,4}\s*((?:C|CREATURE|EXTRAS)-[\w-]+|CREATURE-\d+)\s*[　\s]*(.*)$", line)
             if m:
                 aid, name = m.group(1), re.sub(r"[（(].*?[)）]", "", m.group(2)).strip() or m.group(1)
                 rec = self.characters.setdefault(aid, {
                     "id": aid, "name": name, "desc_en": "", "short_en": "", "desc_zh": "",
                     "ref_img": "", "wardrobe_states": {}, "is_creature": aid.startswith("CREATURE"),
+                    "is_group": aid.startswith("EXTRAS"),
                 })
                 rec.setdefault("name", name)
                 current = rec
@@ -834,7 +836,7 @@ def _stage5_reference_path_map(binding: Dict[str, Any]) -> Tuple[Dict[str, str],
                         if scene_description and scene_description != desc:
                             raise ValueError("Stage5 segment binds conflicting scene descriptions")
                         scene_description = desc
-        for group in ("characters", "creatures", "props", "bodydetails"):
+        for group in ("characters", "creatures", "extras", "props", "bodydetails"):
             entries = grouped.get(group, []) or []
             if isinstance(entries, dict):
                 entries = [{"id": key, "reference_image": value} for key, value in entries.items()]
@@ -1480,7 +1482,7 @@ def compile_segment_h3(
                 if not cid or cid in no_visual_ids or cid in visual_order:
                     continue
                 info = registry.get_character(cid, wardrobe_state=costume_of.get(cid) or seg_wardrobe)
-                if (single_face_mode and not info.get("is_creature")
+                if (single_face_mode and not (info.get("is_creature") or info.get("is_group"))
                         and cid not in face_subject_ids and cid not in identity_anchor_ids):
                     # 在場但既不是可辨識人臉、也不是身份錨點：不得靜默退回角色聖經的
                     # 整板參考圖（那會讓背景長出同款複製人），也不得只留文字描述
@@ -1515,12 +1517,12 @@ def compile_segment_h3(
                 notes.append(
                     "Stage5 face_subject_ids 宣告了多張可辨識人臉，H3 可能把不同角色平均成同一張臉（混臉風險）"
                 )
-        for group in (asset_refs.get("characters", []) or [], asset_refs.get("creatures", []) or []):
+        for group in (asset_refs.get("characters", []) or [], asset_refs.get("creatures", []) or [], asset_refs.get("extras", []) or []):
             for entry in group:
                 cid = entry.get("id") if isinstance(entry, dict) else entry
                 if cid and cid not in no_visual_ids and cid not in visual_order:
                     rec = registry.get_character(cid, wardrobe_state=costume_of.get(cid) or seg_wardrobe)
-                    if (single_face_mode and not rec.get("is_creature")
+                    if (single_face_mode and not (rec.get("is_creature") or rec.get("is_group"))
                             and cid not in face_subject_ids and cid not in identity_anchor_ids):
                         # cropped out of frame: keep as a text-only secondary subject
                         continue
@@ -1528,7 +1530,7 @@ def compile_segment_h3(
         for cid in ref_path_map:
             if cid in registry.characters and cid not in no_visual_ids and cid not in visual_order:
                 rec = registry.get_character(cid, wardrobe_state=costume_of.get(cid) or seg_wardrobe)
-                if (single_face_mode and not rec.get("is_creature")
+                if (single_face_mode and not (rec.get("is_creature") or rec.get("is_group"))
                         and cid not in face_subject_ids and cid not in identity_anchor_ids):
                     continue
                 visual_order.append(cid)
@@ -1676,7 +1678,7 @@ def compile_segment_h3(
         panel_label = str(meta.get("panel_label_en") or "").strip()
         panel_role = str(meta.get("panel_role") or "back").strip() or "back"
         reference_images.append({
-            "id": info["id"], "type": "creature" if info.get("is_creature") else "character",
+            "id": info["id"], "type": "extras" if info.get("is_group") else ("creature" if info.get("is_creature") else "character"),
             "description": info["desc_en"], "path": info["ref_img"],
             "is_primary_character": k == 1,
             **({"costume_id": costume_of.get(cid)} if costume_of.get(cid) else {}),
@@ -1733,6 +1735,15 @@ def compile_segment_h3(
             )
             ret += " Ignore the neutral gray studio background of the reference sheet."
             retention_lines.append(ret)
+        elif info.get("is_group"):
+            # 群演參考圖（定律一第④條）：人群有自己的身分來源，不會被補成主角的複製臉。
+            subject_def_lines.append(
+                f"<Subject {k}> is the group of background extras in <Picture {k + 1}> ({disp_name}; "
+                f"a crowd group reference), {desc}; they stay in the background as a group.")
+            retention_lines.append(
+                f"<Subject {k}> (appears across shots): partially_preserved - the wardrobe, palette, ages and "
+                f"varied builds of the group in <Picture {k + 1}> are retained; the extras keep varied, "
+                f"distinct ordinary faces and never take the face or wardrobe of any other subject.")
         else:
             kind_label = ("a single-view creature crop" if info.get("is_creature")
                           else "a head-and-shoulders face crop of this one person")
