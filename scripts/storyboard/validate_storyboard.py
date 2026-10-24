@@ -263,6 +263,10 @@ def load_handoff_dialogues(handoff: dict) -> dict:
     }
 
 
+SHOT_SIZES = ("ELS", "LS", "MLS", "MS", "MCU", "CU", "ECU", "OTS_MS", "OTS_CU")
+SHOT_SIZE_ALIASES = {"WS": "LS", "EWS": "ELS", "XLS": "ELS", "MWS": "MLS", "OTS": "OTS_MS 或 OTS_CU", "XCU": "ECU", "BCU": "ECU"}
+
+
 def validate_storyboard_data(data: dict, original_script_dialogues: list = None) -> dict:
     format_errors = layer2_format_errors(data)
     if format_errors:
@@ -328,6 +332,12 @@ def validate_storyboard_data(data: dict, original_script_dialogues: list = None)
         cam = s.get("camera_optics", {})
         shot_size = cam.get("shot_size", "MS")
         pov_routing = cam.get("pov_routing", "objective")
+        if shot_size not in SHOT_SIZES:
+            hint = SHOT_SIZE_ALIASES.get(str(shot_size).upper())
+            errors.append(
+                f"[{sid} enum 錯誤] camera_optics.shot_size '{shot_size}' 不在 {SHOT_SIZES}"
+                + (f"；請改用 {hint}" if hint else "")
+            )
         phys_dist = cam.get("physical_distance", "")
 
         act = s.get("action_and_performance", {})
