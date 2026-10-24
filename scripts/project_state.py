@@ -278,6 +278,38 @@ def _entry_fingerprint(entry: dict[str, Any]) -> str:
     return snapshot_fingerprint(entry["approval_snapshot"])
 
 
+def _untagged_decision_ids(root: Path, stage: int) -> set[str]:
+    """decisions.json 中明確標了 stages、但不含此階段的定案 id。"""
+    path = root / "decisions.json"
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError):
+        return set()
+    items = raw.get("decisions", raw) if isinstance(raw, dict) else raw
+    out = set()
+    for d in items if isinstance(items, list) else []:
+        if isinstance(d, dict) and d.get("id") and isinstance(d.get("stages"), list) and stage not in d["stages"]:
+            out.add(str(d["id"]))
+    return out
+
+
+def scoped_stage0_fingerprint(root: Path, stage: int) -> str:
+    """stage-0 對 stage-N 的依賴指紋：遮掉 project.md 中「未標到 stage-N」的定案行。
+
+    改畫幅這類只影響部分階段的定案，不應連帶要求重審無關階段。
+    """
+    ids = _untagged_decision_ids(root, stage)
+    path = root / "project.md"
+    lines = path.read_text(encoding="utf-8-sig").splitlines() if path.is_file() else []
+    kept = []
+    for line in lines:
+        key = line.lstrip("-* ").split("：", 1)[0].split(":", 1)[0].strip().strip("`")
+        if key in ids:
+            continue
+        kept.append(line)
+    return hashlib.sha256("\n".join(kept).encode("utf-8")).hexdigest()
+
+
 def _valid_png(path: Path) -> bool:
     if not path.is_file():
         return False
@@ -681,9 +713,16 @@ def _stage_matches(root: Path, state: dict[str, Any], stage: int) -> bool:
     dependencies = entry.get("approval_dependencies", {})
     return all(
         dependencies.get(stage_key(i)) == _entry_fingerprint(state["stages"][stage_key(i)])
+        or (i == 0 and _stage0_scoped_ok(root, entry, stage))
         for i in range(stage)
         if state["stages"][stage_key(i)].get("approval_snapshot")
     )
+
+
+def _stage0_scoped_ok(root: Path, entry: dict[str, Any], stage: int) -> bool:
+    """stage-0 雖重新核准，但差異只在未標到此階段的定案行時，視為依賴仍有效。"""
+    stored = entry.get("approval_stage0_scoped")
+    return bool(stored) and stored == scoped_stage0_fingerprint(root, stage)
 
 
 def is_approved(root: Path, stage: int) -> bool:
@@ -725,6 +764,8 @@ def _stage_failure(root: Path, state: dict[str, Any], i: int) -> str | None:
         for prev in range(i):
             prior = state["stages"][stage_key(prev)]
             if dependencies.get(stage_key(prev)) != _entry_fingerprint(prior):
+                if prev == 0 and _stage0_scoped_ok(root, entry, i):
+                    continue
                 return f"stage-{i} 依賴的 stage-{prev} 核准版本已更新，請重新審核"
     return None
 
@@ -786,6 +827,8 @@ def approve_stage_detailed(root: Path, stage: int, note: str = "使用者確認�
     entry["approval_dependencies"] = {
         stage_key(i): _entry_fingerprint(state["stages"][stage_key(i)]) for i in range(stage)
     }
+    if stage > 0:
+        entry["approval_stage0_scoped"] = scoped_stage0_fingerprint(root, stage)
     if override_reason is not None and technical:
         entry["override"] = {
             "reason": override_reason,
