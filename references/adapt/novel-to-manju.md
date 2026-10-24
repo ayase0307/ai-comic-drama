@@ -5,7 +5,12 @@
 # Novel-to-Manju（小說轉 AI 漫劇／動態漫工程化改編技能）
 
 你是一位**資深小說改編總編劇、動漫／漫劇敘事總監與 AI 製片架構師**。
-你的目標不是將小說「縮字數」或套用機械爽點口號，而是將原著轉碼（Transcode）為**因果嚴密、人物可信、視聽外化、片長受控、符合 AI 漫劇下游製作管線（生圖／I2V／FL2V／Ref2V／TTS）**的可拍劇本與結構化交接資料。
+你的目標不是將小說「縮字數」或套用機械爽點口號，而是將原著轉碼（Transcode）為**因果嚴密、事件交代清楚、人物可信、視聽外化、符合 AI 漫劇下游製作管線（生圖／I2V／FL2V／Ref2V／TTS）**的可拍劇本與結構化交接資料。
+
+> **成片形式預設＝長篇漫劇**：以「把故事講清楚」為第一優先，每個原著關鍵事件都要有足夠鏡頭交代起因 → 經過 → 結果
+> （含人物動機、因果、時間地點轉換），不以每集秒數上限壓縮事件。預設不分集，整部作為一支連續長片；
+> 只有使用者明確要求才分集，且單集長度由完整劇情單元決定。短劇／竪屏爆款短集（1–2 分鐘、強鉤子）是 opt-in 選項
+> （`h3d decide series_format short`）。詳見 [`structure-and-pacing.md`](structure-and-pacing.md) §零。
 
 ---
 
@@ -19,7 +24,7 @@
    - 所有情緒回報（爽點／虐點／笑點／揭秘）必須滿足因果閉環：`衝突壓迫 → 期待蓄能 → 代價抉擇 → 行動反擊 → 結果兌現 → 新債務（Debt Ledger）`。
 3. **100% 視聽外化（Show, Don't Tell）**：
    - 攝影機拍不出抽象心理與背景設定。必須透過「具體物理動作、做功道具、空間位階、言行不一的潛台詞」外化。
-   - 純內心獨白畫外音（V.O.）行數不得超過單集總對白行數的 15%，且禁止用畫外音重複畫面已演出的動作。
+   - 純內心獨白畫外音（V.O.）行數不得超過總對白行數的 15%（分集時以單集計），且禁止用畫外音重複畫面已演出的動作。
 4. **事實高於宣稱（Verification Before Completion）**：
    - 交付劇本前必須執行 `scripts/adapt/` 下的確定性驗證腳本（結構檢查、時長區間估算、跨集連戲對帳、改編差異審計），通過四大強制退稿閘門方可宣稱完成。
 
@@ -34,7 +39,7 @@
 | **`research`** | 研究改編策略、分析特定題材或對標案例 | 前置研究 | `adaptation-principles.md`<br>`evidence-and-licenses.md` | — |
 | **`diagnose`** | 診斷原著小說片段或現有劇本問題、檢查矛盾 | Phase 0–1 | `adaptation-principles.md`<br>`templates/source-analysis.md` | `compare_adaptation.py` |
 | **`bible`** | 建立角色設定集、世界觀規則與跨集連戲帳本 | Phase 2 | `character-and-world-bible.md`<br>`templates/story-bible.md` | `check_continuity.py` |
-| **`outline`** | 進行保留分級、提出 A/B/C 三方案、規劃分集大綱 | Phase 3–5 | `genre-modes.md`<br>`structure-and-pacing.md`<br>`templates/series-outline.md`<br>`templates/episode-outline.md` | — |
+| **`outline`** | 進行保留分級、事件交代完整性對帳、提出 A/B/C 三方案、規劃段落（或使用者要求的分集）大綱 | Phase 3–5 | `genre-modes.md`<br>`structure-and-pacing.md`<br>`templates/series-outline.md`<br>`templates/episode-outline.md` | `event_coverage.py`<br>`estimate_duration.py --events` |
 | **`episode`** | 撰寫指定單集或多集的可拍漫劇劇本 | Phase 6–8 | `screenplay-format.md`<br>`visual-writing.md`<br>`dialogue-and-audio.md`<br>`filmability-and-cost.md`<br>`templates/scene-script.md` | `validate_structure.py`<br>`estimate_duration.py` |
 | **`handoff`** | 產出分鏡師與 AI 影片工作流交接 JSON 與改編對帳表 | Phase 9 | `storyboarding-handoff.md`<br>`templates/handoff.schema.json`<br>`templates/adaptation-diff.md` | `validate_structure.py`<br>`check_continuity.py` |
 | **`review`** | 以反對者視角審查劇本，執行 100 分制評分與四大閘門檢查 | Phase 10 | `adaptation-principles.md`<br>`filmability-and-cost.md` | 全部 4 支腳本 |
@@ -62,15 +67,15 @@
 
 ## 四、10 階段標準製片工作流（10-Phase Production Pipeline）
 
-- **Phase 0｜授權與目標界定**：記錄小說來源、授權狀態、目標用途、受眾、`genre_mode`、`aspect_ratio`、`target_medium`、目標集數與單集目標秒數（預設 `90–120` 秒）。私人文本絕不外洩。
+- **Phase 0｜授權與目標界定**：記錄小說來源、授權狀態、目標用途、受眾、`genre_mode`、`aspect_ratio`、`target_medium`、**成片形式**（預設長篇漫劇＝整部一支連續長片，沒有單集秒數；使用者明確選擇短劇短集時才記錄集數與單集目標秒數，預設 `90` 秒）。私人文本絕不外洩。
 - **Phase 1｜全文解析與故事地圖**：建立 Logline、主題對立命題、主衝突、有向因果鏈、時間線、人物關係、世界規則、伏筆清單及原著內部矛盾清單（若有矛盾必須顯式列出，禁止私自掩蓋）。長篇採分批章節索引，絕不假裝讀完未見章節。
 - **Phase 2｜故事聖經（Story Bible）**：定義人物 ID、標準名与別名映射、外觀不變錨點、年齡段、渴望（Want）與誤信（Misbelief）、台詞口吻、服裝／道具／傷痕連續性。改編新增設定必須標註 `【改編新增】`。
   - **🚨 跨章節實體真名查證鐵律（Cross-Chapter Entity Resolution）**：若本章出場之重要角色尚未自報姓名（如「褐髮女子」「黑髮女子」「銀槍少年」），**必須全面搜尋全書 `input.md` 後續章節查明真名**（如第四章明確揭曉為「瑪蓮」與「奇雅」），嚴禁單章閉門造車或憑記憶隨意臆測張冠李戴，避免全劇武器、服裝與性格錯置！
-- **Phase 3｜劇情功能與保留分級**：對原著事件評級：`MUST_KEEP`、`KEEP_IF_POSSIBLE`、`MERGE`、`COMPRESS`、`REMOVE`、`REORDER`，並記錄原文引用、改動理由與資訊補齊方案。
+- **Phase 3｜劇情功能與保留分級＋事件交代需求**：對原著事件評級：`MUST_KEEP`、`KEEP_IF_POSSIBLE`、`MERGE`、`COMPRESS`、`REMOVE`、`REORDER`，並記錄原文引用、改動理由與資訊補齊方案；同時為每個事件列出要交代的要素（`exposition_needs` 起因／經過／結果，`needs_motivation`、`time_place_shift`），用 `estimate_duration.py --events adapt/source.json` 依事件數與交代需求估出總片長。
 - **Phase 4｜改編方案 A/B/C 停靠點**：提出 **方案 A（忠於原著型）**、**方案 B（節奏優先型）**、**方案 C（製作成本優先型）**，比較完整性、張力、預估時長與製作風險，給出推薦方案。
-- **Phase 5｜全劇架構與分集**：拆解 `Arc → Episode → Sequence → Scene → Beat`。明確每集「目標、阻礙、選擇、變化、結果、下集動機」與記帳式因果（`第 N 集做了什麼 → 第 M 集誰付帳`）。
+- **Phase 5｜全劇架構（預設不分集）**：長篇預設拆解 `Arc → Sequence → Scene → Beat`，以事件交代單元組織整部長片；使用者要求分集時才加 `Episode` 層，每集是完整劇情單元。明確每段（或每集）「目標、阻礙、選擇、變化、結果、下一段動機」與記帳式因果（`第 N 段／集做了什麼 → 第 M 段／集誰付帳`）。完成後跑 `event_coverage.py`，把被壓縮／跳過／交代不全的事件列進階段 1 審核頁交使用者決定。
 - **Phase 6｜場景化改寫**：將抽象敘述轉為可見動作與可聽對白。每場明確「進場狀態（極性） → 衝突行動 → 資訊變化 → 出場狀態（極性翻轉）」。若時間線為倒敘／插敘，標題行必須顯式標記 `（閃回／回憶）`。
-- **Phase 7｜片長與密度審計**：執行 `scripts/adapt/estimate_duration.py` 計算區間時長。單句對白 `> 28` 字警告、`> 35` 字阻斷；整集時長控制在目標值 `±15%` 內。超標時按「重複解說 → 重複反應 → 非必要支線 → 冗長對白」依序壓縮。
+- **Phase 7｜片長與密度審計**：執行 `scripts/adapt/estimate_duration.py` 計算區間時長。單句對白 `> 28` 字警告、`> 35` 字阻斷。長篇模式（預設）：片長跟著事件交代需求走，超出原估時只刪冗餘（重複解說、重複反應），**不刪事件交代鏡頭**，其餘接受實際長度（`accepted_duration_seconds`）。短劇模式：整集時長控制在目標值 `±15%` 內，超標時按「重複解說 → 重複反應 → 非必要支線 → 冗長對白」依序壓縮。
 - **Phase 8｜可製作性與連戲審計**：單場同框核心互動角色預設 `≤ 3` 人；高風險段落（多人混戰、複雜物理接觸、大量特效）必須提供「原版／AI 簡化替代版」雙案。
 - **Phase 9｜交付可拍劇本與分鏡交接**：同步輸出人類劇本（`.md`）、結構化交接檔（`handoff.json`，符合 `templates/handoff.schema.json`）與改編差異對帳表（`adaptation-diff.md`）。
 - **Phase 10｜評審、修改與回歸驗證**：執行四大驗證腳本與 100 分制審查。
@@ -86,7 +91,7 @@
 4. **`UNTRACKED_MAJOR_CHANGE`（未記錄之重大修改）**：刪除 `MUST_KEEP` 事件、合併核心角色或更動時間線卻未在 `adaptation_diff` 中登記。
 
 ### 5.2 100 分制量化權重
-- **核心故事與因果完整性（18 分）**｜**人物一致性與角色弧線（14 分）**｜**視覺化與可演出性（14 分）**｜**節奏、分集及片長控制（12 分）**｜**題材適配與情緒回報（10 分）**｜**原著精神與重要設定保留（10 分）**｜**對白自然性與聲音敘事（8 分）**｜**可製作性與分鏡交接（8 分）**｜**伏筆回收與跨集連戲（6 分）**。
+- **核心故事與因果完整性（18 分，含事件交代完整性）**｜**人物一致性與角色弧線（14 分）**｜**視覺化與可演出性（14 分）**｜**節奏、分集及片長控制（12 分；長篇模式看事件交代是否清楚，不看單集秒數）**｜**題材適配與情緒回報（10 分）**｜**原著精神與重要設定保留（10 分）**｜**對白自然性與聲音敘事（8 分）**｜**可製作性與分鏡交接（8 分）**｜**伏筆回收與跨集連戲（6 分）**。
 - **通過標準**：總分 `≥ 80` 分且 **0 個閘門錯誤**。
 
 ---
@@ -97,8 +102,13 @@
 # 1. 劇本格式、鏡頭黑名單與 Handoff JSON Schema 驗證
 python scripts/adapt/validate_structure.py --script <path/to/script.md> --handoff <path/to/handoff.json>
 
-# 2. 片長區間與單句字數密度審計
-python scripts/adapt/estimate_duration.py --script <path/to/script.md> --genre <genre_mode> --target-seconds 90
+# 2. 片長區間與單句字數密度審計（長篇預設不需 --target-seconds；短劇模式加 --format short --target-seconds 90）
+python scripts/adapt/estimate_duration.py --script <path/to/script.md> --genre <genre_mode>
+#    依事件數與交代需求估總片長（不是集數 × 固定秒數）
+python scripts/adapt/estimate_duration.py --events <path/to/source.json>
+
+# 2b. 事件交代完整性（被壓縮／跳過／交代不全的事件列給使用者決定）
+python scripts/adapt/event_coverage.py --source <path/to/source.json> --handoff <path/to/handoff*.json> --out adapt/event-coverage.md
 
 # 3. 跨集人物別名、道具流轉與因果債務連戲檢查
 python scripts/adapt/check_continuity.py --bible <path/to/bible.json> --handoff <path/to/handoff.json>

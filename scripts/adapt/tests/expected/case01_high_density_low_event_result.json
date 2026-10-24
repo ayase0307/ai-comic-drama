@@ -32,5 +32,81 @@
     "max_line_chars": 11,
     "passed": true
   },
+  "series_format": "longform",
+  "event_coverage": {
+    "status": "WARN",
+    "event_count": 2,
+    "has_adaptation": true,
+    "counts": {
+      "full": 0,
+      "partial": 0,
+      "unverified": 1,
+      "compressed": 1,
+      "skipped": 0,
+      "missing": 0
+    },
+    "must_keep_missing": [],
+    "needs_decision": [
+      "ch01:u2"
+    ],
+    "events": [
+      {
+        "order": 1,
+        "unit_id": "ch01:u1",
+        "summary": "暴雨夜林澈面對浸濕的帳目信件陷入抉擇",
+        "grade": "COMPRESS",
+        "required_beats": [
+          "起因",
+          "經過",
+          "結果"
+        ],
+        "covered_beats": [],
+        "missing_beats": [
+          "起因",
+          "經過",
+          "結果"
+        ],
+        "scenes": [
+          "EP01-S01"
+        ],
+        "estimated_seconds": 9.2,
+        "changes": [
+          "compress"
+        ],
+        "status": "compressed",
+        "status_label": "🟧 被壓縮／合併",
+        "planned_by_grade": true,
+        "needs_decision": false,
+        "reason": "改編稿把這個事件壓縮或合併（原著分級即為壓縮／合併）"
+      },
+      {
+        "order": 2,
+        "unit_id": "ch01:u2",
+        "summary": "沈寧敲門指出林澈已看過信",
+        "grade": "MUST_KEEP",
+        "required_beats": [
+          "起因",
+          "經過",
+          "結果"
+        ],
+        "covered_beats": [],
+        "missing_beats": [
+          "起因",
+          "經過",
+          "結果"
+        ],
+        "scenes": [
+          "EP01-S01"
+        ],
+        "estimated_seconds": 9.2,
+        "changes": [],
+        "status": "unverified",
+        "status_label": "❔ 未標註交代要素",
+        "planned_by_grade": false,
+        "needs_decision": true,
+        "reason": "場景有引用，但沒標註 event_exposition，請確認起因／經過／結果是否都演到"
+      }
+    ]
+  },
   "schema_errors": []
 }

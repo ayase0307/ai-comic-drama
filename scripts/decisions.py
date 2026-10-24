@@ -57,6 +57,10 @@ RECOMMENDED_STYLE = "14 號 古風寫實厚塗・電影感（xianxia-cinematic-s
 KNOWN_DECISIONS: Dict[str, Dict[str, Any]] = {
     "style": {"label": "畫風", "stages": [2, 4, 5, 6], "required_by": 2,
               "reference": "references/styles.md"},
+    # 成片形式：預設長篇漫劇（整部一支連續長片、每個事件交代清楚）；短劇短集只有使用者明確選擇才啟用。
+    # required_by=99：沒定案就是長篇，不擋路。值：longform／short（或使用者原話，見 scripts/adapt/series_format.py）。
+    "series_format": {"label": "成片形式（預設長篇漫劇不分集；短劇短集需使用者明確選擇）", "stages": [0, 1, 3],
+                      "required_by": 99, "reference": "references/adapt/structure-and-pacing.md"},
     "aspect_ratio": {"label": "畫面比例", "stages": [2, 4, 5, 6, 7], "required_by": 2,
                      "reference": "references/model-profiles.md"},
     "dialogue_policy": {"label": "台詞政策（哪些台詞上畫、哪些走旁白／TTS）", "stages": [3, 5, 7],

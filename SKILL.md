@@ -15,6 +15,9 @@ agent_created: true
 4a. **要使用者決定的事用 `h3d inbox` 產生決策收件匣交給使用者**（只列例外）；使用者授權過的階段照 `h3d next` 跑 `h3d approve --auto`。階段 0、角色設定圖、每個角色的音色永遠要人決定（見 `references/tooling.md` §2.6）。
 5. **不同時跑兩個影片 runner**；ledger 有 waiting／running 的工作時只收件（`h3d collect`），不送新件。
 6. **遇到 `PARTIAL`、`duration_drift` 就停下**，照 `references/tooling.md` §4 處置並回報使用者，不要自行繞過。
+7. **成片形式預設＝長篇漫劇**：把故事講清楚是第一優先，每個原著關鍵事件都要交代起因→經過→結果（含動機、時地轉換），
+   不以每集秒數壓縮事件；預設不分集，整部一支連續長片。短劇／竪屏爆款短集（1–2 分鐘、強鉤子）只有使用者明確要求才用
+   （`h3d decide series_format short`）。被壓縮、跳過或交代不全的事件一律在階段 1 交使用者決定（`event_coverage.py`），不自己砍。
 
 ## Overview
 
@@ -34,8 +37,8 @@ agent_created: true
 
 | 階段 | 做什麼 | 不准做什麼 | 跑哪個指令 | 先讀 |
 |---|---|---|---|---|
-| 0 定調 | 一次問完定調題（題材、載體、畫風、比例、台詞政策），每題附推薦值；**畫風預設推 14 號「古風寫實厚塗・電影感」**（附樣圖，可改選） | 不替使用者決定；不跳過體量反推 | `init_project.py`、`h3d decide style/aspect_ratio/dialogue_policy` | `references/pipeline.md`、`references/styles.md` |
-| 1 改編 | 保留分級、A/B/C 方案、分集、因果債務 | 小說直接當劇本 | `scripts/adapt/*`、`h3d next` | `references/adapt/novel-to-manju.md` |
+| 0 定調 | 一次問完定調題（題材、載體、畫風、比例、台詞政策），每題附推薦值；**成片形式預設長篇漫劇**（不問集數秒數；使用者主動要短劇才 `h3d decide series_format short`）；**畫風預設推 14 號「古風寫實厚塗・電影感」**（附樣圖，可改選） | 不替使用者決定；不跳過體量反推；不預設切短集 | `init_project.py`、`h3d decide style/aspect_ratio/dialogue_policy` | `references/pipeline.md`、`references/styles.md` |
+| 1 改編 | 保留分級、**事件交代完整性**（每個事件起因→經過→結果，壓縮／跳過清單交使用者決定）、依事件估總長、A/B/C 方案、段落架構（使用者要求才分集）、因果債務 | 小說直接當劇本；為秒數壓縮事件；自行砍事件交代 | `event_coverage.py`、`estimate_duration.py --events`、`h3d next` | `references/adapt/novel-to-manju.md`、`references/adapt/structure-and-pacing.md` §零 |
 | 2 設定圖 | 主角優先出圖、自檢後重生；引擎定案後全集鎖定 | 換生圖引擎不並排比對；自動核准（永遠要人看臉和服裝） | `h3d decide design_engine`、審核頁 | `references/consistency.md`、`references/styles.md` |
 | 3 劇本 | 場景化改寫、台詞預算（4 字/秒、說話 ≤ 60%）、改編差異 | 超預算照送 | `estimate_duration.py --h3`、`sync_script.py` | `references/adapt/screenplay-format.md` |
 | 4 分鏡 | 一鏡一張臉、遠景不放人、焦距物距成對寫 | 沒有對應構圖 PNG 就進編譯 | `h3d sketch`、`validate_storyboard.py` | `references/storyboard/cinematic-director.md` |

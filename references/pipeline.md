@@ -14,7 +14,7 @@
 
 | 項目 | 選項／說明 |
 |---|---|
-| 集數與每集時長 | 單集 60–120 秒最常見；小說改編預設 90–120 秒。**秒數是預估起點、不是硬上限**：集數依因果單元（目標／阻礙／選擇／代價／鉤子）切，每集可在目標 ±15% 內視為正常；超出時走「接受（寫入 `accepted_duration_seconds`）／於場次邊界拆集／刪非因果內容」三選一，不用壓縮分鏡硬塞 |
+| 成片形式（`series_format`） | **預設＝長篇漫劇**：整部一支連續長片，把故事講清楚優先，每個原著關鍵事件交代起因→經過→結果（含動機、時地轉換），**沒有單集秒數、不以秒數壓縮事件**；總長依事件數與交代需求估（`estimate_duration.py --events`）。使用者明確要求分集時，每集＝完整劇情單元，長度由要交代的事件決定。**短劇短集（opt-in）**：使用者明確選擇才用（`h3d decide series_format short`），每集 1–2 分鐘（預設 90 秒 ±15%）、強鉤子；超出時走「接受（寫入 `accepted_duration_seconds`）／於場次邊界拆集／刪非因果內容」三選一。不必主動問集數秒數 |
 | 原稿類型與用途 | 小說／網文／故事梗概／已有劇本；依當前任務確認需要的來源與處理方式 |
 | `genre_mode` | `xuanhuan_revenge`／`romance_emotional`／`mystery_thriller`／`comedy_slice_of_life`／`wuxia_action`／`healing_literary` |
 | `target_medium` | `motion_comic` 動態漫／`ai_animation` AI 動畫漫劇／`live_action_short_drama` 真人短劇 |
@@ -38,21 +38,23 @@
      $$\text{總片長估算} \approx \text{純念台詞秒數} \times 1.6 \quad \text{（含動作反應、氣口與鏡頭呼吸）}$$
    - **命令列確定性試算**：
      ```bash
-     python scripts/adapt/estimate_duration.py --novel --novel-file source/ch01.txt --target-seconds 90
+     python scripts/adapt/estimate_duration.py --novel --novel-file source/ch01.txt
+     # 短劇短集模式（使用者明確選擇）才加單集目標：--format short --target-seconds 90
      ```
-     該命令使用 Unicode P 類別統一排除標點符號，精確統計有效漢字數，並一次輸出四大台詞政策下的預估片長、壓縮比與分集建議。
+     該命令使用 Unicode P 類別統一排除標點符號，精確統計有效漢字數，並一次輸出四大台詞政策下的預估片長。長篇模式只報整部總長（分鐘），不換算集數、不做單集門禁；短劇模式才輸出集數建議與「> 單集目標 × 2」阻斷。
    - **體量提示**：需要長度估算時，可用估算結果提示拆分、精簡或保留原文等選項；不把單一工作流的數值門檻套用到所有任務。缺少會影響當前目標的選擇時再詢問。
-     - **方案 A（改編壓縮）**：採用台詞政策 ②，大刀改編壓縮原著台詞至目標容量；
-     - **方案 B（拆集推進）**：將當前場次拆分為多集或上下篇製作；
-     - **方案 C（接受片長）**：使用者調高目標時長預算，接受成片大幅拉長。
+     - **方案 A（精簡台詞）**：採用台詞政策 ②，只砍台詞冗句，事件交代鏡頭不砍；
+     - **方案 B（接受片長，長篇預設）**：事件都要講清楚，接受成片拉長；
+     - **方案 C（分集）**：只有使用者明確要求時才拆成多集（每集＝完整劇情單元）或改走短劇短集模式。
 3. **工作紀律鐵律**：
    - 生成任務先確認交付、當前可用後端與需要的參數；沒有生成要求時停在文字交付。
 
 **一鍵初始化骨架**：
 ```bash
-python scripts/init_project.py my-drama --title "我的漫劇" --episodes 12
+python scripts/init_project.py my-drama --title "我的漫劇"
+# 使用者要求分集：--episodes 3（每集＝完整劇情單元）；短劇短集（使用者明確選擇）：--format short --episodes 12 --episode-seconds 90
 ```
-一鍵自動建立完整專案目錄，並產生包含台詞政策門禁與體量秒數反推欄位的 `project.md`，以及 `adapt/source.json`、`adapt/bible.json` 等初始規格骨架。
+一鍵自動建立完整專案目錄，並產生包含成片形式（預設長篇漫劇）、台詞政策門禁、體量反推欄位與事件清單的 `project.md`，以及 `adapt/source.json`、`adapt/bible.json` 等初始規格骨架。
 
 ---
 
@@ -93,10 +95,18 @@ python scripts/init_project.py my-drama --title "我的漫劇" --episodes 12
      ```
      Agent 必須主動停下，提示使用者查閱 `review/stage-1-adaptation.html`，取得核准後才可進入階段 2！
 2. **全文解析與故事地圖**：logline、主衝突、因果鏈、時間線、人物關係、世界規則、伏筆、原著內部矛盾（列出，不私自掩蓋）。長篇分批讀，不假裝讀完沒看過的章節。模板 `adapt/templates/source-analysis.md`。
-3. **保留分級**：每個事件標 `MUST_KEEP`／`KEEP_IF_POSSIBLE`／`MERGE`／`COMPRESS`／`REMOVE`／`REORDER`，記原文引用與理由。
-4. **A／B／C 三方案停靠**：忠於原著／節奏優先／成本優先，比較後推薦，**交使用者選**。
-5. **分集架構**：`Arc → Episode → Sequence → Scene → Beat`；每集寫目標、阻礙、選擇、變化、結果、下集動機與因果債務。模板 `series-outline.md`、`episode-outline.md`。
-6. **單章拆多集跨集驗收**：原著單章往往需要拆編為多集漫劇（如 1 章拆為 Ep01–Ep03），支援單集驗收與多集合併全章驗收：
+3. **保留分級＋交代需求**：每個事件標 `MUST_KEEP`／`KEEP_IF_POSSIBLE`／`MERGE`／`COMPRESS`／`REMOVE`／`REORDER`，記原文引用與理由；並在 `source.json` 每個事件標要交代的要素（`exposition_needs`，省略＝起因、經過、結果；`needs_motivation`、`time_place_shift`）。依事件估總長：
+   ```bash
+   python scripts/adapt/estimate_duration.py --events adapt/source.json
+   ```
+4. **A／B／C 三方案停靠**：忠於原著／節奏優先／成本優先，比較後推薦，**交使用者選**。長篇預設最貼近 A（把故事講清楚）。
+5. **全劇架構（預設不分集）**：長篇預設 `Arc → Sequence → Scene → Beat`，整部一支連續長片；使用者要求分集才加 `Episode` 層，每集＝完整劇情單元。每段（或每集）寫目標、阻礙、選擇、變化、結果、下一段動機與因果債務。模板 `series-outline.md`、`episode-outline.md`。
+6. **事件交代完整性檢查（必做）**：改編稿每場用 `event_exposition` 標明替哪個事件交代了哪些要素，再逐條對帳：
+   ```bash
+   python scripts/adapt/event_coverage.py --project-dir . --out adapt/event-coverage.md
+   ```
+   被壓縮（compressed）、被跳過（skipped）、交代不全（partial）、未標註（unverified）的事件會出現在 `review/stage-1-adaptation.html` 的「事件交代完整性」表，**由使用者逐條決定**補鏡頭或接受；MUST_KEEP 事件完全沒交代（missing）時結束碼 2。
+7. **（使用者要求分集時）跨集驗收**：原著單章拆成多集時（如 1 章拆為 Ep01–Ep03），支援單集驗收與多集合併全章驗收：
    ```bash
    # 單集過濾驗收：
    python scripts/adapt/compare_adaptation.py --source adapt/source.json --script script-ep01.md --handoff handoff-ep01.json --episode 1 --h3
@@ -106,7 +116,7 @@ python scripts/init_project.py my-drama --title "我的漫劇" --episodes 12
 
 **產出兩份 JSON 供階段 3 驗證使用**：`source.json`（原著事件與保留分級，格式見 `scripts/adapt/tests/fixtures/*/source.json`）與階段 2 的 `bible.json`（故事聖經，格式見 `scripts/adapt/tests/fixtures/story_bible.json`）。
 
-**檢查點**：使用者選定方案、確認分集表才往下。題材細則看 `adapt/genre-modes.md`，結構節奏看 `adapt/structure-and-pacing.md`。原稿已是劇本、或是原創梗概時，跳過 1–2 步，直接做分集。
+**檢查點**：使用者選定方案、確認事件交代完整性表（及使用者要求的分集表）才往下。題材細則看 `adapt/genre-modes.md`，結構節奏看 `adapt/structure-and-pacing.md`。原稿已是劇本、或是原創梗概時，跳過 1–2 步，直接做分集。
 
 ---
 
@@ -144,14 +154,15 @@ python scripts/init_project.py my-drama --title "我的漫劇" --episodes 12
 
 ---
 
-## 階段 3：分集劇本（改寫成漫劇劇本）
+## 階段 3：漫劇劇本（改寫成可拍劇本；長篇預設整部一份連續劇本，分集時才每集一份）
 
 規範：`adapt/screenplay-format.md`、`visual-writing.md`、`dialogue-and-audio.md`、`filmability-and-cost.md`（對應 Phase 6–9）。重點：
 
 - **劇本管戲，分鏡管拍**：劇本用中文場號制（`第XX集｜標題`、`M-N 場景名 時/內外`、`人物：`、`△` 動作行、`角色名（括注）：對白`），**正文不出現攝影機術語**與模型提示詞。
 - **100% 視聽外化**：心理活動轉成動作、道具、空間位階、言行不一；內心獨白 ≤ 單集對白行的 15%。
 - 每場寫清「進場極性 → 衝突行動 → 資訊變化 → 出場極性」。單場核心互動角色預設 ≤ 3 人；多人混戰、複雜物理給「原版／AI 簡化」雙案。
-- 對白單句 > 28 字警告、> 35 字阻斷（字幕可讀性）；整集時長與目標（或 `accepted_duration_seconds`）的偏差在審核頁「時長對帳」呈現；階段 3 就要核准偏差，不要拖到階段 4。
+- 對白單句 > 28 字警告、> 35 字阻斷（字幕可讀性）；時長與目標（或 `accepted_duration_seconds`）的偏差在審核頁「時長對帳」呈現；階段 3 就要核准偏差，不要拖到階段 4。長篇模式（預設）片長跟著事件交代需求走：多出的若是交代鏡頭就接受實際長度，只刪冗餘，不刪事件交代。
+- 每場用 `<!-- exposition: U01 起因 經過 -->` 標出替哪個事件交代了什麼，改完重跑 `event_coverage.py`，確認沒有新的交代缺口。
 - 產出：`script-epNN.md`、`handoff-epNN.json`（符合 `adapt/templates/handoff.schema.json`）、`adaptation-diff.md`（改編差異對帳）。
 
 **人工審核鎖與劇本雙向同步（`sync_script.py`）**：
@@ -164,9 +175,11 @@ python scripts/init_project.py my-drama --title "我的漫劇" --episodes 12
   <!-- source: U01, U02 -->
   <!-- must_keep: MK01 -->
   <!-- change: compress | U02 | 精簡原著長對白，強化動作打擊與巨蟒受擊反饋 -->
+  <!-- exposition: U01 起因 經過 結果 -->
   人物：洛年、沈凡
   △ 狂風席捲，黑影破土而出。
   ```
+- **事件交代註解**：`<!-- exposition: U01 起因 經過 -->` 表示這場戲替事件 U01 交代了哪些要素（起因／經過／結果／動機／時地），同步後寫入 handoff 的 `event_exposition`，供 `event_coverage.py` 檢查事件交代完整性。
 - **註解寫法**：`source` / `must_keep` 只抽取 `U01`、`MK01` 這類 ID，其餘說明文字會被忽略；`change` 建議寫成 `類型 | 單元ID | 理由`，類型為 `must_keep`／`keep_if_possible`／`merge`／`compress`／`remove`／`reorder`／`addition`（與 handoff schema 一致）。只寫自由文字時，依關鍵字推斷類型（「合併」→ merge、「刪」→ remove…），但沒有單元 ID 就無法抵銷 `UNTRACKED_UNIT_OMISSION`，被合併或刪掉的單元請務必寫 ID。
 - **多餘場景修剪（`--prune-extra`）**：若 Markdown 中刪除了未鎖定場景，加入 `--prune-extra` 自動自 handoff 移除同步。
 - **審核鎖定防誤改**：
@@ -187,7 +200,8 @@ python scripts/init_project.py my-drama --title "我的漫劇" --episodes 12
 python scripts/adapt/validate_structure.py --script script-ep01.md --handoff handoff-ep01.json
 
 # 2. H3 實戰台詞預算與時長審計（4字/秒、單句≤15字警告、說話佔比≤60%警告）
-python scripts/adapt/estimate_duration.py --script script-ep01.md --genre xuanhuan_revenge --target-seconds 90 --h3
+python scripts/adapt/estimate_duration.py --script script-ep01.md --genre xuanhuan_revenge --h3
+# 短劇短集模式（使用者明確選擇）才帶單集目標：--format short --target-seconds 90
 
 # 3. 連戲與資產一致性檢查
 python scripts/adapt/check_continuity.py --bible adapt/bible.json --handoff handoff-ep01.json

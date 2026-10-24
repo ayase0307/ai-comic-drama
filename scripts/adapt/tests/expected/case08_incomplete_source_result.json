@@ -34,5 +34,52 @@
     "max_line_chars": 11,
     "passed": true
   },
+  "series_format": "longform",
+  "event_coverage": {
+    "status": "WARN",
+    "event_count": 1,
+    "has_adaptation": true,
+    "counts": {
+      "full": 0,
+      "partial": 0,
+      "unverified": 1,
+      "compressed": 0,
+      "skipped": 0,
+      "missing": 0
+    },
+    "must_keep_missing": [],
+    "needs_decision": [
+      "ch08:u1_incomplete"
+    ],
+    "events": [
+      {
+        "order": 1,
+        "unit_id": "ch08:u1_incomplete",
+        "summary": "林澈打開暗格發現半枚銅鑰匙（原稿至此中斷，缺下半章）",
+        "grade": "MUST_KEEP",
+        "required_beats": [
+          "起因",
+          "經過",
+          "結果"
+        ],
+        "covered_beats": [],
+        "missing_beats": [
+          "起因",
+          "經過",
+          "結果"
+        ],
+        "scenes": [
+          "EP01-S01"
+        ],
+        "estimated_seconds": 18.5,
+        "changes": [],
+        "status": "unverified",
+        "status_label": "❔ 未標註交代要素",
+        "planned_by_grade": false,
+        "needs_decision": true,
+        "reason": "場景有引用，但沒標註 event_exposition，請確認起因／經過／結果是否都演到"
+      }
+    ]
+  },
   "schema_errors": []
 }

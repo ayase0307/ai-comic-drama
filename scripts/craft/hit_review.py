@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""ai-drama-hit-method lens: advisory checks for stage 0/1/3. Never blocks (exit 0 unless bad CLI usage)."""
+"""ai-drama-hit-method lens: advisory checks for stage 0/1/3. Never blocks (exit 0 unless bad CLI usage).
+
+只適用「短劇短集」模式（使用者明確選擇 series_format=short）。長篇漫劇（預設）專案照樣可以跑，
+但報告開頭會標明本 lens 的開場 5 秒鉤子、60 秒空窗、集尾鉤子等短劇標準不適用，不得據此把故事切短或壓縮事件。"""
 from __future__ import annotations
 
 import argparse
@@ -12,7 +15,14 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "adapt"))
 from _common import duration_seconds, keep_agent_section  # noqa: E402,F401
+from series_format import SHORT, project_format  # noqa: E402
+
+LONGFORM_NOTICE = (
+    "> ⚠️ **本專案是長篇漫劇（預設）**：爆款方法論 lens 只在短劇短集模式（使用者明確選擇）使用。"
+    "以下開場鉤子、空窗秒數、集尾鉤子等短劇標準僅供參考，**不得據此把故事切成短集或壓縮事件交代**。\n\n"
+)
 
 LENS = "hit"
 BANNED_TITLE_WORDS = ["熱播", "热播", "爆款", "強推", "强推"]
@@ -134,10 +144,11 @@ def review_stage3(ep: Dict[str, Any]) -> List[Finding]:
     return out
 
 
-def render(stage: int, episode: str, findings: List[Finding]) -> str:
+def render(stage: int, episode: str, findings: List[Finding], longform: bool = False) -> str:
     rows = "\n".join(f"| {m} | {k} | {d} |" for m, k, d in findings)
     return (
         f"# 爆款方法論 lens：Stage {stage} · {episode}\n\n"
+        + (LONGFORM_NOTICE if longform else "") +
         "> 只給建議、不擋關。由 `scripts/craft/hit_review.py` 產生；判斷規則見 "
         "`references/craft/ai-drama-hit-method/SKILL.md`。\n\n"
         "## 確定性檢查\n\n| 結果 | 項目 | 說明 |\n|---|---|---|\n" + rows + "\n\n"
@@ -161,7 +172,8 @@ def run(project_dir: Path, stage: int, episode: str, handoff_path: Optional[Path
                 findings = review_stage3(ep) if ep else [("⚠️", "輸入", f"handoff 裡沒有 {episode}")]
     target = out or project_dir / "review" / "craft" / f"stage-{stage}-{LENS}-{episode.lower()}.md"
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(keep_agent_section(render(stage, episode, findings), target), encoding="utf-8")
+    longform = project_format(project_dir) != SHORT
+    target.write_text(keep_agent_section(render(stage, episode, findings, longform), target), encoding="utf-8")
     return target
 
 

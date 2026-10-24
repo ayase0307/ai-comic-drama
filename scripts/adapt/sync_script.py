@@ -6,7 +6,8 @@ sync_script.py — 漫劇劇本與 Handoff JSON 局部同步與人工審核（HI
 功能：
 1. 將 human-edited script-epNN.md 的場頭、人物行、對白與 △ 動作行局部同步更新至 handoff-epNN.json。
 2. 從零建立 Handoff：當指定之 handoff 檔案不存在時，自動初始化建立合法的 handoff 結構並由劇本生成場景。
-3. 劇本元數據解析：自動讀取劇本內之 HTML 註解元數據（<!-- source: U01, U02 -->、<!-- must_keep: MK01 -->、<!-- change: must_keep | U01 | 原因 -->）。
+3. 劇本元數據解析：自動讀取劇本內之 HTML 註解元數據（<!-- source: U01, U02 -->、<!-- must_keep: MK01 -->、<!-- change: must_keep | U01 | 原因 -->、
+   <!-- exposition: U01 起因 經過 結果 -->＝這場戲替事件 U01 交代了哪些要素，寫入 handoff 的 event_exposition）。
 4. 自動配對 Source：若指定 --source <source.json>，自動比對對白/動作關鍵字或為未標註場景綁定合規之原著單元。
 5. 多場景擴展：當劇本場景多於 handoff 時，自動於 handoff["scenes"] 中新增符合 handoff.schema.json 規範之場景物件。
 6. 清理支援：若劇本場景少於 handoff，支援 --prune-extra 自動移除未鎖定之多餘舊場景，避免 validate_structure 報 SCENE_COUNT_MISMATCH。
@@ -33,6 +34,15 @@ from typing import Any, Dict, List, Optional, Tuple
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from validate_structure import parse_and_validate_script  # noqa: E402
 from audio_keywords import classify_note  # noqa: E402
+from series_format import SHORT, SHORT_EPISODE_DEFAULT_SECONDS, project_format  # noqa: E402
+
+
+def _episode_target(project_dir: Path) -> Dict[str, Any]:
+    """新建 handoff 的單集目標秒數：只有短劇短集模式（使用者明確選擇）才寫 90 秒；
+    長篇漫劇（預設）不設單集秒數，片長由事件交代需求決定。"""
+    if project_format(project_dir) == SHORT:
+        return {"target_duration_seconds": int(SHORT_EPISODE_DEFAULT_SECONDS)}
+    return {}
 
 
 def compute_content_hash(actions: List[str], dialogues: List[Dict[str, Any]]) -> str:
@@ -288,6 +298,7 @@ def create_handoff_scene_from_script(
         "source_refs": sc_source_refs,
         "source_unit_ids": list(sc_source_refs),
         "must_keep_ids": sc_must_keeps,
+        **({"event_exposition": {k: list(v) for k, v in sc["event_exposition"].items()}} if sc.get("event_exposition") else {}),
         "adaptation_mode": adaptation_mode,
         "setting": {
             "location": sc.get("location", ""),
@@ -390,6 +401,8 @@ def sync_scene_content(
         meta_changed = True
     if sc.get("adaptation_changes") and hs.get("adaptation_changes") != sc["adaptation_changes"]:
         meta_changed = True
+    if sc.get("event_exposition") and hs.get("event_exposition") != sc["event_exposition"]:
+        meta_changed = True
 
     if not actions_changed and not dialogues_changed and not setting_changed and not chars_changed and not meta_changed:
         return False, f"[{scene_id}] 內容未變更，略過同步"
@@ -453,6 +466,8 @@ def sync_scene_content(
         hs["source_unit_ids"] = list(sc["source_refs"])
     if sc.get("must_keep_ids"):
         hs["must_keep_ids"] = list(sc["must_keep_ids"])
+    if sc.get("event_exposition"):
+        hs["event_exposition"] = {k: list(v) for k, v in sc["event_exposition"].items()}
     if sc.get("adaptation_changes"):
         hs["adaptation_changes"] = list(sc["adaptation_changes"])
     elif sc.get("source_refs") and not hs.get("adaptation_changes"):
@@ -595,7 +610,7 @@ def main() -> int:
             "episodes": [{
                 "episode_id": ep_id,
                 "title": f"第{ep_num_int:02d}集",
-                "target_duration_seconds": 90,
+                **_episode_target(args.handoff.parent),
                 "episode_goal": "TODO",
                 "act_out_type": "jeopardy_cliffhanger",
                 "scenes": [],
@@ -680,7 +695,7 @@ def main() -> int:
             episodes.append({
                 "episode_id": "EP01",
                 "title": "第01集",
-                "target_duration_seconds": 90,
+                **_episode_target(args.handoff.parent),
                 "episode_goal": "TODO",
                 "act_out_type": "jeopardy_cliffhanger",
                 "scenes": [],

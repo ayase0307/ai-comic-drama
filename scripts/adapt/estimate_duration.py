@@ -3,15 +3,25 @@
 """
 estimate_duration.py — 漫劇劇本片長區間與小說原文體量反推片長審計器
 
-支援兩種模式：
+成片形式（`series_format`，見 series_format.py）：
+- 長篇漫劇（預設）：整部一支連續長片，以「把故事講清楚」為先；總片長依事件數與交代需求估算，
+  沒有「單集秒數」預設，也不因秒數超出而建議壓縮事件。
+- 短劇短集（使用者明確選擇 `--format short` 或 `h3d decide series_format short`）：沿用單集目標秒數
+  （預設 90s）±15% 對帳與「預估片長 > 單集目標 × 2」的階段 0 阻斷門禁。
+
+支援三種模式：
 1. 劇本模式（預設）：
    - 估算劇本每場與總體時長區間（分題材語速區間、句間氣口、情緒停頓、動作節拍與換場建立時間）；
    - 審計單句 TTS 字數限制（>28 字警告，>35 字錯誤）；
-   - 驗證目標時長 ±15% 區間。
+   - 有給目標時長時驗證 ±15% 區間（短劇模式預設 90s；長篇模式只有使用者給了才比）。
 2. 小說模式（--novel）：
-   - 執行階段 0 原文體量反推片長阻斷門禁（純念秒數 = 台詞字數 / 4，總片長 = 純念秒數 * 1.6）；
-   - 若預估片長 > 目標片長 * 2，觸發 [STAGE0_VOLUME_GATE_BLOCK] 阻斷提示；
+   - 原文體量反推片長（純念秒數 = 台詞字數 / 4，總片長 = 純念秒數 * 1.6）；
+   - 短劇模式：若預估片長 > 單集目標 * 2，觸發 [STAGE0_VOLUME_GATE_BLOCK] 阻斷提示；
+     長篇模式：只報總長（分鐘），使用者給了整部目標秒數才比對；
    - 自動試算四大台詞政策（① 逐字保留、② 重點句 20%、③ 影視改寫預算上限、④ 純旁白）。
+3. 事件模式（--events adapt/source.json）：
+   - 依原著事件數與每個事件的交代需求（起因／經過／結果＋動機＋時地轉換）估算總片長，
+     而不是「集數 × 固定秒數」。
 
 僅使用 Python 標準庫。
 """
@@ -40,6 +50,8 @@ if sys.platform.startswith("win"):
             _stream.reconfigure(encoding="utf-8", errors="replace")
 
 from validate_structure import parse_and_validate_script
+from series_format import LONGFORM, SHORT, SHORT_EPISODE_DEFAULT_SECONDS, project_format
+from event_coverage import required_beats
 
 # 各題材預設語速區間（字/秒）：[慢速/沉澱 R_min, 快速/緊湊 R_max]
 GENRE_SPEECH_RATES: Dict[str, Tuple[float, float]] = {
@@ -79,6 +91,7 @@ def estimate_script_duration(
     genre_mode: str = "mystery_thriller",
     target_seconds: Optional[float] = None,
     h3_mode: bool = False,
+    series_format: str = LONGFORM,
 ) -> Dict[str, Any]:
     """計算劇本每場與總體時長區間，並檢查單句 TTS 字數限制與 H3 實戰台詞預算。"""
     parsed = parse_and_validate_script(script_text)
@@ -183,12 +196,20 @@ def estimate_script_duration(
             warnings.append(
                 f"[DURATION_OVER_BUDGET] 預估時長區間 [{total_min}s, {total_max}s] 超出目標 {target_seconds}s (+15% 上限 {allowed_high}s)"
             )
-            compression_advice = [
-                "先判斷超出的是「因果必要」還是「冗餘」，再三選一：",
-                "A. 冗餘 → 刪重複解說、合併重複反應節拍、精簡長句（嚴禁刪 MUST_KEEP 核心因果事件）",
-                "B. 因果必要 → 於場次邊界拆成上下集（每集都要有自己的目標、阻礙與結尾鉤子），不要壓縮分鏡",
-                "C. 因果必要且不宜拆 → 接受實際長度，並在 handoff 該集寫入 accepted_duration_seconds",
-            ]
+            if series_format == SHORT:
+                compression_advice = [
+                    "先判斷超出的是「因果必要」還是「冗餘」，再三選一：",
+                    "A. 冗餘 → 刪重複解說、合併重複反應節拍、精簡長句（嚴禁刪 MUST_KEEP 核心因果事件）",
+                    "B. 因果必要 → 於場次邊界拆成上下集（每集都要有自己的目標、阻礙與結尾鉤子），不要壓縮分鏡",
+                    "C. 因果必要且不宜拆 → 接受實際長度，並在 handoff 該集寫入 accepted_duration_seconds",
+                ]
+            else:
+                compression_advice = [
+                    "長篇漫劇模式：把故事講清楚優先，不為了秒數壓縮事件。",
+                    "A. 多出的是事件交代（起因／經過／結果、動機、時地轉換）→ 接受實際長度，在 handoff 寫入 accepted_duration_seconds",
+                    "B. 多出的是冗餘（重複解說、重複反應節拍）→ 只刪冗餘，不刪任何事件的交代鏡頭",
+                    "C. 使用者明確要求分集時，才於完整劇情單元的邊界切集",
+                ]
         elif total_max < allowed_low:
             budget_status = "UNDER_BUDGET"
             warnings.append(
@@ -199,6 +220,7 @@ def estimate_script_duration(
 
     return {
         "status": "PASS" if passed else ("WARN" if len(errors) == 0 else "FAIL"),
+        "series_format": series_format,
         "genre_mode": genre_mode,
         "speech_rate_assumption_chars_per_sec": {"min": r_min, "max": r_max},
         "target_seconds": target_seconds,
@@ -235,10 +257,16 @@ def extract_novel_dialogues(text: str) -> List[str]:
 
 def estimate_novel_duration(
     novel_text: str,
-    target_seconds: float = 90.0,
+    target_seconds: Optional[float] = None,
     genre_mode: str = "xuanhuan_revenge",
+    series_format: str = LONGFORM,
 ) -> Dict[str, Any]:
-    """執行階段 0 原文體量反推片長門禁與四大台詞政策試算。"""
+    """執行階段 0 原文體量反推片長與四大台詞政策試算。
+
+    短劇模式：target_seconds＝單集目標（省略用 90s），超過 2 倍觸發阻斷門禁並換算集數。
+    長篇模式（預設）：target_seconds＝整部目標（選填）；沒給就只報總長，不換算集數、不阻斷。"""
+    if series_format == SHORT and not target_seconds:
+        target_seconds = SHORT_EPISODE_DEFAULT_SECONDS
     # 略過可能的標題行
     lines = novel_text.splitlines()
     body_lines = [l for l in lines if not l.strip().startswith("#")]
@@ -258,21 +286,28 @@ def estimate_novel_duration(
     speech_seconds = round(dialogue_chars / speech_rate, 1)
     estimated_total_seconds = round(speech_seconds * action_factor, 1)
 
-    # 阻斷門禁判定：估算片長 > 目標片長 * 2
-    is_blocked = estimated_total_seconds > (target_seconds * 2.0)
+    # 阻斷門禁判定：估算片長 > 目標片長 * 2（長篇模式沒有目標時不判定）
+    is_blocked = bool(target_seconds) and estimated_total_seconds > (target_seconds * 2.0)
     gate_status = "BLOCKED" if is_blocked else "PASS"
+    scope = "單集" if series_format == SHORT else "整部"
 
     gate_messages: List[str] = []
     if is_blocked:
         gate_messages.append(
             f"[STAGE0_VOLUME_GATE_BLOCK] 原始小說台詞推算總片長 {estimated_total_seconds}s "
-            f"超過目標單集時長 {target_seconds}s 的 2 倍（門檻 {target_seconds * 2.0}s）！"
+            f"超過目標{scope}時長 {target_seconds}s 的 2 倍（門檻 {target_seconds * 2.0}s）！"
             f"依規範強制在階段 0 停下，嚴禁擅自動筆直接分鏡！"
         )
 
+    def _episodes(total: float) -> int:
+        # 只有短劇模式（或使用者明確給了單集目標）才換算集數；長篇模式整部是一支連續長片。
+        if series_format != SHORT or not target_seconds:
+            return 1
+        return max(1, math.ceil(total / target_seconds))
+
     # 四大台詞政策試算
     # 政策 ①：100% 逐字保留
-    p1_episodes = max(1, math.ceil(estimated_total_seconds / target_seconds))
+    p1_episodes = _episodes(estimated_total_seconds)
     policy_1 = {
         "policy_id": "policy_1_verbatim_100",
         "name": "① 原文逐字保留 (100%)",
@@ -282,14 +317,14 @@ def estimate_novel_duration(
         "estimated_total_seconds": estimated_total_seconds,
         "episodes_needed": p1_episodes,
         "avg_episode_seconds": round(estimated_total_seconds / p1_episodes, 1),
-        "evaluation": "❌ 嚴重撞死 H3 對白預算；每 15 秒需塞大量台詞導致口型崩壞與 ASR 吞字；僅適合拆成極多超短集。",
+        "evaluation": "❌ 嚴重撞死 H3 對白預算；每 15 秒需塞大量台詞導致口型崩壞與 ASR 吞字；片長會大幅拉長。",
     }
 
     # 政策 ②：只留重點句 (保留 20% 原著對白，推薦)
     p2_chars = round(dialogue_chars * 0.20)
     p2_speech_sec = round(p2_chars / speech_rate, 1)
     p2_total_sec = round(p2_speech_sec * action_factor, 1)
-    p2_episodes = max(1, math.ceil(p2_total_sec / target_seconds))
+    p2_episodes = _episodes(p2_total_sec)
     policy_2 = {
         "policy_id": "policy_2_key_lines_20",
         "name": "② 只留重點句，其餘可刪 (約 20% 對白，推薦)",
@@ -302,10 +337,10 @@ def estimate_novel_duration(
         "evaluation": "✅ 推薦方案！大刀砍去冗長鋪墊與功能性寒暄，保留推動情節之金句；節奏緊湊且在 H3 對白預算安全線內。",
     }
 
-    # 政策 ③：全部改寫為影視對白 (依目標單集反推預算上限)
-    # 單集安全說話時長上限 = 目標時長 * 60%
-    # 單集對白字數上限 = (目標時長 * 60%) * 4.0
-    safe_speech_sec_per_ep = round(target_seconds * 0.60, 1)
+    # 政策 ③：全部改寫為影視對白（短劇：依單集目標反推；長篇：依體量估算的整部片長反推）
+    # 安全說話時長上限 = 片長 * 60%；對白字數上限 = (片長 * 60%) * 4.0
+    budget_base = target_seconds or estimated_total_seconds
+    safe_speech_sec_per_ep = round(budget_base * 0.60, 1)
     safe_dialogue_chars_per_ep = round(safe_speech_sec_per_ep * speech_rate)
     policy_3 = {
         "policy_id": "policy_3_cinematic_rewrite",
@@ -313,7 +348,8 @@ def estimate_novel_duration(
         "single_episode_dialogue_char_budget_max": safe_dialogue_chars_per_ep,
         "single_episode_speech_sec_max": safe_speech_sec_per_ep,
         "dialogue_time_ratio_cap": "≤ 60% 片長",
-        "evaluation": "✅ 自由度最高；打破原著長句重構為視聽語言，單集對白上限約 180~216 字，留足動作與環境特效時間。",
+        "budget_scope": scope,
+        "evaluation": f"✅ 自由度最高；打破原著長句重構為視聽語言，{scope}對白上限約 {safe_dialogue_chars_per_ep} 字（說話 ≤ 60% 片長），留足動作與環境特效時間。",
     }
 
     # 政策 ④：無台詞純旁白
@@ -327,8 +363,10 @@ def estimate_novel_duration(
 
     return {
         "status": gate_status,
+        "series_format": series_format,
         "genre_mode": genre_mode,
-        "target_seconds_per_episode": target_seconds,
+        "target_seconds": target_seconds,
+        "target_seconds_per_episode": target_seconds if series_format == SHORT else None,
         "metrics": {
             "total_chars": total_chars,
             "dialogue_count": len(dialogues),
@@ -341,7 +379,7 @@ def estimate_novel_duration(
             "action_expansion_factor": action_factor,
             "pure_speech_seconds": speech_seconds,
             "estimated_total_seconds": estimated_total_seconds,
-            "block_threshold_seconds": target_seconds * 2.0,
+            "block_threshold_seconds": (target_seconds * 2.0) if target_seconds else None,
         },
         "gate_messages": gate_messages,
         "policies_projection": {
@@ -351,6 +389,76 @@ def estimate_novel_duration(
             "policy_4": policy_4,
         },
     }
+
+
+# 事件模式：每個交代要素（起因／經過／結果／動機）大約需要一個 H3 片段的戲（8–15 秒，H3 單段上限 15 秒）；
+# 時間／地點轉換另需建立鏡頭（3–6 秒）。分級決定這個事件在改編裡要演幾個要素。
+EVENT_BEAT_SECONDS: Tuple[float, float] = (8.0, 15.0)
+EVENT_TRANSITION_SECONDS: Tuple[float, float] = (3.0, 6.0)
+
+
+def estimate_event_based_duration(
+    source_data: Dict[str, Any],
+    episodes: Optional[int] = None,
+    series_format: str = LONGFORM,
+) -> Dict[str, Any]:
+    """依原著事件數與交代需求估算總片長（不是集數 × 固定秒數）。
+
+    - MUST_KEEP／KEEP_IF_POSSIBLE／REORDER：所有需交代要素都要演（預設起因、經過、結果，外加動機／時地）。
+    - MERGE：併入其他事件，只算 1 個要素；COMPRESS：只演結果，算 1 個要素；REMOVE：0。
+    - 事件若標了 dialogue_chars（保留台詞字數），以「字數 ÷ 4 × 1.6」與要素秒數取大者。
+    episodes 只有使用者明確要求分集（或短劇模式）時才用來換算平均每集秒數。"""
+    units = [u for u in source_data.get("story_units", []) or [] if isinstance(u, dict)]
+    must_keep_ids = {str(x) for x in source_data.get("must_keep", []) or []}
+    rows: List[Dict[str, Any]] = []
+    total_min = total_max = 0.0
+    total_beats = 0
+    for u in units:
+        uid = str(u.get("unit_id", ""))
+        grade = "MUST_KEEP" if uid in must_keep_ids else str(u.get("expected_grade") or "KEEP_IF_POSSIBLE").upper()
+        beats = required_beats(u)
+        transition = "時地" in beats
+        story_beats = [b for b in beats if b != "時地"]
+        if grade == "REMOVE":
+            n_beats, transition = 0, False
+        elif grade in ("MERGE", "COMPRESS"):
+            n_beats = 1
+        else:
+            n_beats = len(story_beats)
+        lo = n_beats * EVENT_BEAT_SECONDS[0] + (EVENT_TRANSITION_SECONDS[0] if transition else 0.0)
+        hi = n_beats * EVENT_BEAT_SECONDS[1] + (EVENT_TRANSITION_SECONDS[1] if transition else 0.0)
+        chars = u.get("dialogue_chars")
+        if isinstance(chars, (int, float)) and chars > 0 and grade != "REMOVE":
+            speech_total = chars / 4.0 * 1.6
+            lo, hi = max(lo, speech_total * 0.85), max(hi, speech_total * 1.15)
+        lo, hi = round(lo, 1), round(hi, 1)
+        total_min += lo
+        total_max += hi
+        total_beats += n_beats
+        rows.append({
+            "unit_id": uid, "summary": u.get("summary", ""), "grade": grade,
+            "exposition_beats": story_beats if n_beats == len(story_beats) else story_beats[-1:] if n_beats else [],
+            "time_place_shift": transition, "estimated_seconds": {"min": lo, "max": hi},
+        })
+    total_min, total_max = round(total_min, 1), round(total_max, 1)
+    mid = round((total_min + total_max) / 2.0, 1)
+    res: Dict[str, Any] = {
+        "status": "PASS",
+        "mode": "events",
+        "series_format": series_format,
+        "event_count": len(units),
+        "kept_event_count": sum(1 for r in rows if r["grade"] != "REMOVE"),
+        "exposition_beats_total": total_beats,
+        "beat_seconds_assumption": {"min": EVENT_BEAT_SECONDS[0], "max": EVENT_BEAT_SECONDS[1]},
+        "estimated_total_seconds": {"min": total_min, "max": total_max, "mid": mid},
+        "estimated_total_minutes": round(mid / 60.0, 1),
+        "events": rows,
+    }
+    if episodes and episodes > 1:
+        res["episodes"] = episodes
+        res["avg_episode_seconds"] = round(mid / episodes, 1)
+        res["episode_note"] = "集數由使用者指定；每集應在完整劇情單元的邊界切，秒數只是平均值、不是上限。"
+    return res
 
 
 def find_project_root(path: Path) -> Optional[Path]:
@@ -407,11 +515,42 @@ def main() -> int:
     parser.add_argument("--novel-file", type=str, default=None, help="小說章節檔案路徑（開啟小說體量反推）")
     parser.add_argument("--novel", action="store_true", help="開啟小說原文體量反推片長與階段 0 阻斷檢查")
     parser.add_argument("--genre", type=str, default=None, help="題材模式代碼（省略時讀專案 project.md／source.json 的 genre_mode，都沒有才用 xuanhuan_revenge）")
-    parser.add_argument("--target-seconds", type=float, default=90.0, help="單集目標秒數（預設 90s）")
+    parser.add_argument("--events", type=str, default=None, help="原著事件清單 source.json：依事件數與交代需求估算總片長")
+    parser.add_argument("--episodes", type=int, default=None, help="事件模式：使用者明確要求分集時的集數（只換算平均，不設上限）")
+    parser.add_argument("--format", choices=[LONGFORM, SHORT], default=None, dest="series_format",
+                        help="成片形式：longform 長篇漫劇（預設，讀 decisions.json 的 series_format）｜short 短劇短集（使用者明確選擇才用）")
+    parser.add_argument("--target-seconds", type=float, default=None,
+                        help="目標秒數：短劇模式＝單集目標（省略用 90s）；長篇模式＝整部目標（選填，不給就不做預算比對）")
     parser.add_argument("--h3", action="store_true", help="開啟 H3 漫劇台詞預算嚴格檢查（4字/秒、單句≤15字、說話秒數佔比≤60%%）")
     parser.add_argument("--h3-strict", action="store_true", dest="h3", help="同 --h3")
     parser.add_argument("--json", action="store_true", help="輸出 JSON 格式")
     args = parser.parse_args()
+
+    # 事件模式：依事件數與交代需求估總長
+    if args.events:
+        ev_path = Path(args.events)
+        if not ev_path.exists():
+            print(f"[錯誤] 找不到檔案：{ev_path}", file=sys.stderr)
+            return 1
+        fmt = args.series_format or project_format(find_project_root(ev_path))
+        res = estimate_event_based_duration(json.loads(ev_path.read_text(encoding="utf-8")),
+                                            episodes=args.episodes, series_format=fmt)
+        if args.json:
+            print(json.dumps(res, ensure_ascii=False, indent=2))
+        else:
+            est = res["estimated_total_seconds"]
+            print(f"=== 依事件交代需求估算總片長 ({ev_path.name}) ===")
+            print(f"成片形式: {fmt} | 原著事件 {res['event_count']} 個（保留 {res['kept_event_count']} 個）| "
+                  f"交代要素 {res['exposition_beats_total']} 個 | 預估總長 {est['min']}s – {est['max']}s "
+                  f"(中位 {est['mid']}s，約 {res['estimated_total_minutes']} 分鐘)")
+            if res.get("episodes"):
+                print(f"使用者指定 {res['episodes']} 集：平均每集約 {res['avg_episode_seconds']}s（{res['episode_note']}）")
+            for r in res["events"]:
+                e = r["estimated_seconds"]
+                beats = "、".join(r["exposition_beats"]) or "—"
+                shift = "＋時地轉換" if r["time_place_shift"] else ""
+                print(f"  - {r['unit_id']} [{r['grade']}] {r['summary']}：{beats}{shift} → {e['min']}s–{e['max']}s")
+        return 0
 
     # 判斷是否為小說模式
     is_novel_mode = args.novel or (args.novel_file is not None)
@@ -440,6 +579,9 @@ def main() -> int:
     else:
         genre_note = None
     policy_decided = dialogue_policy_decided(project_root)
+    fmt = args.series_format or project_format(project_root)
+    if fmt == SHORT and args.target_seconds is None:
+        args.target_seconds = SHORT_EPISODE_DEFAULT_SECONDS
 
     # 1. 小說模式
     if is_novel_mode:
@@ -447,6 +589,7 @@ def main() -> int:
             file_text,
             target_seconds=args.target_seconds,
             genre_mode=args.genre,
+            series_format=fmt,
         )
 
         if genre_note:
@@ -459,8 +602,10 @@ def main() -> int:
             f = res["stage0_formula"]
             p = res["policies_projection"]
             print(f"=== 階段 0 原文小說體量反推片長與門禁報告 ({target_path.name}) ===")
+            tgt = (f"單集目標: {res['target_seconds']}s" if fmt == SHORT
+                   else (f"整部目標: {res['target_seconds']}s" if res["target_seconds"] else "整部目標: 未設定（長篇模式只報總長）"))
             print(
-                f"狀態: {res['status']} | 題材: {res['genre_mode']} | 單集目標: {res['target_seconds_per_episode']}s\n"
+                f"狀態: {res['status']} | 成片形式: {fmt} | 題材: {res['genre_mode']} | {tgt}\n"
                 f"原著體量: 純字數 {m['total_chars']} 字 | 對白: {m['dialogue_count']} 句 ({m['dialogue_chars']} 字, 佔 {m['dialogue_ratio']}%)\n"
                 f"體量反推: 純念台詞需 {f['pure_speech_seconds']}s | 含動作呼吸總長約 {f['estimated_total_seconds']}s (約 {f['estimated_total_seconds']/60:.1f} 分鐘)"
             )
@@ -475,15 +620,20 @@ def main() -> int:
 
             print("\n【四大台詞政策試算】")
             print(f"  {p['policy_1']['name']}:")
-            print(f"    - 總時長約 {p['policy_1']['estimated_total_seconds']}s，需拆 {p['policy_1']['episodes_needed']} 集 (每集約 {p['policy_1']['avg_episode_seconds']}s)")
+            def _len_line(pol: Dict[str, Any]) -> str:
+                sec = pol["estimated_total_seconds"]
+                if fmt == SHORT:
+                    return f"總長約 {sec}s，需拆 {pol['episodes_needed']} 集 (每集約 {pol['avg_episode_seconds']}s)"
+                return f"整部約 {sec}s（約 {sec / 60:.1f} 分鐘，一支連續長片）"
+            print(f"    - {_len_line(p['policy_1'])}")
             print(f"    - 評價: {p['policy_1']['evaluation']}")
 
             print(f"\n  {p['policy_2']['name']}:")
-            print(f"    - 保留約 {p['policy_2']['retained_dialogue_chars']} 字對白，總長約 {p['policy_2']['estimated_total_seconds']}s，建議拆 {p['policy_2']['episodes_needed']} 集 (每集約 {p['policy_2']['avg_episode_seconds']}s)")
+            print(f"    - 保留約 {p['policy_2']['retained_dialogue_chars']} 字對白，{_len_line(p['policy_2'])}")
             print(f"    - 評價: {p['policy_2']['evaluation']}")
 
             print(f"\n  {p['policy_3']['name']}:")
-            print(f"    - 單集對白預算上限: {p['policy_3']['single_episode_dialogue_char_budget_max']} 字 (說話時長上限 {p['policy_3']['single_episode_speech_sec_max']}s)")
+            print(f"    - {p['policy_3']['budget_scope']}對白預算上限: {p['policy_3']['single_episode_dialogue_char_budget_max']} 字 (說話時長上限 {p['policy_3']['single_episode_speech_sec_max']}s)")
             print(f"    - 評價: {p['policy_3']['evaluation']}")
 
             print(f"\n  {p['policy_4']['name']}:")
@@ -497,6 +647,7 @@ def main() -> int:
         genre_mode=args.genre,
         target_seconds=args.target_seconds,
         h3_mode=args.h3,
+        series_format=fmt,
     )
     if genre_note:
         res["genre_unconfirmed"] = True
@@ -508,7 +659,7 @@ def main() -> int:
         est = res["estimated_total_seconds"]
         print(f"=== 片長區間與密度審計報告 ({target_path.name}) ===")
         print(
-            f"狀態: {res['status']} | 題材: {res['genre_mode']} | "
+            f"狀態: {res['status']} | 成片形式: {fmt} | 題材: {res['genre_mode']} | "
             f"總發音字數: {res['total_spoken_chars']} 字 | "
             f"預估總時長: {est['min']}s – {est['max']}s (中位 {est['mid']}s)"
         )

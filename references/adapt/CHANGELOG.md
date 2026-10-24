@@ -2,6 +2,18 @@
 
 All notable changes to the `novel-to-manju` skill will be documented in this file.
 
+## [1.1.0] - 2026-10-25
+
+### Changed
+- **成片形式預設改為長篇漫劇（`series_format=longform`）**：整部一支連續長片，以「把故事講清楚」為第一優先；不再預設每集 80–120 秒的短集。短劇／竪屏爆款短集改為使用者明確選擇才啟用（`--format short`、`h3d decide series_format short`）。
+- `estimate_duration.py`：新增 `--events`（依事件數與交代需求估總片長）；長篇模式不再有單集 90 秒預設與「> 單集目標 × 2」門禁；`--target-seconds` 預設改為不設定。
+- `handoff.schema.json`：`target_duration_seconds` 改為選填（短劇模式才需要）；新增場景欄位 `event_exposition`。
+
+### Added
+- `scripts/adapt/event_coverage.py`：事件交代完整性檢查（完整／交代不全／未標註／被壓縮／被跳過／未交代），階段 1 審核頁呈現待使用者決定的事件。
+- `scripts/adapt/series_format.py`：成片形式唯一判定來源。
+- 劇本註解 `<!-- exposition: U01 起因 經過 結果 -->`，由 `sync_script.py` 寫入 handoff。
+
 ## [1.0.0] - 2026-10-17
 
 ### Added

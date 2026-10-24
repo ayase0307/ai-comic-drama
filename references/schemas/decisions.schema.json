@@ -78,7 +78,7 @@
         "id": {
           "type": "string",
           "minLength": 1,
-          "description": "已知：style、aspect_ratio、dialogue_policy、design_engine、acceptance_policy、edit_method、auto_approve；角色音色用 voice:<角色id>（只能 by=user）；也可自訂"
+          "description": "已知：style、series_format（longform 預設／short 需使用者明確選擇）、aspect_ratio、dialogue_policy、design_engine、acceptance_policy、edit_method、auto_approve；角色音色用 voice:<角色id>（只能 by=user）；也可自訂"
         },
         "rule": {
           "type": "string",
