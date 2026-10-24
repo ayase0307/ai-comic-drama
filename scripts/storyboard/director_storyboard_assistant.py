@@ -188,6 +188,12 @@ BUILT_IN_PRESETS = {
 }
 
 
+def _speed_slider_name():
+    """速度滑桿檔名：環境變數 H3_SPEED_SLIDER_FILE 優先；否則預設家機實際檔名。"""
+    import os
+    return os.environ.get("H3_SPEED_SLIDER_FILE", "").strip() or "motion_speed_slider_mmh3_v1.safetensors"
+
+
 def parse_palette(text: str) -> tuple:
     """'冷鋼夜黑 (#0A0E17 深夜藍牆面 + #D4AF37 暖金檯燈光)' → ('冷鋼夜黑', [('#0A0E17', '深夜藍牆面'), ...])。"""
     title, _, body = text.partition("(")
@@ -425,20 +431,20 @@ def auto_adapt_h3_loras(spec_or_shot: dict, enable_camera_lora: bool = False) ->
             })
 
 
-    # 4. 速度滑塊偵測（H3_SPEED_slider.safetensors）
+    # 4. 速度滑塊偵測（檔名見 _speed_slider_name，可用環境變數 H3_SPEED_SLIDER_FILE 覆寫）
     slow_keywords = ["慢動作", "子彈時間", "凝結", "緩慢", "slow motion", "bullet time", "time dilation"]
     fast_keywords = ["疾奔", "急速", "快打", "高速追逐", "殘影", "極速", "rapid", "high speed", "fast-paced", "sprint", "flurry"]
 
     if any(sk in full_context for sk in slow_keywords):
         loras.append({
-            "name": "H3_SPEED_slider.safetensors",
+            "name": _speed_slider_name(),
             "strength": -1.5,
             "trigger": None,
             "reason": "負權重速度滑塊：慢動作/子彈時間凝結"
         })
     elif any(fk in full_context for fk in fast_keywords):
         loras.append({
-            "name": "H3_SPEED_slider.safetensors",
+            "name": _speed_slider_name(),
             "strength": 1.5,
             "trigger": None,
             "reason": "正權重速度滑塊：極速武打/高速追逐加速"
