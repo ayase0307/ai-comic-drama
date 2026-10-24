@@ -2729,6 +2729,12 @@ def main() -> int:
         for w in cont_res["warnings"]:
             print(f"    [連戲警告] {w}")
         total_warnings += len(cont_res["warnings"])
+        shot_res = continuity_lint.lint_shots(compiled_results)
+        if shot_res["warnings"]:
+            print("\n🎬 逐鏡畫面約束（動作／終態／對白鏡）")
+        for w in shot_res["warnings"]:
+            print(f"    [畫面警告] {w}")
+        total_warnings += len(shot_res["warnings"])
 
         # 逐鏡撰寫審查（防偷懶，references/prompt-authoring.md）：E30–E38 擋、W 提醒
         author_res = prompt_authoring.audit_segments(compiled_results)

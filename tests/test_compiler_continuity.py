@@ -95,6 +95,25 @@ class ContinuityLintUnitTests(unittest.TestCase):
         self.assertIn("ALLEY", c3[0])
 
 
+class ShotLintTests(unittest.TestCase):
+    def _c(self, shot):
+        return [{"segment_id": "A", "h3_prompt": f"detailed_description:\n[Shot 1] {shot}\n\noverall:"}]
+
+    def test_multi_action_and_missing_end_state(self):
+        w = continuity_lint.lint_shots(self._c("MS (50mm, 2m) of Shen, as the camera holds. He turns, then runs, then jumps. Blocking: a road."))["warnings"]
+        self.assertTrue(any("[S1" in x for x in w) and any("[S2" in x for x in w), w)
+
+    def test_clean_action_shot(self):
+        w = continuity_lint.lint_shots(self._c("MS (50mm, 2m) of Shen. He runs, then ends crouched at the rail. Blocking: a road."))["warnings"]
+        self.assertEqual(w, [])
+
+    def test_dialogue_shot_rules(self):
+        bad = continuity_lint.lint_shots(self._c("MS (50mm, 2m) of Shen, as the camera dollies in. Shen is the visible speaking character: <d>hi</d>"))["warnings"]
+        self.assertEqual(sorted(x.split("[")[1][:2] for x in bad), ["S3", "S4", "S5"], bad)
+        ok = continuity_lint.lint_shots(self._c("CU (85mm, 1.2m) of Shen, as the camera holds a static shot. Shen is the visible speaking character: <d>hi</d> Blocking: the background behind him is empty."))["warnings"]
+        self.assertEqual(ok, [])
+
+
 class CompilerContinuityTests(_Base):
     def test_previous_end_state_is_injected_into_first_shot_only(self):
         compiled = compiler.compile_segment_h3(

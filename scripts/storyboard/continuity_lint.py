@@ -197,3 +197,45 @@ def lint_adjacent(compiled: Sequence[Mapping[str, Any]],
                 f"改光線請以整個場景為單位，或改用後製統一調色。"
             )
     return {"warnings": warnings}
+
+
+# ---------- 逐鏡畫面約束（#135 #136 #137，對齊噩盡島 G9b／G9d） ----------
+SHOT_RE = re.compile(r"\[Shot (\d+)\](.*?)(?=\[Shot \d+\]|\n\n|\Z)", re.S)
+SIZE_RE = re.compile(r"\b(ELS|EWS|VWS|WS|LS|MLS|MS|MCU|ECU|CU)\s*\((\d+)\s*mm,\s*([\d.]+)\s*m\)")
+WIDE_SIZES = {"ELS", "EWS", "VWS", "WS", "LS", "MLS", "MS"}
+END_MARKER = re.compile(
+    r"\b(ends?|ending|comes? to rest|at the cut|until the cut|settles?|settling|stays?|remains?|holds?|freezes?)\b", re.I)
+DIALOGUE_MARK = re.compile(r"<d>|visible speaking character", re.I)
+STATIC_MARK = re.compile(r"\b(static|locked[- ]off|holds a static|stays? fixed)\b", re.I)
+EMPTY_BG = re.compile(r"\b(background|behind (?:him|her|them|it))\b[^.;]*\b(empty|bare|plain|no one|nobody|unpopulated)\b", re.I)
+
+
+def lint_shots(compiled: Sequence[Mapping[str, Any]]) -> Dict[str, List[str]]:
+    """逐鏡文字檢查（只警告）：
+    S1 一鏡動作過多（', then ' 超過 1 個）；S2 最後動作句沒有終態詞；
+    S3 對白鏡景別比 MCU 寬或物距 >1.5m；S4 對白鏡沒寫固定機位；S5 對白鏡沒寫背景無人。
+    """
+    warnings: List[str] = []
+    for seg in compiled:
+        sid = str(seg.get("segment_id"))
+        prompt = str(seg.get("h3_prompt") or "")
+        for m in SHOT_RE.finditer(prompt):
+            n, text = m.group(1), m.group(2)
+            body = re.split(r"\bBlocking:", text)[0]
+            if body.count(", then ") > 1:
+                warnings.append(f"{sid} Shot {n}: [S1: 一鏡多動作] 有 {body.count(', then ') + 1} 個動作子句；"
+                                f"8 步蒸餾模型只穩定演前 1–2 個，請拆鏡或合併為一個大動作。")
+            if body.count(", then ") >= 1 and not END_MARKER.search(body.rsplit(", then ", 1)[-1]):
+                warnings.append(f"{sid} Shot {n}: [S2: 缺終態] 最後一個動作沒有結束姿勢（ends／comes to rest／settles／stays），"
+                                f"動作完成後人物會彈回參考圖姿勢。")
+            if DIALOGUE_MARK.search(text):
+                sm = SIZE_RE.search(text)
+                if sm and (sm.group(1) in WIDE_SIZES or float(sm.group(3)) > 1.5):
+                    warnings.append(f"{sid} Shot {n}: [S3: 對白鏡太遠] {sm.group(0)} 臉太小吃不到臉部參考圖、看不到對嘴；"
+                                    f"建議 CU (85mm, 1.2m) 或 MCU (50mm, 1.5m)。")
+                if not STATIC_MARK.search(text):
+                    warnings.append(f"{sid} Shot {n}: [S4: 對白鏡運鏡] 對白鏡建議 holds a static shot（固定機位）。")
+                if not EMPTY_BG.search(text):
+                    warnings.append(f"{sid} Shot {n}: [S5: 背景未鎖] 對白鏡建議寫背景無人（the background behind him is empty），"
+                                    f"否則模型會補沒綁參考圖的路人。")
+    return {"warnings": warnings}
