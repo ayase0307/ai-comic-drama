@@ -2381,6 +2381,7 @@ def compile_segment_h3(
         "speaker_ids": speaker_ids,
         "unanchored_in_frame_characters": unanchored_in_frame,
         "segment_end_state": layer2_data.get("segment_end_state"),
+        "carry_previous_end_state": (layer2_data.get("metadata") or {}).get("carry_previous_end_state", True) is not False,
         "compile_notes": notes + [f"參考圖不存在: {p}" for p in missing],
     }
 
