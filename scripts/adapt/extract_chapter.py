@@ -182,6 +182,11 @@ class NovelChapter:
         }
 
 
+# 純文字章名：行首「第N章」，後面可接空白／全形空白／tab 與 ≤30 字章名；排除對白與長句
+PLAIN_CHAPTER_RE = re.compile(r"^第([一二兩三四五六七八九十百零〇\d]+)[章回](?:[\s\u3000]+[^「」“”。]{0,30})?$")
+PLAIN_SPECIAL_RE = re.compile(r"^(楔子|序章|序|尾聲|後記|番外.{0,20})$")
+
+
 def scan_novel_structure(lines: List[str]) -> List[NovelChapter]:
     """掃描小說中的集/卷與章節結構，回傳所有章節定位。"""
     chapters: List[NovelChapter] = []
@@ -192,6 +197,7 @@ def scan_novel_structure(lines: List[str]) -> List[NovelChapter]:
     # 記錄所有標題點：(line_index, type, num, title)
     # type: 'vol' | 'ch'
     raw_nodes = []
+    plain_lines = set()
 
     for idx, line in enumerate(lines):
         line_no = idx + 1
@@ -221,6 +227,31 @@ def scan_novel_structure(lines: List[str]) -> List[NovelChapter]:
             raw_title = re.sub(r"\{#[^}]*\}", "", m_spec.group(1)).strip()
             raw_nodes.append((line_no, "ch", 999, raw_title))
             continue
+
+        # 純文字 txt 章節：行首「第一章 蘇醒」「第十章\t前有狼後有虎」（無 # 號）
+        m_plain = PLAIN_CHAPTER_RE.match(s)
+        if m_plain:
+            c_num = parse_cn_number(m_plain.group(1))
+            title = re.sub(r"[\s\u3000]+", " ", s).strip()
+            # 「第一章」單獨一行、下一個非空行又是「第一章 標題」：合併成一筆（取有標題的那行）
+            if raw_nodes and raw_nodes[-1][1] == "ch" and raw_nodes[-1][2] == c_num \
+                    and line_no - raw_nodes[-1][0] <= 3:
+                raw_nodes.pop()
+            raw_nodes.append((line_no, "ch", c_num if c_num is not None else len(raw_nodes) + 1, title))
+            plain_lines.add(line_no)
+            continue
+
+        m_plain_spec = PLAIN_SPECIAL_RE.match(s)
+        if m_plain_spec:
+            raw_nodes.append((line_no, "ch", 0 if m_plain_spec.group(1) in ("楔子", "序章", "序") else 999, s))
+            plain_lines.add(line_no)
+            continue
+
+    # 純文字檔開頭常有目錄（一串連續章名、底下沒有內文）：下一個標題就在 3 行內的純文字章名視為目錄項，丟掉
+    raw_nodes = [
+        node for i, node in enumerate(raw_nodes)
+        if not (node[0] in plain_lines and i + 1 < len(raw_nodes) and raw_nodes[i + 1][0] - node[0] <= 3)
+    ]
 
     # 組裝起訖行號
     for i, (l_no, kind, num, title) in enumerate(raw_nodes):
