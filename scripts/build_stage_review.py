@@ -1521,6 +1521,30 @@ def build_stage_1(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
     return len(errors) == 0, errors, html_out
 
 
+def collect_creatures(project_dir: Path) -> List[Dict[str, str]]:
+    """從 assets.md 的 `### CREATURE-xxx` 區塊與 images/creature-*.png 收集生物／異獸。"""
+    out: List[Dict[str, str]] = []
+    seen_imgs = set()
+    amd = project_dir / "assets.md"
+    if amd.is_file():
+        text = amd.read_text(encoding="utf-8")
+        for m in re.finditer(r"^###\s+(CREATURE-[A-Za-z0-9_-]+)[\s\u3000]*(.*?)$(.*?)(?=^#{2,3}\s|\Z)", text, re.M | re.S):
+            cid, title, body = m.group(1), m.group(2).strip(), m.group(3).strip()
+            name = re.sub(r"[（(].*?[）)]", "", title).strip() or cid
+            im = re.search(r"images/[A-Za-z0-9_./-]+\.(?:png|jpg|jpeg|webp)", body)
+            img = im.group(0) if im else f"images/{cid.lower()}.png"
+            seen_imgs.add(img)
+            out.append({"id": cid, "name": name, "spec": body, "image": img})
+    img_dir = project_dir / "images"
+    if img_dir.is_dir():
+        for f in sorted(img_dir.glob("creature-*.png")):
+            rel = f"images/{f.name}"
+            if rel not in seen_imgs:
+                cid = "CREATURE-" + f.stem[len("creature-"):]
+                out.append({"id": cid, "name": cid, "spec": "", "image": rel})
+    return out
+
+
 def build_stage_2(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[str], str]:
     """階段 2：將階段 1 的詳細角色設定表格與階段 2 產出的角色/異獸/場景圖片左右並排展示！"""
     manifest_path = project_dir / "assets" / "reference-manifest.json"
@@ -1628,6 +1652,41 @@ def build_stage_2(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
             f'</article>'
         )
 
+    # 1b. 生物／異獸設定卡（assets.md CREATURE-* 區塊 + images/creature-*.png）
+    creatures = collect_creatures(project_dir)
+    for cr in creatures:
+        src_rel, real_p = rel_img_src(project_dir, cr["image"])
+        if real_p and real_p.exists():
+            total_imgs_found += 1
+            dims = get_png_dimensions(real_p)
+            dim_str = f"{dims[0]}×{dims[1]} px" if dims else "PNG"
+            size_kb = real_p.stat().st_size // 1024
+            v_html = (
+                f'<div class="asset-img-box">'
+                f'  <img src="{src_rel}" alt="{html.escape(cr["name"])}">'
+                f'  <div class="asset-meta-bar">'
+                f'    <span class="tag-badge gold">異獸設定圖</span>'
+                f'    <code>{html.escape(cr["image"])}</code>'
+                f'    <span class="tag-badge emerald">{dim_str} · {size_kb} KB</span>'
+                f'  </div>'
+                f'</div>'
+            )
+        else:
+            missing_assets.append(f"異獸 {cr['name']} ({cr['image']})")
+            v_html = f'<div class="missing-box">❌ 缺漏異獸設定圖：{html.escape(cr["name"])}<br><code>{html.escape(cr["image"])}</code> 尚未生成！</div>'
+        spec = cr["spec"] or f"| 項目 | 內容 |\n|---|---|\n| 異獸 ID | `{cr['id']}` |\n| 設定圖 | `{cr['image']}` |"
+        cards_html.append(
+            f'<article class="sbs-card creature-card">'
+            f'  <div class="sbs-header">'
+            f'    <h3 class="sbs-title">🐞 生物／異獸：{html.escape(cr["name"])} <span class="tag-badge">{html.escape(cr["id"])}</span></h3>'
+            f'  </div>'
+            f'  <div class="sbs-body">'
+            f'    <div class="sbs-spec">{render_markdown_block(spec, fold=True, id_prefix="cr-" + cr["id"])}</div>'
+            f'    <div class="sbs-visual">{v_html}</div>'
+            f'  </div>'
+            f'</article>'
+        )
+
     # 2. 場景母版圖並排卡片
     for loc in locs:
         lid = loc.get("location_id") or loc.get("id") or ""
@@ -1683,7 +1742,8 @@ def build_stage_2(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
         errors.append(f"[階段 2 缺圖阻斷] 共有 {len(missing_assets)} 項核心資產圖片尚未生成或路徑不存在：{', '.join(missing_assets)}")
 
     kpis = [
-        ("角色／異獸設定卡", f"{len(chars)} 組", "gold"),
+        ("角色設定卡", f"{len(chars)} 組", "gold"),
+        ("生物／異獸設定卡", f"{len(creatures)} 組", "gold"),
         ("場景母版設定卡", f"{len(locs)} 組", "cyan"),
         ("實體圖片核驗", f"已就緒 {total_imgs_found} 張" if not missing_assets else f"缺漏 {len(missing_assets)} 張", "emerald" if not missing_assets else "rose"),
     ]
