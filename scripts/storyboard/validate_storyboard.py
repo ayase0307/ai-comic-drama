@@ -468,12 +468,17 @@ def validate_storyboard_data(data: dict, original_script_dialogues: list = None)
                         + _irrev.group(0) + "）；含該道具的場景母版會讓生圖把它畫回完整狀態。"
                         "請對破壞後的鏡頭停用該母版（改用文字描述或裁掉道具的母版），並在 metadata 設 scene_master_disabled=true 確認後即不再警告。")
 
+    _NARRATOR_SPEAKERS = {"旁白", "narrator", "narration", "畫外音", "v.o.", "vo", "os", "o.s."}
     # Check 7c（#58）：同段多個說話人露臉 → 警告；使用者接受後設 metadata.accepted_mixed_face=true
     _spk = []
     for s in shots:
         _d = s.get("dialogue_and_audio") or {}
-        if _d.get("has_dialogue") and _d.get("speaker") and _d["speaker"] not in _spk:
-            _spk.append(_d["speaker"])
+        _who = _d.get("speaker")
+        # 旁白／畫外音沒有臉，不算露臉說話人
+        if _who and (str(_who).strip().lower() in _NARRATOR_SPEAKERS or _d.get("audio_type") == "offscreen"):
+            continue
+        if _d.get("has_dialogue") and _who and _who not in _spk:
+            _spk.append(_who)
     if len(_spk) > 1 and not (data.get("metadata") or {}).get("accepted_mixed_face"):
         warnings.append(f"[同段多說話人露臉] 本段有 {len(_spk)} 位說話人（{'、'.join(map(str, _spk))}）；H3 單段容易混臉。"
                         "建議拆段；若接受風險，在 metadata 設 accepted_mixed_face=true 即不再警告。")
