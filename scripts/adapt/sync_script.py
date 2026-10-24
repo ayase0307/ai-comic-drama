@@ -86,8 +86,9 @@ def build_speaker_map(script_scenes: List[Dict[str, Any]], handoff_scenes: List[
         for sd, hd in zip(script_dlgs, hs_dlgs):
             s_spk = sd.get("speaker")
             h_spk = hd.get("speaker")
-            if s_spk and h_spk:
-                mapping[s_spk] = h_spk
+            # 只在台詞文字相同時才建立映射：劇本增刪台詞後按位置對齊會錯位，把別人的 ID 配給說話者
+            if s_spk and h_spk and (sd.get("text") or "").strip() == (hd.get("text") or "").strip():
+                mapping.setdefault(s_spk, h_spk)
     return mapping
 
 
@@ -410,7 +411,8 @@ def sync_scene_content(
         speaker_name = nd.get("speaker", "")
         mapped_speaker = speaker_map.get(speaker_name, speaker_name)
         existing_dlg = old_dialogues[idx] if idx < len(old_dialogues) else {}
-        spk = existing_dlg.get("speaker") or mapped_speaker
+        # 說話者以劇本為準；舊 handoff 同位置的 speaker 可能已因增刪台詞而錯位
+        spk = mapped_speaker or existing_dlg.get("speaker") or speaker_name
         audio_t = detect_audio_type(nd.get("note", ""), existing_dlg.get("audio_type", "onscreen"))
         item: Dict[str, Any] = {
             "speaker": spk,
@@ -670,9 +672,8 @@ def main() -> int:
                     pass
 
         speaker_map = build_speaker_map(script_scenes, all_scenes)
-        for k, v in bible_char_map.items():
-            if k not in speaker_map:
-                speaker_map[k] = v
+        # bible.json 的正式名／別名是權威來源，優先於從舊 handoff 推回的映射
+        speaker_map.update(bible_char_map)
 
         episodes = handoff_data.setdefault("episodes", [])
         if not episodes:
