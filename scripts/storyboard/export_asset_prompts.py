@@ -275,7 +275,20 @@ def parse_assets_markdown(assets_path: pathlib.Path) -> List[Dict[str, Any]]:
             "style_lock": style_lock,
         })
 
-    return assets or parse_card_assets(text, style_lock)
+    if not assets:
+        return parse_card_assets(text, style_lock)
+    # #15：兩種格式混寫時，不悄悄掉卡片資產——補上卡片格式裡舊格式沒有的 ID，並警告
+    def _key(a):
+        m = re.match(r"[\w-]+", a["name"])
+        return m.group(0) if m else a["name"]
+    have = {_key(a) for a in assets}
+    extra = [c for c in parse_card_assets(text, style_lock) if _key(c) not in have]
+    if extra:
+        import sys
+        print(f"⚠ assets.md 混用兩種格式（```text 區塊與卡片欄位）：已補入卡片格式資產 "
+              f"{', '.join(c['name'] for c in extra)}；建議統一一種格式。", file=sys.stderr)
+        assets.extend(extra)
+    return assets
 
 
 CARD_LABEL = re.compile(r"^-\s*\*\*(.+?)\*\*[：:]\s*(.*)$")
@@ -307,6 +320,13 @@ def parse_card_assets(text: str, style_lock: str = DEFAULT_STYLE_LOCK_3D) -> Lis
         filename = pathlib.Path(ref).name if ref.endswith((".png", ".jpg")) else f"{atype}-{aid.split('-', 1)[1]}.png"
         assets.append({"name": f"{aid} {name}".strip(), "type": atype, "filename": filename,
                        "description": desc, "style_lock": style_lock})
+        # #14：一個角色多套服裝——欄位標籤 W-<slug>-NN 各出一張服裝設定板
+        for k, v in fields.items():
+            if atype == "character" and re.fullmatch(r"W-[\w-]+-\d+", k) and v and not v.startswith("<"):
+                wref = fields.get(f"設定圖 {k}", "")
+                wfile = pathlib.Path(wref).name if wref.endswith((".png", ".jpg")) else f"wardrobe-{k[2:]}.png"
+                assets.append({"name": f"{k} {name}".strip(), "type": "character", "filename": wfile,
+                               "description": f"{desc}；本套服裝：{v}", "style_lock": style_lock})
     return assets
 
 
