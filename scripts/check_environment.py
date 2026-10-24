@@ -48,6 +48,9 @@ def build_report() -> dict[str, Any]:
     pillow = _package_version("Pillow")
     numpy = _package_version("numpy")
     resvg = _package_version("resvg-py")
+    opencv = _package_version("opencv-python-headless")
+    if not opencv["available"]:
+        opencv = _package_version("opencv-python")
     ffmpeg = _command_version("ffmpeg")
     ffprobe = _command_version("ffprobe")
 
@@ -63,7 +66,7 @@ def build_report() -> dict[str, Any]:
         "schema_version": 1,
         "inspection": "local executable/package presence only; no network, service, token, account, or model checks",
         "runtime": {"python": sys.version.split()[0], "minimum": "3.10", "available": python_ok},
-        "dependencies": {"Pillow": pillow, "numpy": numpy, "resvg-py": resvg, "ffmpeg": ffmpeg, "ffprobe": ffprobe},
+        "dependencies": {"Pillow": pillow, "numpy": numpy, "resvg-py": resvg, "opencv": opencv, "ffmpeg": ffmpeg, "ffprobe": ffprobe},
         "capabilities": [
             capability("企劃與文本改編", ["Python >= 3.10", "Python standard library"], python_ok,
                        "此能力不需要 jsonschema；專案含標準庫 schema validator。"),
@@ -74,6 +77,9 @@ def build_report() -> dict[str, Any]:
                        "svg_storyboard_grid.py 用程式算構圖，不呼叫生圖 API；缺依賴時改用 Qwen 分鏡總覽圖或手繪。"),
             capability("影片片段技術審查", ["ffmpeg", "ffprobe"], ffmpeg["available"] and ffprobe["available"],
                        "需提供本機影片；本檢查不產生影片。"),
+            capability("動態 QA 與後製變速（選用）", ["opencv-python-headless", "numpy", "ffmpeg", "ffprobe"],
+                       opencv["available"] and numpy["available"] and ffmpeg["available"] and ffprobe["available"],
+                       "h3d motion 量光流需要 OpenCV；h3d ramp 只需要 ffmpeg＋numpy（音訊相關驗證）。"),
             capability("影片組裝與交付驗證", ["ffmpeg", "ffprobe"], ffmpeg["available"] and ffprobe["available"],
                        "需提供本機片段；實際輸出仍須通過交付 manifest 與解碼檢查。"),
         ],

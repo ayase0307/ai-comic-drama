@@ -34,7 +34,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 SCRIPTS_DIR = Path(__file__).resolve().parents[1]
-for candidate in (str(SCRIPTS_DIR), str(SCRIPTS_DIR / "voice")):
+for candidate in (str(SCRIPTS_DIR), str(SCRIPTS_DIR / "voice"), str(SCRIPTS_DIR / "storyboard")):
     if candidate not in sys.path:
         sys.path.insert(0, candidate)
 
@@ -49,8 +49,12 @@ def build_plan(*, name: str, order: List[str], durations: Dict[str, float],
                placement: Dict[str, Dict[str, Any]], manifest: Dict[str, Dict[str, Any]],
                muted: Optional[set] = None, video_path: Callable[[str, bool], str] = None,
                voice_path: Callable[[str, Dict[str, Any]], str] = None,
-               caption_tail: float = 1.5) -> Dict[str, Any]:
+               caption_tail: float = 1.5,
+               time_maps: Optional[Dict[str, List[Dict[str, Any]]]] = None) -> Dict[str, Any]:
+    """time_maps：後製變速段的 time_map（原片秒→變速版秒）。台詞、ASR、配音落點都是原片時間，
+    放進時間線前逐一換算；durations 與 video_path 由呼叫端換成變速版。"""
     muted = muted or set()
+    time_maps = time_maps or {}
     video_path = video_path or (lambda sid, m: f"voice/muted/{sid}.mp4" if m else f"videos/{sid}.mp4")
     voice_path = voice_path or (lambda key, item: item.get("final") or f"voice/final/{key}.wav")
     vo_line = {(v["segment"], manifest[k]["line"]): k for k, v in placement.items() if k in manifest}
@@ -62,6 +66,12 @@ def build_plan(*, name: str, order: List[str], durations: Dict[str, float],
         ep = sid.split("-")[0]
         episode_starts.setdefault(ep, round(t, 3))
         dur = float(durations.get(sid) or 0.0)
+        tmap = time_maps.get(sid)
+        if tmap:
+            import speed_ramps as SRM
+            mt = lambda x, _m=tmap: SRM.map_time(x, _m)  # noqa: E731
+        else:
+            mt = lambda x: x  # noqa: E731
         segments.append({"id": sid, "file": video_path(sid, sid in muted), "start": round(t, 3),
                          "duration": round(dur, 3)})
         seg_lines = lines.get(sid, [])
@@ -92,7 +102,7 @@ def build_plan(*, name: str, order: List[str], durations: Dict[str, float],
                 item = placement[key]
                 st = float(item["start"])
                 en = st + float(item.get("final_dur") or manifest[key].get("dur") or 2.0)
-                voices.append({"key": key, "file": voice_path(key, item), "start": round(t + st, 3)})
+                voices.append({"key": key, "file": voice_path(key, item), "start": round(t + mt(st), 3)})
                 stats["voice"] += 1
             elif i in got and got[i][2] >= max(2, len(V.norm(line["text"])) * 0.4):
                 st, en = max(0.0, got[i][0] - 0.1), got[i][1] + 0.3
@@ -101,6 +111,8 @@ def build_plan(*, name: str, order: List[str], durations: Dict[str, float],
                 st, en = float(line["start"]), float(line["end"])
                 stats["storyboard_time"] += 1
             out.append([st, en, line["text"]])
+        if tmap:
+            out = [[mt(st), mt(en), text] for st, en, text in out]
         out.sort()
         for j in range(len(out) - 1):
             if out[j][1] > out[j + 1][0] - 0.05:
@@ -124,9 +136,26 @@ def plan_from_project(root: Path, name: str) -> Dict[str, Any]:
     order = V.segment_order(root)
     durations = {s: V.ffprobe_duration(root / "videos" / f"{s}.mp4") or 0.0 for s in order}
     muted = {p.stem for p in (voice / "muted").glob("*.mp4")} if (voice / "muted").is_dir() else set()
+    # 後製變速（videos/speed-ramps.json，status=rendered 且原片 sha 沒變）：改用 videos/ramped/<段>.mp4。
+    # voice/muted 是從原片壓的，變速段不能再用；需要壓原聲就對變速版重跑 duck。
+    time_maps: Dict[str, List[Dict[str, Any]]] = {}
+    ramped_rel: Dict[str, str] = {}
+    try:
+        import speed_ramps as SRM
+        spec = SRM.load_spec(SRM.spec_path(root))
+        for sid in order:
+            info = SRM.ramped_source(root, sid, spec)
+            if info and not info.get("stale"):
+                time_maps[sid] = info["time_map"]
+                ramped_rel[sid] = info["rel"]
+                durations[sid] = info["duration"] or durations[sid]
+    except ImportError:  # pragma: no cover
+        pass
+    video_path = lambda sid, m: ramped_rel.get(sid) or (f"voice/muted/{sid}.mp4" if m else f"videos/{sid}.mp4")  # noqa: E731
     return build_plan(name=name, order=order, durations=durations, lines=V.timeline_lines(root),
                       asr=load(voice / "h3-asr.json"), placement=load(voice / "placement.json"),
-                      manifest=load(voice / "manifest.json"), muted=muted)
+                      manifest=load(voice / "manifest.json"), muted=muted, video_path=video_path,
+                      time_maps=time_maps)
 
 
 # ------------------------------------------------------------------ 2. MCP

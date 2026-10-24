@@ -40,8 +40,8 @@ agent_created: true
 | 3 劇本 | 場景化改寫、台詞預算（4 字/秒、說話 ≤ 60%）、改編差異 | 超預算照送 | `estimate_duration.py --h3`、`sync_script.py` | `references/adapt/screenplay-format.md` |
 | 4 分鏡 | 一鏡一張臉、遠景不放人、焦距物距成對寫 | 沒有對應構圖 PNG 就進編譯 | `h3d sketch`、`validate_storyboard.py` | `references/storyboard/cinematic-director.md` |
 | 5 提示詞 | **逐鏡親手寫** Layer 2 `five_part_en`（Camera／Motion／Performance／Light／Sound，Motion 與 Performance 必須詳寫），讀分鏡、構圖與前一鏡狀態後再寫；編譯器只負責組成六段式 | 寫程式產生五小節；編譯後覆寫 segments；用後設詞（authored／approved）或禁止句堆疊交差；沒 ack 就放過警告 | `h3d author`、`h3d compile --check`、`h3d catalog --check` | `references/prompt-authoring.md`、`references/h3/prompt-formats.md`、`references/tooling.md` |
-| 6 影片 | 送件 → 收件 → QA → 逐段結論 → 收件匣 | 兩個 runner 同時跑；碰別人的 job；漂移片拿去 QA | `h3d probe`、`h3d run --plan`、`h3d qa`、`h3d verdict`、`h3d inbox` | `references/tooling.md` §2.5–2.7、`references/skill-guide.md`「階段 6 生成」 |
-| 7 配音剪輯 | ASR 對位、畫外句壓原聲、響度、每角色音色一次定案、全集單一剪輯專案 | 旁白交給 H3 念；替使用者定音色 | `h3d voice align`、`h3d concat plan/build`、`h3d assemble` | `references/tooling.md` §2.7、`references/skill-guide.md`「階段 7」 |
+| 6 影片 | 送件 → 收件 → QA → 動態 QA（光流量凍結／定住，自動提案變速清單）→ 逐段結論 → 收件匣 | 兩個 runner 同時跑；碰別人的 job；漂移片拿去 QA | `h3d probe`、`h3d run --plan`、`h3d qa`、`h3d motion`、`h3d verdict`、`h3d inbox` | `references/tooling.md` §2.5–2.8、`references/speed-ramp.md`、`references/skill-guide.md`「階段 6 生成」 |
+| 7 配音剪輯 | 已核准的動作段後製變速（原片不動、台詞原速）、ASR 對位、畫外句壓原聲、響度、每角色音色一次定案、全集單一剪輯專案 | 旁白交給 H3 念；替使用者定音色；覆寫原片；變速台詞區 | `h3d ramp`、`h3d voice align`、`h3d concat plan/build`、`h3d assemble` | `references/tooling.md` §2.7、`references/skill-guide.md`「階段 7」 |
 
 **正式階段核准以 `review/project-state.json` 為準**，只能走 `build_stage_review.py --approve-stage`（使用者原話）或 `h3d approve --auto`（使用者授權過的階段）。
 純文字草稿可按指定範圍交付，不必推進到媒體生成。八階段的產出與 HTML 審核頁對照見 `references/skill-guide.md`「八階段流程與 HTML 斷點」，

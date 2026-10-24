@@ -52,6 +52,21 @@
 
 警告（不擋，但要看）：W30 舊產物沒有編譯指紋；W33 零星重複句；W39 八成以上是固定鏡（運鏡是階段 4 的決定，確認是刻意的）。
 
+## 動作鏡怎麼寫才不慢（打擊、追逐、被炸飛）
+
+H3 是 24 fps 原生，慢動作感來自「動作只佔鏡頭的一小段」：3 秒打擊鏡真正高速的時間中位數只有 0.62 秒，其餘是起手前發呆與打完定住（《噩盡島》實測，`references/speed-ramp.md`）。Motion 與 Camera 這樣寫：
+
+| 要點 | 寫法 |
+|---|---|
+| **一鏡一個動作，2–2.5 秒** | 打擊鏡不要塞三步（揮→中→倒）在 3 秒裡平均分配；拆成兩鏡，每鏡一個動作從頭做到尾。分鏡階段就要切好（Combat 段用 2–2.5 s 的鏡）。 |
+| **速度詞** | `at explosive speed`、`in a split second`、`snaps`、`slams`、`whips`；不要 slowly／gently／drifts／floats。 |
+| **第一幀就在動** | `already in motion in the first frame`：切進來時拳頭已經在半路，不要從靜止起手。 |
+| **動作撐到切點** | 最後一個動作寫成 `still … at the cut`（still tumbling at the cut、still skidding at the cut），不要寫「然後停住」。 |
+| **騰空寫下墜曲線** | 被炸飛／甩飛：`thrown upward, then dropping fast along a falling curve`，落地另起一鏡。**用 curve，不要用 arc**：E5 會把 arc 當成運鏡詞（camera arc）擋掉。 |
+| **打擊鏡固定機位** | 打擊、撞擊、被打飛的鏡 Camera 寫 locked-off／static；跟拍會把畫面上的位移抵掉，看起來更慢。運鏡放在撞擊前後的鋪陳鏡。 |
+
+已經產出的片子有定住、蓄力、飄浮的問題，先用後製變速（`h3d motion` → `h3d ramp`），不用整段重跑。
+
 ## 四、怎麼寫：逐鏡作業流程
 
 **不准寫程式產生五小節內容。** 腳本可以搬運、編譯、檢查，但每鏡五節的文字必須是 agent 讀完這一鏡的資料後自己寫的。

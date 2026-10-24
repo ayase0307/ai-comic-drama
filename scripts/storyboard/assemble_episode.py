@@ -630,6 +630,10 @@ def main() -> int:
     parser.add_argument("--delivery-report", type=Path, help="輸出階段 7 交付清單 Markdown 檔案")
     parser.add_argument("--manifest", type=Path, help="輸出機器可讀交付 JSON（預設 delivery-<output>.json）")
     parser.add_argument("--self-test", action="store_true", help="執行全鏈路合成短片單元自檢")
+    parser.add_argument("--speed-ramps", type=Path, default=None,
+                        help="後製變速清單（預設 <videos-dir>/speed-ramps.json，存在就用）：rendered 段改用 "
+                             "videos/ramped/<段>.mp4，台詞／旁白／配音時間窗用 time_map 換算")
+    parser.add_argument("--no-speed-ramps", action="store_true", help="不套用後製變速，一律用原片")
 
     args = parser.parse_args()
 
@@ -757,6 +761,18 @@ def main() -> int:
         manifest["source_segments_sha256"] = source_inputs[0]["sha256"]
         manifest["episode"] = episode
     atomic_write_json(manifest_file, manifest)
+    ramp_spec: Optional[Dict[str, Any]] = None
+    ramp_root = args.videos_dir.resolve().parent
+    if not args.no_speed_ramps:
+        ramp_file = args.speed_ramps or (args.videos_dir / "speed-ramps.json")
+        if ramp_file.is_file():
+            try:
+                import speed_ramps as speed_ramps_mod
+                ramp_spec = speed_ramps_mod.load_spec(ramp_file)
+                print(f"變速清單: {ramp_file}（rendered 段改用 videos/ramped/，時間窗依 time_map 換算）")
+            except Exception as exc:
+                print(f"⚠️ [警告] 變速清單讀取失敗，一律用原片: {exc}")
+                ramp_spec = None
     processed_videos: List[Path] = []
     segment_records: List[Dict[str, Any]] = []
     missing_segments: List[str] = []
@@ -820,6 +836,23 @@ def main() -> int:
                 "start": st, "end": et, "subtitle": text,
                 "speaker": entry.get("speaker") or "", "external": True,
             })
+
+        # 後製變速：rendered 段換成 videos/ramped/<段>.mp4，所有時間窗從原片時間換算到變速版時間。
+        # 後續段的起點由 concat 自然平移（每段長度改用變速版長度）。
+        ramp_info = None
+        if ramp_spec is not None:
+            import speed_ramps as speed_ramps_mod
+            ramp_info = speed_ramps_mod.ramped_source(ramp_root, sid, ramp_spec)
+            if ramp_info and ramp_info.get("stale"):
+                print(f"  ⚠️ {ramp_info['stale']}；本段用原片")
+                ramp_info = None
+        if ramp_info:
+            tmap = ramp_info["time_map"]
+            for item in lines_info:
+                item["start"], item["end"] = speed_ramps_mod.map_window(item["start"], item["end"], tmap)
+            found_in = ramp_info["path"]
+            seg_dur = ramp_info["duration"] or seg_dur
+            print(f"  [~] 分段 [{sid}] 用變速版 {ramp_info['rel']}（{ramp_info['delta']:+.3f}s）")
 
         out_seg_v = temp_dir / f"proc_{sid}.mp4"
         planned_durations.append(seg_dur)
