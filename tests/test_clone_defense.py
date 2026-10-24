@@ -201,6 +201,21 @@ class CloneDefenseTests(unittest.TestCase):
         self.assertFalse(result["passed"])
         self.assertTrue(any("E21" in e for e in result["errors"]))
 
+    def test_e21_accepts_a_crowd_anchored_by_an_extras_reference(self):
+        prompt = (
+            "subject_definitions:\n<Picture 1> is a scene reference.\n"
+            "<Subject 1> is the group of background extras in <Picture 2>.\n\n"
+            "detailed_description:\n[Shot 1] A crowd of seated disciples in pale yellow robes fills the frame.\n\n"
+            "overall_soundscape:\nWind.\n\nnon_diegetic_music:\nN/A\n"
+        )
+        refs = [{"id": "S-HALL", "type": "scene", "path": "images/S-HALL.png"},
+                {"id": "EXTRAS-x", "type": "extras", "path": "images/extras-x.png"}]
+        result = audit.audit_refs_and_subjects({"segment_id": "EP01-S02", "reference_images": refs, "h3_prompt": prompt})
+        self.assertFalse(any("E21" in e for e in result["errors"]), result["errors"])
+        refs[1]["path"] = ""
+        result = audit.audit_refs_and_subjects({"segment_id": "EP01-S02", "reference_images": refs, "h3_prompt": prompt})
+        self.assertTrue(any("E21" in e for e in result["errors"]))
+
     def test_e21_accepts_an_unidentifiable_out_of_focus_crowd(self):
         prompt = (
             "subject_definitions:\n<Picture 1> is a scene reference.\n\n"

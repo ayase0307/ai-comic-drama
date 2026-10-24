@@ -69,7 +69,7 @@ def subjects_for_shot(shot: Dict[str, Any], assets: Dict[str, Dict[str, str]], b
         cid = ch.get("character_id") or ch.get("id")
         names[cid] = [ch.get("canonical_name") or ""] + list(ch.get("aliases") or [])
     for aid, a in assets.items():
-        if aid.startswith("CREATURE-"):
+        if aid.startswith(("CREATURE-", "EXTRAS-")):
             names.setdefault(aid, []).append(a["name"])
     for aid, extra in keywords.items():
         names.setdefault(aid, []).extend(extra)
@@ -114,7 +114,8 @@ def build_panel_prompt(shot: Dict[str, Any], seg: Dict[str, Any], subjects: List
     if ref_labels:
         lines.append("Reference images, in attachment order: " + "; ".join(f"<Picture {i}> = {lab}" for i, (lab, _) in enumerate(ref_labels, 1)) + ".")
         lines.append("Match faces, hair, costumes and creature anatomy exactly to their reference pictures; use the scene picture for architecture, props and palette.")
-    people = [a for a in subjects if not a.startswith("CREATURE-")]
+    people = [a for a in subjects if not a.startswith(("CREATURE-", "EXTRAS-"))]
+    extras = [a for a in subjects if a.startswith("EXTRAS-")]
     for a in subjects:
         info = assets.get(a, {})
         desc = ", ".join(x for x in (info.get("fixed"), info.get("costume")) if x)
@@ -124,7 +125,15 @@ def build_panel_prompt(shot: Dict[str, Any], seg: Dict[str, Any], subjects: List
         who = ", ".join(f"{assets.get(a, {}).get('name') or a} = <Picture {pic[a]}>" for a in people if a in pic)
         if who:
             lines.insert(1, f"Main subject(s): {who}. Draw these exact people, never a different character from another picture.")
-        lines.append(f"Exactly {len(people)} person(s) may be visible ({', '.join(assets.get(a, {}).get('name') or a for a in people)}); nobody else, no background figures.")
+        named = ', '.join(assets.get(a, {}).get('name') or a for a in people)
+        if extras:
+            # 群演有自己的參考圖：背景人群照那張群演圖畫，臉各不相同，不得複製主角
+            pic_all = {lab.split(" (")[-1].rstrip(")"): i for i, (lab, _) in enumerate(ref_labels, 1)}
+            grp = "; ".join(f"<Picture {pic_all[a]}>" for a in extras if a in pic_all) or "the group reference"
+            lines.append(f"Named person(s): {named}. The background extras follow the group reference {grp}: "
+                         f"same robes and palette, each with a different ordinary face, never a copy of {named}.")
+        else:
+            lines.append(f"Exactly {len(people)} person(s) may be visible ({named}); nobody else, no background figures.")
     else:
         lines.append("No people in frame (hands only if the action names them).")
     lines.append(f"Framing: {cam.get('shot_size', '')} {cam.get('focal_length', '')}, camera {five.get('camera') or blk.get('blocking_desc_en', '')}")
@@ -136,7 +145,8 @@ def build_panel_prompt(shot: Dict[str, Any], seg: Dict[str, Any], subjects: List
     light = five.get("light") or style.get("lighting_lock_line") or ""
     if light:
         lines.append(f"Light: {light}")
-    lines.append(f"Avoid: {NEGATIVE}; {style.get('negative', '')}".rstrip("; "))
+    neg = NEGATIVE.replace("no extra people, ", "no duplicated faces, ") if extras else NEGATIVE
+    lines.append(f"Avoid: {neg}; {style.get('negative', '')}".rstrip("; "))
     return "\n".join(lines)
 
 

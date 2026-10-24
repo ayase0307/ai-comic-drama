@@ -89,3 +89,16 @@ class CodexPanelTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ExtrasPanelPromptTest(unittest.TestCase):
+    def test_extras_replace_no_background_figures_rule(self):
+        assets = {"C-a": {"name": "甲", "fixed": "woman"}, "EXTRAS-g": {"name": "群", "fixed": "disciples"}}
+        shot = {"shot_id": "X-SH01"}
+        labels = [("甲 (C-a)", "a.png"), ("群 (EXTRAS-g)", "g.png")]
+        p = cp.build_panel_prompt(shot, {}, ["C-a", "EXTRAS-g"], assets, labels)
+        self.assertNotIn("no background figures", p)
+        self.assertNotIn("no extra people", p)
+        self.assertIn("group reference <Picture 2>", p)
+        solo = cp.build_panel_prompt(shot, {}, ["C-a"], assets, labels[:1])
+        self.assertIn("Exactly 1 person(s)", solo)
