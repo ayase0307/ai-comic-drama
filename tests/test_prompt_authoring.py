@@ -119,5 +119,25 @@ class PromptAuthoringTests(unittest.TestCase):
         self.assertIn("W30", " ".join(res["warnings"]))
 
 
+
+class BackgroundAndMoodTests(unittest.TestCase):
+    """2026-10-24《噩盡島 II》EP01：為了壓背景警告，提示詞被寫成 the background is empty。"""
+
+    def test_empty_background_is_rejected(self):
+        bad = GOOD2.replace("Light: Sun glare", "Light: The background is empty. Sun glare")
+        codes = " ".join(pa.audit_segment(prompt(f"{HEAD2} {bad}"))["errors"])
+        self.assertIn("E40", codes)
+
+    def test_concrete_background_passes(self):
+        good = GOOD2.replace("Light: Sun glare", "Light: Behind him the vine-wrapped pillars of the hall, no one else behind him. Sun glare")
+        res = pa.audit_segment(prompt(f"{HEAD2} {good}"))
+        self.assertFalse(any("E40" in e for e in res["errors"]), res["errors"])
+
+    def test_mood_word_without_visual_cue_warns(self):
+        bad = GOOD2.replace("Sound: The wind", "Light: x. Sound: The wind").replace(
+            "Performance: His eyes", "Performance: A cinematic and dramatic moment. His eyes")
+        warns = " ".join(pa.audit_segment(prompt(f"{HEAD2} {bad}"))["warnings"])
+        self.assertIn("W40", warns)
+
 if __name__ == "__main__":
     unittest.main()

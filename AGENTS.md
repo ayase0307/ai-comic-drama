@@ -12,6 +12,7 @@
 4a. **要使用者決定的事用 `h3d inbox` 交給使用者**（只列例外，不要把整頁資料攤開）；使用者授權過的階段照 `h3d next` 跑 `h3d approve --auto`。階段 0、角色設定圖（階段 2）、每個角色的音色永遠要使用者本人決定。
 5. **不同時跑兩個影片 runner**，也不要碰不是自己送的 job；ledger 有 waiting／running 的工作時只收件。整批送件用 `h3d run --plan`（內建單例鎖、佇列檢查、暫停續跑），不要再自寫 runner；送件前 `h3d probe`。
 5a. **階段 7 固定走 `h3d voice align`**（ASR 對位、畫外句壓原聲、響度），剪輯用 `h3d concat`；每個角色的音色由使用者定案（`h3d decide voice:<角色>`）。
+5b. **先想鏡頭意思再寫技術值**：階段 4 每鏡先填 `shot_intent`（觀眾要看懂什麼、節拍、視角、情緒變化），每個技術選擇在 `choice_why` 寫理由（`validate_storyboard.py` I01–I06 擋）。處理警告逐鏡回到意圖，**不准為了過關改使用者核准過的內容**，報警告一定附解法。見 `references/storyboard/shot-intent.md`、`docs/retrospectives/2026-10-24-edj2-ep01.md`。
 6. **遇到 `PARTIAL`、`duration_drift`、`已有 waiting 的 job` 就停下**，照 `references/tooling.md` §4 處置並回報使用者。
 
 ## 改這個 repo 時

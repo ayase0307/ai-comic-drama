@@ -17,6 +17,8 @@
   E37 對白路由矛盾：分鏡標「嘴部可見」的對白，提示詞卻寫成畫外音、嘴閉著。
   E38 編譯後被改寫：segments 的 h3_prompt 與編譯器留下的指紋不符。
   W30 舊編譯產物沒有指紋，無法確認是否被改寫。
+  E40 清背景交差：用 empty／blank／plain background 把背景抹掉，而不是照場景圖寫出背景裡有什麼。
+  W40 空泛氣氛詞：cinematic、dramatic、tense atmosphere 這類詞在同一句沒有任何可見線索。
   W33 同段零星重複句（可能是刻意的連戲／防混臉錨）。
   W39 八成以上是固定鏡（運鏡屬階段 4 決定，只提醒）。
 """
@@ -109,6 +111,24 @@ STORYBOARD_MOVES = re.compile(
     re.I,
 )
 STORYBOARD_STATIC = re.compile(r"^\s*(固定|靜止|不動|static|locked)", re.I)
+
+# E40：把背景寫成「空」來壓背景警告。背景要照綁定的場景圖寫出看得到的東西（牆、柱、窗、器物）。
+EMPTY_BACKGROUND = re.compile(
+    r"\b(?:the )?background (?:is|stays|remains|kept) (?:completely |totally |entirely )?(?:empty|blank|bare|plain|clean)\b|"
+    r"\b(?:empty|blank|plain|clean|featureless) background\b",
+    re.IGNORECASE,
+)
+# W40：沒有可見線索的氣氛形容詞。
+MOOD_WORDS = re.compile(
+    r"\b(cinematic|dramatic|epic|atmospheric|moody|emotional|intense|tense atmosphere|mysterious atmosphere|"
+    r"sense of (?:tension|mystery|unease|dread)|beautiful(?:ly)?|stunning)\b",
+    re.IGNORECASE,
+)
+VISUAL_CUE = re.compile(
+    r"\b(light|shadow|lamp|window|candle|eyes?|brow|jaw|mouth|lips?|hand|fingers?|shoulders?|breath|steps?|"
+    r"smoke|dust|rain|fog|frame (?:left|right|centre|center)|foreground|background|face|head|back|wall|floor)\b",
+    re.IGNORECASE,
+)
 
 SHOT_SPLIT = re.compile(r"(\[Shot\s+\d+\])", re.I)
 PART_LABEL = re.compile(r"\b(Camera|Motion|Performance|Light|Sound):", re.I)
@@ -236,6 +256,17 @@ def audit_segment(prompt: str, authored_shots: Optional[Sequence[Dict[str, Any]]
             m = re.search(term, shot, re.I)
             if m:
                 errors.append(f"[E34: 後設詞] {tag} 出現「{m.group(0)}」：模型看不到流程與核准紀錄，請直接寫畫面裡的東西。")
+                break
+
+        m = EMPTY_BACKGROUND.search(shot)
+        if m:
+            errors.append(f"[E40: 清背景交差] {tag} 出現「{m.group(0)}」：背景要照這一段綁定的場景圖寫出看得到的東西"
+                          "（例如身後的木柱、窗格、器物），擋路人用一句 no one else behind her 即可，不要把整個背景抹掉。")
+        for sent in _sentences(shot):
+            mw = MOOD_WORDS.search(sent)
+            if mw and not VISUAL_CUE.search(sent):
+                warnings.append(f"[W40: 空泛氣氛詞] {tag} 「{mw.group(0)}」所在的句子沒有任何可見線索；"
+                                "改寫成模型畫得出來的東西（光從哪來、誰的手在做什麼），或刪掉。")
                 break
 
         sents = [s for s in _sentences(shot) if not _is_boilerplate(s)]

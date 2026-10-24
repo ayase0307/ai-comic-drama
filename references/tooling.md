@@ -111,6 +111,10 @@ python scripts/h3d.py deps --root . --status --strict
 - E38：`detailed_description` 與 `metadata.compiled_prompt_sha256` 不符＝編譯後被改寫。
 - 處置：回 Layer 2 的 `five_part_en` 逐鏡改稿再編譯。不准改檢查器門檻、不准手改 segments 過關。規範見 `references/prompt-authoring.md`。
 
+### (h) 鏡頭意圖（shot_intent／choice_why，I01–I06）
+
+Layer 2 每鏡新增必填欄位 `shot_intent`（audience、story_beat、pov、emotional_shift）與 `choice_why`（shot_size、lens_distance、movement、blocking、background；有對白加 line_timing），schema 見 `references/storyboard/templates/layer2-storyboard.schema.json`。`handoff_to_skeleton.py` 會放 TODO 佔位；`validate_storyboard.py` 擋：I01 缺意圖、I02 缺理由、I03 佔位／過短、I04 同段意圖重複、I05 理由抄技術值或同段三鏡同一句、I06 跨段同一句 ≥5 鏡。邏輯在 `scripts/storyboard/shot_intent.py`。提示詞端另有 E40（抹背景）、W40（無線索氣氛詞）。
+
 ## 2.3 階段 5 英文層（stage5 binding 的 en_overlay）
 
 階段 4 的 Layer 2 常用中文寫運鏡、走位、錨點物件、連戲錨與收尾狀態；Layer 2 綁著階段 4 核准 hash，不能為了英文去改。
