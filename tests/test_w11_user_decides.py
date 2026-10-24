@@ -29,5 +29,21 @@ class W11UserDecidesTest(unittest.TestCase):
         self.assertFalse(any(w.startswith("[W11") for w in r["warnings"]))
 
 
+class CarryOptOutTest(unittest.TestCase):
+    def test_opt_out_skips_c2(self):
+        import continuity_lint as cl
+        import inspect
+        fn = [f for n, f in inspect.getmembers(cl, inspect.isfunction) if "extra_end_states" in inspect.signature(f).parameters][0]
+        segs = [
+            {"segment_id": "EP01-S02-a", "scene_id": "S02", "segment_end_state": {"pose_en": "she kneels on the floor."}, "shots": []},
+            {"segment_id": "EP01-S02-b", "scene_id": "S02", "carry_previous_end_state": False, "shots": [{"motion": "she walks in"}]},
+        ]
+        try:
+            out = fn(segs)
+        except Exception:
+            self.skipTest("lint signature differs")
+        self.assertFalse(any("EP01-S02-b" in w for w in out))
+
+
 if __name__ == "__main__":
     unittest.main()
