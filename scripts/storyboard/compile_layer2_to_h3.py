@@ -926,6 +926,26 @@ def _five_part_en(shot: Dict[str, Any]) -> Optional[Dict[str, str]]:
     return out
 
 
+_CAMERA_OPTICS_LEAD = re.compile(r"^\d+\s*mm from [^,;]+[,;]\s*", re.I)
+
+
+def compact_five_part(five: Dict[str, str]) -> Dict[str, str]:
+    """W11 編譯時壓縮：只刪重複資訊，不刪畫面內容。
+
+    - Camera 開頭的「NNmm from X metres at …」與鏡頭標頭的「MCU (85mm, 2m)」重複 → 刪掉；
+      後面的運鏡／固定機位／構圖／背景全部保留。
+    - Sound 逐鏡只留第一個子句（不足 6 字則整節保留，E30／E31），完整聲音仍在 overall_soundscape。
+    - Light／Motion／Performance 原樣保留（光線方向與關鍵細節不可被壓縮掉）。
+    """
+    out = dict(five)
+    cam = _CAMERA_OPTICS_LEAD.sub("", out.get("camera", ""), count=1).strip()
+    out["camera"] = (cam[:1].upper() + cam[1:]) if cam else out.get("camera", "")
+    snd = re.split(r";\s*", out.get("sound", ""), maxsplit=1)[0].strip()
+    if len(re.findall(r"[A-Za-z]+", snd)) >= 8:  # E31：太薄就保留整節
+        out["sound"] = snd
+    return out
+
+
 def format_timestamp(seconds: float) -> str:
     """將秒數格式化為 mm:ss.000 切點字串。"""
     mm = int(seconds // 60)
@@ -1224,6 +1244,7 @@ def compile_segment_h3(
     embed_cut_markers: bool = False,
     previous_end_state: Optional[Dict[str, Any]] = None,
     no_lettering: bool = True,
+    compact_description: bool = False,
 ) -> Dict[str, Any]:
     """將單個 Layer 2 JSON 分鏡檔編譯為符合 H3 官方六段式規範的資料結構。
 
@@ -2224,14 +2245,21 @@ def compile_segment_h3(
             if idx == n_shots:
                 marker += " <cutoff>"
         five = _five_part_en(s)
+        if five and (compact_description or (layer2_data.get("metadata") or {}).get("compact_description")):
+            five = compact_five_part(five)
         if five:
+            # 五小節裡的 {C-id} 換成該角色的 <Subject N>（同框多人時把「那位年長女子」綁到參考圖）
+            def _subject_token(m, _tags=tag_of):
+                cid = m.group(1)
+                return _tags.get(cid) or secondary_short.get(cid) or char_info(cid)["short_en"]
+            five = {k: re.sub(r"\{(C-[A-Za-z0-9_-]+)\}", _subject_token, v or "") for k, v in five.items()}
             # 逐鏡五小節（references/prompt-authoring.md）：由 agent 依分鏡親手寫在 Layer 2，
             # 取代自動拼出的 action／Expression／Blocking；台詞說明仍由編譯器接在最後。
             speech_txt = speech.lstrip("; ").strip()
             if speech_txt.lower().startswith("lips stay closed"):
                 speech_txt = "Lips stay closed."
             five_txt = " ".join(f"{label}: {five[key].rstrip()}" + ("" if five[key].rstrip().endswith((".", "!", "?")) else ".")
-                                for key, label in FIVE_PART_KEYS)
+                                for key, label in FIVE_PART_KEYS if five[key])
             body = f"{head} {five_txt}{stage_refs} {speech_txt}".rstrip()
             if not body.endswith((".", "!", "?", ">")):
                 body += "."
@@ -2555,6 +2583,8 @@ def main() -> int:
                         help="不把同場景前一段的英文終態帶入本段第 1 鏡（#133；預設帶入）")
     parser.add_argument("--no-lettering-guard", action="store_false", dest="lettering_guard", default=True,
                         help="不自動補「表面素淨、無文字無塗鴉」句（#138；預設遇到校徽／車門／斑駁牆等字詞時補）")
+    parser.add_argument("--compact-description", action="store_true",
+                        help="W11 編譯時壓縮：刪 Camera 開頭重複的鏡頭參數、逐鏡 Sound 改只寫在 overall_soundscape（也可在 Layer 2 metadata.compact_description=true）")
     parser.add_argument("--project-root", type=pathlib.Path, default=pathlib.Path("."), help="專案根目錄（預設當前目錄）")
     parser.add_argument("--skip-stage-gate", action="store_true", help="強制跳過階段 4 分鏡總覽圖門禁檢查（僅限測試或除錯）")
 
@@ -2635,6 +2665,7 @@ def main() -> int:
                 embed_cut_markers=getattr(args, "embed_cut_markers", False),
                 previous_end_state=(neighbor_end_states.get(prev_sid) if (carry and prev_sid) else None),
                 no_lettering=getattr(args, "lettering_guard", True),
+                compact_description=getattr(args, "compact_description", False),
             )
             compiled_results.append(seg_res)
             print(f"  ✅ 成功編譯段落: {seg_res['segment_id']} ({len(seg_res['shots'])} 鏡, {seg_res['metadata']['target_duration_sec']}s)")
