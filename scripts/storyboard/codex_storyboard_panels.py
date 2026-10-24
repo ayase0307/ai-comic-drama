@@ -145,9 +145,14 @@ def build_panel_prompt(shot: Dict[str, Any], seg: Dict[str, Any], subjects: List
     light = five.get("light") or style.get("lighting_lock_line") or ""
     if light:
         lines.append(f"Light: {light}")
+    if str(blk.get("blocking_desc") or "").lstrip().startswith("插入"):
+        # 插入鏡：人物只以框到的身體部位出現，避免草圖畫出整張臉而與意圖／提示詞不符
+        lines.append("Insert close-up: show only the body parts the framing names; no faces and no heads in frame.")
     neg = NEGATIVE.replace("no extra people, ", "no duplicated faces, ") if extras else NEGATIVE
     lines.append(f"Avoid: {neg}; {style.get('negative', '')}".rstrip("; "))
-    return "\n".join(lines)
+    # 五小節裡的 {C-id}／{CREATURE-id}／{EXTRAS-id} 換成素材名稱，草圖提示詞不得留下佔位符
+    return re.sub(r"\{((?:C|CREATURE|EXTRAS)-[A-Za-z0-9_-]+)\}",
+                  lambda m: assets.get(m.group(1), {}).get("name") or m.group(1), "\n".join(lines))
 
 
 def _sha256(p: pathlib.Path) -> str:
