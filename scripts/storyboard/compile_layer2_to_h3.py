@@ -2206,6 +2206,9 @@ def compile_segment_h3(
             pic_no = subject_picture_no.get(cid)
             if not pic_no:
                 continue
+            if meta.get("panel_role") == "creature":
+                # 異獸整板：Subject 定義已指定用哪一格；逐鏡再寫「背影」既錯又重複（W33），這裡不再加句。
+                continue
             stage_refs += (
                 f" The figure seen from behind matches {meta.get('panel_label_en')} in <Picture {pic_no}>; "
                 f"no other figure on that sheet appears in this shot."
@@ -2252,7 +2255,7 @@ def compile_segment_h3(
             def _subject_token(m, _tags=tag_of):
                 cid = m.group(1)
                 return _tags.get(cid) or secondary_short.get(cid) or char_info(cid)["short_en"]
-            five = {k: re.sub(r"\{(C-[A-Za-z0-9_-]+)\}", _subject_token, v or "") for k, v in five.items()}
+            five = {k: re.sub(r"\{((?:C|CREATURE|EXTRAS)-[A-Za-z0-9_-]+)\}", _subject_token, v or "") for k, v in five.items()}
             # 逐鏡五小節（references/prompt-authoring.md）：由 agent 依分鏡親手寫在 Layer 2，
             # 取代自動拼出的 action／Expression／Blocking；台詞說明仍由編譯器接在最後。
             speech_txt = speech.lstrip("; ").strip()
