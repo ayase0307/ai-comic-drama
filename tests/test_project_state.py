@@ -50,6 +50,38 @@ class ProjectStateTests(unittest.TestCase):
         (self.root / "project.md").write_text("pitch v2", encoding="utf-8")
         self.assertFalse(ps.is_approved(self.root, 0))
 
+    def _scoped_setup(self, tagged_stages):
+        patcher = patch.object(ps, "stage_validation_errors", return_value=[])
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        (self.root / "project.md").write_text("- genre：x\n- aspect_ratio：9:16\n", encoding="utf-8")
+        (self.root / "decisions.json").write_text(json.dumps({"decisions": [
+            {"id": "aspect_ratio", "value": "9:16", "stages": tagged_stages}]}), encoding="utf-8")
+        (self.root / "adapt" / "source.json").write_text("{}", encoding="utf-8")
+        (self.root / "adapt" / "bible.json").write_text("{}", encoding="utf-8")
+        (self.root / "adapt" / "character-bible.md").write_text("characters", encoding="utf-8")
+        for stage in (0, 1):
+            ps.mark_awaiting_review(self.root, ps.load_state(self.root), stage)
+            ok, why = ps.approve_stage_detailed(self.root, stage, "ok"); self.assertTrue(ok, why)
+        (self.root / "project.md").write_text("- genre：x\n- aspect_ratio：16:9\n", encoding="utf-8")
+        ps.mark_awaiting_review(self.root, ps.load_state(self.root), 0)
+        self.assertTrue(ps.approve_stage(self.root, 0, "改16:9"))
+
+    def test_stage0_decision_not_tagged_to_stage_keeps_its_approval(self):
+        self._scoped_setup([2, 4])
+        self.assertTrue(ps.is_approved(self.root, 1))
+
+    def test_stage0_decision_tagged_to_stage_invalidates_it(self):
+        self._scoped_setup([1, 2])
+        self.assertFalse(ps.is_approved(self.root, 1))
+
+    def test_stage0_other_change_still_invalidates(self):
+        self._scoped_setup([2])
+        (self.root / "project.md").write_text("- genre：y\n- aspect_ratio：16:9\n", encoding="utf-8")
+        ps.mark_awaiting_review(self.root, ps.load_state(self.root), 0)
+        self.assertTrue(ps.approve_stage(self.root, 0, "改題材"))
+        self.assertFalse(ps.is_approved(self.root, 1))
+
     def test_state_is_saved_only_at_canonical_path(self):
         ps.save_state(self.root, ps.initial_state("demo", "demo"))
         self.assertTrue((self.root / "review" / "project-state.json").exists())
