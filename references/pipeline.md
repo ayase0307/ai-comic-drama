@@ -257,6 +257,9 @@ python scripts/storyboard/layer2_to_table.py layer2/layer2-EP01-*.json --check -
 
 # 3. 可選：若 Qwen 圖像工具已可用，生成黑白鉛筆分鏡總覽圖構圖
 python scripts/storyboard/qwen_storyboard_grid.py --layer2 layer2/layer2-EP01-S01-a.json --generate-all --assemble-grid
+# 使用者指定 Codex 生分鏡圖時（每鏡綁定已核准參考圖，模型必填）：
+python scripts/storyboard/codex_storyboard_panels.py --root . --episode EP01 --model <使用者指定模型> --parallel 3
+# 單鏡重畫：--shots EP01-S03-a-SH02
 
 # 若 Qwen 不可用，可用手繪或其他已授權的圖像工具提供對應 shot 的 PNG，並在 Layer 2 設定 sketch_file
 

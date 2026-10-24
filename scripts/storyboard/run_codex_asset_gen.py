@@ -125,13 +125,14 @@ def _valid_png(path: pathlib.Path) -> bool:
 def generate_single_asset_codex(
     target: Dict[str, Any], prompt: str, output_dir: pathlib.Path,
     model: str | None = None, timeout_sec: int = 180, codex_bin: str | None = None,
+    aspect: str = "16:9",
 ) -> bool:
     name = safe_filename(target.get("filename") or target.get("name", ""))
     output_dir = output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     destination = output_dir / name
     instruction = (
-        "Generate a high-resolution 16:9 image using the built-in image generation tool.\n\n"
+        f"Generate a high-resolution {aspect} image using the built-in image generation tool.\n\n"
         f"Prompt:\n{prompt}\n\nSave the newly generated PNG as {name} in the current working directory."
     )
     started = time.time()
