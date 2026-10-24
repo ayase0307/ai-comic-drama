@@ -695,7 +695,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--segment-id", nargs="*", help="指定僅執行特定分段 ID (如 EP01-S01-seg01)，預設跑全部")
     parser.add_argument("--output-dir", type=Path, default=Path("videos"), help="影片輸出儲存目錄 (預設 videos/)")
     parser.add_argument("--api-url", type=str, default=DEFAULT_API_URL, help="FreeVideo Agent API 位址")
-    parser.add_argument("--quality", type=str, default="light", choices=["light", "plus"], help="生成畫質模式 (預設 light)")
+    parser.add_argument("--quality", type=str, default="light", choices=["light", "medium", "high", "max"], help="生成畫質模式 (預設 light)")
     parser.add_argument("--dry-run", action="store_true", help="送件前乾跑檢查：檢查參考圖存在、SHA256、顯存狀態與分段摘要")
     parser.add_argument("--cancel-stale", action="store_true", help="清理伺服器殘留的孤兒分段任務")
     parser.add_argument("--collect", action="store_true",

@@ -19,6 +19,6 @@
   "max_reference_images": {"value": 6, "source": "docs"},
   "max_audio_references": {"value": 1, "source": "assumed"},
   "max_loras": {"value": 4, "source": "assumed"},
-  "qualities": {"value": ["light", "plus"], "source": "measured"},
+  "qualities": {"value": ["light", "medium", "high", "max"], "source": "measured"},
   "forbidden_top_level_fields": {"value": ["task"], "source": "measured"}
 }
