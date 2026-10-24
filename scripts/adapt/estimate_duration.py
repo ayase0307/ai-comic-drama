@@ -413,7 +413,11 @@ def main() -> int:
         print(f"[錯誤] 找不到檔案：{target_path}", file=sys.stderr)
         return 1
 
-    file_text = target_path.read_text(encoding="utf-8")
+    if is_novel_mode:
+        from novel_text import read_novel_text
+        file_text, _enc = read_novel_text(target_path)
+    else:
+        file_text = target_path.read_text(encoding="utf-8")
     project_root = find_project_root(target_path)
     if args.genre is None:
         args.genre = project_genre(project_root) or "xuanhuan_revenge"

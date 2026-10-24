@@ -30,6 +30,9 @@ import sys
 import unicodedata
 from typing import Any, Dict, List, Optional, Tuple
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from novel_text import read_novel_text  # noqa: E402
+
 # 確保 Windows 終端輸出 UTF-8
 # 用 reconfigure 而不是換掉 sys.stdout／sys.stderr：被別的腳本 import（例如門禁在同一個行程裡
 # 呼叫 compare_adaptation → estimate_duration）時，換掉的舊物件被回收會關掉底層 buffer，
@@ -276,15 +279,18 @@ def main() -> int:
         return 1
 
     try:
-        with open(input_path, "r", encoding="utf-8", errors="replace") as f:
-            lines = f.readlines()
+        text, detected_encoding = read_novel_text(input_path)
+        lines = text.splitlines(keepends=True)
     except Exception as exc:
         print(f"[錯誤] 讀取檔案失敗：{exc}", file=sys.stderr)
         return 1
 
+    if detected_encoding not in ("utf-8", "utf-8-sig"):
+        print(f"[提示] 偵測到原稿編碼 {detected_encoding}，已自動轉為 UTF-8 處理", file=sys.stderr)
+
     chapters = scan_novel_structure(lines)
     if not chapters:
-        print("[錯誤] 未能在檔案中識別出任何章節標題 (## 或 ###)", file=sys.stderr)
+        print(f"[錯誤] 未能在檔案中識別出任何章節標題 (## 或 ###)；偵測編碼：{detected_encoding}", file=sys.stderr)
         return 1
 
     target_vol = parse_cn_number(args.volume) if args.volume else None
