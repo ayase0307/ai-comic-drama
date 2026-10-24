@@ -379,6 +379,18 @@ def project_genre(root: Optional[Path]) -> Optional[str]:
     return None
 
 
+def genre_unconfirmed(root: Optional[Path]) -> bool:
+    """project.md 的 genre_mode 還是範本佔位符（<a | b | …>）時，source.json 裡的值只是 init 骨架預設，不算定案。"""
+    if root is None:
+        return False
+    try:
+        text = (root / "project.md").read_text(encoding="utf-8")
+    except OSError:
+        return False
+    m = re.search(r"genre_mode[：:]\s*(\S.*)", text)
+    return bool(m and m.group(1).lstrip().startswith("<"))
+
+
 def dialogue_policy_decided(root: Optional[Path]) -> bool:
     if root is None:
         return False
@@ -421,6 +433,12 @@ def main() -> int:
     project_root = find_project_root(target_path)
     if args.genre is None:
         args.genre = project_genre(project_root) or "xuanhuan_revenge"
+        genre_note = (
+            f"⚠️ genre_mode 尚未定案（project.md 仍是範本佔位符），暫用 {args.genre}；語速區間會跟著題材變，"
+            "定調後請重跑或用 --genre 指定。"
+        ) if genre_unconfirmed(project_root) else None
+    else:
+        genre_note = None
     policy_decided = dialogue_policy_decided(project_root)
 
     # 1. 小說模式
@@ -431,6 +449,9 @@ def main() -> int:
             genre_mode=args.genre,
         )
 
+        if genre_note:
+            res["genre_unconfirmed"] = True
+            print(genre_note, file=sys.stderr)
         if args.json:
             print(json.dumps(res, ensure_ascii=False, indent=2))
         else:
@@ -477,6 +498,9 @@ def main() -> int:
         target_seconds=args.target_seconds,
         h3_mode=args.h3,
     )
+    if genre_note:
+        res["genre_unconfirmed"] = True
+        print(genre_note, file=sys.stderr)
 
     if args.json:
         print(json.dumps(res, ensure_ascii=False, indent=2))
