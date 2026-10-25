@@ -23,15 +23,15 @@
   },
   "files": {
     "action-choreography.md": "b51d31a9f638fb206471e32312005cebdff86f9c0e750cee95cf8a1a855da6c5",
-    "audio-and-dialogue.md": "cb646e0892951ee63ed607c86b89391232dc0cf590c2c75fc9c975def6da6f19",
-    "audio-pipeline.md": "54304494f29d67e7da7072a1dfb937aec5062c5e62eb7fb1bc8db25075633158",
+    "audio-and-dialogue.md": "846f5ea4dcb2c4f75c30009ac0d75bdc3cbd509d6667a5bb50bd0016f18b974e",
+    "audio-pipeline.md": "4007e47ce6c75661efe0effea21070fc8cd679c53601c0d7b5f5e9591158c641",
     "camera-and-transitions.md": "8d488f131b0c42cece64eb885d417bbab551468f28635a3121a2621b91c4e1a7",
     "community-sources.md": "c8a29eb1b60b8f33ab8354653402ec540d6100a069e85a8cc0abd35345bf8ac8",
     "example-basketball-crossover-10s.md": "990f1791cc6e64e1f088b62f5db4617374db7320bacba73fe07b4ec7df89fc5f",
     "example-fight-10s.md": "f1fbac777c47e9b297ac61f6dc0e5f1ccfad931b98afa756798ff4bb04e4f4fa",
     "example-seedance-to-h3.md": "2a8579326e1a63c97227ad90d4752191598837a1cd1d43e660556f372342349e",
     "example-spec-to-prompt-10s.md": "822da703840d96c86e637780a86ab1fe30afe999fa5f978483f03f669eba81a5",
-    "failure-triage.md": "14b527a41278495748241ac2fe46ca79c88421c3c321bf09f2de1aa1881e4219",
+    "failure-triage.md": "06cc182da48bb24a0411cbbdaa57232cdc8ebf2886f00ce4d04b13777e8532d4",
     "lighting-and-color.md": "d6e037e999fa1f04321f8bbbbbf42c6ff10562c87870b9225bf939f482e0e4f2",
     "long-form-planning.md": "2f150e7be3d414712daa8de97735b6df2cc1d42330dbeabbcbdad33f5318efc2",
     "motion-quality.md": "7fad80b5d7a4c54555e62bd234cdeca6ae2ab9fcbc1436aa85efd4ba003d0470",
@@ -41,10 +41,10 @@
     "scenarios-commercial.md": "3855ab52ccea1cc001eef0f0d16fecbc4335ed5df6aff44a337db9f2e2f021d7",
     "scenarios-people.md": "bb943311a6d5417e643adee36fc83cf1361dd97fc39c54a48cda6a3370e38308",
     "scenarios-world-and-styles.md": "0ae374a58724925fdbd4499e1ccc21146d0dbd5930ea1fa224888b11c42737fa",
-    "shot-five-part.md": "c30e22ba84bfb49bdf5b112837782bd9b36431ffad8eb4d65fb7379270401e45",
+    "shot-five-part.md": "0f36fddb695e1f8e85a76777f9377e9dd6742d19abacd28d7b1d1ca01e754504",
     "shot-variety-and-staging.md": "8f8845c7c9f80dec86fc8ad6ec9a4a53c9ce37b9c62043adc71abbdce1637818",
     "skin-realism-block.md": "3bf57fdf883fc2fad37f0d126a135bf29f702138638eb5990d8653aed456740a"
   },
-  "upstream_synced_commit": "1db923baca363d4ca07843aa2807d2e899f4adcb",
-  "upstream_synced_at": "2026-10-21T15:03:05+00:00"
+  "upstream_synced_commit": "3ab59c8b579f1213170ec0c69f2cf91b7c15f4d2",
+  "upstream_synced_at": "2026-10-25T04:06:22+00:00"
 }

@@ -145,11 +145,12 @@ class H3CompilerRegressionTests(unittest.TestCase):
             },
         }
 
-    def compile(self, data=None):
+    def compile(self, data=None, **kwargs):
         return compiler.compile_segment_h3(
             copy.deepcopy(data or self.segment()),
             registry=self.registry,
             auto_lora=False,
+            **kwargs,
         )
 
     def test_legacy_characters_field_is_normalized_before_compile(self):
@@ -422,19 +423,30 @@ class H3CompilerRegressionTests(unittest.TestCase):
                 shot["action_and_performance"]["observable_expression_en"] = "Mira keeps her lips closed."
                 data["shots"] = [shot]
 
+                # 預設 short-offscreen-h3：短畫外句留 H3，用官方畫外句式＋逐字 <d>（#104 #114）
                 compiled = self.compile(data)
                 prompt = compiled["h3_prompt"]
-
                 # 官方 base §4.4：發聲者一定要有穩定 (Sx) 代號
                 # #66：Subject 1（Mira）佔 S1，畫外發聲者接在後面
                 self.assertRegex(prompt, r"\(S[12]\)")
                 self.assertIn(identity, prompt)
-                self.assertIn("off-screen", prompt)
                 self.assertIn("segment_seconds 0.500–2.000", prompt)
                 self.assertNotIn(f"{speaker} speaks", prompt)
                 self.assertNotIn("<Subject 1> speaks", prompt)
-                # 畫外音／內心聲走外部 TTS：不進 <d>，也不可變成可見說話
+                self.assertNotIn("is the visible speaking character", prompt)
+                self.assertIn("<d>[Chinese] 你聽得見嗎？</d>", prompt)
+                self.assertRegex(prompt, r"(heard from .* off-screen|says in an off-screen voiceover)")
+                self.assertIn("lips remain completely closed", prompt)
+                self.assertEqual(compiled["external_narration"], [])
+
+                # external：整句外部 TTS；提示詞不得寫「有人說話卻不給字」（#122）
+                compiled = self.compile(data, narration_policy="external")
+                prompt = compiled["h3_prompt"]
+                self.assertIn("segment_seconds 0.500–2.000", prompt)
                 self.assertNotIn("<d>[Chinese] 你聽得見嗎？</d>", prompt)
+                # 編譯器自己不得產生說話句（分鏡原文的動作句另由 audit E26 抓）
+                self.assertNotRegex(prompt, r"\(S\d+\) (speaks|narrates|says)")
+                self.assertNotIn("off-screen over this shot", prompt)
                 self.assertEqual(len(compiled["external_narration"]), 1)
                 self.assertEqual(compiled["external_narration"][0]["line"], "你聽得見嗎？")
                 self.assertIn("lips completely closed", prompt)
@@ -452,11 +464,11 @@ class H3CompilerRegressionTests(unittest.TestCase):
         shot["action_and_performance"]["action_stages_en"] = ["The driver stays in a back view while speaking from offscreen."]
         data["shots"] = [shot]
 
-        compiled = self.compile(data)
+        compiled = self.compile(data, narration_policy="external")
         prompt = compiled["h3_prompt"]
 
-        # 背影說話沒有可見的嘴 → 整句改由外部 TTS，H3 不生成人聲
-        self.assertIn("(S1)", prompt)
+        # 背影說話沒有可見的嘴 → external 政策整句改由外部 TTS，H3 不生成人聲，也不提有人說話
+        self.assertNotRegex(prompt, r"\b(speaks|narrates|says)\b")
         self.assertIn("lips completely closed", prompt)
         self.assertIn("segment_seconds 0.500–2.000", prompt)
         self.assertNotIn("<d>[Chinese] 先送你回去。</d>", prompt)

@@ -659,6 +659,34 @@ def stage7_errors(root: Path) -> list[str]:
     return errors
 
 
+def _stage5_voice_errors(segments: list[Path]) -> list[str]:
+    """strict（h3d next、新核准、自動核准）才跑的畫外句聲音 lint：E43 有說話動詞卻沒 <d>、E44 畫外句同鏡張嘴。
+
+    已核准階段的重新驗證不走 strict，舊專案不會因為這條新檢查失去核准。
+    """
+    import sys as _sys
+    storyboard = Path(__file__).resolve().parent / "storyboard"
+    if str(storyboard) not in _sys.path:
+        _sys.path.insert(0, str(storyboard))
+    import voice_lint
+    errors: list[str] = []
+    for path in segments:
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8-sig"))
+        except (OSError, json.JSONDecodeError):
+            continue  # 讀檔錯誤由下方一般檢查回報
+        items = raw if isinstance(raw, list) else raw.get("segments", [raw])
+        for seg in items:
+            if not isinstance(seg, dict):
+                continue
+            prompt = seg.get("h3_prompt") or ""
+            if not isinstance(prompt, str):
+                continue
+            for issue in voice_lint.voice_issues(prompt):
+                errors.append(f"{seg.get('segment_id', path.name)}: {issue['message']}")
+    return errors
+
+
 def stage_validation_errors(root: Path, stage: int, allow_technical: bool = False,
                             strict: bool = False) -> list[str]:
     """allow_technical=True 時，階段 6 只回硬錯誤（供已記錄 override 的核准使用）。
@@ -679,6 +707,8 @@ def stage_validation_errors(root: Path, stage: int, allow_technical: bool = Fals
         if not segments:
             return ["缺少 segments-ep*.json 提示詞包"]
         errors = []
+        if strict:
+            errors.extend(_stage5_voice_errors(segments))
         for path in segments:
             try:
                 raw = json.loads(path.read_text(encoding="utf-8-sig"))

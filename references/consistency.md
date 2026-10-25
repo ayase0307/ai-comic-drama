@@ -359,7 +359,7 @@ Qwen/GPT 首幀（全彩）──→ I2VA 影片 ──→ 與既有 H3 片段�
 | 定律二 重要角色必掛自己的參考圖 | **E26** ＋ 編譯器硬錯誤 | `reference_view: "non_face"` 卻沒有 path → 錯誤；stage5 宣告 `identity_anchor_ids` 但 `reference_paths.characters` 沒有對應項 → 編譯器直接丟 `ValueError`；同一角色同時屬 `face_subject_ids` 與 `identity_anchor_ids` → 丟 `ValueError` | 編譯器（`compile_layer2_to_h3.py`）＋ 送件前 audit |
 | 定律三 單視角裁切、禁多視圖板 | **E20**（宣告制） | 角色參考圖像素 ≥ 1600×900 且長寬比 ≥ 1.5 → **錯誤，除非**該素材宣告 `reference_view: "panel"` 且 `panel_label_en` 非空（2560×1440 整板**未宣告**時命中；950×910 正面裁切與約 400×960 背面裁切不命中） | 送件前 audit；需 `project_root` 讀圖像素，由 `submit_h3_segments.py` 傳入；宣告查表另見下一列 E27 |
 | 定律三 整板查表缺格位說明 | **E27** | 宣告 `reference_view: "panel"` 卻沒有 `panel_label_en` → 錯誤（沒指定用哪一格，模型會把整張板複製進成片） | 送件前 audit（`audit_refs_and_segments.py`）；編譯器（`compile_layer2_to_h3.py`）也會直接丟 `ValueError`（訊息含「必須同時提供 panel_label_en」） |
-| （附帶）說話人綁定與旁白 | **E22**／**E23**／**E24**／**E25** | 缺 `(Sx)`、畫外音缺嘴閉合聲明、`narration_policy=external` 卻仍有畫外音 `<d>`、`overall_soundscape` 重複台詞 → 錯誤 | 送件前 audit；格式對照見 `references/minimax-h3.md` §「官方 Ref2VA 格式合規速查」 |
+| （附帶）說話人綁定與旁白 | **E22**／**E23**／**E24**／**E25**／**E43**／**E44** | 缺 `(Sx)`、畫外音缺嘴閉合聲明、外部化的句子仍以 `<d>` 出現、`overall_soundscape` 重複台詞 → 錯誤；有說話動詞卻沒 `<d>`（E43）、畫外句同鏡張嘴（E44）→ strict 才算錯誤 | 送件前 audit；格式對照見 `references/minimax-h3.md` §「官方 Ref2VA 格式合規速查」 |
 
 **補充說明（為什麼門禁不能只擋一半）**：E19/E21 擋的是「提示詞裡憑空多出的人」，E20 擋的是「版面被複製」，E26 擋的是「宣告了身份錨點卻沒真的掛圖」，E27 擋的是「宣告了整板查表卻沒說用哪一格」。四者缺一，複製人還是會長出來——所以是**送件前全數通過**才允許送出，audit 本身是 fail-closed（審查依賴不可用時直接拒送，不放行）。
 

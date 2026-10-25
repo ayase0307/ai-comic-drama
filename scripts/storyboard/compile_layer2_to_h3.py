@@ -74,12 +74,14 @@ try:  # 以 scripts/storyboard 為 sys.path 執行（CLI 慣例）
     import failure_catalog
     import prompt_authoring
     import continuity_lint
+    import voice_lint
 except ImportError:  # pragma: no cover - 套件匯入路徑
     from . import h3_spec
     from . import normalize as normalize_mod
     from . import failure_catalog
     from . import prompt_authoring
     from . import continuity_lint
+    from . import voice_lint
 
 
 # ==============================================================================
@@ -774,6 +776,20 @@ def _apply_en_shot(shot: Dict[str, Any], en_shot: Dict[str, Any]) -> None:
         blocking["anchor_objects_en"] = [str(v) for v in (en_shot["anchor_objects_en"] or [])]
     if en_shot.get("lips") in LIPS_MODES:
         shot.setdefault("dialogue_and_audio", {})["lips_mode"] = en_shot["lips"]
+    # PR-10c：畫外句交給 H3（噩盡島包裝層 G7 的 h3_voice 收進主線）。
+    # h3_voice = {"form": "voiceover"|"offscreen", "voice": 英文聲線, "where": 英文位置（選填）}
+    hv = en_shot.get("h3_voice")
+    if isinstance(hv, dict):
+        dlg = shot.setdefault("dialogue_and_audio", {})
+        dlg["voice_route"] = "h3"
+        if hv.get("voice"):
+            dlg["offscreen_voice_en"] = str(hv["voice"])
+        if hv.get("where"):
+            dlg["offscreen_where_en"] = str(hv["where"])
+        if hv.get("form") in ("voiceover", "offscreen"):
+            dlg["offscreen_form"] = hv["form"]
+    if en_shot.get("voice_route") in VOICE_ROUTES:
+        shot.setdefault("dialogue_and_audio", {})["voice_route"] = en_shot["voice_route"]
 
 
 def _apply_en_segment(data: Dict[str, Any], overlay: Dict[str, Any]) -> None:
@@ -1118,6 +1134,45 @@ def _strip_dialogue_from_soundscape(foley: str, spoken_lines: List[str]) -> str:
     return text.strip()
 
 
+# 畫外音／旁白政策（PR-10c，findings #104 #114 #122 #123）。
+#   short-offscreen-h3（預設）：短畫外句（O.S.）與短旁白（V.O.）留給 H3 直接生成，用官方句式＋逐字 <d>；
+#                              超過 SHORT_OFFSCREEN_MAX_CHARS 字或 voice_route=external 才改外部 TTS。
+#   external：所有沒有可見嘴的台詞都改外部 TTS（H3 這鏡不提任何人說話，只留環境音）。
+#   h3-native：所有沒有可見嘴的台詞都留 H3（不看長度）。
+# 逐句可用 dialogue_and_audio.voice_route = "h3" | "external" 覆寫政策。
+NARRATION_POLICIES = ("short-offscreen-h3", "external", "h3-native")
+DEFAULT_NARRATION_POLICY = "short-offscreen-h3"
+# 實測（噩盡島 EP01 S02-b／S02-d／S03-e，拼音相似度 1.00）都是 ≤15 字的短句；更長的句子未驗證。
+SHORT_OFFSCREEN_MAX_CHARS = 15
+VOICE_ROUTES = ("h3", "external")
+# #123：畫外句同鏡的 Expression 寫張嘴／喘氣，H3 會讓露臉者跟著開口，像他在說話（與 voice_lint E44 同一條）。
+MOUTH_OPEN_RE = voice_lint.MOUTH_OPEN_RE
+
+
+def _spoken_char_count(line: str) -> int:
+    """台詞字數：中日韓字＋英數字，不算標點與空白（「氣已極淡……等久了？」= 7）。"""
+    return len(re.findall(r"[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaffA-Za-z0-9]", line or ""))
+
+
+def _offscreen_route(policy: str, dlg: Dict[str, Any], line: str) -> str:
+    """回傳 "h3" 或 "external"：沒有可見嘴的這一句該由誰發聲。"""
+    route = str(dlg.get("voice_route") or "").strip().lower()
+    if route in VOICE_ROUTES:
+        return route
+    if policy == "external":
+        return "external"
+    if policy == "h3-native":
+        return "h3"
+    return "h3" if _spoken_char_count(line) <= SHORT_OFFSCREEN_MAX_CHARS else "external"
+
+
+def _possessive_list(tags: List[str]) -> str:
+    owners = [f"{t}'s" for t in tags]
+    if len(owners) <= 2:
+        return " and ".join(owners)
+    return ", ".join(owners[:-1]) + ", and " + owners[-1]
+
+
 def _speech_window_clause(dlg: Dict[str, Any]) -> str:
     window = dlg.get("speech_window")
     if not isinstance(window, dict) or window.get("start") is None or window.get("end") is None:
@@ -1239,7 +1294,7 @@ def compile_segment_h3(
     auto_lora: bool = True,
     rounding_mode: str = "floor",
     stage5_binding: Optional[Dict[str, Any]] = None,
-    narration_policy: str = "external",
+    narration_policy: str = DEFAULT_NARRATION_POLICY,
     allow_normalize_warnings: bool = False,
     embed_cut_markers: bool = False,
     previous_end_state: Optional[Dict[str, Any]] = None,
@@ -1251,10 +1306,14 @@ def compile_segment_h3(
     主角參考圖：asset_refs.primary_character / metadata.primary_character 優先；
     否則取臉戲權重（景別越近權重越高）最重的角色。旁白與畫外音永不成為主體。
 
-    narration_policy：
-      - "external"（預設）：畫外音／旁白不寫入 H3 的 <d> 標籤，改由外部 TTS
-        合成後在階段 7 混入；H3 這一段只出環境與動作音。
-      - "h3-native"：保留舊行為，畫外音仍以 <d> 交給 H3 原生語音。
+    narration_policy（沒有可見嘴的台詞：畫外 O.S.、旁白／內心獨白 V.O.、背影／遮嘴）：
+      - "short-offscreen-h3"（預設）：≤15 字的短句留給 H3，用官方句式寫逐字 <d>
+        （O.S.：the line is heard from X (Sn) off-screen, <聲線>: <d>…</d>；
+        V.O.：X (Sn) says in an off-screen voiceover, <聲線>: <d>…</d>），露臉者寫嘴閉合、
+        沒有臉寫 no face is on screen；長句才改外部 TTS（external_narration）。
+      - "external"：全部改外部 TTS，H3 這一鏡不提任何人說話，只留環境與動作音。
+      - "h3-native"：全部留 H3（不看長度），句式同上。
+      逐句 dialogue_and_audio.voice_route = "h3"／"external" 可覆寫。
 
     previous_end_state：同場景前一段的 segment_end_state（#133）。有英文終態時，
     寫成本段第 1 鏡的「Starting state carried over from the previous segment」句，
@@ -1262,8 +1321,8 @@ def compile_segment_h3(
     no_lettering：提示詞出現校徽、計程車、斑駁牆這類燒字來源時，自動補一句
     「表面素淨、無文字無塗鴉」（#138）；metadata.allow_lettering=true 的段不加。
     """
-    if narration_policy not in ("external", "h3-native"):
-        raise ValueError(f"narration_policy 必須是 external 或 h3-native，收到 {narration_policy!r}")
+    if narration_policy not in NARRATION_POLICIES:
+        raise ValueError(f"narration_policy 必須是 {'、'.join(NARRATION_POLICIES)} 之一，收到 {narration_policy!r}")
     # 正規化層（P3）：先把同義欄位與時間軸收斂，避免「合法欄位被誤報缺」
     # 或「duration 與 end-start 不一致卻照算」。strict=False 只把可自動修正的
     # 問題降級為 warning；結構性錯誤（缺時間軸、重複 shot_id、panel 缺格位）仍會拋錯。
@@ -2119,12 +2178,18 @@ def compile_segment_h3(
             speaker_record = registry.characters.get(spk, {}) if spk else {}
             visibility = "offscreen" if (speaker_record.get("no_visual_reference") or speaker_record.get("voice_only")) else _dialogue_visibility(s)
             is_vo = _is_voiceover(s)
+            _form = str(dlg.get("offscreen_form") or "").lower()
+            if _form == "voiceover":
+                is_vo, visibility = True, "offscreen"
+            elif _form == "offscreen":
+                visibility = "offscreen"
             spoken_lines.append(line)
             # 外部化判準：這句話沒有「可見的嘴」就不該由 H3 內建語音發出。
             # 畫外音、旁白、背影／遮嘴說話全部改由外部 TTS 合成後於階段 7 混入；
             # 有可見嘴的畫內對白才留 <d> 給 H3 當口型錨點。
             no_visible_mouth = is_vo or visibility in ("offscreen", "mouth_hidden")
-            if narration_policy == "external" and no_visible_mouth:
+            route = _offscreen_route(narration_policy, dlg, line) if no_visible_mouth else "h3"
+            if no_visible_mouth and route == "external":
                 external_narration.append({
                     "shot_id": s.get("shot_id"),
                     "global_shot_id": s.get("global_shot_id"),
@@ -2136,27 +2201,73 @@ def compile_segment_h3(
                     "start": ((dlg.get("speech_window") or {}) or {}).get("start"),
                     "end": ((dlg.get("speech_window") or {}) or {}).get("end"),
                 })
-                verb = "narrates" if is_vo else "speaks"
+                # #122：外部化的句子不得在提示詞裡寫「某人在說話」卻不給 <d>（H3 會自編亂語）。
+                # 這一鏡只寫畫面角色閉嘴與環境音；台詞由階段 7 混入。
                 if lips_closed:
-                    delivery = (
-                        f"{subject_speaker} {verb} off-screen over this shot; the visible characters keep their "
-                        f"lips completely closed and continue their actions, and the shot carries only the location ambience. "
-                    )
+                    delivery = ("the visible characters keep their lips completely closed and continue their actions, "
+                                "and the shot carries only the location ambience")
                 else:
-                    # 空景、手部特寫、背影、張嘴嘶吼的鏡：沒有「看得到臉又不說話」的人，不加閉唇句。
-                    delivery = f"{subject_speaker} {verb} off-screen over this shot, and the shot carries only the location ambience. "
+                    delivery = "the shot carries only the location ambience"
+                if window:
+                    delivery = delivery[:1].upper() + delivery[1:]
                 speech = f"; {window}{delivery}"
-            elif is_vo:
-                # 官方畫外音句式：says in an off-screen voiceover + <d> 後立刻說明嘴閉合
-                lips_owner = f"{speaker_tag}'s" if speaker_tag else "the on-screen character's"
-                delivery = f"{subject_speaker} says in an off-screen voiceover: "
-                speech = f"; {window}{delivery}<d>[Chinese] {line}</d> while {lips_owner} lips remain completely closed."
-            elif visibility == "offscreen":
-                delivery = (
-                    f"The line is heard from {subject_speaker} off-screen, while the visible characters' "
-                    f"lips remain completely closed. "
-                )
-                speech = f"; {window}{delivery}<d>[Chinese] {line}</d>"
+            elif no_visible_mouth and (is_vo or visibility == "offscreen"):
+                # 官方畫外句式（實測：噩盡島 EP01 S02-b／S02-d／S03-e 拼音相似度 1.00）：
+                # 聲線描述放 <d> 外、<d> 內只放逐字台詞；只對露臉者寫嘴閉合。
+                form_vo = is_vo
+                voice = _clean(dlg.get("offscreen_voice_en")) or _english_voice_descriptor(dlg, notes)
+                if voice and CJK_RE.search(voice):
+                    voice = ""
+                voice = voice.rstrip(".。 ")
+                if voice.lower() in ("voiceover", "v.o.", "v.o", "offscreen", "off-screen", "inner voice"):
+                    voice = ""
+                if not voice:
+                    notes.append(f"{s.get('shot_id')} 畫外句缺英文聲線描述（offscreen_voice_en 或 voice_4d_spec_en）；"
+                                 f"H3 會自己猜聲音，跨段更難一致")
+                where = _clean(dlg.get("offscreen_where_en"))
+                if where and CJK_RE.search(where):
+                    where = ""
+                show_now = ((stage5_en_overlay(stage5_binding).get("shots") or {}).get(s.get("global_shot_id")) or {}).get("show") if stage5_binding else None
+                if show_now:
+                    faces = [tag_of[c] for c in selected
+                             if c in tag_of and str(show_now.get(c) or "") in ("face", "profile")
+                             and (form_vo or c != spk)]
+                elif lips_closed:
+                    faces = [tag_of[c] for c in (s.get("character_ids") or [])
+                             if c in tag_of and not is_narrator(c) and c not in no_visual_ids and (form_vo or c != spk)]
+                    faces = list(dict.fromkeys(faces)) or ["the visible characters"]
+                else:
+                    faces = []
+                if faces == ["the visible characters"]:
+                    lips = " while the visible characters' lips remain completely closed"
+                elif faces:
+                    lips = f" while {_possessive_list(faces)} lips remain completely closed"
+                elif form_vo:
+                    lips = " while no face is on screen, so all lips remain completely closed"
+                else:
+                    lips = ""
+                voice_txt = f", {voice}" if voice else ""
+                if form_vo:
+                    delivery = f"{subject_speaker} says in an off-screen voiceover{voice_txt}: "
+                else:
+                    where_txt = f" {where}" if where else ""
+                    delivery = f"the line is heard from {subject_speaker} off-screen{where_txt}{voice_txt}: "
+                    if window:
+                        delivery = delivery[:1].upper() + delivery[1:]
+                speech = f"; {window}{delivery}<d>[Chinese] {line}</d>{lips}"
+                n_chars = _spoken_char_count(line)
+                if n_chars > SHORT_OFFSCREEN_MAX_CHARS:
+                    notes.append(f"{s.get('shot_id')} 畫外句 {n_chars} 字，超過實測範圍（約 ≤{SHORT_OFFSCREEN_MAX_CHARS} 字）；"
+                                 f"H3 可能念不全或亂語，考慮拆鏡或 voice_route=external")
+                try:
+                    shot_len = float(s.get("end_time")) - float(s.get("start_time"))
+                except (TypeError, ValueError):
+                    shot_len = None
+                if shot_len is not None and shot_len < n_chars / 4.0 + 0.6:
+                    notes.append(f"{s.get('shot_id')} 畫外句 {n_chars} 字只有 {shot_len:.1f}s，鏡長可能不夠念完（約每秒 4 字＋起音）")
+                if faces and MOUTH_OPEN_RE.search(expr or ""):
+                    notes.append(f"{s.get('shot_id')} 畫外句同鏡的 Expression 寫了張嘴／喘氣（{MOUTH_OPEN_RE.search(expr).group(0)}），"
+                                 f"H3 會讓露臉者跟著開口；改成 lips pressed tightly shut（#123）")
             elif visibility == "mouth_hidden":
                 delivery = f"{subject_speaker} speaks with lips remaining completely closed: "
                 speech = f"; {window}{delivery}<d>[Chinese] {line}</d>"
@@ -2326,7 +2437,7 @@ def compile_segment_h3(
             f"⏳ 待補參考圖（已宣告 pending_references，提示詞可審稿、不可送件）：{', '.join(pending_missing)}；"
             f"圖補齊後重編一次即可解除。"
         )
-    if narration_policy == "external" and external_narration:
+    if external_narration:
         notes.append(
             f"畫外音／旁白 {len(external_narration)} 句已改為外部 TTS（未寫入 <d>），"
             f"階段 7 需以 {narration_policy} 政策合成後混入"
@@ -2580,8 +2691,9 @@ def main() -> int:
     parser.add_argument("--embed-cut-markers", action="store_true",
                         help="在提示詞寫入 <scenetrans>／<cutoff> 標記（本專案約定，非官方語法）")
     parser.add_argument(
-        "--narration-policy", type=str, default="external", choices=["external", "h3-native"],
-        help="畫外音／旁白政策：external=不寫入 H3 <d>，改由外部 TTS 合成後於階段 7 混入（預設）；h3-native=沿用 H3 內建語音",
+        "--narration-policy", type=str, default=DEFAULT_NARRATION_POLICY, choices=list(NARRATION_POLICIES),
+        help=("畫外音／旁白政策：short-offscreen-h3=短畫外句與旁白（≤15 字）由 H3 用官方句式＋<d> 直接生成，長句才外部 TTS（預設）；"
+              "external=全部外部 TTS，於階段 7 混入；h3-native=全部留 H3"),
     )
     parser.add_argument("--no-carry-end-state", action="store_false", dest="carry_end_state", default=True,
                         help="不把同場景前一段的英文終態帶入本段第 1 鏡（#133；預設帶入）")

@@ -34,6 +34,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import style_rules  # noqa: E402
+import voice_lint  # noqa: E402
 from pathlib import Path
 
 try:  # 以 scripts/storyboard 為 sys.path 執行（CLI 慣例）
@@ -200,13 +201,16 @@ _NON_IDENTIFIABLE_CUES = (
 )
 
 
-def audit_refs_and_subjects(seg_data: Dict[str, Any], project_root: Optional[Path] = None) -> Dict[str, Any]:
+def audit_refs_and_subjects(seg_data: Dict[str, Any], project_root: Optional[Path] = None,
+                            strict: bool = False) -> Dict[str, Any]:
     """模式 A 審查：
     1. 檢查 reference_images 與 subject_definitions / retention_analysis 的對應關係。
     2. 驗證 <Picture 1> 為場景，<Subject k> 嚴格對應 <Picture k+1>。
     3. 檢查是否有缺圖、多餘圖、生物主角是否在前 5 名。
     4. 檢查同段是否掛載超過 1 張角色圖（混臉警告）。
     5. E19–E26：複製人防線、官方 (Sx) 綁定、旁白外部化與環境音欄位分工。
+    6. E43／E44（voice_lint）：有說話動詞卻沒 <d>、畫外句同鏡張嘴。strict=True（h3d next、
+       新核准）才算錯誤，否則只警告，已核准的舊內容不回溯擋。
     """
     errors: List[str] = []
     warnings: List[str] = []
@@ -398,17 +402,24 @@ def audit_refs_and_subjects(seg_data: Dict[str, Any], project_root: Optional[Pat
                     "Immediately after every voiceover <d> block, state that the on-screen character's lips remain closed."
                 )
 
-        # ---------- E24：旁白政策（external 時不得有畫外音 <d>） ----------
+        # ---------- E24：外部化的台詞不得同時寫進 <d>（任何政策） ----------
+        # external 全部外部化；short-offscreen-h3 只外部化長句。進了 external_narration 的句子
+        # 若仍以 <d> 出現，H3 會念一次、階段 7 又混一次。
         narration_policy = str((seg_data.get("metadata") or {}).get("narration_policy") or "external")
         external_narration = seg_data.get("external_narration") or []
-        if narration_policy == "external" and external_narration:
+        if narration_policy in ("external", "short-offscreen-h3") and external_narration:
             for entry in external_narration:
                 line = str(entry.get("line") or "").strip()
                 if line and f"<d>[{entry.get('language') or 'Chinese'}] {line}</d>" in prompt_text:
                     errors.append(
-                        f"[E24: 旁白政策衝突] narration_policy=external，但畫外音台詞仍以 <d> 出現在提示詞中：{line!r}。"
-                        f"請改由外部 TTS 合成後於階段 7 混入，H3 這段只出環境音。"
+                        f"[E24: 旁白政策衝突] narration_policy={narration_policy}，這句已列入外部 TTS，"
+                        f"卻仍以 <d> 出現在提示詞中：{line!r}。外部化的句子只在階段 7 混入，H3 這鏡只出環境音。"
                     )
+
+        # ---------- E43／E44：畫外句聲音 lint（strict 才擋） ----------
+        _voice = voice_lint.voice_lint(prompt_text, strict=strict)
+        errors.extend(_voice["errors"])
+        warnings.extend(_voice["warnings"])
 
         # ---------- E25：overall_soundscape 不得重複台詞 ----------
         sound_match = re.search(r"overall_soundscape:(.*?)(?:\n\n[a-z_]+:|\Z)", prompt_text, re.DOTALL)
@@ -1151,6 +1162,8 @@ def main():
     )
     parser.add_argument("--self-test", action="store_true", help="執行內建完整單元自檢回歸測試")
     parser.add_argument("--audit-refs", metavar="FILE_OR_DIR", help="審查指定分段 JSON 檔或目錄的參考圖與語義定義序對")
+    parser.add_argument("--strict", action="store_true",
+                        help="新門禁模式（h3d next／新核准用）：E43／E44 畫外句聲音 lint 算錯誤；預設只警告")
     parser.add_argument("--fix-refs", action="store_true", help="搭配 --audit-refs，自動以演員表重寫並修復至 100%% 合規")
     parser.add_argument("--lint-h3", metavar="FILE_OR_DIR", help="對指定分段 JSON 或提示詞文本執行 17 條 H3 確定性自檢")
     parser.add_argument("--duration", type=float, default=7.0, help="分段目標名義秒數（預設: 7.0s）")
@@ -1263,7 +1276,7 @@ def main():
                         f.write("\n")
                     print(f"  🔧 已自動覆寫修復 reference_images 與 subject_definitions！")
 
-                refs_res = audit_refs_and_subjects(seg_data, project_root=p.parent)
+                refs_res = audit_refs_and_subjects(seg_data, project_root=p.parent, strict=args.strict)
                 if refs_res["passed"]:
                     print(f"  [PASS] 參考圖與主體定義序對稽核通過 ({seg_id_label})")
                 else:

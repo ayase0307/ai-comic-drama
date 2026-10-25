@@ -311,8 +311,9 @@ class CloneDefenseTests(unittest.TestCase):
         }
         data["shots"] = [shot]
         data["style_lock"]["anchor"] = ""
-        compiled = compiler.compile_segment_h3(data, self._registry(), auto_lora=False)
+        compiled = compiler.compile_segment_h3(data, self._registry(), auto_lora=False, narration_policy="external")
         self.assertNotIn("<d>[Chinese] 這是一句旁白。</d>", compiled["h3_prompt"])
+        self.assertNotIn("narrates", compiled["h3_prompt"])
         self.assertEqual(len(compiled["external_narration"]), 1)
         self.assertEqual(compiled["external_narration"][0]["line"], "這是一句旁白。")
         self.assertTrue(compiled["external_narration"][0]["is_voiceover"])
