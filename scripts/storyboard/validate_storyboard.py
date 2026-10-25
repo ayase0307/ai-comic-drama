@@ -25,6 +25,7 @@ from handoff_to_skeleton import MAX_SHOT_SEC, find_todo, segment_sort_key  # noq
 from speech_utils import count_speech_chars, normalize_speech  # noqa: E402
 from audit_refs_and_segments import effective_duration  # noqa: E402
 from move_lint import lint_segment_moves  # noqa: E402
+from director_lint import lint_director  # noqa: E402
 from shot_intent import cross_segment_intent_errors, segment_intent_errors, shot_intent_errors  # noqa: E402
 
 BEAT_TYPES = ("Expository_Fast", "Suspense_Delay", "Dramatic_Core", "Combat_Impact", "Reaction_OTS")
@@ -303,6 +304,7 @@ def validate_storyboard_data(data: dict, original_script_dialogues: list = None)
         checks_passed.append(f"[PASS] 時長守恆核對通過 ({total_shot_dur}s == {target_dur}s，共 {len(shots)} 鏡)")
 
     warnings += lint_segment_moves(shots)  # PR-14c 運鏡導演助手（warning）
+    warnings += lint_director(shots)  # PR-15c 導演層 lint（warning）
 
     # Check 1b: H3 取整後的切點可行性（與 audit_refs_and_segments E4 同規則，提前到階段 4 攔截）
     if len(shots) > 1 and target_dur > 0:
