@@ -168,9 +168,13 @@ class NextStepCommandTests(_Project):
         self.assertIn("sketch --root . --episode EP02", command)
 
     def test_stage5_compile_command_is_complete(self):
+        import hashlib
         self.layer("EP01-S01-a", [{"shot_id": "SH01"}])
+        layer2 = self.root / "layer2" / "layer2-EP01-S01-a.json"
         (self.root / "video-bible.json").write_text("{}", encoding="utf-8")
-        (self.root / "video-bindings.json").write_text("{}", encoding="utf-8")
+        (self.root / "video-bindings.json").write_text(json.dumps({"segments": [{
+            "segment_id": "EP01-S01-a", "source_layer2_path": "layer2/layer2-EP01-S01-a.json",
+            "source_sha256": hashlib.sha256(layer2.read_bytes()).hexdigest()}]}), encoding="utf-8")
         command, _ = next_step.stage5_producer(self.root, [])
         for part in ('--layer2 "layer2/layer2-EP01-*.json"', "--episode EP01", "--bible video-bible.json",
                      "--bindings video-bindings.json", "--output-md prompts-ep01.md",
