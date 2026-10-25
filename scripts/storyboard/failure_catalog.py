@@ -315,15 +315,15 @@ def ack_is_valid(entry: Optional[Dict[str, Any]], segment_id: str, prompt_sha256
 
 
 def authoritative_prompts(root: Path) -> Dict[str, str]:
-    """每個段落「現在」的權威提示詞文字（逐集 segments 優先於 segments-all.json）。"""
+    """每個段落「現在」的權威提示詞文字（segments-all.json 優先於逐集檔，與階段 6 送件同一來源）。"""
     root = Path(root)
     latest: Dict[str, tuple] = {}
     paths = sorted(
         (path for path in root.glob("segments-*.json") if SEGMENTS_LIKE.match(path.name)),
-        key=lambda path: (0 if path.name == "segments-all.json" else 1, path.name),
+        key=lambda path: (1 if path.name == "segments-all.json" else 0, path.name),
     )
     for path in paths:
-        rank = 0 if path.name == "segments-all.json" else 1
+        rank = 1 if path.name == "segments-all.json" else 0
         try:
             payload = json.loads(path.read_text(encoding="utf-8-sig"))
         except (OSError, json.JSONDecodeError):
