@@ -1043,6 +1043,23 @@ def _dialogue_visibility(s: Dict[str, Any]) -> str:
         searchable.extend(value if isinstance(value, list) else [value])
     searchable.extend([dlg.get("voice_4d_spec", ""), dlg.get("audio_type", "")])
     text = " ".join(str(part or "") for part in searchable).lower()
+    # An explicit statement that the speaker's mouth is visible wins over generic
+    # off-screen words, which often describe the *listener* ("looking at {C-x} off-screen").
+    visible_terms = (
+        "mouth is clearly visible", "mouth clearly visible", "mouth is visible", "mouth visible",
+        "lips visible", "lips are visible", "嘴部可見", "看得到嘴", "露嘴",
+    )
+    hidden_terms = (
+        "never appears", "no speaking mouth", "mouth is out of view", "mouth out of view",
+        "mouth remains unseen", "嘴部不可見", "不顯示聲源嘴部", "不露臉",
+    )
+    negated = re.search(r"\b(?:no|not|never|without)\b[^.;,]{0,30}\b(?:mouth|lips)\b", text)
+    if dlg.get("mouth_visible") is False or negated or any(term in text for term in hidden_terms):
+        return "offscreen"
+    if dlg.get("mouth_visible") is True or any(term in text for term in visible_terms):
+        return "mouth_hidden" if dlg.get("lips_closed_lock") else "visible"
+    # Drop "<target> off-screen" phrases that place someone else outside the frame.
+    text = re.sub(r"\b(?:at|to|toward|towards)\s+\{?[\w\- <>]+\}?\s+off-?screen", " ", text)
     offscreen_terms = (
         "offscreen", "off-screen", "beyond frame", "out of frame", "outside the frame",
         "never appears", "no speaking mouth", "mouth is out of view", "mouth out of view",
