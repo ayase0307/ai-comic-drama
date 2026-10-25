@@ -47,7 +47,7 @@ agent_created: true
 | 7 配音剪輯 | 已核准的動作段後製變速（原片不動、台詞原速）、ASR 對位、畫外句壓原聲、響度、每角色音色一次定案、全集單一剪輯專案 | 長旁白交給 H3 念（短畫外句與短旁白預設留 H3，長旁白才外部化）；替使用者定音色；覆寫原片；變速台詞區 | `h3d ramp`、`h3d voice align`、`h3d concat plan/build`、`h3d assemble`；剪輯 lens（只給建議）`scripts/craft/edit_review.py` | `references/tooling.md` §2.7、`references/skill-guide.md`「階段 7」、`references/edit/manju-editing-playbook.md`（剪點／轉場／特效／字幕／登場卡／配樂 ducking／響度）、`references/craft/murch-cut`、`references/craft/hamilton-action` |
 
 **正式階段核准以 `review/project-state.json` 為準**，只能走 `build_stage_review.py --approve-stage`（使用者原話）或 `h3d approve --auto`（使用者授權過的階段）。
-純文字草稿可按指定範圍交付，不必推進到媒體生成。八階段的產出與 HTML 審核頁對照見 `references/skill-guide.md`「八階段流程與 HTML 斷點」，
+純文字草稿可按指定範圍交付，不必推進到媒體生成：用 `h3d decide delivery_scope script-only|storyboard-only|prompts-only|full --quote "<使用者原話>"` 定案交付終點（沒定案＝全流程），`h3d next` 到終點就回報 done；`no_image` 時階段 2 只要求文字設定卡。注意：`no_image` 只解除階段 2，階段 4 以後仍要求構圖圖，終點要在階段 3 以前或另行決定。八階段的產出與 HTML 審核頁對照見 `references/skill-guide.md`「八階段流程與 HTML 斷點」，
 詳細模板見 `references/pipeline.md`。
 
 ## 四道確定性檢查（交付的一部分）
