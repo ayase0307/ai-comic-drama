@@ -399,9 +399,10 @@ def plan(root: Path) -> Dict[str, Any]:
             res["next_command"] = f"{REVIEW} --project-dir . --stage {stage}"
             return res
         technical = ps.stage6_issues(root)[1] if stage == 6 else []
-        res["blocked_on"].append("等使用者在審核頁明確回覆通過")
-        res["notes"].append(f"要使用者決定的事可用收件匣呈現：{H3D} inbox --root .（review/inbox.html）")
-        res["action"] = ("把審核頁交給使用者並停下。只有使用者明確回覆「通過」後才執行下面指令，"
+        res["blocked_on"].append("等使用者在決策收件匣明確回覆通過")
+        res["notes"].append(f"舊版階段頁 review/stage-{stage}-*.html 只作除錯／附錄；階段 0、2 可附給使用者看設定與臉")
+        res["action"] = (f"產生／開啟決策收件匣（{H3D} inbox --root .，review/inbox.html）交給使用者並停下。"
+                         "只有使用者明確回覆「通過」後才執行下面指令，"
                          "--user-note 填使用者原話；不得代替使用者核准。")
         if technical:
             res["action"] += f" 技術 QA 有 {len(technical)} 項未過，核准必須帶使用者的覆寫理由。"
@@ -439,7 +440,8 @@ def plan(root: Path) -> Dict[str, Any]:
             res["action"] = action
             res["next_command"] = command
             return res
-    res["action"] = "產物已齊：產出本階段審核頁交給使用者，然後停下等回覆。"
+    res["action"] = (f"產物已齊：跑下面指令綁定本階段審核快照（同時寫出舊版除錯頁），"
+                     f"再用 {H3D} inbox --root . 產生決策收件匣交給使用者，然後停下等回覆。")
     res["next_command"] = f"{REVIEW} --project-dir . --stage {stage}"
     return res
 

@@ -6,6 +6,10 @@
 
 階段狀態只記錄於 `review/project-state.json`，每次核准綁定輸入 hash，修改後必須重審。stage 4 review 核准是 H3 compiler 前置條件；實際 submit 要求 stage 5 核准。QA 技術通過不會自動成為人工核准。
 
+**每個階段的斷點都是同一套做法**：產物齊了先跑 `build_stage_review.py --project-dir . --stage N` 綁定審核快照（同時寫出 `review/stage-N-*.html` 除錯頁），再用 `h3d inbox --root .` 產生決策收件匣 `review/inbox.html` 交給使用者並停下；使用者回覆「通過」後才 `--approve-stage N`。階段 0、2 把舊頁當附錄一起給（要人看設定與臉）。
+
+- 審查頁規格（版面順序、卡片欄位、禁止事項）：`references/review-page-spec.md`。
+
 ---
 
 ## 階段 0：定調（Intake）
@@ -90,11 +94,12 @@ python scripts/init_project.py my-drama --title "我的漫劇"
      ```bash
      python scripts/adapt/validate_character_bible.py --bible-md adapt/character-bible.md --bible-json adapt/bible.json
      ```
-   - **產出階段 1 HTML 審核頁並停下**：
+   - **綁定階段 1 審核快照、交收件匣並停下**：
      ```bash
-     python scripts/build_stage_review.py --stage 1
+     python scripts/build_stage_review.py --project-dir . --stage 1
+     h3d inbox --root .
      ```
-     Agent 必須主動停下，提示使用者查閱 `review/stage-1-adaptation.html`，取得核准後才可進入階段 2！
+     Agent 必須主動停下，把 `review/inbox.html` 交給使用者，取得核准後才可進入階段 2；`review/stage-1-adaptation.html` 只作除錯／對帳。
 2. **全文解析與故事地圖**：logline、主衝突、因果鏈、時間線、人物關係、世界規則、伏筆、原著內部矛盾（列出，不私自掩蓋）。長篇分批讀，不假裝讀完沒看過的章節。模板 `adapt/templates/source-analysis.md`。
 3. **保留分級＋交代需求**：每個事件標 `MUST_KEEP`／`KEEP_IF_POSSIBLE`／`MERGE`／`COMPRESS`／`REMOVE`／`REORDER`，記原文引用與理由；並在 `source.json` 每個事件標要交代的要素（`exposition_needs`，省略＝起因、經過、結果；`needs_motivation`、`time_place_shift`）。依事件估總長：
    ```bash
@@ -106,7 +111,7 @@ python scripts/init_project.py my-drama --title "我的漫劇"
    ```bash
    python scripts/adapt/event_coverage.py --project-dir . --out adapt/event-coverage.md
    ```
-   被壓縮（compressed）、被跳過（skipped）、交代不全（partial）、未標註（unverified）的事件會出現在 `review/stage-1-adaptation.html` 的「事件交代完整性」表，**由使用者逐條決定**補鏡頭或接受；MUST_KEEP 事件完全沒交代（missing）時結束碼 2。
+   被壓縮（compressed）、被跳過（skipped）、交代不全（partial）、未標註（unverified）的事件會在收件匣出一張「事件交代」決策卡（明細在 `review/stage-1-adaptation.html` 的「事件交代完整性」表），**由使用者決定**補鏡頭或接受；MUST_KEEP 事件完全沒交代（missing）時結束碼 2。
 7. **（使用者要求分集時）跨集驗收**：原著單章拆成多集時（如 1 章拆為 Ep01–Ep03），支援單集驗收與多集合併全章驗收：
    ```bash
    # 單集過濾驗收：
@@ -145,13 +150,14 @@ python scripts/init_project.py my-drama --title "我的漫劇"
    python scripts/storyboard/run_codex_asset_gen.py --prompts images/asset_prompts.json --output-dir images
    ```
    角色提示詞用 ai-image-prompt 四視圖母版（構圖不改、含防呆句）；`--style <選項>` 可臨時覆蓋 `style_index`。舊版匯出檔（缺 `template` 標記）runner 會警告，需重跑匯出。
-7. **產出階段 2 HTML 並排審核頁面與斷點停下（P0 鐵律）**：
+7. **綁定階段 2 審核快照、交收件匣與附錄並停下（P0 鐵律）**：
    - 生成資產圖後，**必須執行**：
      ```bash
-     python scripts/build_stage_review.py --stage 2
+     python scripts/build_stage_review.py --project-dir . --stage 2
+     h3d inbox --root .
      ```
-   - 產出 `review/stage-2-assets.html`：**左側展示角色設定表格（姓名、年齡、外貌、服裝、武器、原著行號依據），右側展示生成的設定圖（支援全螢幕 Lightbox 放大，缺圖紅框攔截警示）**。
-   - **Agent 必須立即停下**，提示使用者打開 `review/stage-2-assets.html` 進行外貌與畫風審核，確認每位角色臉型、服裝無誤後，使用者發出明確核准指令方可進入階段 3！嚴禁未經確認私自往下推進！
+   - `review/inbox.html` 的「階段 2 等你核准」卡內嵌本批設定圖；`review/stage-2-assets.html` 是**附錄**（左側角色設定表格、右側設定圖，可全螢幕放大，缺圖紅框），階段 2 永遠要人看臉，所以兩者一起給。
+   - **Agent 必須立即停下**，請使用者確認每位角色臉型、服裝無誤，使用者發出明確核准指令方可進入階段 3！嚴禁未經確認私自往下推進！
 
 ---
 
@@ -282,8 +288,9 @@ python scripts/storyboard/codex_storyboard_panels.py --root . --episode EP01 --m
 python scripts/storyboard/patch_shot.py --file layer2/layer2-EP01-S01-a.json --shot SH03 --shot-size CU --duration 3.5 --absorb-from SH04
 python scripts/storyboard/qwen_storyboard_grid.py --layer2 layer2/layer2-EP01-S01-a.json --redraw-shot SH03 --assemble-grid
 
-# 5. 產出 stage 4 HTML review；只有使用者確認後才記錄核准
+# 5. 綁定 stage 4 審核快照、交收件匣並停下；只有使用者確認後才記錄核准
 python scripts/build_stage_review.py --project-dir . --stage 4
+h3d inbox --root .
 python scripts/build_stage_review.py --project-dir . --approve-stage 4
 ```
 

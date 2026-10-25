@@ -518,11 +518,13 @@ def render_prompt(prompt: str, pid: str = "") -> str:
         head = f'<div class="ps-name">{html.escape(name.replace("_", " "))}</div>' if name else ""
         parts.append(f'<div class="ps">{head}<div class="ps-body">{hl(txt)}</div></div>')
     raw = html.escape(prompt, quote=True)
+    # 完整 prompt 預設收合（review-page-spec.md：不平鋪完整 prompt）
     return (
+        f'<details class="prompt-fold"><summary>H3 提示詞全文（{len(prompt)} 字，點開才看）</summary>'
         f'<div class="prompt-doc">'
         f'<div class="prompt-tools"><span>H3 提示詞</span>'
         f'<button class="btn ghost copy-prompt" type="button" data-copy="{raw}">{icon("copy")}<span class="lab">複製全文</span></button></div>'
-        f'{"".join(parts)}</div>'
+        f'{"".join(parts)}</div></details>'
     )
 
 
@@ -717,6 +719,9 @@ a{color:var(--indigo);text-underline-offset:3px;text-decoration-thickness:1px}
 .issues h2{margin:0 0 8px;font:700 16px/1.4 var(--sans);color:var(--seal);display:flex;align-items:center;gap:8px}
 .issues ol{margin:0;padding-left:1.4em;color:#5E1610;font-size:14px}
 .issues li+li{margin-top:4px}
+.issues details{margin-top:8px;font-size:14px;color:#5E1610}.issues summary{cursor:pointer}
+.legacy-note{margin-top:16px;padding:10px 14px;border:1px dashed var(--ink-2);border-radius:var(--r);font-size:14px}
+.prompt-fold>summary{cursor:pointer;font-weight:600;padding:6px 0}
 
 /* ---------- 區塊標題 ---------- */
 .block{margin-top:40px}
@@ -1232,6 +1237,12 @@ def wrap_studio_html(
 
     body_html = body_html + craft_lens_panel(project_dir, stage)
     body_html = iconize(body_html)
+    appendix = ("階段 0／2 仍要你親眼看設定與臉，本頁保留作附錄；" if stage in (0, 2) else "")
+    legacy_html = (
+        f'<p class="legacy-note" role="note"><b>舊版除錯頁</b>：要你決定的事請看 '
+        f'<a href="inbox.html">決策收件匣 inbox.html</a>（h3d inbox 產生）。{appendix}'
+        f'這頁只給 agent 除錯與對帳用。</p>'
+    )
 
     return f"""<!DOCTYPE html>
 <html lang="zh-Hant">
@@ -1265,6 +1276,7 @@ def wrap_studio_html(
       </div>
       <div class="metrics">{metrics_html}</div>
     </header>
+    {legacy_html}
     <!--ISSUES-->
     {body_html}
     {gate_html}
@@ -1287,14 +1299,32 @@ def wrap_studio_html(
 """
 
 
+MAX_GATE_ISSUES = 3  # review-page-spec.md：真正擋關最多攤開 3 條
+
+
 def render_issues(errors: List[str]) -> str:
     """門禁未通過時，把問題直接列在頁面上（不再只印在終端機）。"""
     if not errors:
         return ""
-    items = "".join(f"<li>{inline_md(strip_emoji(e).replace(chr(10), ' '))}</li>" for e in errors)
+    # 同類合併：去掉開頭的「段落 ID:」後同一句話併成一條；只攤開前 MAX_GATE_ISSUES 條，其餘收合
+    groups: Dict[str, List[str]] = {}
+    for e in errors:
+        text = strip_emoji(e).replace(chr(10), " ").strip()
+        m = re.match(r"^([A-Za-z0-9][\w.-]{2,}):\s*(.+)$", text)
+        who, msg = (m.group(1), m.group(2)) if m else ("", text)
+        groups.setdefault(msg, []).append(who)
+    rows = []
+    for msg, whos in groups.items():
+        named = [w for w in whos if w]
+        prefix = (f"{len(whos)} 處（{'、'.join(named[:3])}{'…' if len(named) > 3 else ''}）：" if len(whos) > 1
+                  else (f"{named[0]}: " if named else ""))
+        rows.append(f"<li>{inline_md(prefix + msg)}</li>")
+    shown, rest = rows[:MAX_GATE_ISSUES], rows[MAX_GATE_ISSUES:]
+    more = (f'<details><summary>其餘 {len(rest)} 條（點開）</summary><ol>{"".join(rest)}</ol></details>'
+            if rest else "")
     return (
         f'<section class="issues" role="alert"><h2>{icon("alert")}門禁未通過，{len(errors)} 項需要修正</h2>'
-        f'<ol>{items}</ol></section>'
+        f'<ol>{"".join(shown)}</ol>{more}</section>'
     )
 
 
@@ -1461,7 +1491,6 @@ def build_stage_0(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
 
     kpis = [
         ("當前階段", "Stage 0 定調", "gold"),
-        ("project.md 狀態", "已建立" if not errors else "待補齊", "emerald" if not errors else "rose"),
         ("原著目錄", f"{len(list((project_dir / 'source').glob('*')))} 個檔案" if (project_dir / "source").exists() else "無", "cyan"),
     ]
     body = f'<section class="section-panel">{render_markdown_block(text)}</section>'
@@ -1470,8 +1499,6 @@ def build_stage_0(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
     checklist = [
         f"已確認成片形式：{SERIES_FORMAT_LABELS[fmt]}（短劇短集只在使用者明確要求時啟用）",
         "已確認台詞政策（① 100%保留 / ② 只留重點句 / ③ 改寫影視對白 / ④ 純旁白）",
-        ("已執行 `estimate_duration.py --novel` 完成原文體量反推片長與集數配置" if fmt == SHORT else
-         "已執行 `estimate_duration.py --novel`／`--events` 依原著體量與事件交代需求估出整部總長（不以集數 × 固定秒數估算）"),
         "已鎖定全劇唯一畫風錨點（style_anchor）與畫面比例（aspect_ratio）",
     ]
     html_out = wrap_studio_html(
@@ -1527,7 +1554,6 @@ def build_stage_1(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
         )
 
     kpis = [
-        ("角色設定深層審查", "PASS" if val_res["passed"] else "FAIL", "emerald" if val_res["passed"] else "rose"),
         ("核心與重要配角數", f"{val_res['character_count']} 位", "gold"),
         ("原著事件單元數", f"{unit_count} 個單元", "cyan"),
     ]
@@ -1544,7 +1570,6 @@ def build_stage_1(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
         f'{coverage_html}'
     )
     checklist = [
-        "《完整角色設定文件 v4.0》已包含全部 11 大章節，且每位角色皆有表深層性格、能力、弧光、金句與原著 `(Lxxx)` 行號依據",
         "已跨章節查證所有登場角色的真實中文姓名（如瑪蓮、奇雅、賴一心），無自創英文代號或張冠李戴",
         "每位角色的「視覺與服裝狀態機」已明確區分不同日夜/場次的服裝設定圖路徑",
         "原著事件保留分級與成片形式已確認無誤（預設長篇漫劇整部一支連續長片；只有使用者要求才分集，且依完整劇情單元切）",
@@ -1609,7 +1634,6 @@ def build_stage_2(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
     locs = bible_json.get("locations", [])
 
     cards_html: List[str] = []
-    total_imgs_found = 0
     missing_assets: List[str] = []
 
     # 1. 角色與異獸並排卡片
@@ -1654,7 +1678,6 @@ def build_stage_2(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
         for label, raw_p in img_candidates:
             src_rel, real_p = rel_img_src(project_dir, raw_p)
             if real_p and real_p.exists():
-                total_imgs_found += 1
                 dims = get_png_dimensions(real_p)
                 dim_str = f"{dims[0]}×{dims[1]} px" if dims else "PNG"
                 size_kb = real_p.stat().st_size // 1024
@@ -1697,7 +1720,6 @@ def build_stage_2(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
         kind = cr["_kind"]
         src_rel, real_p = rel_img_src(project_dir, cr["image"])
         if real_p and real_p.exists():
-            total_imgs_found += 1
             dims = get_png_dimensions(real_p)
             dim_str = f"{dims[0]}×{dims[1]} px" if dims else "PNG"
             size_kb = real_p.stat().st_size // 1024
@@ -1742,7 +1764,6 @@ def build_stage_2(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
             f"| 綁定圖檔路徑 | `{l_img}` |",
         ]
         if real_p and real_p.exists():
-            total_imgs_found += 1
             dims = get_png_dimensions(real_p)
             dim_str = f"{dims[0]}×{dims[1]} px" if dims else "PNG"
             v_html = (
@@ -1786,12 +1807,10 @@ def build_stage_2(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
         ("生物／異獸設定卡", f"{len(creatures)} 組", "gold"),
         ("群演參考圖", f"{len(extras)} 組", "gold"),
         ("場景母版設定卡", f"{len(locs)} 組", "cyan"),
-        ("實體圖片核驗", f"已就緒 {total_imgs_found} 張" if not missing_assets else f"缺漏 {len(missing_assets)} 張", "emerald" if not missing_assets else "rose"),
     ]
     body = f'<div class="side-by-side-list">{"".join(cards_html)}</div>'
     checklist = [
         "每一張角色圖片均已與左側《角色設定文件》之外貌、年齡、體型、服裝、武器形制（如單刃砍刀 vs 雙刃劍、銀槍三節棍、白色長背包）逐項並排核對無誤",
-        "無任何角色漏生（如賴一心、瑪蓮、奇雅等重要配角均已生成）",
         "所有角色圖片畫風 100% 統一（同為使用者指定之生圖工具如 Codex CLI 產出，無皮克斯卡通臉或異質畫風混入）",
         "異獸／生物設定圖均為純灰／純白單色背景三視圖（Creature Sheet），無帶場景背景防染色",
     ]
@@ -1918,7 +1937,6 @@ def build_stage_3(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
     kpis = [
         ("分集劇本數", f"{len(scripts)} 集", "gold"),
         ("總場次數", f"{total_scenes} 場", "cyan"),
-        ("結構與連戲校驗", "PASS" if not errors else "FAIL", "emerald" if not errors else "rose"),
     ]
     budget_rows = []
     predicted = predicted_skeleton_seconds(project_dir)
@@ -1936,8 +1954,6 @@ def build_stage_3(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
     )
     body = budget + f'<div class="side-by-side-list">{"".join(sbs_items)}</div>'
     checklist = [
-        "劇本正文採用中文場號制（人物、△ 動作行、對白），無混入攝影機術語",
-        "台詞字數符合 4 字/秒預算、單句精簡有力，說話秒數佔比 ≤ 60%",
         "每場出場人物與服裝狀態已與階段 1《角色設定文件》完全對齊",
     ]
     html_out = wrap_studio_html(
@@ -2108,7 +2124,6 @@ def build_stage_4(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
     kpis = [
         ("分鏡段落數", f"{len(l2_files)} 段", "gold"),
         ("分鏡總覽圖拼版圖", f"{len(grid_files)} 張 (單格 {len(panel_files)} 張)", "emerald" if (grid_files or panel_files) else "rose"),
-        ("防偷懶與物理門禁", "PASS (0 罐頭詞)" if not errors else f"FAIL ({len(errors)} 錯)", "emerald" if not errors else "rose"),
     ]
     by_ep: Dict[str, List[Tuple[str, float]]] = {}
     for p, d in all_l2_data:
@@ -2126,7 +2141,6 @@ def build_stage_4(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
         "已檢視黑白鉛筆分鏡總覽圖構圖（`images/grid-*.png`），確認每鏡人物站位、景別遠近與動作張力符合預期",
         "無任何單鏡同時塞入「主角＋路人＋道具＋巨獸」四方複雜碰撞（已拆分為慢動作感知特寫 ➔ 90度純粹打擊 ➔ 受擊翻滾）",
         "無任何未掛載參考圖之路人單獨佔據正面特寫／中景主鏡",
-        "每鏡動作力學三要素（①施力點 ➔ ②傳導路徑 ➔ ③受擊反饋）具象無罐頭複製貼上",
     ]
     html_out = wrap_studio_html(
         project_dir, 4, state,
@@ -2211,12 +2225,10 @@ def build_stage_5(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
 
     kpis = [
         ("已編譯分段數", f"{total_segs} 段", "gold"),
-        ("17 條 H3 防偷懶自檢", "PASS (0 錯誤)" if not errors else f"FAIL ({len(errors)} 錯)", "emerald" if not errors else "rose"),
     ]
     body = f'<div class="side-by-side-list">{"".join(cards)}</div>'
     checklist = [
         "已逐段檢查右側 `<Picture 1..N>` 縮圖，確認角色服裝（如夜間便服 vs 日間制服）與該場次時空 100% 吻合",
-        "已確認 `detailed_description` 完整保留動作力學三要素與物理反饋，無重複貼上 `as the camera holds a static shot` 等罐頭句",
         "已確認外掛 LoRA 合理（非人異獸或砸鐵凳未誤掛刀劍/拳腳人形 LoRA）",
     ]
     html_out = wrap_studio_html(
@@ -2543,7 +2555,6 @@ def build_stage_7(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
 
     kpis = [
         ("最終交付成片", f"{len(finals)} 部", "gold"),
-        ("全流程狀態", "7 階段全部完成", "emerald"),
     ]
     body = "".join(v_cards)
     checklist = [
@@ -2803,10 +2814,13 @@ def main() -> int:
 
         out_html = project_dir / "review" / STAGE_META[s_idx]["file"]
         print("\n" + "=" * 75)
-        print(f"🛑 【強制斷點已啟動】{STAGE_META[s_idx]['name']}")
-        print(f"📄 視覺化 HTML 審核頁已就緒: {out_html.as_uri()}")
-        print("👉 請立即將此 HTML 檔案連結呈現給使用者審閱，並【停止呼叫後續階段工具】！")
-        print(f"👉 待使用者明確回覆「沒問題／通過」後，再執行 `--approve-stage {s_idx}` 進入下一關。")
+        print(f"🛑 【強制斷點已啟動】{STAGE_META[s_idx]['name']}：審核快照已綁定")
+        print(f"📄 舊版階段頁（除錯／附錄用）: {out_html.as_uri()}")
+        print("👉 交給使用者的是決策收件匣：執行 `h3d inbox --root .` 產生 review/inbox.html，交給使用者後【停下】，"
+              "不要再呼叫後續階段工具！")
+        if s_idx in (0, 2):
+            print("   階段 0／2 要使用者親眼看設定與臉：上面這頁當附錄一起給（階段 2 的核准卡也會內嵌設定圖）。")
+        print(f"👉 待使用者明確回覆「通過」後，再執行 `--approve-stage {s_idx}` 進入下一關。")
         print("=" * 75)
         return 0
 

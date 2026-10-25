@@ -115,6 +115,7 @@ class InboxStageCardTests(_Project):
     def test_stage2_approval_card_embeds_sheets_and_flags_flaws(self):
         self._manifest("Agent 自檢通過（有瑕疵）→ 待老大看臉")
         self.set_stage(2, "awaiting_user_approval")
+        ps.mark_awaiting_review(self.root, ps.load_state(self.root), 2)  # 核准卡只在審核快照有效時出現
         card = next(c for c in inbox.build_cards(self.root)["open"] if c["id"] == "D2-approve")
         self.assertNotIn("沒有例外", card["recommendation"])
         self.assertIn("瑕疵", card["recommendation"])
@@ -122,6 +123,23 @@ class InboxStageCardTests(_Project):
         model = inbox.collect(self.root, strips="none")
         approve = next(c for c in model["cards"] if c["id"] == "D2-approve")
         self.assertEqual(len(approve["evidence_b64"]), 2)
+
+    def test_stage1_event_coverage_becomes_card_not_plain_approval(self):
+        (self.root / "adapt").mkdir(exist_ok=True)
+        (self.root / "adapt" / "source.json").write_text(json.dumps({"story_units": [
+            {"unit_id": "U1", "summary": "上島", "expected_grade": "KEEP_IF_POSSIBLE"},
+            {"unit_id": "U2", "summary": "遇獸", "expected_grade": "KEEP_IF_POSSIBLE"}]}), encoding="utf-8")
+        (self.root / "handoff-ep01.json").write_text(json.dumps({"episodes": [
+            {"episode_id": "EP01", "scenes": [{"scene_id": "S01", "source_refs": ["U1"]}]}]}), encoding="utf-8")
+        self.set_stage(1, "awaiting_user_approval")
+        ps.mark_awaiting_review(self.root, ps.load_state(self.root), 1)
+        cards = inbox.build_cards(self.root)["open"]
+        ids = [c["id"] for c in cards]
+        self.assertIn("D1-event-coverage", ids)
+        self.assertNotIn("D1-approve", ids, "有待決事件時不能出「沒有例外，建議通過」")
+        card = next(c for c in cards if c["id"] == "D1-event-coverage")
+        self.assertIn("U1", card["finding"])
+        self.assertTrue(card["if_ignored"])
 
     def _segments(self, refs):
         (self.root / "segments-ep01.json").write_text(json.dumps({"segments": [
