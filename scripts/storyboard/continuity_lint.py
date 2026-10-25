@@ -207,6 +207,7 @@ SIZE_RE = re.compile(r"\b(ELS|EWS|VWS|WS|LS|MLS|MS|MCU|ECU|CU)\s*\((\d+)\s*mm,\s
 WIDE_SIZES = {"ELS", "EWS", "VWS", "WS", "LS", "MLS", "MS"}
 END_MARKER = re.compile(
     r"\b(ends?|ending|comes? to rest|at the cut|until the cut|settles?|settling|stays?|remains?|holds?|freezes?)\b", re.I)
+FUTURE_BLOCKING_RE = re.compile(r"\b(later|eventually|afterwards?|finally|by the end|in the end|then)\b", re.I)
 DIALOGUE_MARK = re.compile(r"<d>|visible speaking character", re.I)
 STATIC_MARK = re.compile(r"\b(static|locked[- ]off|holds a static|stays? fixed)\b", re.I)
 EMPTY_BG = re.compile(r"\b(background|behind (?:him|her|them|it))\b[^.;]*\b(empty|bare|plain|no one|nobody|unpopulated)\b", re.I)
