@@ -67,7 +67,7 @@
 | 4 導演分鏡 | 依內容編排分段、焦距物距與動作；需要構圖審核時可用 Qwen 分鏡總覽圖、手繪或其他圖像工具 | `layer2/*.json`、`storyboard-ep01.md`、選用的對應 PNG | `review/stage-4-storyboard.html`（進 H3 編譯前需對應圖與人工核准） |
 | 5 提示詞包 | **逐鏡親手寫五小節（Layer 2 `five_part_en`，規範見 `references/prompt-authoring.md`）**→ **H3 官方六段式批次編譯（`compile_layer2_to_h3.py`，含分鏡總覽圖門禁檢查）**、服裝狀態機解析、LoRA 精確適配、`--check` 雙重對帳＋逐鏡撰寫審查（E30–E38） | `prompts-ep01.md`、`segments-ep01.json` | `review/stage-5-prompts.html` |
 | 6 生成（選用） | 僅在使用者要求且相容的影片工具／adapter 可用時生成；**審核頁為「影片 × 分鏡總覽圖 × 設定圖 × QA」四欄對照**（缺圖紅框不阻擋核准），QA 技術結果與人工核准分開；**收件後跑動態 QA（`h3d motion`）自動提案變速清單**（`references/speed-ramp.md`） | `videos/`、`qa-report.json`、`videos/speed-ramps.json` | `review/stage-6-videos.html` |
-| 7 組裝（選用） | **旁白／畫外音走外部 TTS**（`--narration-policy external`，H3 這段只出環境音床），**畫內對白保留 H3 口型**；**TTS 引擎由 `tts_doctor.py` 盤點後選擇**（`--tts-engine`／`--tts-config`）；整片 `loudnorm` 對齊 EBU R128；**已核准的變速段用 `videos/ramped/`，字幕／旁白／配音依 `time_map` 換算** | `final/`、`narration-ep01.md`、compiled segments 匯出的有效時間線 | `review/stage-7-final.html` |
+| 7 組裝（選用） | **短畫外句與短旁白由 H3 直接生成、長旁白走外部 TTS**（`--narration-policy short-offscreen-h3` 預設；`external` 全部外部化），**畫內對白保留 H3 口型**；**TTS 引擎由 `tts_doctor.py` 盤點後選擇**（`--tts-engine`／`--tts-config`）；整片 `loudnorm` 對齊 EBU R128；**已核准的變速段用 `videos/ramped/`，字幕／旁白／配音依 `time_map` 換算** | `final/`、`narration-ep01.md`、compiled segments 匯出的有效時間線 | `review/stage-7-final.html` |
 
 **詳細做法、每階段模板與檢查點見 `references/pipeline.md`。** 正式階段核准以 `review/project-state.json` 為準；純文字草稿可按指定範圍交付，無需自動推進到媒體生成。
 
@@ -179,7 +179,7 @@
 
 ### 7.1 配音分層決策（新增重要規範）
 H3 的聲音與畫面在同一次 forward 生成，輸出是**單一 32 kHz 立體聲混音軌，沒有分軌，也沒有關閉音訊的參數**；H3 內建中文語音實測 ASR 置信度只有 0.43–0.54【社群實測】。因此本專案的規則是：
-- **旁白與畫外音一律走外部 TTS**：畫外音、旁白、內心聲、背影／遮嘴說話在編譯階段以 `--narration-policy external`（預設）移出 H3 的 `<d>` 區塊，H3 這段只出環境音床，語音於階段 7 由外部 TTS 混入。
+- **短畫外句與旁白留 H3，長句才外部 TTS**：`--narration-policy short-offscreen-h3`（預設）把約 ≤15 字的畫外句（O.S.）與旁白（V.O.）用官方句式＋逐字 `<d>` 交給 H3（聲線放 `<d>` 外、露臉者嘴閉合、無臉寫 `no face is on screen`）；長句或需跨段統一聲線的句子移出 `<d>`、於階段 7 由外部 TTS 混入（`external` 政策則全部外部化）。限制：同說話者跨段聲線可能不一致（未量測）、H3 念的句子事後改稿要重跑整段。句式與門禁見 `references/pipeline.md` §5.4。
 - **畫內有可見嘴的對白保留 H3 內建語音**：`<d>` 標籤留作生成時嘴部開合與時間點的物理錨點；**掛上音色母帶（`<Audio N>`）時，H3 會照母帶音色重新合成**（本機 FreeVideo 送得進音訊參考，但官方只保證「參考音色與語氣」，不鎖輸出音軌與口型）；要每段完全一致或更清晰的聲音時，再用外部 TTS 覆蓋並補 lipsync。
 - **TTS 引擎由 `tts_doctor.py` 盤點後選擇**（`--tts-engine`）：本機 VoiceStudio／OmniVoice 為預設，另有 Fish Audio 與自帶 OpenAI 相容 API；`edge-tts` 自 2026-10-10 起 403 且非商用，只留離線除錯。
 - **TTS 先行**：先產音、量時長、鏡頭定長（×1.2 緩衝）再生成，避免旁白比鏡頭長而白跑一次 render。

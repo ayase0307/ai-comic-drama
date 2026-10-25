@@ -42,7 +42,7 @@
 | 🚀 **批次送件預檢** | `submit_h3_segments.py` 提供 `--dry-run`、參考圖檢查、可用 GPU 診斷與非同步任務處理；實際需求依模型與後端而異。 |
 | 🖼️ **影片四欄對照驗收** | 階段 6 審核頁把同一段的**影片／分鏡總覽圖（階段 4）／角色設定圖（階段 2）／QA 數據**放在一起；缺圖顯示紅框與覆蓋率，但不阻擋核准（擋不擋由 QA 證據決定）。 |
 | 🛡️ **批次自動審查門禁** | `verify_video_shot.py` 修復分段總時長精確對齊、支援 `--segments` 批次掃描、防灰階線稿滲透、防分屏線殘留，並輸出**證據分級**（`VERIFIED／PARTIAL／UNVERIFIED`）串聯 `color_qa.py` 匯總 `qa-report.json`。 |
-| 🎬 **配音字幕與成片組裝** | `assemble_episode.py` 可選字幕／配音與 FFmpeg 組裝；**旁白／畫外音走外部 TTS**（引擎由 `tts_doctor.py` 盤點：VoiceStudio／Fish Audio／自帶 API），畫內對白保留 H3 口型。外部 narration Markdown 需先轉成支援的 inline 欄位或交給剪輯工具。 |
+| 🎬 **配音字幕與成片組裝** | `assemble_episode.py` 可選字幕／配音與 FFmpeg 組裝；**短畫外句與旁白由 H3 直接生成、長旁白走外部 TTS**（引擎由 `tts_doctor.py` 盤點：VoiceStudio／Fish Audio／自帶 API），畫內對白保留 H3 口型。外部 narration Markdown 需先轉成支援的 inline 欄位或交給剪輯工具。 |
 | ⚖️ **多維程式對帳（P0）** | `audit_refs_and_segments.py` 嚴查參考圖陣列、主體定義、說話者代號與台詞字數預算（模式 A 序對 + 模式 B 17 條自檢）。 |
 | 🎨 **11 種風格鎖定錨** | 主流漫劇風格蒸餾成可貼的錨定詞，每種附同角色樣圖。 |
 | 🎭 **資產一致性規範** | 以資產 ID、參考圖與風格描述維持一致；依使用者已選擇且當前可用的圖片工具製作。 |
@@ -170,7 +170,7 @@ python "$skillRoot/scripts/storyboard/assemble_episode.py" --segments segments-e
 | 4 導演分鏡 | **分段級分鏡（預設 10s/3 鏡，`handoff_to_skeleton.py`）**、焦距物距、**動作力學三要素**、`INDEPENDENT_REF2VA` 四大錨點、構圖審核（免生圖 SVG／Qwen 鉛筆分鏡總覽圖／手繪） | `layer2/*.json`、`storyboard-ep01.md`、`grid-*.png` |
 | 5 提示詞包 | **H3 官方六段式批次編譯（`compile_layer2_to_h3.py`）**、防混臉單圖排序、切點時間保護、LoRA 適配、`--check` 雙重對帳 | `prompts-ep01.md`、`segments-ep01.json` |
 | 6 生成 | **主力定案：獨立 Ref2VA（四錨點連戲、一段一張角色圖）**；`submit_h3_segments.py` 批次送件；`verify_video_shot.py` 批次審查 | `images/`、`videos/`、`qa-report.json` |
-| 7 組裝交付（選用） | 依可用素材與依賴進行組裝；**旁白／畫外音由外部 TTS 產生**（H3 這段只出環境音床），畫內對白保留 H3 口型；旁白稿可另行交付，實際時間線由 compiled segments 匯出 | `final/ep01_final.mp4`、`narration-ep01.md`、`timeline-ep01.csv` |
+| 7 組裝交付（選用） | 依可用素材與依賴進行組裝；**短畫外句與旁白由 H3 直接念，長旁白由外部 TTS 產生**，畫內對白保留 H3 口型；旁白稿可另行交付，實際時間線由 compiled segments 匯出 | `final/ep01_final.mp4`、`narration-ep01.md`、`timeline-ep01.csv` |
 
 詳細模板與每階段檢查點見 [`references/pipeline.md`](references/pipeline.md)。
 

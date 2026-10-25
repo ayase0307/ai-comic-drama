@@ -91,8 +91,12 @@ META_TERMS = [
 
 # 編譯器必須輸出、可以跨鏡重複的固定句（不算偷懶）。
 COMPILER_BOILERPLATE = [
-    re.compile(r"(narrates|speaks) off-screen over this shot; the visible characters keep their lips completely closed", re.I),
+    # PR-10c（#122）：舊 external 句「X speaks／narrates off-screen over this shot」已刪——有人說話卻不給字，
+    # H3 會自編亂語；編譯器不再產生，也不再當固定句放行。
     re.compile(r"keep their lips completely closed and continue their actions", re.I),
+    re.compile(r"says in an off-screen voiceover", re.I),
+    re.compile(r"the line is heard from .{0,120}? off-screen", re.I),
+    re.compile(r"no face is on screen, so all lips remain completely closed", re.I),
     re.compile(r"the shot carries only the location ambience", re.I),
     re.compile(r"lips remain completely closed", re.I),
     re.compile(r"lips stay closed", re.I),
@@ -100,7 +104,6 @@ COMPILER_BOILERPLATE = [
     re.compile(r"no other figure on that sheet appears in this shot", re.I),
     re.compile(r"is the visible speaking character", re.I),
     re.compile(r"the final second holds still before the cut", re.I),
-    re.compile(r"off-screen over this shot", re.I),
     re.compile(r"<d>", re.I),
 ]
 
@@ -154,8 +157,15 @@ def _normalize(sentence: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
+# 舊版編譯器（PR-10c 之前）產生的 external 句；新編譯器不再產生。只為了不讓已編譯的舊提示詞
+# 因「跨鏡重複」被誤判成套句（E33／E35），不算固定句；這種句子本身由 voice_lint E43 處理。
+LEGACY_COMPILER_SENTENCES = [
+    re.compile(r"(narrates|speaks) off-screen over this shot", re.I),
+]
+
+
 def _is_boilerplate(sentence: str) -> bool:
-    return any(p.search(sentence) for p in COMPILER_BOILERPLATE)
+    return any(p.search(sentence) for p in COMPILER_BOILERPLATE + LEGACY_COMPILER_SENTENCES)
 
 
 def detailed_description(prompt: str) -> str:

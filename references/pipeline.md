@@ -334,37 +334,66 @@ python scripts/storyboard/compile_layer2_to_h3.py \
 - **stage 4 gate**：編譯前要求 stage 4 有效核准，且輸入 Layer 2 與對應構圖 PNG 仍符合核准 hash；編譯不支援跳過 gate。
 - **雙重程式對帳（`--check`）**：調用 `audit_refs_and_segments.py` 執行 17 條自檢與參考圖對帳，達成 **0 Errors** 方可放行出片。
 
-### 5.4 旁白政策與外部化台詞（`--narration-policy`）
+### 5.4 旁白政策與畫外句（`--narration-policy`）
 
-H3 的聲音與畫面在同一次 forward 生成，輸出是**單一 32 kHz 立體聲混音軌，沒有分軌，也沒有關閉音訊的參數**【官方，[MiniMax-H3 官方 repo](https://github.com/MiniMax-AI/MiniMax-H3)】。因此「這一段沒有台詞」不能用否定詞表達，官方給的是**欄位分離**——官方 §4.6：*"Dialogue, singing, and diegetic music already belong in the multimodal description and should not be repeated here. Use `N/A` only when the user explicitly requests complete silence throughout the video."*【官方】也就是說：外部化之後，提示詞裡**不出現 `<d>` 區塊**、`overall_soundscape` 只留環境與動作音即可，不必寫任何「no dialogue」字樣。
+H3 的聲音與畫面在同一次 forward 生成，輸出是**單一 32 kHz 立體聲混音軌，沒有分軌，也沒有關閉音訊的參數**【官方，[MiniMax-H3 官方 repo](https://github.com/MiniMax-AI/MiniMax-H3)】。因此「這一段沒有台詞」不能用否定詞表達，官方給的是**欄位分離**——官方 §4.6：*"Dialogue, singing, and diegetic music already belong in the multimodal description and should not be repeated here. Use `N/A` only when the user explicitly requests complete silence throughout the video."*【官方】
 
-- **預設 `--narration-policy external`（`h3-native` 保留舊行為）**：**沒有可見嘴的台詞一律外部化**——畫外音、旁白、內心聲、背影／遮嘴說話都不再寫進 H3 的 `<d>` 區塊，改由外部 TTS 合成後於階段 7 混入。
-  - **為什麼**：H3 的內建中文語音實測 ASR 置信度只有 0.43–0.54【社群實測】（字音模糊、吞字、偶發 −40 dB 靜音）；而且外部化之後 H3 這段本來就沒有人聲，環境音床乾淨、可直接當混音底。
-  - **壞掉長怎樣**：把旁白留在 `<d>` 裡，H3 會把它念進同一條混音；之後想改用外部 TTS，就只能整軌丟掉重做聲場，等於白生成一次。
-- **有可見嘴的畫內對白保留 `<d>`**：留給 H3 當嘴部開合與時間點的物理對齊錨點；組裝器仍可用外部 TTS 覆蓋（此時需要 lipsync，見 §7.1）。
-- **指令**（`--narration-policy external` 為預設，寫出來是為了讓讀者知道這條路徑存在）：
-  ```bash
-  python scripts/storyboard/compile_layer2_to_h3.py \
-    --layer2 layer2/layer2-EP01-*.json \
-    --project-root . \
-    --episode EP01 \
-    --output-md prompts-ep01.md \
-    --output-segments segments-ep01.json \
-    --assets assets.md \
-    --bible adapt/bible.json \
-    --narration-policy external \
-    --check
-  ```
-  `--narration-policy h3-native` 會走回舊行為，並沿用官方畫外音句式：`says in an off-screen voiceover` 加上 `<d>` 之後的 `while <Subject N>'s lips remain completely closed`【官方】。
-- **`segments-epXX.json` 新增三個欄位**：
+**三種政策**（只管「沒有可見嘴」的台詞：畫外 O.S.、旁白／內心獨白 V.O.、背影／遮嘴說話；畫內有可見嘴的對白一律留 `<d>`）：
 
-  | 欄位 | 內容 | 誰在用 |
-  |---|---|---|
-  | `external_narration[]` | `shot_id`、`global_shot_id`、`speaker`、`speaker_id`、`line`、`language`、`is_voiceover`、`start`、`end` | 階段 7 組裝器逐句送外部 TTS，並依 `speech_window` 排回時間軸 |
-  | `speaker_ids` | 說話人 → 穩定代號 `(Sx)` 對照 | 官方 base §4.4；跨鏡鎖音色與 E22 閘門都要用 |
-  | `metadata.narration_policy` | 本段採用的政策（`external` / `h3-native`） | E24 閘門判定 |
+| 政策 | 短句（約 ≤15 字） | 長句 | 什麼時候用 |
+|---|---|---|---|
+| **`short-offscreen-h3`（預設）** | **留 H3**：官方畫外句式＋逐字 `<d>` | 外部 TTS（`external_narration[]`） | 一般漫劇：短畫外句與旁白直接由 H3 念 |
+| `external` | 外部 TTS | 外部 TTS | 長旁白為主、或同一說話者必須跨段完全同一條聲線 |
+| `h3-native` | 留 H3 | 留 H3 | 明知長句風險、仍要 H3 一次出聲 |
 
-  編譯器另外會在 `compile_notes` 寫明「畫外音／旁白 N 句已改為外部 TTS（未寫入 `<d>`）」，方便審核頁對帳。
+逐句可用 Layer 2 `dialogue_and_audio.voice_route = "h3" | "external"` 覆寫政策；階段 5 也可在 `en_overlay.shots.<gsid>.h3_voice = {"form": "voiceover"|"offscreen", "voice": "<英文聲線>", "where": "<英文位置，選填>"}` 指定（等於 `voice_route=h3`＋聲線／位置）。
+
+**H3 句式（實測有效，噩盡島 EP01 S02-b「氣已極淡……等久了？」、S02-d「如你所願。」、S03-e「人生用這種方式結束，也算得上別緻。」拼音相似度 1.00）**：
+
+- **O.S.（在場但未入鏡、不具形的聲音）**：
+  `; the line is heard from <說話者> (Sn) off-screen[, <位置>], <聲線描述>: <d>[Chinese] 逐字台詞</d> while <Subject k>'s lips remain completely closed.`
+  例：`the line is heard from the crimson bird (S2) off-screen, a deep, ancient, resonant voice of indeterminate age, slow and calm, as if sounding inside his head: <d>[Chinese] 如你所願。</d> while <Subject 1>'s lips remain completely closed.`
+- **V.O.（旁白、內心獨白）**：
+  `; <說話者> (Sn) says in an off-screen voiceover, <聲線描述>: <d>[Chinese] …</d> while no face is on screen, so all lips remain completely closed.`（畫面有露臉者時改寫 `while <Subject k>'s lips remain completely closed`）
+- **細節**：
+  - 聲線描述放 `<d>` **外面**（`offscreen_voice_en`，沒有就用 `voice_4d_spec_en`）；`<d>` 裡只放逐字台詞。
+  - 只對**露臉者**寫嘴閉合（stage5 `show` 為 face／profile 的 Subject；沒有 `show` 時看 `character_ids`／`lips_closed_lock`）；畫面沒有臉時 V.O. 寫 `no face is on screen`，O.S. 不寫閉嘴句。
+  - 同鏡的 Expression 不可寫 mouth open／gasping／lips parted（#123）：H3 會讓露臉者跟著開口，像他在說那句畫外台詞。改寫 `lips pressed tightly shut`。
+  - 一鏡一句、短句約 ≤15 字、鏡長留夠（約每秒 4 字＋起音）；超過時編譯器只在 `compile_notes` 提醒。
+- **外部化的句子不得在提示詞裡寫「某人在說話」**（#122）：舊版 external 會寫 `X speaks off-screen over this shot` 卻不給字，H3 會在該鏡自編亂語或不發聲（噩盡島 stage6 音訊稽核）。現在外部化的鏡只寫畫面角色閉嘴與 `the shot carries only the location ambience`，台詞只在 `external_narration[]`。
+
+**限制（寫在這裡，選政策時要知道）**：
+
+- **同一說話者跨段的聲線可能不一致**：H3 每段都重新合成，聲線描述只能讓它「聽起來像同一類聲音」；跨段一致性**尚未量測**。需要跨段統一聲線（例如整季同一位旁白）就用 `external` 或逐句 `voice_route=external`，或掛 `<Audio N>` 音色參考。
+- **事後改稿要重跑整段**：H3 念的台詞烤在同一條混音裡，改一個字就要重新生成那一整段影片；外部 TTS 只要重合成那一句。
+- 只驗證過中文、≤15 字的短句；長句未驗證，預設才會把長句交給外部 TTS。
+
+**指令**：
+
+```bash
+python scripts/storyboard/compile_layer2_to_h3.py \
+  --layer2 layer2/layer2-EP01-*.json \
+  --project-root . \
+  --episode EP01 \
+  --output-md prompts-ep01.md \
+  --output-segments segments-ep01.json \
+  --assets assets.md \
+  --bible adapt/bible.json \
+  --narration-policy short-offscreen-h3 \
+  --check
+```
+
+**`segments-epXX.json` 相關欄位**：
+
+| 欄位 | 內容 | 誰在用 |
+|---|---|---|
+| `external_narration[]` | `shot_id`、`global_shot_id`、`speaker`、`speaker_id`、`line`、`language`、`is_voiceover`、`start`、`end` | 階段 7 組裝器逐句送外部 TTS，並依 `speech_window` 排回時間軸 |
+| `speaker_ids` | 說話人 → 穩定代號 `(Sx)` 對照 | 官方 base §4.4；跨鏡鎖音色與 E22 閘門都要用 |
+| `metadata.narration_policy` | 本段採用的政策（`short-offscreen-h3` / `external` / `h3-native`） | E24 閘門判定 |
+
+編譯器另外會在 `compile_notes` 寫明「畫外音／旁白 N 句已改為外部 TTS（未寫入 `<d>`）」，方便審核頁對帳。
+
+**門禁**：E23（voiceover 缺嘴閉合）、E24（外部化的句子又出現在 `<d>`）一直是錯誤；**E43（有說話動詞但這鏡沒 `<d>`）與 E44（畫外句同鏡張嘴）只在 strict 模式（`h3d next`、新核准、自動核准、`audit_refs_and_segments.py --strict`）算錯誤**，其他時候只警告——已核准的階段不回溯擋。
 
 ---
 
@@ -420,7 +449,9 @@ python scripts/storyboard/submit_h3_segments.py --segments segments-ep01.json --
 | **E21** 無參考圖的群眾／路人 | `detailed_description` 出現 crowd／onlookers／bystanders 這類無參考圖人群 → 群眾被套上主角造型 | 把人群移出畫面、改寫成不可辨識的失焦剪影，或改走「分鏡圖 → I2V」把人群畫進首幀 |
 | **E22** 缺少說話人代號 | 提示詞有 `<d>` 台詞卻沒有任何 `(S1)` 形式的說話人代號 → 聲音掛到畫面上唯一那張臉、長出複製人 | 補穩定 `(Sx)` 綁定（官方 base §4.4：發聲者，含畫外音，都要有代號） |
 | **E23** 畫外音缺嘴閉合聲明 | 寫了 `off-screen voiceover` 卻沒說明嘴唇閉合 | 在 `<d>` 區塊之後立刻寫明 on-screen character's lips remain closed |
-| **E24** 旁白政策衝突 | `narration_policy=external` 但畫外音台詞仍以 `<d>` 出現在提示詞 → H3 會把旁白一起念出來 | 改由外部 TTS 合成、於階段 7 混入；H3 這段只出環境音 |
+| **E24** 旁白政策衝突 | 已列入 `external_narration[]`（外部 TTS）的句子仍以 `<d>` 出現在提示詞 → H3 念一次、階段 7 又混一次 | 外部化的句子只在階段 7 混入；H3 這段只出環境音 |
+| **E43** 有說話動詞卻沒給台詞（strict 才擋） | 一鏡寫了 says／speaks／narrates／the line is heard，卻沒有 `<d>` → H3 自編亂語（#122） | 要 H3 念就用 §5.4 的 O.S.／V.O. 句式＋`<d>`；走外部 TTS 就刪說話句，只留嘴閉合與環境音 |
+| **E44** 畫外句同鏡張嘴（strict 才擋） | O.S.／V.O. 鏡的表情寫 mouth open／gasping／lips parted → 露臉者跟著開口（#123） | 改成 `lips pressed tightly shut` |
 | **E25** 環境音重複台詞 | `overall_soundscape` 重複了 `<d>` 內的台詞 → H3 在環境音軌再念一次 | 對白只寫在 `detailed_description` 的 `<d>` 區塊，環境音欄只留環境與動作音（官方 §4.6） |
 | **E26** 身份錨點缺參考圖 | 標記為無臉身份錨點（`reference_view=non_face`）卻沒有自己的參考圖路徑 | 補上該角色自己的裁切參考圖路徑 |
 | **E27** 整板查表缺格位說明 | 宣告 `reference_view: "panel"`（多格板查表）卻沒有 `panel_label_en` → 沒指定用哪一格，模型會把整張板複製進成片 | 補 `panel_label_en`（如 `"the fourth figure from the left, a full-body back view"`）；編譯器也會直接丟 `ValueError`（訊息含「必須同時提供 panel_label_en」） |
@@ -455,7 +486,7 @@ H3-Omni-Transformer *"jointly predicts video and audio latents, which are then d
 | 層 | 什麼時候用 | 怎麼做 | 為什麼 / 壞掉長怎樣 |
 |---|---|---|---|
 | **A. 畫內有可見嘴的對白** | 角色正臉說話、嘴型是重點 | **留給 H3 內建語音**（`<d>` 區塊照寫），當成口型錨點；**掛上音色母帶（`<Audio N>`）時，H3 會照母帶音色重新合成**，這就是跨段「像同一個人」的來源；要每段完全一致或更清晰的聲音時，用外部 TTS 覆蓋 ＋ lipsync（[MuseTalk 1.5](https://github.com/TMElyralab/MuseTalk)） | H3 內建中文語音實測 ASR 置信度只有 0.43–0.54【社群實測】（字音模糊、吞字、偶發 −40 dB 靜音），但嘴型是跟著 `<d>` 走的；音色參考只給音色方向、**不鎖口型**。**壞掉長怎樣**：直接抽掉 H3 音軌，會看到嘴還在動、聲音卻沒了，必須補 lipsync 才對得上 |
-| **B. 畫外音／旁白／內心聲／背影說話** | 旁白解說、內心獨白、背影或遮嘴說話 | **必須外部 TTS**：H3 這段只出環境音床，語音另生成後於階段 7 混入 | 這些句子本來就沒有「可見嘴」，硬塞回 H3 只會得到一條混在環境音裡的喃喃聲，還要另外把環境音重導一次。**壞掉長怎樣**：H3 把旁白念進同一條混音，之後想改用外部 TTS 就只能整軌丟掉重做聲場，等於白生成一次 |
+| **B. 畫外音／旁白／內心聲／背影說話** | 旁白解說、內心獨白、背影或遮嘴說話 | **短句（約 ≤15 字）留 H3**：用 §5.4 的 O.S.／V.O. 官方句式＋逐字 `<d>`、露臉者嘴閉合；**長句或需跨段統一聲線才外部 TTS**，於階段 7 混入 | 實測短畫外句與旁白 H3 直接念對（拼音相似度 1.00）。**壞掉長怎樣**：只寫「X speaks off-screen」不給字，H3 自編亂語；長句塞給 H3 可能念不全；H3 念的句子事後改稿要整段重跑 |
 | **C. 全片外部聲景** | ambience ＋ SFX ＋ TTS ＋ BGM 全部外部重建 | 產出「無內建語音」的 H3 片段，聲場整條自己搭 | **只在要做多語配音版時才需要**：H3 的對白與畫面同批生成、已烤在同一條混音裡，換語言等於要重生成整支影片，之後聲場才能完全外部化。**壞掉長怎樣**：為了「乾淨」而全片外部化卻沒有多語需求，等於多花一輪重建成本卻沒有收益 |
 
 **音色怎麼鎖（同一個 `V-<slug>` 驅動兩條軌道）**：跨片段音色一致**不是**靠影片模型「記住」誰的聲音——社群說的「直出影片、每段聲音都一致且富有感情」，拆開看是**同一份音色被每一句重新合成**：掛音色母帶時是 **H3 自己照 `<Audio N>` 的音色重新發聲**（官方只保證「參考音色與語氣」，原訊號不複製），走外部 TTS 時則是**同一條複製音色重合成每一句**。本專案因此用**同一個 `V-<slug>` 當兩邊的 join key**：
@@ -468,7 +499,7 @@ H3-Omni-Transformer *"jointly predicts video and audio latents, which are then d
 - **`voice_4d_spec_en`（或 `voice_profile_en`）是插進說話那一句的穩定音色描述詞**，必須用英文寫：H3 提示詞正文是英文，只給中文 `voice_4d_spec` 編譯器**不會**貼進提示詞（會變成未翻譯噪音），只在 `compile_notes` 回報提醒。
 - **兩軌可以同時開**：H3 負責畫面與口型錨點，最後用外部 TTS 覆蓋（要 lipsync）。細節與完整提示詞片段見 `references/consistency.md` §6。
 
-**本專案預設 ＝ A ＋ B 混合**（`--narration-policy external` ＋ `--audio-mode auto`）：**畫內對白保留 H3 口型、畫外音與旁白走外部 TTS**。C 不預設，只有使用者提出多語配音版需求時才升級。
+**本專案預設 ＝ A ＋ B 混合**（`--narration-policy short-offscreen-h3` ＋ `--audio-mode auto`）：**畫內對白保留 H3 口型、短畫外句與短旁白也由 H3 直接生成，長旁白走外部 TTS**。C 不預設，只有使用者提出多語配音版需求時才升級。
 
 - **官方有沒有這樣建議？沒有。** MiniMax 官方文件並未推薦以外部 TTS 取代 H3 音訊；上表是**本專案自己的工程決策**，不是官方口徑。官方最接近的一句在 ComfyUI 文件：*"If needed, generate per-speaker audio externally and reference with the right marker (fully_copy vs partially_copy)."*【官方／[docs.comfy.org](https://docs.comfy.org)】——`fully_copy`／`partially_copy` 是 ComfyUI 的音訊參考標記，不是 MiniMax 的欄位。
 - **「這段沒有台詞」的正寫法是欄位分離，不是加否定詞。** 官方 §4.6：*"Dialogue, singing, and diegetic music already belong in the multimodal description and should not be repeated here. Use `N/A` only when the user explicitly requests complete silence throughout the video."*【官方】因此外部化之後，提示詞裡**不出現 `<d>` 區塊**、`overall_soundscape` 只留環境與動作音即可，不必寫「no dialogue」；寫了反而變成罐頭詞。

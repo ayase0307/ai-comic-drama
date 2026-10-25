@@ -87,7 +87,7 @@ class PromptAuthoringTests(unittest.TestCase):
              "dialogue_and_audio": {"speech_events": [{"audio_route": "visible_mouth_dialogue"}]}},
         ]
         head = HEAD1.replace("dollies in", "holds a static shot")
-        body = GOOD1 + " <Subject 1> (S1) speaks off-screen over this shot; the visible characters keep their lips completely closed and continue their actions."
+        body = GOOD1 + " The visible characters keep their lips completely closed and continue their actions, and the shot carries only the location ambience."
         codes = " ".join(pa.audit_segment(prompt(f"{head} {body}"), shots)["errors"])
         self.assertIn("E36", codes)
         self.assertIn("E37", codes)
