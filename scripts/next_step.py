@@ -88,6 +88,12 @@ def stage4_producer(root: Path, errors: List[str]) -> tuple:
 
 def stage5_producer(root: Path, errors: List[str]) -> tuple:
     """階段 5 下一步：印完整 compile 參數，照抄就會寫出 prompts／segments（#56）。"""
+    import generate_bindings
+    stale = generate_bindings.bindings_stale(root)
+    if stale:
+        # 沒有 bindings 時編譯器會拿四視圖整板、只錨定一個角色 → E19／E20 必擋。
+        return (f"{H3D} bind --root .",
+                f"先產生參考圖綁定（{stale}）：正臉用單視角裁切、側背／生物用整板查表；有缺圖會列出 crop 指令。")
     episodes = _episodes(root)
     missing = [e for e in episodes if not (root / f"segments-{e.lower()}.json").is_file()]
     episode = (missing[0] if missing else None) or next(

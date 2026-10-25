@@ -185,6 +185,12 @@ def _image_size(project_root: pathlib.Path, rel_path: str) -> Optional[Tuple[int
         return None
 
 
+def looks_like_multi_view_board(project_root: pathlib.Path, rel_path: str) -> bool:
+    """E20 的判準：≥1600×900 且寬高比 ≥1.5 視為四視圖／表情板（綁定產生器共用）。"""
+    size = _image_size(project_root, rel_path)
+    return bool(size) and size[0] >= 1600 and size[1] >= 900 and size[0] / max(size[1], 1) >= 1.5
+
+
 # 群眾／路人類描述：這些人沒有參考圖，H3 會用唯一一張臉的造型去補，
 # 造成背景長出穿同款衣服的複製人（本專案 EP01-S01-a 實測：火山島上長出整群白襯衫學生）。
 _CROWD_CUES = (
@@ -253,11 +259,8 @@ def audit_refs_and_subjects(seg_data: Dict[str, Any], project_root: Optional[Pat
         path = str(ref.get("path") or "")
         if not path or project_root is None:
             continue
-        size = _image_size(project_root, path)
-        if not size:
-            continue
-        width, height = size
-        if width >= 1600 and height >= 900 and width / max(height, 1) >= 1.5:
+        if looks_like_multi_view_board(project_root, path):
+            width, height = _image_size(project_root, path)
             errors.append(
                 f"[E20: 疑似多視圖板] 角色參考圖 {path} 尺寸 {width}×{height} 像四視圖／表情板，"
                 f"影片模型會把版面複製進成片（本專案 2026-10-19 實測背景長出多個同款角色）。"
@@ -279,7 +282,8 @@ def audit_refs_and_subjects(seg_data: Dict[str, Any], project_root: Optional[Pat
 
     char_refs = [r for r in ref_images if isinstance(r, dict) and r.get("type") in ("character", "role", "actor")]
     if len(char_refs) > 1:
-        face_refs = [r for r in char_refs if r.get("reference_view") != "non_face"]
+        # 整板查表只准用於不露臉的身份錨點（編譯器強制），和 non_face 一樣不算可辨識人臉。
+        face_refs = [r for r in char_refs if r.get("reference_view") not in ("non_face", "panel")]
         if len(face_refs) > 1:
             warnings.append(
                 f"[W: 混臉風險] 同段掛載了 {len(face_refs)} 張「可辨識人臉」角色參考圖！"
