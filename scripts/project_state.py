@@ -687,6 +687,26 @@ def _stage5_voice_errors(segments: list[Path]) -> list[str]:
     return errors
 
 
+def _stage5_end_state_errors(segments: list[Path]) -> list[str]:
+    """strict 才跑：每段要有 segment_end_state（planned_final_state 或 _en），供下一段連戲帶入。"""
+    errors: list[str] = []
+    for path in segments:
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8-sig"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        items = raw if isinstance(raw, list) else raw.get("segments", [raw])
+        for seg in items:
+            if not isinstance(seg, dict):
+                continue
+            state = seg.get("segment_end_state")
+            final = (state.get("planned_final_state_en") or state.get("planned_final_state")) if isinstance(state, dict) else None
+            if not final:
+                errors.append(f"{seg.get('segment_id', path.name)}: 缺少 segment_end_state（段末終態，連戲帶入下一段用；"
+                              "在 layer2 寫 segment_end_state.planned_final_state 並在 en_overlay.end_state_en 補英文）")
+    return errors
+
+
 def stage_validation_errors(root: Path, stage: int, allow_technical: bool = False,
                             strict: bool = False) -> list[str]:
     """allow_technical=True 時，階段 6 只回硬錯誤（供已記錄 override 的核准使用）。
@@ -709,6 +729,7 @@ def stage_validation_errors(root: Path, stage: int, allow_technical: bool = Fals
         errors = []
         if strict:
             errors.extend(_stage5_voice_errors(segments))
+            errors.extend(_stage5_end_state_errors(segments))
         for path in segments:
             try:
                 raw = json.loads(path.read_text(encoding="utf-8-sig"))

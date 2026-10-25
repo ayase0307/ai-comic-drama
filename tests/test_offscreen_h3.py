@@ -208,6 +208,7 @@ class VoiceLintTests(unittest.TestCase):
             (root / "images").mkdir()
             (root / "images" / "scene.png").write_bytes(b"x")
             seg = {"segment_id": "EP01-S01", "reference_images": [{"path": "images/scene.png", "type": "scene"}],
+                   "segment_end_state": {"planned_final_state": {"pose": "standing"}},
                    "h3_prompt": self._prompt("[Shot 1] A MS. First his head turns as he speaks, then he looks down.")}
             (root / "segments-ep01.json").write_text(json.dumps({"segments": [seg]}), encoding="utf-8")
             self.assertEqual(ps.stage_validation_errors(root, 5), [])
