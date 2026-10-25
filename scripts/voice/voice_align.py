@@ -90,6 +90,40 @@ def ffprobe_duration(path: Path) -> Optional[float]:
 
 
 # ------------------------------------------------------------------ 1. ASR
+ASR_SEG_TIMEOUT = 120.0
+
+
+def _transcribe_guarded(model: Any, audio: Any, prompt: str, timeout: float) -> Tuple[List[Any], bool]:
+    """逐段逾時：先用原設定（vad_filter=False），超時改 VAD＋不接前文重試（#165）。回傳 (片段, 是否重試過)。"""
+    import threading
+
+    def attempt(**kw: Any) -> Optional[List[Any]]:
+        box: Dict[str, Any] = {}
+
+        def work() -> None:
+            try:
+                res, _ = model.transcribe(audio, language="zh", word_timestamps=True, initial_prompt=prompt, **kw)
+                box["r"] = list(res)
+            except Exception as exc:  # noqa: BLE001
+                box["e"] = exc
+        t = threading.Thread(target=work, daemon=True)
+        t.start()
+        t.join(timeout)
+        if t.is_alive():
+            return None
+        if "e" in box:
+            raise box["e"]
+        return box["r"]
+
+    first = attempt(vad_filter=False)
+    if first is not None:
+        return first, False
+    second = attempt(vad_filter=True, condition_on_previous_text=False)
+    if second is None:
+        raise RuntimeError(f"ASR 逾時（{timeout:.0f}s ×2，含 VAD 重試）；請檢查該段音訊或換較小模型")
+    return second, True
+
+
 def run_asr(root: Path, segments: Iterable[str], asr: Dict[str, Any], *, model_size: str = "small",
             device: str = "cpu", compute_type: str = "int8", out_path: Optional[Path] = None,
             prompt: str = "以下是繁體中文的古風對白。") -> Dict[str, Any]:
@@ -109,8 +143,9 @@ def run_asr(root: Path, segments: Iterable[str], asr: Dict[str, Any], *, model_s
         pcm = subprocess.run(["ffmpeg", "-v", "error", "-i", str(video), "-f", "s16le", "-ac", "1", "-ar", "16000", "-"],
                              capture_output=True, check=True).stdout
         audio = np.frombuffer(pcm, np.int16).astype(np.float32) / 32768
-        result, _ = model.transcribe(audio, language="zh", word_timestamps=True, vad_filter=False,
-                                     initial_prompt=prompt)
+        result, retried = _transcribe_guarded(model, audio, prompt, ASR_SEG_TIMEOUT)
+        if retried:
+            print(f"[voice align] {seg}：ASR 逾時，已改 VAD 重試", file=sys.stderr)
         asr[seg] = [{"start": round(x.start, 2), "end": round(x.end, 2), "text": x.text,
                      "words": [[round(w.start, 2), round(w.end, 2), w.word] for w in (x.words or [])]}
                     for x in result]
