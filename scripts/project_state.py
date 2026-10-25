@@ -5,6 +5,7 @@ import hashlib
 import json
 import shutil
 import subprocess
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -100,6 +101,17 @@ def save_state(root: Path, state: dict[str, Any]) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(normalized, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     tmp.replace(path)
+
+
+def record_gate_bypass(root: Path, gate: str, detail: str) -> bool:
+    """`--skip-stage-gate` 留痕：追加到 project-state 的 gate_bypasses，經 save_state 蓋戳記。
+    沒有狀態檔就不寫（回傳 False）；呼叫端要把這件事講給使用者聽。"""
+    if not state_path(root).is_file():
+        return False
+    state = load_state(root)
+    entry = {"gate": gate, "detail": detail, "at": datetime.now().astimezone().isoformat(timespec="seconds")}
+    save_state(root, {**state, "gate_bypasses": [*state.get("gate_bypasses", []), entry]})
+    return True
 
 
 def state_integrity(root: Path) -> str:
@@ -563,6 +575,9 @@ def scoped_expected_segment_ids(root: Path, payload: dict[str, Any]) -> tuple[se
     raw_source = payload.get("source_segments_file")
     if raw_source:
         source = _resolve(root, raw_source)
+    elif (root / SEGMENTS_ALL).is_file():
+        # 單一來源規則：有 segments-all.json 就以它為全集（strict 階段 5 保證它等於逐集聯集）。
+        source = root / SEGMENTS_ALL
     elif len(files) == 1:
         source = files[0]
     elif not files:
@@ -687,6 +702,50 @@ def _stage5_voice_errors(segments: list[Path]) -> list[str]:
     return errors
 
 
+SEGMENTS_ALL = "segments-all.json"
+
+
+def _segment_content_hashes(path: Path) -> dict[str, str]:
+    raw = json.loads(path.read_text(encoding="utf-8-sig"))
+    items = raw if isinstance(raw, list) else raw.get("segments", [raw])
+    return {
+        str(seg["segment_id"]): hashlib.sha256(
+            json.dumps(seg, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+        for seg in items if isinstance(seg, dict) and seg.get("segment_id")
+    }
+
+
+def segments_all_consistency_errors(root: Path, episode_files: list[Path]) -> list[str]:
+    """segments-all.json 存在時，段落 id 與每段內容 hash 必須等於逐集檔的聯集。
+
+    階段 6 送件／QA 優先用 segments-all.json；它若落後於逐集檔，送出去的就是舊提示詞。
+    """
+    combined = root / SEGMENTS_ALL
+    if not combined.is_file():
+        return []
+    try:
+        all_hashes = _segment_content_hashes(combined)
+        union: dict[str, str] = {}
+        for path in episode_files:
+            union.update(_segment_content_hashes(path))
+    except (OSError, json.JSONDecodeError, TypeError, AttributeError) as exc:
+        return [f"{SEGMENTS_ALL}: 無法與逐集檔對帳 ({exc})"]
+    missing = sorted(set(union) - set(all_hashes))
+    extra = sorted(set(all_hashes) - set(union))
+    changed = sorted(sid for sid in set(union) & set(all_hashes) if union[sid] != all_hashes[sid])
+    if not (missing or extra or changed):
+        return []
+    detail = "；".join(part for part in (
+        f"缺少 {'、'.join(missing[:10])}" if missing else "",
+        f"多出 {'、'.join(extra[:10])}" if extra else "",
+        f"內容不同 {'、'.join(changed[:10])}" if changed else "") if part)
+    bible = " --bible video-bible.json" if (root / "video-bible.json").is_file() else ""
+    bindings = " --bindings video-bindings.json" if (root / "video-bindings.json").is_file() else ""
+    return [f"{SEGMENTS_ALL} 與 segments-ep*.json 聯集不一致（{detail}）。階段 6 以 {SEGMENTS_ALL} 為準，"
+            f"請在逐集檔重編後重產全集：python scripts/h3d.py compile --layer2 layer2/{bible}{bindings} "
+            f"--project-root . --output-segments {SEGMENTS_ALL} --check（或刪除 {SEGMENTS_ALL} 改用逐集檔）"]
+
+
 def _stage5_end_state_errors(segments: list[Path]) -> list[str]:
     """strict 才跑：每段要有 segment_end_state（planned_final_state 或 _en），供下一段連戲帶入。"""
     errors: list[str] = []
@@ -730,6 +789,7 @@ def stage_validation_errors(root: Path, stage: int, allow_technical: bool = Fals
         if strict:
             errors.extend(_stage5_voice_errors(segments))
             errors.extend(_stage5_end_state_errors(segments))
+            errors.extend(segments_all_consistency_errors(root, segments))
         for path in segments:
             try:
                 raw = json.loads(path.read_text(encoding="utf-8-sig"))

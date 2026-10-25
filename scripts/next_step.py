@@ -88,6 +88,12 @@ def stage4_producer(root: Path, errors: List[str]) -> tuple:
 
 def stage5_producer(root: Path, errors: List[str]) -> tuple:
     """階段 5 下一步：印完整 compile 參數，照抄就會寫出 prompts／segments（#56）。"""
+    import generate_bindings
+    stale = generate_bindings.bindings_stale(root)
+    if stale:
+        # 沒有 bindings 時編譯器會拿四視圖整板、只錨定一個角色 → E19／E20 必擋。
+        return (f"{H3D} bind --root .",
+                f"先產生參考圖綁定（{stale}）：正臉用單視角裁切、側背／生物用整板查表；有缺圖會列出 crop 指令。")
     episodes = _episodes(root)
     missing = [e for e in episodes if not (root / f"segments-{e.lower()}.json").is_file()]
     episode = (missing[0] if missing else None) or next(
@@ -98,6 +104,12 @@ def stage5_producer(root: Path, errors: List[str]) -> tuple:
         if (root / "video-bindings.json").is_file():
             parts.append("--bindings video-bindings.json")
     parts.append(f"--output-md prompts-{episode.lower()}.md --output-segments segments-{episode.lower()}.json --check")
+    try:
+        policy = decisions_mod.narration_policy_of(decisions_mod.load(root))
+    except (ValueError, decisions_mod.DecisionError) as exc:
+        return (f"{H3D} decide dialogue_policy <④|short-offscreen-h3|external|h3-native> --quote \"<使用者原話>\"", str(exc))
+    if policy:
+        parts.append(f"--narration-policy {policy}")
     action = (f"編譯 {episode} 提示詞包並補齊參考圖" + (f"（還沒編的集：{'、'.join(missing)}）" if missing else "") + "。")
     return (" ".join(parts), action)
 
@@ -114,14 +126,19 @@ def _segment_files(root: Path) -> List[Path]:
 
 
 def _delivery_scope(root: Path) -> Dict[str, Any]:
-    """讀 decisions 裡的 delivery_scope（no_video／trial_segments／max_segments）；沒有就回空 dict。"""
+    """讀 decisions 裡的 delivery_scope；沒定案或格式壞了就回空 dict（＝全流程）。"""
     try:
-        raw = json.loads(decisions_mod.decisions_path(root).read_text(encoding="utf-8-sig"))
-        d = decisions_mod.get(raw, "delivery_scope")
-    except Exception:
+        return decisions_mod.delivery_scope(root)
+    except decisions_mod.DecisionError:
         return {}
-    val = (d or {}).get("value")
-    return val if isinstance(val, dict) else {}
+
+
+def _scope_end(scope: Dict[str, Any]) -> Optional[int]:
+    """交付終點階段；不生影片時終點最多到階段 5（提示詞）。沒有終點回 None。"""
+    end = scope.get("end_stage")
+    if scope.get("no_video"):
+        end = 5 if end is None else min(int(end), 5)
+    return int(end) if isinstance(end, int) else None
 
 
 def _segment_ids(path: Path) -> List[str]:
@@ -206,8 +223,8 @@ def _stage6_work(res: Dict[str, Any], root: Path) -> Optional[Dict[str, Any]]:
     missing_videos = [sid for sid in expected if not (root / "videos" / f"{sid}.mp4").is_file()]
     if missing_videos and scope.get("no_video"):
         res["blocked_on"].append("delivery_scope 為 no_video：使用者決定不生影片，不得送件")
-        res["action"] = ("停下：已定案的交付範圍不含影片。不要執行 resume；"
-                         "要生影片須先請使用者改 delivery_scope 並用 h3d decide 寫入。")
+        res["action"] = ("停下：已定案的交付範圍不含影片。不要執行 resume；要生影片須先請使用者同意改範圍，"
+                         "再用 `" + H3D + " decide delivery_scope full --quote \"<使用者原話>\" --root .` 寫入。")
         res["next_command"] = None
         return res
     if missing_videos:
@@ -290,7 +307,7 @@ def plan(root: Path) -> Dict[str, Any]:
         res = _result(root, None, "uninitialized")
         res["blocked_on"].append("沒有 review/project-state.json")
         res["action"] = "先建立專案骨架（會一併建立空的 decisions.json）。"
-        res["next_command"] = f'{INIT} "{root.as_posix()}" --title "<劇名>" --episodes <集數>'
+        res["next_command"] = f'{INIT} "{root.as_posix()}" --title "<劇名>"'
         res["read"] = ["references/pipeline.md"]
         return res
 
@@ -308,6 +325,13 @@ def plan(root: Path) -> Dict[str, Any]:
         res = _result(root, 7, "done")
         res["done"] = True
         res["action"] = "八個階段都已有效核准；交付 final/ 下的成片與 delivery manifest。"
+        return res
+    scope_end = _scope_end(_delivery_scope(root))
+    if scope_end is not None and stage > scope_end:
+        res = _result(root, scope_end, "done")
+        res["done"] = True
+        res["action"] = (f"已定案的交付範圍（終點階段 {scope_end}）全部核准完成；"
+                         "交付已核准的各階段產物，不必推進到後面的階段。")
         return res
 
     entry = state["stages"][ps.stage_key(stage)]
@@ -338,7 +362,9 @@ def plan(root: Path) -> Dict[str, Any]:
     if active:
         res["blocked_on"].append(f"有 {len(active)} 個影片工作還在跑：{active[0]}")
         res["action"] = "不要再開第二個 runner，也不要送新件；只收件。"
-        res["next_command"] = f"{H3D} collect --segments <該批 segments 檔> --output-dir videos --root-dir ."
+        segs = _segment_files(root)
+        seg_arg = f" --segments {_rel(root, segs[0])}" if segs else ""
+        res["next_command"] = f"{H3D} collect{seg_arg} --output-dir videos --root-dir ."
         return res
 
     missing = decisions_mod.missing_for_stage(root, stage)

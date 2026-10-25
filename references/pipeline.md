@@ -25,8 +25,9 @@
 | 畫風 | **預設推 14 號「古風寫實厚塗・電影感」（`xianxia-cinematic-semireal`，附樣圖）**，使用者可改選 `references/styles.md` 任一套（整部只用一套）；角色設定板選項 `xianxia-cinematic-semireal`／`master`（3D 漫劇寫實厚塗）／`semi-real`（UE5 半寫實）／styles 編號，寫入 `assets.md` 的 `style_index`，並 `h3d decide style` 定案 |
 | `aspect_ratio` | 9:16（預設）／16:9／1:1 |
 | 語言與聲音形式 | 旁白解說／角色對白／混合／默片字幕 |
-| 台詞政策（需要改寫或估算時） | `① 原文逐字保留` / `② 只留重點句` / `③ 影視化改寫` / `④ 無台詞純旁白`；已在 brief 中交代則沿用 |
+| 台詞政策（需要改寫或估算時） | `① 原文逐字保留` / `② 只留重點句` / `③ 影視化改寫` / `④ 無台詞純旁白`；已在 brief 中交代則沿用。定案寫入 `h3d decide dialogue_policy`：④ 無台詞純旁白 → 編譯時等同 `--narration-policy external`；①②③ 只決定原著對白保留量，不改編譯政策（沿用預設 `short-offscreen-h3`）；無法辨識的值 `h3d next` 會報錯 |
 | 交付深度 | 只到分鏡／到設定圖／到分鏡圖／到影片 |
+| 交付範圍（`delivery_scope`，選填） | `h3d decide delivery_scope <預設值> --quote "<使用者原話>"`：`script-only`（終點階段 3）／`storyboard-only`（4）／`prompts-only`（5）／`full`（7，沒定案就是全流程）；另可加 `no_image`（階段 2 改檢文字設定卡，不要求設定圖檔）、`no_video`（終點壓到 5，不送件）、`trial_segments`／`max_segments`（只送指定段）。值可直接給 JSON 物件，例如 `'{"end_stage": 4, "no_image": true}'`。`h3d next` 到終點階段就回報 done。 |
 
 ### 階段 0 按需求選用的台詞與體量檢查
 
@@ -671,7 +672,7 @@ ffmpeg -i final_ep01.mp4 -af loudnorm=I=-23:TP=-1.5:LRA=11:measured_I=-23.1:meas
 python scripts/storyboard/tts_doctor.py
 python scripts/storyboard/tts_doctor.py --json
 
-# 2. 組裝：--audio-mode auto 逐段裁決（畫內對白留 H3 口型、旁白由外部 TTS 產生）
+# 2. 組裝：--audio-mode auto 逐段裁決（畫內對白留 H3 口型、長旁白由外部 TTS 產生，短畫外句由 H3 念）
 python scripts/storyboard/assemble_episode.py \
   --segments segments-ep01.json \
   --videos-dir videos/ \

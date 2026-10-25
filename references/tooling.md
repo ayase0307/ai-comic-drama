@@ -145,6 +145,25 @@ Layer 2 每鏡新增必填欄位 `shot_intent`（audience、story_beat、pov、e
 - **同一生物同段有階段變體＋基本型**：基本型（沒寫 `variant` 的條目）當 Subject 的圖，所有 `variant` 條目都是逐鏡範圍的補充 Picture（`Stage-specific reference…this shot only`）。只有變體沒有基本型時，第一個變體當 Subject 的圖（舊行為）。
 - 生物的 retention 寫「body shape, skin or surface texture, and head features」，不再沿用人類模板的臉／髮型／服裝。
 
+### 2.3.1b 參考圖綁定產生器（`h3d bind`）
+
+沒有 `video-bindings.json` 時，編譯器直接拿角色聖經的設定圖（通常是四視圖整板）、每段只掛一張角色圖，其餘在場角色沒有身分錨 → audit **E20（整板）與 E19（未錨定在場人物）必擋**（`tests/test_bindings_generator.py` 的對照組實測）。所以階段 5 先跑：
+
+```
+python scripts/h3d.py bind --root .
+```
+
+- 讀 `adapt/bible.json`＋`assets.md`（與編譯器同一個 AssetRegistry）與 `layer2/layer2-*.json`，在專案根目錄寫 `video-bible.json`、`video-bindings.json`。不改階段 1／2 檔案。
+- **選圖規則（每段每角色一張圖）**：逐鏡判讀 `assets/face-visibility.json`（`{"shots": {"<global_shot_id 或 segment_id/shot_id>": {"C-x": "face|profile|back"}}}`）聚合到段，任一鏡看得到正臉 → `face`，否則 `back`，否則 `profile`；沒有判讀預設 `face`。
+  - `face` → 單視角正面裁切（計畫表 `face_crop`；原圖本身不是整板時直接用原圖）。
+  - `back`／`profile` → 整板查表 `reference_view: "panel"`＋`panel_role`＋`panel_label_en`（預設格位依技能標準四視圖板：側面＝三個全身像的中間、背面＝最右）；原圖不是整板時當單視角錨點。
+  - 生物 → 整板時一律 `panel_role: "creature"`；群眾（`is_group`／`EXTRAS-`）→ 直接掛群眾參考圖。
+- 計畫表 `assets/character-reference-plans.json`（選填）：`{"characters": {"C-x": {"default": {"face_crop": "...", "sheet": "...", "panel_labels_en": {"back": "...", "profile": "..."}}, "costumes": {"W-x": {...}}}}, "creatures": {"CREATURE-x": {"sheet": "...", "panel_label_en": "..."}}}`。
+- **缺圖不猜**：任何缺口（看得到正臉卻沒有裁切、未登記角色、設定圖不存在）全部列出並附 `h3d crop --box 0,0,0.25,1 --out-dir assets/crops` 指令，**不寫任何檔案**。裁切放 `assets/crops/`，不放 `images/`（會讓階段 2 快照失效）。
+- 重產時保留既有 bindings 的手寫欄位（`en_overlay`、`shot_overrides`、`audio_references`、`crop_note_en`…），只覆蓋產生器擁有的欄位（來源 hash、場景圖、逐鏡 `reference_paths`／`visual_subject_ids`／`face_subject_ids`／`identity_anchor_ids`）。
+- `h3d next` 在階段 5 發現沒有 bindings、或任一 layer2 在綁定後被改（`source_sha256` 不符）時，會先帶出 `h3d bind`，之後才給 compile 指令。
+- 尚未處理：道具、身體細節與音色母帶 `audio_references` 不自動綁，需要時手寫進 bindings（重產會保留）。
+
 ### 2.3.2 全集 `segments-all.json` 怎麼產
 
 多集專案要一份 `segments-all.json`（階段 5 快照納入，階段 6 門禁用它確認每集的片段都在）。產法：把**全部** layer2 一次編譯，輸出檔名指定為 `segments-all.json`：
@@ -153,6 +172,8 @@ Layer 2 每鏡新增必填欄位 `shot_intent`（audience、story_beat、pov、e
 python scripts/h3d.py compile --layer2 layer2/ --bible video-bible.json --bindings video-bindings.json \
   --project-root . --output-segments segments-all.json --check
 ```
+
+**單一來源規則**：`segments-all.json` 存在時，階段 6 送件（`h3d next`）、`motion_qa`、QA／交付的預設全集、失敗目錄 ack 都以它為準；不存在才用 `segments-ep*.json`。所以它不能落後：strict 階段 5（`h3d next`、新核准、自動核准）會把它的段落 id 與每段內容 hash 和逐集檔聯集對帳，缺段、多段或內容不同都擋關，並印出上面的重產指令（不需要全集時也可直接刪掉它）。改了任何一集重編後，記得跟著重產全集。
 
 逐集 `segments-epXX.json` 則用 `--episode EPxx` 另編；`--bindings` 含其他集的段會自動略過。`--check` 的「17 條」是 `audit_refs_and_segments.py --lint-h3` 的 E1–E9、W10–W13、E14–E16、E18；E19 起是參考圖對帳與逐鏡撰寫審查。
 

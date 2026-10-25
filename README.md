@@ -28,7 +28,7 @@
 |---|---|
 | 📖 **預設長篇漫劇：把故事講清楚** | 預設整部一支連續長片，每個原著關鍵事件都交代起因→經過→結果（含動機、時地轉換），不以每集秒數壓縮事件；`event_coverage.py` 逐條對帳，被壓縮／跳過的事件在階段 1 交你決定。短劇／竪屏爆款短集（1–2 分鐘、強鉤子）改為你明確選擇才啟用（`--format short`、`h3d decide series_format short`）。 |
 | 🧩 **分層工作流程** | 文字規劃可獨立完成；圖片與影片生成依目前 Agent 工具或可用後端，不假設內建影片能力。 |
-| 🧭 **單一入口 `h3d`** | `h3d doctor／compile／submit／collect／resume／qa／deps／catalog／ack／status`：一條指令走完產線，`status` 一次看階段門禁、依賴帳本、送件帳本與失敗目錄。 |
+| 🧭 **單一入口 `h3d`** | `h3d doctor／bind／compile／submit／collect／resume／qa／deps／catalog／ack／status`：一條指令走完產線，`status` 一次看階段門禁、依賴帳本、送件帳本與失敗目錄。 |
 | 📑 **小說切章與 6 重清洗** | `extract_chapter.py` 大檔目錄掃描（`--list`）、單章抽取與 Pandoc 6 重自動清洗。 |
 | ⏱️ **台詞預算與 H3 實戰審計** | `estimate_duration.py` Unicode P 類別統一計字、`--events` 依事件數與交代需求估總片長、`--novel` 體量反推（四大台詞政策試算；短劇模式才有單集門禁）與 `--h3` 實戰台詞預算審計（4字/秒、單句 ≤15 字、說話佔比 ≤60%）。 |
 | 📝 **劇本 HTML 註解與雙向同步** | `sync_script.py` 支援 Markdown 註解元數據注入、從零建立 handoff、多場景自動擴展與 `--prune-extra` 修剪。 |

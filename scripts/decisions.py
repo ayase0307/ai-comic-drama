@@ -75,6 +75,26 @@ KNOWN_DECISIONS: Dict[str, Dict[str, Any]] = {
     # required_by=99：永遠不會因為沒定案而擋路。
     "auto_approve": {"label": "自動核准授權（哪些階段沒有未決卡就自動過）", "stages": [1, 3, 4, 5, 6, 7],
                      "required_by": 99, "reference": "references/tooling.md"},
+    # 選填：沒定案就是全流程。required_by=99：不擋路，`h3d next` 依 end_stage 回報 done。
+    "delivery_scope": {"label": "交付範圍（script-only／storyboard-only／prompts-only／full，或不生圖／影片）",
+                       "stages": [0, 2, 6, 7], "required_by": 99, "reference": "references/pipeline.md"},
+}
+
+# 交付範圍：只寫需要的 key；沒定案＝全流程（end_stage 7、要圖要影片）。
+# 文字草稿可交付：script-only（終點 3）、storyboard-only（終點 4）、prompts-only（終點 5）。
+# 不生圖（no_image）只改階段 2 的檢查（文字設定卡取代設定圖檔）；不生影片（no_video）把終點壓到 5。
+DELIVERY_PRESETS: Dict[str, Dict[str, Any]] = {
+    "script-only": {"end_stage": 3},
+    "storyboard-only": {"end_stage": 4},
+    "prompts-only": {"end_stage": 5},
+    "full": {"end_stage": 7},
+}
+DELIVERY_SCOPE_KEYS: Dict[str, str] = {
+    "end_stage": "交付終點階段（0–7，含）",
+    "no_image": "不生圖（階段 2 改檢文字設定卡）",
+    "no_video": "不生影片（階段 6 不送件）",
+    "trial_segments": "試跑指定段（段 ID 陣列）",
+    "max_segments": "最多送件段數（整數）",
 }
 
 # 這些階段永遠要人決定，auto_approve 不能涵蓋：
@@ -184,6 +204,8 @@ def validate(data: Any) -> List[str]:
             errors.extend(validate_acceptance_policy(item["value"]))
         if did == "auto_approve" and "value" in item:
             errors.extend(validate_auto_approve(item["value"]))
+        if did == "delivery_scope" and "value" in item:
+            errors.extend(validate_delivery_scope(item["value"]))
         if isinstance(did, str) and did.startswith(VOICE_PREFIX) and isinstance(source, dict) \
                 and source.get("by", "user") != "user":
             errors.append(f"{where}: 音色定案 {did} 只能由使用者本人決定（source.by 必須是 user）")
@@ -200,6 +222,35 @@ def validate_auto_approve(value: Any) -> List[str]:
         elif stage in NEVER_AUTO_STAGES:
             errors.append(f"auto_approve 不能涵蓋階段 {stage}（定調與角色設定圖永遠要人決定）")
     return errors
+
+
+def validate_delivery_scope(value: Any) -> List[str]:
+    if not isinstance(value, dict):
+        return ["delivery_scope 的值必須是物件（例如 {\"end_stage\": 3}）"]
+    errors: List[str] = []
+    for key in value:
+        if key not in DELIVERY_SCOPE_KEYS:
+            errors.append(f"delivery_scope 含未知欄位 {key}（可用：{', '.join(DELIVERY_SCOPE_KEYS)}）")
+    end = value.get("end_stage")
+    if end is not None and (not isinstance(end, int) or isinstance(end, bool) or not 0 <= end <= 7):
+        errors.append(f"delivery_scope.end_stage 必須是 0–7 的整數（收到 {end!r}）")
+    for flag in ("no_image", "no_video"):
+        if flag in value and not isinstance(value[flag], bool):
+            errors.append(f"delivery_scope.{flag} 必須是 true／false")
+    trial = value.get("trial_segments")
+    if trial is not None and (not isinstance(trial, list) or not all(isinstance(s, str) for s in trial)):
+        errors.append("delivery_scope.trial_segments 必須是段 ID 字串陣列")
+    maxseg = value.get("max_segments")
+    if maxseg is not None and (not isinstance(maxseg, int) or isinstance(maxseg, bool) or maxseg < 0):
+        errors.append("delivery_scope.max_segments 必須是 0 以上的整數")
+    return errors
+
+
+def delivery_scope(root: Path) -> Dict[str, Any]:
+    """交付範圍定案的值；沒定案回傳 {}（＝全流程）。格式錯誤丟 DecisionError。"""
+    item = get(load(root), "delivery_scope")
+    val = (item or {}).get("value")
+    return dict(val) if isinstance(val, dict) else {}
 
 
 def auto_approve_stages(data: Dict[str, Any]) -> Tuple[List[int], Optional[Dict[str, Any]]]:
@@ -245,6 +296,8 @@ def parse_value(decision_id: str, raw: str) -> Any:
         return dict(RECOMMENDED_ACCEPTANCE_POLICY)
     if decision_id == "style" and raw.strip().lower() in ("recommended", "建議", "照建議", "預設", "default"):
         return RECOMMENDED_STYLE
+    if decision_id == "delivery_scope" and raw.strip() in DELIVERY_PRESETS:
+        return dict(DELIVERY_PRESETS[raw.strip()])
     if decision_id == "auto_approve":
         text = raw.strip()
         if text[:1] not in ("{", "["):
@@ -262,6 +315,39 @@ def parse_value(decision_id: str, raw: str) -> Any:
         except json.JSONDecodeError as exc:
             raise DecisionError(f"值看起來是 JSON 但無法解析：{exc}") from exc
     return raw
+
+
+# dialogue_policy 的定案值對應到 --narration-policy 的規則：
+# - 值是編譯器政策名 → 直接對應。
+# - ④（無台詞純旁白）→ external：所有旁白都由外部 TTS 合成。
+# - ①②③（原文逐字／只留重點句／影視化改寫）與空值 → 只影響原著對白保留量，不影響旁白由誰念，
+#   回傳 None，沿用預設 short-offscreen-h3，不報錯。
+# - 其他無法辨識的值 → 明確報錯，由使用者重新定案。
+NARRATION_POLICY_NAMES = ("short-offscreen-h3", "external", "h3-native")
+DIALOGUE_POLICY_CHOICE_NARRATION = {"④": "external"}
+DIALOGUE_POLICY_NEUTRAL_CHOICES = ("①", "②", "③")
+
+
+def narration_policy_of(data: Dict[str, Any]) -> Optional[str]:
+    """回傳 dialogue_policy 對應的 narration policy；不影響編譯或未定案回 None；無法辨識 raise ValueError。"""
+    item = get(data, "dialogue_policy")
+    if not item or item.get("value") in (None, ""):
+        return None
+    value = str(item["value"]).strip()
+    if not value:
+        return None
+    if value in NARRATION_POLICY_NAMES:
+        return value
+    head = value[:1]
+    if head in DIALOGUE_POLICY_CHOICE_NARRATION:
+        return DIALOGUE_POLICY_CHOICE_NARRATION[head]
+    if head in DIALOGUE_POLICY_NEUTRAL_CHOICES:
+        return None
+    raise ValueError(
+        f"dialogue_policy 定案值 {value!r} 無法辨識（可用：編譯器政策名 "
+        f"{'、'.join(NARRATION_POLICY_NAMES)}，或 ①～④ 選項）。請重新定案，例如 "
+        "h3d decide dialogue_policy ④ --quote \"<使用者原話>\""
+    )
 
 
 def default_rule(decision_id: str, value: Any) -> str:

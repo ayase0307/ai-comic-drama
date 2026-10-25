@@ -168,12 +168,31 @@ def stage1_errors(root: Path) -> List[str]:
 _ASSET_IMAGE_FIELDS = ("設定圖", "母版圖", "服裝設定圖", "三視圖")
 
 
+def _no_image_scope(root: Path) -> bool:
+    """交付範圍定案為不生圖（delivery_scope.no_image）。決定檔壞了就當作要圖（保守）。"""
+    try:
+        import decisions as decisions_mod
+        return bool(decisions_mod.delivery_scope(root).get("no_image"))
+    except Exception:
+        return False
+
+
+def _text_card_errors(text: str) -> List[str]:
+    cards = re.findall(r"^\s*-\s*\*\*固定描述片段\*\*\s*[：:]\s*`?([^`\n]+)", text, flags=re.M)
+    filled = [c for c in cards if not _PLACEHOLDER.search(c) and c.strip()]
+    if not filled:
+        return ["不生圖（delivery_scope.no_image）：assets.md 需至少一張已填實的文字設定卡（「固定描述片段」）"]
+    return []
+
+
 def stage2_errors(root: Path) -> List[str]:
     path = root / "assets.md"
     if not path.is_file():
         return ["缺少 assets.md"]
     text = _read(path)
     errors = _placeholder_error("assets.md", text, card_lines_only=True)
+    if _no_image_scope(root):
+        return errors + _text_card_errors(text)
     missing: List[str] = []
     declared = 0
     for label in _ASSET_IMAGE_FIELDS:

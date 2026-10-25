@@ -47,7 +47,7 @@ if str(CURRENT_DIR) not in sys.path:
 SCRIPTS_DIR = CURRENT_DIR.parent
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
-from project_state import require_approved, stage4_artifacts, stage_snapshot
+from project_state import record_gate_bypass, require_approved, stage4_artifacts, stage_snapshot
 
 from audit_refs_and_segments import (
     COMPOUND_CAMERA_MOTIONS,
@@ -2618,6 +2618,8 @@ def verify_stage4_gate(project_root: pathlib.Path, skip_gate: bool = False, laye
     """要求有效 stage-4 人工核准，且核准快照涵蓋目前分鏡與對應草圖。"""
     if skip_gate:
         print("⚠️ [警告] 已顯式指定 --skip-stage-gate，跳過階段 4 分鏡總覽圖門禁檢查。")
+        if not record_gate_bypass(project_root, "stage-4", "compile_layer2_to_h3 --skip-stage-gate"):
+            print("⚠️ [警告] 沒有 review/project-state.json，這次繞過未留紀錄。", file=sys.stderr)
         return True
     try:
         matched, errors = stage4_artifacts(project_root)
@@ -2693,6 +2695,21 @@ def collect_segment_end_states(
     return scenes, end_states
 
 
+def resolve_narration_policy(cli_value: Optional[str], project_root: pathlib.Path) -> str:
+    """CLI 旗標與 decisions.json 的 dialogue_policy 定案必須一致；都沒有才用預設。"""
+    scripts_dir = str(CURRENT_DIR.parent)
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
+    import decisions as decisions_mod
+    try:
+        decided = decisions_mod.narration_policy_of(decisions_mod.load(project_root))
+    except decisions_mod.DecisionError as exc:
+        raise ValueError(f"decisions.json 讀取失敗：{exc}") from exc
+    if cli_value and decided and cli_value != decided:
+        raise ValueError(f"--narration-policy {cli_value} 與 decisions.json 的 dialogue_policy 定案 {decided} 衝突，請統一後再編譯")
+    return cli_value or decided or DEFAULT_NARRATION_POLICY
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Layer 2 分鏡轉 H3 官方六段式 Prompt 與分段對帳 JSON 批次編譯器"
@@ -2715,9 +2732,10 @@ def main() -> int:
     parser.add_argument("--embed-cut-markers", action="store_true",
                         help="在提示詞寫入 <scenetrans>／<cutoff> 標記（本專案約定，非官方語法）")
     parser.add_argument(
-        "--narration-policy", type=str, default=DEFAULT_NARRATION_POLICY, choices=list(NARRATION_POLICIES),
-        help=("畫外音／旁白政策：short-offscreen-h3=短畫外句與旁白（≤15 字）由 H3 用官方句式＋<d> 直接生成，長句才外部 TTS（預設）；"
-              "external=全部外部 TTS，於階段 7 混入；h3-native=全部留 H3"),
+        "--narration-policy", type=str, default=None, choices=list(NARRATION_POLICIES),
+        help=("畫外音／旁白政策：short-offscreen-h3=短畫外句與旁白（≤15 字）由 H3 用官方句式＋<d> 直接生成，長句才外部 TTS；"
+              "external=全部外部 TTS，於階段 7 混入；h3-native=全部留 H3。"
+              "省略時讀 <project-root>/decisions.json 的 dialogue_policy，都沒有才用 short-offscreen-h3（預設）；與定案衝突會報錯"),
     )
     parser.add_argument("--no-carry-end-state", action="store_false", dest="carry_end_state", default=True,
                         help="不把同場景前一段的英文終態帶入本段第 1 鏡（#133；預設帶入）")
@@ -2729,6 +2747,11 @@ def main() -> int:
     parser.add_argument("--skip-stage-gate", action="store_true", help="強制跳過階段 4 分鏡總覽圖門禁檢查（僅限測試或除錯）")
 
     args = parser.parse_args()
+    try:
+        args.narration_policy = resolve_narration_policy(args.narration_policy, args.project_root)
+    except ValueError as exc:
+        print(f"[錯誤] {exc}", file=sys.stderr)
+        return 1
 
     layer2_files = load_layer2_files(args.layer2)
     if not layer2_files:
