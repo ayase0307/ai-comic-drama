@@ -330,3 +330,9 @@ python scripts/sync_h3_reference.py --sync --write-manifest   # 同步並更新�
 - `adapt/bible.json` 角色／場景圖片欄位認 `reference_image`、`image_path`、`image_file`（含 `wardrobe_states[]`）。
 - assets.md 每個資產區塊可加一行 `反美化：…` 或 `禁止特徵：…`（例：不帥、蠟黃、非偶像臉／無鱗無牙、不分叉舌），會併進該資產提示詞的負面約束。
 - 劇本用到、但無場景母版圖的場景，階段 2 審核頁建置時會在 stderr 提醒（不阻斷）。
+
+## 生物外觀檢查（#97 #101 #121）
+- 編譯器對生物主體：固定描述含無牙／蚯蚓／肉褶口等口型特徵時，retention 不再寫死「頭部特徵來自參考圖」，改為頭口細節以文字為準；描述寫蛇名詞又寫無牙、或設定無牙卻在動作寫 tongue／hiss／fangs，compile 給警告（scripts/storyboard/creature_lint.py）。
+- 參考圖與文字矛盾時模型以圖為準：生物外觀不符時先查參考圖（舌、牙、口型、顏色）再改文字。
+- 色彩 QA：`python3 scripts/creature_color_qa.py --ref 參考圖 --frame 抽格.png ...`，色相、彩度分開報（預設容許 8°／0.10），超標 exit 1。
+- 驗收（#134）：階段 6 verdict 建議 ≥4 fps 影格條，逐鏡回答「動作是否完成、終態是否成立、該不在鏡的人有沒有入鏡」。
