@@ -283,6 +283,28 @@ def place(manifest: Dict[str, Dict[str, Any]], lines: Dict[str, List[Dict[str, A
     return result, sorted(set(need_next))
 
 
+def silent_lines(manifest: Dict[str, Dict[str, Any]], lines: Dict[str, List[Dict[str, Any]]],
+                 asr: Dict[str, List[Dict[str, Any]]], threshold: float = 0.4) -> List[Dict[str, Any]]:
+    """#164：時間表有字幕、也沒有畫外配音檔，ASR 又聽不到的句＝片內沒聲（例如改稿清空畫外句但影片沒重跑）。
+
+    只檢查已有 ASR 的段；回傳 [{segment, line, coverage}]。
+    """
+    voiced = {(m["segment"], m["line"]) for m in manifest.values()}
+    out: List[Dict[str, Any]] = []
+    for seg, items in lines.items():
+        if seg not in asr:
+            continue
+        heard = "".join(str(c.get("text", "")) for c in _clean_chunks(asr[seg]))
+        for item in items:
+            text = item["text"]
+            if (seg, text) in voiced or len(norm(text)) < 2:
+                continue
+            cov = overlap(text, heard)
+            if cov < threshold:
+                out.append({"segment": seg, "line": text, "coverage": round(cov, 2)})
+    return out
+
+
 def merge_intervals(items: Iterable[Sequence[float]], join_gap: float = 0.05) -> List[List[float]]:
     """重疊或相距 ≤ join_gap 秒的壓低區間合併成一段（避免音量忽上忽下）。"""
     out: List[List[float]] = []
@@ -397,6 +419,7 @@ def align(root: Path, *, steps: Sequence[str] = ("asr", "place", "duck", "loudno
             item["final"] = dst.relative_to(root).as_posix()
             item["final_dur"] = round(ffprobe_duration(dst) or float(manifest[key].get("dur") or 0) / float(item.get("tempo") or 1), 2)
         placement_path.write_text(json.dumps(placement, ensure_ascii=False, indent=1), encoding="utf-8")
+    report["silent_lines"] = silent_lines(manifest, timeline_lines(root), asr)
     report["placed"] = len(placement)
     report["warnings"] = [f"{k}：{v['note']}" for k, v in placement.items() if "⚠" in str(v.get("note"))]
     return report
@@ -433,6 +456,9 @@ def main(argv: Optional[List[str]] = None) -> int:
               f"（{', '.join(report['muted_segments'][:8])}）")
         for w in report["warnings"]:
             print(f"⚠️ {w}")
+        for sl in report.get("silent_lines", []):
+            print(f"⚠️ 片內沒聲的句（字幕有、配音檔沒有、ASR 也聽不到）：{sl['segment']}「{sl['line']}」；"
+                  "可能改稿後影片沒重跑")
         if report.get("need_next_asr"):
             print(f"⚠️ 最後一句要溢入下一段，但這些段沒有 ASR：{', '.join(report['need_next_asr'])}")
     return 0
