@@ -110,7 +110,7 @@ python scripts/init_project.py my-drama --title "我的漫劇"
    ```bash
    python scripts/adapt/event_coverage.py --project-dir . --out adapt/event-coverage.md
    ```
-   被壓縮（compressed）、被跳過（skipped）、交代不全（partial）、未標註（unverified）的事件會出現在 `review/stage-1-adaptation.html` 的「事件交代完整性」表，**由使用者逐條決定**補鏡頭或接受；MUST_KEEP 事件完全沒交代（missing）時結束碼 2。
+   被壓縮（compressed）、被跳過（skipped）、交代不全（partial）、未標註（unverified）的事件會在收件匣出一張「事件交代」決策卡（明細在 `review/stage-1-adaptation.html` 的「事件交代完整性」表），**由使用者決定**補鏡頭或接受；MUST_KEEP 事件完全沒交代（missing）時結束碼 2。
 7. **（使用者要求分集時）跨集驗收**：原著單章拆成多集時（如 1 章拆為 Ep01–Ep03），支援單集驗收與多集合併全章驗收：
    ```bash
    # 單集過濾驗收：

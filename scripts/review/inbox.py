@@ -372,6 +372,36 @@ def stage2_cards(root: Path) -> List[Dict[str, Any]]:
         "evidence_caption": "自檢不通過的設定圖", "links": [], "source": "assets/reference-manifest.json"}]
 
 
+def stage1_cards(root: Path) -> List[Dict[str, Any]]:
+    """事件交代完整性：被壓縮／跳過／交代不全的事件要使用者決定（劇情走樣，必須上頂層）。"""
+    if not (Path(root) / "adapt" / "source.json").is_file():
+        return []
+    adapt_dir = str(SCRIPTS_DIR / "adapt")
+    if adapt_dir not in sys.path:
+        sys.path.insert(0, adapt_dir)
+    from event_coverage import project_coverage  # noqa: E402
+    try:
+        coverage = project_coverage(Path(root))
+    except (OSError, ValueError, KeyError):
+        return []
+    pending = list((coverage or {}).get("needs_decision") or [])
+    if not pending or not coverage.get("has_adaptation"):  # 還沒有改編稿場景時只是清單，不是決定
+        return []
+    missing = list(coverage.get("must_keep_missing") or [])
+    shown = "、".join(pending[:6]) + ("…" if len(pending) > 6 else "")
+    return [{
+        "id": "D1-event-coverage", "kind": "event_coverage", "stage": 1, "segment": f"{len(pending)} 個事件",
+        "title": f"{len(pending)} 個事件被壓縮、跳過或交代不全，要補鏡頭還是接受",
+        "finding": shown + (f"；MUST_KEEP 完全沒交代：{'、'.join(missing[:4])}" if missing else ""),
+        "impact": "觀眾會看不懂起因或結果；階段 1 核准後才進設定圖與劇本，越晚補越貴。",
+        "recommendation": "照建議補交代鏡頭（起因→經過→結果）；確定要刪的再告訴我接受壓縮。",
+        "options": [{"label": "照建議補交代鏡頭", "reply": f"階段 1：{shown} 補交代鏡頭"},
+                    {"label": "接受目前壓縮", "reply": f"階段 1：{shown} 接受目前的壓縮／跳過"}],
+        "if_ignored": "這些事件照現在的交代程度進劇本；階段 1 不能核准。",
+        "blocking": 1 if missing else 2, "blocking_label": "擋階段 1 核准", "evidence_paths": [],
+        "links": _review_page_link(root, 1), "source": "adapt/source.json（event_coverage.py）"}]
+
+
 def _panel_evidence(root: Path, errors: List[str]) -> List[Path]:
     rejected_dir = Path(root) / "panels" / "_rejected"
     found = sorted(p for p in rejected_dir.glob("*.png")) if rejected_dir.is_dir() else []
@@ -616,8 +646,10 @@ def build_cards(root: Path, *, state: Optional[Dict[str, Any]] = None,
                 "source": "segments-ep*.json external_narration＋decisions.json voice:*",
                 "characters": missing_voice})
 
-    # 4b) 階段 2／4／5 的例外（manifest 自檢不通過、缺構圖／退回、缺參考圖／混臉）
-    if cur == 2:
+    # 4b) 階段 1／2／4／5 的例外（事件交代不全、manifest 自檢不通過、缺構圖／退回、缺參考圖／混臉）
+    if cur == 1:
+        open_cards.extend(stage1_cards(root))
+    elif cur == 2:
         open_cards.extend(stage2_cards(root))
     elif cur == 4:
         open_cards.extend(stage4_cards(root))
