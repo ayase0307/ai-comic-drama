@@ -5,7 +5,7 @@ sys.path.insert(0, str(ROOT / "scripts" / "storyboard"))
 import camera_moves
 
 
-PLANNED_15B = {'pull_back','static_hold','rise_orbit','macro_push','rack_focus','aerial_reveal','whip_pan','crash_zoom','foreground_wipe','crane_up','crane_down','low_angle','push_in'}
+PLANNED_15B = set()
 
 
 class CameraGuideTests(unittest.TestCase):
