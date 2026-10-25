@@ -316,6 +316,59 @@ def prompt_fingerprint(prompt: str) -> str:
     return hashlib.sha256(detailed_description(prompt).encode("utf-8")).hexdigest()
 
 
+_ENTITY_RE = re.compile(r"\(((?:C|CREATURE|EXTRAS)-[A-Za-z0-9_-]+)\)")
+_WAIVER_KEYS = ("offscreen_subject_ids", "accepted_unbound_subject_ids")
+
+
+def shot_entities(shot: Dict[str, Any]) -> List[str]:
+    """一鏡畫面裡應該出現的角色／異獸／群演：character_ids ∪ 分鏡草圖參考圖裡的實體，扣掉明確豁免的。"""
+    ids: List[str] = [str(c) for c in (shot.get("character_ids") or []) if re.match(r"(C|CREATURE|EXTRAS)-", str(c))]
+    sp = str(shot.get("sketch_prompt") or "")
+    m = re.search(r"Reference images[^\n]*", sp)
+    if m:
+        ids += _ENTITY_RE.findall(m.group(0))
+    gen = shot.get("sketch_generation")
+    if isinstance(gen, dict):
+        for r in gen.get("refs") or []:
+            name = str(r).rsplit("/", 1)[-1]
+            mm = re.match(r"(C-[A-Za-z0-9_-]+?)_front\.png$", name)
+            if mm:
+                ids.append(mm.group(1))
+            for pre, tag in (("creature-", "CREATURE-"), ("extras-", "EXTRAS-")):
+                if name.startswith(pre):
+                    ids.append(tag + name[len(pre):].rsplit(".", 1)[0])
+    waived = set()
+    for k in _WAIVER_KEYS:
+        waived |= {str(x) for x in (shot.get(k) or [])}
+    return [i for i in dict.fromkeys(ids) if i not in waived]
+
+
+def audit_subject_coverage(seg: Dict[str, Any]) -> List[str]:
+    """E40：畫面實體沒掛進影片參考圖；E41：有掛但該鏡提示詞沒點名（<Subject N>）。"""
+    sid = str(seg.get("segment_id") or "")
+    prompt = seg.get("h3_prompt") or seg.get("prompt") or ""
+    bound = {str(r.get("id")) for r in (seg.get("reference_images") or []) if isinstance(r, dict)}
+    pic_of = {str(r.get("id")): n for n, r in enumerate(seg.get("reference_images") or [], start=1) if isinstance(r, dict)}
+    subj_of_pic = {int(p): f"<Subject {k}>" for k, p in re.findall(r"<Subject (\d+)> is the [^\n]*?<Picture (\d+)>", prompt)}
+    token = {i: subj_of_pic[p] for i, p in pic_of.items() if p in subj_of_pic}
+    det = prompt.split("detailed_description:", 1)[-1]
+    parts = re.split(r"\[Shot (\d+)\]", det)
+    blocks = {int(parts[j]): parts[j + 1].split("\n\n")[0] for j in range(1, len(parts) - 1, 2)}
+    out: List[str] = []
+    for n, shot in enumerate(seg.get("shots") or [], start=1):
+        shot_id = shot.get("shot_id") or f"#{n}"
+        for ent in shot_entities(shot):
+            if ent not in bound:
+                out.append(f"{sid}: [E40: 畫面實體未綁參考圖] {shot_id} 的分鏡／character_ids 有 {ent}，但影片 reference_images 沒有它；"
+                           f"請在 layer2 該鏡 character_ids 加上 {ent} 並重建 stage5 綁定，或確定不入鏡就寫進 offscreen_subject_ids。")
+            elif ent in token and blocks and token[ent] not in blocks.get(n, ""):
+                out.append(f"{sid}: [E41: 畫面實體未在提示詞點名] {shot_id} 有 {ent}（{token[ent]}），但 [Shot {n}] 沒寫到它；"
+                           f"請在 five_part_en 用 {{{ent}}} 點名並寫出位置與動作。")
+            elif ent not in token and ent in bound:
+                out.append(f"{sid}: [E41: 畫面實體未在提示詞點名] {ent} 有綁參考圖，但 subject_definitions 沒有它的 <Subject N>。")
+    return out
+
+
 def audit_segments(segments: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
     """整批檢查：逐段 E30–E37，加上跨段 E33、E38、E39、W30。"""
     errors: List[str] = []
@@ -329,6 +382,7 @@ def audit_segments(segments: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
     for n, seg in enumerate(segments, start=1):
         sid = str(seg.get("segment_id") or seg.get("id") or f"seg-{n}")
         prompt = seg.get("h3_prompt") or seg.get("prompt") or ""
+        errors.extend(audit_subject_coverage(seg))
         res = audit_segment(prompt, seg.get("shots"), sid)
         per_segment[sid] = res
         errors.extend(f"{sid}: {e}" for e in res["errors"])
