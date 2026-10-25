@@ -2164,7 +2164,14 @@ def compile_segment_h3(
 
         if cam.get("move_preset"):
             # PR-14b：運鏡預設展開成完整 Camera 子句（不加 slowly、不走動詞映射）
-            mclause, _preset_warn = camera_moves.expand_preset(cam["move_preset"], cam.get("move_slots"))
+            # 第 3 輪：秒數不足（yo-yo、三格分割需 8 秒）、開場景別不符、掛了場景參考圖（運鏡砍半）都記 compile_notes
+            try:
+                _shot_secs = float(s.get("duration") or target_dur)
+            except (TypeError, ValueError):
+                _shot_secs = target_dur
+            mclause, _preset_warn = camera_moves.expand_preset(
+                cam["move_preset"], cam.get("move_slots"),
+                seconds=_shot_secs, shot_size=shot_size, bg_plate=ref2va)
             notes.extend(f"{s.get('shot_id')} {w}" for w in _preset_warn)
         else:
             motion = map_camera_motion(cam.get("movement_en") or cam.get("movement", "static"), idx).replace("camera ", "").strip()
