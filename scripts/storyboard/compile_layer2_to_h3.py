@@ -540,7 +540,11 @@ def _on_screen_sentence(show: Dict[str, Any], subjects: List[Tuple[int, str, int
                 bits.append(("@", mode))  # type: ignore[arg-type]
             groups[mode].append(label)
     out = [SHOW_MODES[b[1]].format(L=", ".join(groups[b[1]])) if isinstance(b, tuple) else b for b in bits]
-    return " On screen: " + "; ".join(out) + "."
+    sentence = " On screen: " + "; ".join(out) + "."
+    # #96：參考圖整段共用，遠景空鏡所有 Subject 都 absent 時，自動補空場景句，避免 H3 把人畫出來
+    if subjects and all(str(show.get(cid) or "absent") == "absent" for _k, cid, _p in subjects):
+        sentence += " The frame is completely empty of people; no person, figure or silhouette appears anywhere in it."
+    return sentence
 LIPS_MODES = {"closed", "omit"}
 # 中文運鏡關鍵字 → H3 官方動詞（依序比對，先比較長、較具體的詞）。
 CJK_CAMERA_KEYWORDS: List[Tuple[Tuple[str, ...], str]] = [
