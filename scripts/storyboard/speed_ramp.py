@@ -136,8 +136,14 @@ def render(root: Path, sid: str, seg: Dict[str, Any], rules: Dict[str, Any], dry
            "-map", "[vo]"]
     if info["has_audio"]:
         cmd += ["-map", "[ac]", "-c:a", "aac", "-b:a", "160k", "-ar", "48000"]
-    cmd += ["-c:v", "libx264", "-crf", "18", "-preset", "medium", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(out)]
-    subprocess.run(cmd, check=True, capture_output=True)
+    cmd += ["-c:v", "libx264", "-crf", "18", "-preset", "medium", "-pix_fmt", "yuv420p", "-movflags", "+faststart"]
+    # #169：工作區 FS 第二遍寫 faststart 會 I/O 失敗，先寫 /tmp 再搬
+    import shutil
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        tmp_out = Path(td) / out.name
+        subprocess.run(cmd + [str(tmp_out)], check=True, capture_output=True)
+        shutil.move(str(tmp_out), str(out))
     got = _probe(out)
     corr = protect_correlation(src, out, seg.get("protect") or [], tmap) if info["has_audio"] else None
     threshold = float(rules.get("protect_corr_min", 0.98))
