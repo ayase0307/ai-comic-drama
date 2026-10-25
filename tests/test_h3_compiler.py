@@ -402,6 +402,21 @@ class H3CompilerRegressionTests(unittest.TestCase):
         self.assertIn("segment_seconds 1.250–2.500", prompt)
         self.assertIn("<d>[Chinese] 先別退，聽我說！</d>", prompt)
 
+    def test_listener_offscreen_does_not_hide_visible_speaker(self):
+        # "looking at {C-x} off-screen" places the LISTENER outside the frame; the speaker's mouth is visible.
+        data = self.segment()
+        action = "First she says the line while looking toward frame right at {C-wang-ju} off-screen"
+        shot = self.shot("L1", 0, 9, action, line="小橘，丹翠交給妳。")
+        shot["character_ids"] = ["C-MIRA"]
+        shot["dialogue_and_audio"].update({"speaker": "C-MIRA", "lips_closed_lock": False})
+        shot["action_and_performance"]["action_stages_en"] = [action]
+        shot["action_and_performance"]["observable_expression_en"] = "Her mouth is clearly visible while she speaks."
+        data["shots"] = [shot]
+        compiled = self.compile(data)
+        self.assertIn("is the visible speaking character", compiled["h3_prompt"])
+        self.assertNotIn("off-screen: <d>", compiled["h3_prompt"])
+        self.assertEqual(compiled["external_narration"], [])
+
     def test_offscreen_and_inner_voice_dialogue_never_becomes_visible_speech(self):
         cases = [
             ("C-guide", ["C-MIRA", "C-guide"], "The offscreen guide asks from beyond frame; only a hand is visible.", "C-guide"),
