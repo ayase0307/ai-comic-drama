@@ -75,6 +75,7 @@ try:  # 以 scripts/storyboard 為 sys.path 執行（CLI 慣例）
     import prompt_authoring
     import continuity_lint
     import voice_lint
+    import creature_lint
 except ImportError:  # pragma: no cover - 套件匯入路徑
     from . import h3_spec
     from . import normalize as normalize_mod
@@ -82,6 +83,7 @@ except ImportError:  # pragma: no cover - 套件匯入路徑
     from . import prompt_authoring
     from . import continuity_lint
     from . import voice_lint
+    from . import creature_lint
 
 
 # ==============================================================================
@@ -1853,8 +1855,10 @@ def compile_segment_h3(
                 f"{k + 1}, {kind_label}), {desc}.")
             if info.get("is_creature"):
                 # 生物沒有髮型與服裝；沿用人類模板會把 H3 引向「人臉」（#60）
-                ret = (f"<Subject {k}> (appears across shots): fully_preserved - the body shape, skin or surface "
-                       f"texture, and head features from <Picture {k + 1}> are retained.")
+                ret = (f"<Subject {k}> (appears across shots): fully_preserved - "
+                       f"{creature_lint.head_retention_clause(info.get('desc_en') or '', k + 1)}.")
+                for _w in creature_lint.lint_creature_text(info.get("id") or disp_name, info.get("desc_en") or "", []):
+                    notes.append(_w)
                 ret += " Ignore neutral gray/white studio background of creature turnaround sheet."
             else:
                 ret = f"<Subject {k}> (appears across shots): fully_preserved - the facial identity, hairstyle, and wardrobe from <Picture {k + 1}> are retained."
