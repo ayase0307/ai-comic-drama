@@ -41,3 +41,16 @@ class CameraMovesTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HandheldTiltUpTests(unittest.TestCase):
+    def test_handheld_and_tilt_up(self):
+        from scripts.storyboard import camera_moves as cm
+        self.assertEqual(cm.find_preset("手持"), "handheld")
+        clause, warn = cm.expand_preset("handheld")
+        self.assertNotIn("static", clause)
+        self.assertTrue(warn)
+        clause, _ = cm.expand_preset("仰搖", {"target": "the snake head"})
+        self.assertIn("stays the same", clause)
+        with self.assertRaises(ValueError):
+            cm.expand_preset("tilt_up_locked")

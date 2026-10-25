@@ -26,6 +26,26 @@ PRESETS: Dict[str, dict] = {
                    "the camera does not roll, tilt back or level out"),
         "note": "只寫 tilt 角度會被忽略，要描述畫面結果。",
     },
+    "handheld": {
+        "aliases": ["handheld", "手持", "手持晃動"],
+        "slots": [],
+        "status": "experimental",
+        "strong": False,
+        "clause": ("handheld camera with continuous small shaky drift: the frame sways and jitters a few percent of its "
+                   "width, the horizon and the background slide visibly against the subject on every beat, never locked off"),
+        "note": "噩盡島實測：只寫 handheld 背景位移 0.12 px、比鎖死鏡還穩；必須描述畫面結果（背景相對主體持續位移），且包裝層不可同時含 static／locked off。",
+        "caution": "此預設不可與固定機位（static／locked off）包裝句並用；首次生成請檢查背景位移",
+    },
+    "tilt_up_locked": {
+        "aliases": ["tilt up", "仰搖", "仰搖鎖終幅", "低角度仰搖"],
+        "slots": ["target"],
+        "status": "experimental",
+        "strong": False,
+        "clause": ("starts on the lower part of the scene and tilts up smoothly from the first frame until {target} fills the "
+                   "upper center of the frame; the shot size stays the same throughout, the camera does not pull back, "
+                   "and {target} stays fully inside the frame at the end"),
+        "note": "噩盡島實測：仰搖終幅被拉成全身遠景、目標出畫；要給落點物件並鎖定景別不變。",
+    },
     "top_down_rise": {
         "aliases": ["top down rise", "overhead rise", "頂拍上升", "純垂直俯拍"],
         "slots": [],
