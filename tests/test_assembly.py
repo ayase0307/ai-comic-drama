@@ -209,6 +209,31 @@ class AssemblyRegressionTests(unittest.TestCase):
             self.assertTrue(output.exists(), message)
             self.assertGreater(output.stat().st_size, 100)
 
+    def test_concat_aac_segments_pcm_locked_to_video_length(self):
+        import subprocess
+        with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[1]) as td:
+            root = Path(td)
+            segs = []
+            for i, (dur, audio) in enumerate([(1.0, True), (1.0, False), (1.0, True)]):
+                seg = root / f"s{i}.mp4"
+                cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                       "-f", "lavfi", "-i", f"color=c=blue:s=160x90:r=24:d={dur}"]
+                if audio:
+                    cmd += ["-f", "lavfi", "-i", "sine=frequency=440:duration=0.9", "-c:a", "aac", "-shortest"]
+                    cmd = [c for c in cmd if c != "-shortest"]
+                else:
+                    cmd += ["-an"]
+                cmd += ["-c:v", "libx264", "-pix_fmt", "yuv420p", str(seg)]
+                self.assertEqual(subprocess.run(cmd, capture_output=True).returncode, 0)
+                segs.append(seg)
+            out = root / "final.mp4"
+            ok, msg = assembly.concat_videos(segs, out, target_lufs=None)
+            self.assertTrue(ok, msg)
+            info = assembly.probe_video_specs(out)
+            self.assertTrue(info["has_audio"])
+            self.assertAlmostEqual(info["duration"], 3.0, delta=0.1)
+            self.assertEqual([p.name for p in root.glob(".pcm_*")], [])
+
     def test_assemble_missing_segment_fails_and_does_not_leave_stale_final(self):
         with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[1]) as td:
             root = Path(td)

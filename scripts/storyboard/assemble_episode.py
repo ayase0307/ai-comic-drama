@@ -460,6 +460,49 @@ def process_single_segment(
 # FFmpeg Concat 協議無縫拼接
 # ==============================================================================
 
+def build_pcm_audio_track(video_list: List[Path], work_dir: Path) -> Optional[Path]:
+    """逐段解成 PCM、長度鎖成該段影片時長再串接（#168）。
+
+    concat demuxer 直接 -c copy 接 AAC 會讓各段 priming 疊加，出現
+    Non-monotonic DTS 與 A/V 漂移。這裡每段先解 48 kHz 立體聲 PCM，
+    補靜音或裁切到影片時長，再串成單一 wav，最後由呼叫端統一編碼。
+    全部分段都沒有音軌時回傳 None（沿用舊路徑）。
+    """
+    specs = [probe_video_specs(v) for v in video_list]
+    if not any(sp["has_audio"] for sp in specs):
+        return None
+    wavs: List[Path] = []
+    for idx, (video, sp) in enumerate(zip(video_list, specs)):
+        dur = max(float(sp["duration"]), 0.0)
+        wav = work_dir / f".pcm_{os.getpid()}_{idx:03d}.wav"
+        fmt = "aresample=48000,aformat=channel_layouts=stereo"
+        if sp["has_audio"]:
+            cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", str(video.resolve()), "-vn",
+                   "-af", f"{fmt},apad,atrim=0:{dur:.6f}"]
+        else:
+            cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi",
+                   "-i", "anullsrc=r=48000:cl=stereo", "-t", f"{dur:.6f}"]
+        cmd += ["-c:a", "pcm_s16le", str(wav)]
+        res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        if res.returncode != 0 or not wav.exists():
+            for w in wavs:
+                w.unlink(missing_ok=True)
+            raise RuntimeError(f"解 PCM 失敗 {video.name}: {res.stderr[:300]}")
+        wavs.append(wav)
+    lst = work_dir / f".pcm_{os.getpid()}.txt"
+    lst.write_text("".join(f"file '{w.resolve().as_posix()}'\n" for w in wavs), encoding="utf-8")
+    joined = work_dir / f".pcm_{os.getpid()}_all.wav"
+    res = subprocess.run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-f", "concat", "-safe", "0",
+                          "-i", str(lst.resolve()), "-c", "copy", str(joined)],
+                         capture_output=True, text=True, encoding="utf-8", errors="replace")
+    for w in wavs:
+        w.unlink(missing_ok=True)
+    lst.unlink(missing_ok=True)
+    if res.returncode != 0 or not joined.exists():
+        raise RuntimeError(f"串接 PCM 失敗: {res.stderr[:300]}")
+    return joined
+
+
 def concat_videos(
     video_list: List[Path],
     out_video: Path,
@@ -487,11 +530,21 @@ def concat_videos(
     staging_video = out_video.with_name(f".{out_video.stem}.{os.getpid()}.concat{out_video.suffix}")
     staging_video.unlink(missing_ok=True)
 
+    try:
+        pcm = build_pcm_audio_track(video_list, out_video.parent)
+    except Exception as exc:
+        list_file.unlink(missing_ok=True)
+        return False, f"拼接失敗: {exc}"
     cmd = [
         "ffmpeg", "-y", "-hide_banner", "-f", "concat", "-safe", "0",
         "-i", str(list_file.resolve()),
     ]
-    if target_lufs is None:
+    if pcm is not None:
+        cmd.extend(["-i", str(pcm.resolve()), "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy",
+                    "-c:a", "aac", "-b:a", "192k", "-ar", "48000"])
+        if target_lufs is not None:
+            cmd.extend(["-af", f"loudnorm=I={target_lufs}:TP={true_peak}:LRA={lra}"])
+    elif target_lufs is None:
         cmd.extend(["-c", "copy"])
     else:
         # 單遍 loudnorm：先正規化整合響度，再由 loudnorm 內建的 true peak 限制收尾。
@@ -506,6 +559,8 @@ def concat_videos(
         list_file.unlink()
     except Exception:
         pass
+    if pcm is not None:
+        pcm.unlink(missing_ok=True)
 
     if res.returncode != 0 or not staging_video.exists() or staging_video.stat().st_size == 0:
         staging_video.unlink(missing_ok=True)
