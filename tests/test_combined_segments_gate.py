@@ -68,5 +68,57 @@ class CombinedSegmentsStageGateTests(unittest.TestCase):
         self.assertTrue((self.root / "videos" / "qa-report.json").is_file())
 
 
+class SegmentsAllConsistencyTests(unittest.TestCase):
+    """segments-all.json 是階段 6 的單一來源，必須等於逐集檔聯集。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(dir=ROOT)
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.ep = {"EP01": [{"segment_id": "EP01-S01-a", "h3_prompt": "one"}],
+                   "EP02": [{"segment_id": "EP02-S01-a", "h3_prompt": "two"}]}
+        for ep, segs in self.ep.items():
+            self._write(f"segments-{ep.lower()}.json", segs)
+
+    def _write(self, name, segs):
+        (self.root / name).write_text(json.dumps({"segments": segs}, ensure_ascii=False), encoding="utf-8")
+
+    def _errors(self):
+        return state.segments_all_consistency_errors(self.root, sorted(self.root.glob("segments-ep*.json")))
+
+    def test_no_combined_file_is_fine(self):
+        self.assertEqual(self._errors(), [])
+
+    def test_combined_equal_to_union_passes(self):
+        self._write("segments-all.json", self.ep["EP01"] + self.ep["EP02"])
+        self.assertEqual(self._errors(), [])
+
+    def test_stale_combined_content_blocks_with_rebuild_command(self):
+        self._write("segments-all.json", [{"segment_id": "EP01-S01-a", "h3_prompt": "old"}] + self.ep["EP02"])
+        errors = self._errors()
+        self.assertEqual(len(errors), 1)
+        self.assertIn("內容不同 EP01-S01-a", errors[0])
+        self.assertIn("--output-segments segments-all.json", errors[0])
+
+    def test_missing_and_extra_ids_block(self):
+        self._write("segments-all.json", self.ep["EP01"] + [{"segment_id": "EP09-S01-a", "h3_prompt": "x"}])
+        errors = self._errors()
+        self.assertIn("缺少 EP02-S01-a", errors[0])
+        self.assertIn("多出 EP09-S01-a", errors[0])
+
+    def test_strict_stage5_reports_mismatch_but_lenient_does_not(self):
+        self._write("segments-all.json", self.ep["EP01"])
+        strict = state.stage_validation_errors(self.root, 5, strict=True)
+        lenient = state.stage_validation_errors(self.root, 5)
+        self.assertTrue(any("segments-all.json 與" in e for e in strict))
+        self.assertFalse(any("segments-all.json 與" in e for e in lenient))
+
+    def test_scoped_ids_default_to_combined_file(self):
+        self._write("segments-all.json", self.ep["EP01"] + self.ep["EP02"])
+        _, error = state.scoped_expected_segment_ids(self.root, {})
+        # 不再因「多集沒指定來源」而報錯；改走 segments-all（此處因未核准而在 hash 檢查擋下）。
+        self.assertNotIn("多集專案", error or "")
+
+
 if __name__ == "__main__":
     unittest.main()

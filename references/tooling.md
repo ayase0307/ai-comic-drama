@@ -154,6 +154,8 @@ python scripts/h3d.py compile --layer2 layer2/ --bible video-bible.json --bindin
   --project-root . --output-segments segments-all.json --check
 ```
 
+**單一來源規則**：`segments-all.json` 存在時，階段 6 送件（`h3d next`）、`motion_qa`、QA／交付的預設全集、失敗目錄 ack 都以它為準；不存在才用 `segments-ep*.json`。所以它不能落後：strict 階段 5（`h3d next`、新核准、自動核准）會把它的段落 id 與每段內容 hash 和逐集檔聯集對帳，缺段、多段或內容不同都擋關，並印出上面的重產指令（不需要全集時也可直接刪掉它）。改了任何一集重編後，記得跟著重產全集。
+
 逐集 `segments-epXX.json` 則用 `--episode EPxx` 另編；`--bindings` 含其他集的段會自動略過。`--check` 的「17 條」是 `audit_refs_and_segments.py --lint-h3` 的 E1–E9、W10–W13、E14–E16、E18；E19 起是參考圖對帳與逐鏡撰寫審查。
 
 ### 2.3.3 段間連戲、無文字句、同場光線（#133 #138 #139）
