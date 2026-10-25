@@ -301,7 +301,7 @@ def plan(root: Path) -> Dict[str, Any]:
         res = _result(root, None, "uninitialized")
         res["blocked_on"].append("沒有 review/project-state.json")
         res["action"] = "先建立專案骨架（會一併建立空的 decisions.json）。"
-        res["next_command"] = f'{INIT} "{root.as_posix()}" --title "<劇名>" --episodes <集數>'
+        res["next_command"] = f'{INIT} "{root.as_posix()}" --title "<劇名>"'
         res["read"] = ["references/pipeline.md"]
         return res
 
@@ -356,7 +356,9 @@ def plan(root: Path) -> Dict[str, Any]:
     if active:
         res["blocked_on"].append(f"有 {len(active)} 個影片工作還在跑：{active[0]}")
         res["action"] = "不要再開第二個 runner，也不要送新件；只收件。"
-        res["next_command"] = f"{H3D} collect --segments <該批 segments 檔> --output-dir videos --root-dir ."
+        segs = _segment_files(root)
+        seg_arg = f" --segments {_rel(root, segs[0])}" if segs else ""
+        res["next_command"] = f"{H3D} collect{seg_arg} --output-dir videos --root-dir ."
         return res
 
     missing = decisions_mod.missing_for_stage(root, stage)

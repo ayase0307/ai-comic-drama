@@ -47,7 +47,7 @@ if str(CURRENT_DIR) not in sys.path:
 SCRIPTS_DIR = CURRENT_DIR.parent
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
-from project_state import require_approved, stage4_artifacts, stage_snapshot
+from project_state import record_gate_bypass, require_approved, stage4_artifacts, stage_snapshot
 
 from audit_refs_and_segments import (
     COMPOUND_CAMERA_MOTIONS,
@@ -2618,6 +2618,8 @@ def verify_stage4_gate(project_root: pathlib.Path, skip_gate: bool = False, laye
     """要求有效 stage-4 人工核准，且核准快照涵蓋目前分鏡與對應草圖。"""
     if skip_gate:
         print("⚠️ [警告] 已顯式指定 --skip-stage-gate，跳過階段 4 分鏡總覽圖門禁檢查。")
+        if not record_gate_bypass(project_root, "stage-4", "compile_layer2_to_h3 --skip-stage-gate"):
+            print("⚠️ [警告] 沒有 review/project-state.json，這次繞過未留紀錄。", file=sys.stderr)
         return True
     try:
         matched, errors = stage4_artifacts(project_root)
