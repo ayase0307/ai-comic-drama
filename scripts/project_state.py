@@ -5,6 +5,7 @@ import hashlib
 import json
 import shutil
 import subprocess
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -100,6 +101,17 @@ def save_state(root: Path, state: dict[str, Any]) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(normalized, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     tmp.replace(path)
+
+
+def record_gate_bypass(root: Path, gate: str, detail: str) -> bool:
+    """`--skip-stage-gate` 留痕：追加到 project-state 的 gate_bypasses，經 save_state 蓋戳記。
+    沒有狀態檔就不寫（回傳 False）；呼叫端要把這件事講給使用者聽。"""
+    if not state_path(root).is_file():
+        return False
+    state = load_state(root)
+    entry = {"gate": gate, "detail": detail, "at": datetime.now().astimezone().isoformat(timespec="seconds")}
+    save_state(root, {**state, "gate_bypasses": [*state.get("gate_bypasses", []), entry]})
+    return True
 
 
 def state_integrity(root: Path) -> str:

@@ -54,7 +54,7 @@ if str(CURRENT_DIR) not in sys.path:
 SCRIPTS_DIR = CURRENT_DIR.parent
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
-from project_state import require_approved, sha256_file, stage_snapshot
+from project_state import record_gate_bypass, require_approved, sha256_file, stage_snapshot
 
 try:
     from audit_refs_and_segments import audit_refs_and_subjects, lint_h3_prompt
@@ -438,6 +438,8 @@ def verify_stage5_gate(root_dir: Path, segments_path: Path, skip_gate: bool = Fa
     if skip_gate:
         if dry_run:
             print("⚠️ [debug] --skip-stage-gate 僅於 --dry-run 可用。")
+            if not record_gate_bypass(root_dir, "stage-5", f"submit_h3_segments --dry-run --skip-stage-gate ({segments_path.name})"):
+                print("⚠️ [警告] 沒有 review/project-state.json，這次繞過未留紀錄。", file=sys.stderr)
             return True
         print("❌ --skip-stage-gate 僅允許 dry-run；實際送件必須有 stage-5 核准。", file=sys.stderr)
         return False

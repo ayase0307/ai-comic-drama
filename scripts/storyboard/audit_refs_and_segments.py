@@ -405,7 +405,8 @@ def audit_refs_and_subjects(seg_data: Dict[str, Any], project_root: Optional[Pat
         # ---------- E24：外部化的台詞不得同時寫進 <d>（任何政策） ----------
         # external 全部外部化；short-offscreen-h3 只外部化長句。進了 external_narration 的句子
         # 若仍以 <d> 出現，H3 會念一次、階段 7 又混一次。
-        narration_policy = str((seg_data.get("metadata") or {}).get("narration_policy") or "external")
+        # 預設與 compile_layer2_to_h3.DEFAULT_NARRATION_POLICY 一致（短畫外句交給 H3）。
+        narration_policy = str((seg_data.get("metadata") or {}).get("narration_policy") or "short-offscreen-h3")
         external_narration = seg_data.get("external_narration") or []
         if narration_policy in ("external", "short-offscreen-h3") and external_narration:
             for entry in external_narration:
