@@ -113,3 +113,19 @@ class VerdictTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AcceptAllTests(unittest.TestCase):
+    def test_accept_all_converts_warn_to_user(self):
+        (ROOT / "tmp").mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=ROOT / "tmp") as td:
+            root = Path(td)
+            (root / "tile.jpg").write_bytes(b"x")
+            decisions.decide(root, "acceptance_policy", "recommended", "照建議")
+            verdicts.set_verdict(root, "S1", "warn", "小問題", ["tile.jpg"])
+            verdicts.set_verdict(root, "S2", "pass", "ok", ["tile.jpg"])
+            done = verdicts.accept_all(root, "接受現有")
+            self.assertEqual(done, ["S1"])
+            self.assertEqual(verdicts.load(root)["segments"]["S1"]["decided_by"], "user")
+            with self.assertRaises(verdicts.VerdictError):
+                verdicts.accept_all(root, " ")

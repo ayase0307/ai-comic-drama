@@ -34,7 +34,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
-ASR_JUNK = ("以下是繁體", "點贊", "訂閱", "小鈴鐺", "字幕", "打賞")
+ASR_JUNK = ("以下是繁體", "點贊", "訂閱", "小鈴鐺", "字幕", "打賞", "詞曲", "作詞", "作曲", "索兰娅", "索蘭婭", "請不吝", "感謝收看", "謝謝觀看")
 DEFAULT_DUCK_DB = -22.0
 DEFAULT_LUFS = -16.0
 DEFAULT_GAP = 0.15
