@@ -46,9 +46,32 @@ def norm(text: str) -> str:
     return re.sub(r"[^\u4e00-\u9fff]", "", str(text or ""))
 
 
+def _load_pinyin():
+    try:
+        from pypinyin import lazy_pinyin  # type: ignore
+        return lambda t: lazy_pinyin(t, errors="ignore")
+    except Exception:  # 沒裝 pypinyin → 退回逐字
+        return None
+
+
+_PINYIN = _load_pinyin()
+
+
+def tokens(text: str) -> List[str]:
+    """對位用 token：有 pypinyin 時用無聲調拼音（「幹／干」「屁／匹」同音視為相同），否則逐字。"""
+    chars = norm(text)
+    if _PINYIN is None or not chars:
+        return list(chars)
+    try:
+        out = _PINYIN(chars)
+    except Exception:
+        return list(chars)
+    return out if len(out) == len(chars) else list(chars)
+
+
 def overlap(a: str, b: str) -> float:
-    a, b = norm(a), norm(b)
-    return sum(1 for c in a if c in b) / max(1, len(a))
+    ta, tb = tokens(a), set(tokens(b))
+    return sum(1 for c in ta if c in tb) / max(1, len(ta))
 
 
 # ------------------------------------------------------------------ 讀專案
@@ -181,10 +204,10 @@ def place(manifest: Dict[str, Dict[str, Any]], lines: Dict[str, List[Dict[str, A
             if manifest[k]["line"] not in seg_lines:
                 seg_lines.append(manifest[k]["line"])
         on = [(i, l) for i, l in enumerate(seg_lines) if l not in vo_lines]
-        ref, ref_idx = "", []
+        ref, ref_idx = [], []
         for i, l in on:
-            for c in norm(l):
-                ref += c
+            for c in tokens(l):
+                ref.append(c)
                 ref_idx.append(i)
         words: List[List[Any]] = []
         rogue: List[Tuple[float, float, str]] = []
@@ -202,10 +225,10 @@ def place(manifest: Dict[str, Dict[str, Any]], lines: Dict[str, List[Dict[str, A
                 rogue.append((keep[0][0], keep[-1][1], text))  # 聽不出是哪句畫內台詞＝亂語
             else:
                 words.extend(keep)
-        hyp, hyp_idx = "", []
+        hyp, hyp_idx = [], []
         for wi, w in enumerate(words):
-            for c in norm(w[2]):
-                hyp += c
+            for c in tokens(w[2]):
+                hyp.append(c)
                 hyp_idx.append(wi)
         wline: List[Optional[int]] = [None] * len(words)
         for block in difflib.SequenceMatcher(None, hyp, ref, autojunk=False).get_matching_blocks():
