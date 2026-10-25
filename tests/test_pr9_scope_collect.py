@@ -34,7 +34,7 @@ class ScopeTests(unittest.TestCase):
         (root / "segments-ep01.json").write_text(json.dumps([{"segment_id": "A"}]))
         (root / "segments-all.json").write_text(json.dumps([{"segment_id": "A"}, {"segment_id": "B"}]))
         (root / "decisions.json").write_text(json.dumps({"schema_version": 1, "decisions": [
-            {"id": "delivery_scope", "rule": "x", "value": scope, "source": {"quote": "q", "date": "2026-10-25", "by": "user"}}]}))
+            {"id": "delivery_scope", "rule": "x", "value": scope, "stages": [6], "source": {"quote": "q", "date": "2026-10-25", "by": "user"}}]}))
         return root
 
     def test_files_prefer_all(self):

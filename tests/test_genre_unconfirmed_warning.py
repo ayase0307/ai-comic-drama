@@ -1,4 +1,4 @@
-import json, subprocess, sys, tempfile, unittest
+import json, os, subprocess, sys, tempfile, unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -10,8 +10,9 @@ def run(root: Path, *extra):
     f = root / "source" / "ch.txt"
     f.parent.mkdir(parents=True, exist_ok=True)
     f.write_text(NOVEL, encoding="utf-8")
+    # Windows 預設用 cp950 解碼子程序輸出，中文會炸；強制 UTF-8。
     return subprocess.run([sys.executable, str(SCRIPT), "--novel", "--novel-file", str(f), "--json", *extra],
-                          capture_output=True, text=True)
+                          capture_output=True, text=True, encoding="utf-8", env={**os.environ, "PYTHONUTF8": "1"})
 
 
 class GenreUnconfirmedTest(unittest.TestCase):
