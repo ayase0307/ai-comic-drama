@@ -127,6 +127,49 @@ class BindingsGeneratorEndToEnd(unittest.TestCase):
         self.assertEqual(paths.get("C-HERO"), crop)
         self.assertEqual(segment.get("unanchored_in_frame_characters") or [], [])
 
+    def _plan_hero_crop(self):
+        from PIL import Image
+        (self.root / "assets" / "crops").mkdir()
+        Image.new("RGB", (640, 1440), (90, 90, 90)).save(self.root / "assets/crops/C-HERO-face.png")
+        (self.root / "assets" / "character-reference-plans.json").write_text(json.dumps(
+            {"characters": {"C-HERO": {"default": {"face_crop": "assets/crops/C-HERO-face.png"}}}}), encoding="utf-8")
+
+    def test_rebind_after_face_turns_back_drops_the_stale_face_entry(self):
+        self._plan_hero_crop()
+        self.assertEqual(gb.main(["--root", str(self.root)]), 0)
+        (self.root / "assets" / "face-visibility.json").write_text(json.dumps(
+            {"shots": {"SH01": {"C-HERO": "back", "C-FRIEND": "back"}, "SH02": {"C-HERO": "back"}}}), encoding="utf-8")
+        self.assertEqual(gb.main(["--root", str(self.root)]), 0)
+        shot1 = json.loads((self.root / "video-bindings.json").read_text(encoding="utf-8"))["segments"][0]["shots"][0]
+        self.assertNotIn("face_subject_ids", shot1)
+        self.assertEqual(shot1["identity_anchor_ids"], ["C-HERO", "C-FRIEND"])
+        compiled = self._compile("--bible", "video-bible.json", "--bindings", "video-bindings.json")
+        self.assertEqual(compiled.returncode, 0, compiled.stdout[-3000:] + compiled.stderr[-2000:])
+
+    def test_creature_on_a_board_compiles_as_a_panel_lookup(self):
+        from PIL import Image
+        self._plan_hero_crop()
+        Image.new("RGB", (2560, 1440), (200, 200, 200)).save(self.root / "images/creature-BEAST.png")
+        bible = json.loads((self.root / "adapt" / "bible.json").read_text(encoding="utf-8"))
+        bible["characters"].append({"character_id": "CREATURE-BEAST", "canonical_name": "Beast", "is_creature": True,
+                                    "visual_prompt_en": "huge snow-white beast with upright ears and red eyes",
+                                    "reference_image": "images/creature-BEAST.png"})
+        (self.root / "adapt" / "bible.json").write_text(json.dumps(bible), encoding="utf-8")
+        layer2 = json.loads(self.layer2.read_text(encoding="utf-8"))
+        shot2 = layer2["shots"][1]
+        shot2["character_ids"] = ["C-HERO", "CREATURE-BEAST"]
+        shot2["action_and_performance"]["five_part_en"] = dict(
+            FIVE_PART[2], motion=FIVE_PART[2]["motion"].replace(
+                "holds on the room ahead", "holds on {CREATURE-BEAST} crouching in the far right corner"))
+        layer2["asset_refs"]["characters"].append({"id": "CREATURE-BEAST"})
+        self.layer2.write_text(json.dumps(layer2, ensure_ascii=False), encoding="utf-8")
+        self.assertEqual(gb.main(["--root", str(self.root)]), 0)
+        shot = json.loads((self.root / "video-bindings.json").read_text(encoding="utf-8"))["segments"][0]["shots"][1]
+        beast = shot["reference_paths"]["creatures"][0]
+        self.assertEqual((beast["reference_view"], beast["panel_role"]), ("panel", "creature"))
+        compiled = self._compile("--bible", "video-bible.json", "--bindings", "video-bindings.json")
+        self.assertEqual(compiled.returncode, 0, compiled.stdout[-3000:] + compiled.stderr[-2000:])
+
     def test_rebind_keeps_hand_written_fields_and_detects_stale_layer2(self):
         (self.root / "assets" / "face-visibility.json").write_text(json.dumps(
             {"shots": {"SH01": {"C-HERO": "back", "C-FRIEND": "back"}, "SH02": {"C-HERO": "profile"}}}), encoding="utf-8")

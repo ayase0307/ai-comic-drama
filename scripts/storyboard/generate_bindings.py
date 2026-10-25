@@ -111,7 +111,8 @@ def video_bible(registry: AssetRegistry, raw_bible: Dict[str, Any]) -> Dict[str,
 
 def _crop_hint(sheet: str, cid: str) -> str:
     return (f"python scripts/h3d.py crop --root . --image {sheet} --box {FACE_PANEL_BOX} "
-            f"--out-dir assets/crops --prefix {cid}-face，再把產出檔寫進 assets/character-reference-plans.json "
+            f"--out-dir assets/crops --prefix {cid}-face（--box 假設標準板面部特寫在最左四分之一，"
+            f"裁完務必目視確認只剩一張臉，版面不同就改 --box），再把產出檔寫進 assets/character-reference-plans.json "
             f"的 characters.{cid}.default.face_crop")
 
 
@@ -221,9 +222,16 @@ def merge_existing(generated: Dict[str, Any], old: Optional[Dict[str, Any]]) -> 
     if not old:
         return generated
     old_shots = {s.get("global_shot_id"): s for s in old.get("shots", []) or [] if isinstance(s, dict)}
-    merged = {**old, **generated}
-    merged["shots"] = [{**old_shots.get(s["global_shot_id"], {}), **s} for s in generated["shots"]]
+    merged = {**{k: v for k, v in old.items() if k not in GENERATED_SEGMENT_KEYS}, **generated}
+    merged["shots"] = [{**{k: v for k, v in old_shots.get(s["global_shot_id"], {}).items() if k not in GENERATED_SHOT_KEYS}, **s}
+                       for s in generated["shots"]]
     return merged
+
+
+# 產生器擁有的欄位：重產時一律以新值為準（沒產出就是刪除），避免舊的 face／anchor 名單殘留互相衝突。
+GENERATED_SEGMENT_KEYS = {"segment_id", "source_layer2_path", "source_sha256", "scene_reference", "shots"}
+GENERATED_SHOT_KEYS = {"global_shot_id", "reference_paths", "visual_subject_ids", "no_visual_reference_ids",
+                       "face_subject_ids", "identity_anchor_ids"}
 
 
 def bindings_stale(root: Path) -> Optional[str]:
