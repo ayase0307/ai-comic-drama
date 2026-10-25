@@ -664,7 +664,7 @@ ffmpeg -i final_ep01.mp4 -af loudnorm=I=-23:TP=-1.5:LRA=11:measured_I=-23.1:meas
 python scripts/storyboard/tts_doctor.py
 python scripts/storyboard/tts_doctor.py --json
 
-# 2. 組裝：--audio-mode auto 逐段裁決（畫內對白留 H3 口型、旁白由外部 TTS 產生）
+# 2. 組裝：--audio-mode auto 逐段裁決（畫內對白留 H3 口型、長旁白由外部 TTS 產生，短畫外句由 H3 念）
 python scripts/storyboard/assemble_episode.py \
   --segments segments-ep01.json \
   --videos-dir videos/ \
