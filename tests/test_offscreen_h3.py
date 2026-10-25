@@ -156,8 +156,9 @@ class OffscreenH3CompilerTests(unittest.TestCase):
         self.assertIn("off-screen from above the ridge, " + BIRD_VOICE + ": <d>", prompt)
 
     def test_cli_default_is_short_offscreen_h3(self):
-        src = (ROOT / "scripts" / "storyboard" / "compile_layer2_to_h3.py").read_text(encoding="utf-8")
-        self.assertIn("default=DEFAULT_NARRATION_POLICY, choices=list(NARRATION_POLICIES)", src)
+        # 沒給旗標、也沒有 dialogue_policy 定案時，解析結果就是 short-offscreen-h3
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(compiler.resolve_narration_policy(None, Path(tmp)), "short-offscreen-h3")
 
 
 class VoiceLintTests(unittest.TestCase):

@@ -264,6 +264,26 @@ def parse_value(decision_id: str, raw: str) -> Any:
     return raw
 
 
+# dialogue_policy 的定案值若直接寫出編譯器認得的政策名，就對應到 --narration-policy。
+# 中文選項（①～④）不在這裡猜語意，對不上就明確報錯，由使用者重新定案。
+NARRATION_POLICY_NAMES = ("short-offscreen-h3", "external", "h3-native")
+
+
+def narration_policy_of(data: Dict[str, Any]) -> Optional[str]:
+    """回傳 dialogue_policy 對應的 narration policy；沒定案回 None；定案值對不上 raise ValueError。"""
+    item = get(data, "dialogue_policy")
+    if not item or item.get("value") in (None, ""):
+        return None
+    value = str(item["value"]).strip()
+    if value in NARRATION_POLICY_NAMES:
+        return value
+    raise ValueError(
+        f"dialogue_policy 定案值 {value!r} 無法對應 --narration-policy"
+        f"（可用：{'、'.join(NARRATION_POLICY_NAMES)}）。請重新定案，例如 "
+        "h3d decide dialogue_policy short-offscreen-h3 --quote \"<使用者原話>\""
+    )
+
+
 def default_rule(decision_id: str, value: Any) -> str:
     label = KNOWN_DECISIONS.get(decision_id, {}).get("label", decision_id)
     if decision_id == "acceptance_policy" and isinstance(value, dict):
