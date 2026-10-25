@@ -134,3 +134,19 @@ class EpisodeKeyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Stage5EndStateGateTests(unittest.TestCase):
+    def test_missing_end_state_flagged(self):
+        import json, tempfile
+        from pathlib import Path
+        import project_state
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "segments-ep01.json"
+            p.write_text(json.dumps({"segments": [
+                {"segment_id": "S1"},
+                {"segment_id": "S2", "segment_end_state": {"planned_final_state_en": {"pose": "standing"}}}]}),
+                encoding="utf-8")
+            errs = project_state._stage5_end_state_errors([p])
+        self.assertEqual(len(errs), 1)
+        self.assertIn("S1", errs[0])

@@ -72,7 +72,7 @@ class StageReviewGateTests(unittest.TestCase):
             p = self.root / f"segments-{episode}.json"
             sid = episode.upper() + "-S01"
             p.write_text(json.dumps({"segments": [{"segment_id": sid,
-                "reference_images": [{"path": "images/ref.png"}]}]}), encoding="utf-8")
+                "segment_end_state": {"planned_final_state": {"pose": "standing"}}, "reference_images": [{"path": "images/ref.png"}]}]}), encoding="utf-8")
             segments[episode] = (p, sid)
             panel = self.root / "layer2" / "panels" / f"panel-01-{sid}.png"
             panel.parent.mkdir(exist_ok=True)
@@ -193,7 +193,7 @@ class StageReviewGateTests(unittest.TestCase):
         }), encoding="utf-8")
         segments = self.root / "segments-ep01.json"
         segments.write_text(json.dumps({"segments": [{
-            "segment_id": "seg1", "reference_images": [{"path": "images/ref.png"}]
+            "segment_id": "seg1", "segment_end_state": {"planned_final_state": {"pose": "standing"}}, "reference_images": [{"path": "images/ref.png"}]
         }]}), encoding="utf-8")
         state = ps.load_state(self.root)
         for stage in range(6):

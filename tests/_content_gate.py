@@ -19,9 +19,16 @@ import stage_content_checks  # noqa: E402
 _patcher = mock.patch.object(stage_content_checks, "content_errors", return_value=[])
 
 
+import project_state  # noqa: E402
+
+_end_state_patcher = mock.patch.object(project_state, "_stage5_end_state_errors", return_value=[])
+
+
 def disable() -> None:
     _patcher.start()
+    _end_state_patcher.start()
 
 
 def enable() -> None:
     _patcher.stop()
+    _end_state_patcher.stop()
