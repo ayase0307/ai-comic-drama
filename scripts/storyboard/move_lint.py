@@ -30,6 +30,17 @@ INTENT_RULES = [
     (r"俯瞰|全景|建立|開場|establish", ("top_down_rise", ["aerial_pullback"], "俯拍建立地理")),
     (r"回憶|往事|平行|同時|simultaneous|flashback", ("split_screen_3", [], "同一瞬間多角度／多地點")),
     (r"暈眩|失控|dizz|vertigo", ("snorricam", ["dolly_zoom"], "綁身鏡頭讓背景晃動")),
+    (r"急推|恍然大悟|笑點|crash", ("crash_zoom", ["push_in"], "半秒急推強調；機位不動")),
+    (r"甩鏡|甩向|猛地看|whip", ("whip_pan", ["foreground_wipe"], "單次甩鏡，末端急停")),
+    (r"轉焦|焦點轉|rack focus", ("rack_focus", [], "固定機位、淺景深轉焦")),
+    (r"權力|威脅|英雄|霸氣|仰視|low.?angle", ("low_angle", ["static_hold"], "低機位仰角，不疊廣角")),
+    (r"細節|微距|特寫物|macro", ("macro_push", ["push_in"], "單一小物件、寫焦點落點")),
+    (r"升起|揭示全貌|史詩|rise.?orbit", ("aerial_reveal", ["rise_orbit"], "從遮擋物後升起再揭示")),
+    (r"走進|穿過走廊|沉浸|steadicam", ("steadicam", ["follow"], "一個連續空間內穩定跟走")),
+    (r"第一人稱|主觀|驚嚇|\bpov\b", ("pov", [], "只露手或工具，不露臉")),
+    (r"遮擋轉場|藏接縫|前景遮擋轉|wipe", ("foreground_wipe", ["whip_pan"], "大面積實體完全遮滿")),
+    (r"收緊|逼近一個|緊張|push.?in", ("push_in", [], "景別降一級慢推")),
+    (r"跟拍|並行|行走對話|follow", ("follow", ["truck"], "主體比例不變")),
 ]
 _DIALOGUE_AVOID = "對白鏡不該用強運鏡（CU／MCU 固定機位較穩）"
 
@@ -60,7 +71,7 @@ def lint_segment_moves(shots: List[dict]) -> List[str]:
             intent = s.get("shot_intent") or {}
             text = " ".join(str(intent.get(k, "")) for k in ("audience", "story_beat", "emotional_shift"))
             rec = recommend_move(text)
-            if rec and not _has_dialogue(s) and not cam.get("move_preset") \
+            if rec and rec['primary'] in camera_moves.PRESETS and not _has_dialogue(s) and not cam.get("move_preset") \
                     and str(cam.get("movement", "static")).strip().lower() in ("static", "固定", "", "fixed"):
                 out.append(f"[{sid} 運鏡建議] 依 shot_intent 建議 move_preset={rec['primary']}"
                            f"（備選 {'、'.join(rec['alternates']) or '無'}）：{rec['why']}；不用請忽略")

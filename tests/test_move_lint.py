@@ -43,3 +43,14 @@ class MoveLint(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestIntentRulesPr15a(unittest.TestCase):
+    def test_new_keywords(self):
+        for text, want in [("笑點，急推強調", "crash_zoom"), ("甩鏡轉場", "whip_pan"),
+                           ("轉焦到後景的人", "rack_focus"), ("展現權力威脅", "low_angle"),
+                           ("微距細節", "macro_push"), ("第一人稱驚嚇", "pov")]:
+            self.assertEqual(move_lint.recommend_move(text).get("primary"), want, text)
+
+    def test_old_rules_still_first(self):
+        self.assertEqual(move_lint.recommend_move("震驚")["primary"], "dolly_zoom")
