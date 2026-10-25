@@ -101,7 +101,7 @@ def stage5_producer(root: Path, errors: List[str]) -> tuple:
     try:
         policy = decisions_mod.narration_policy_of(decisions_mod.load(root))
     except (ValueError, decisions_mod.DecisionError) as exc:
-        return (f"{H3D} decide dialogue_policy <short-offscreen-h3|external|h3-native> --quote \"<使用者原話>\"", str(exc))
+        return (f"{H3D} decide dialogue_policy <④|short-offscreen-h3|external|h3-native> --quote \"<使用者原話>\"", str(exc))
     if policy:
         parts.append(f"--narration-policy {policy}")
     action = (f"編譯 {episode} 提示詞包並補齊參考圖" + (f"（還沒編的集：{'、'.join(missing)}）" if missing else "") + "。")

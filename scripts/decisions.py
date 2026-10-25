@@ -264,23 +264,36 @@ def parse_value(decision_id: str, raw: str) -> Any:
     return raw
 
 
-# dialogue_policy 的定案值若直接寫出編譯器認得的政策名，就對應到 --narration-policy。
-# 中文選項（①～④）不在這裡猜語意，對不上就明確報錯，由使用者重新定案。
+# dialogue_policy 的定案值對應到 --narration-policy 的規則：
+# - 值是編譯器政策名 → 直接對應。
+# - ④（無台詞純旁白）→ external：所有旁白都由外部 TTS 合成。
+# - ①②③（原文逐字／只留重點句／影視化改寫）與空值 → 只影響原著對白保留量，不影響旁白由誰念，
+#   回傳 None，沿用預設 short-offscreen-h3，不報錯。
+# - 其他無法辨識的值 → 明確報錯，由使用者重新定案。
 NARRATION_POLICY_NAMES = ("short-offscreen-h3", "external", "h3-native")
+DIALOGUE_POLICY_CHOICE_NARRATION = {"④": "external"}
+DIALOGUE_POLICY_NEUTRAL_CHOICES = ("①", "②", "③")
 
 
 def narration_policy_of(data: Dict[str, Any]) -> Optional[str]:
-    """回傳 dialogue_policy 對應的 narration policy；沒定案回 None；定案值對不上 raise ValueError。"""
+    """回傳 dialogue_policy 對應的 narration policy；不影響編譯或未定案回 None；無法辨識 raise ValueError。"""
     item = get(data, "dialogue_policy")
     if not item or item.get("value") in (None, ""):
         return None
     value = str(item["value"]).strip()
+    if not value:
+        return None
     if value in NARRATION_POLICY_NAMES:
         return value
+    head = value[:1]
+    if head in DIALOGUE_POLICY_CHOICE_NARRATION:
+        return DIALOGUE_POLICY_CHOICE_NARRATION[head]
+    if head in DIALOGUE_POLICY_NEUTRAL_CHOICES:
+        return None
     raise ValueError(
-        f"dialogue_policy 定案值 {value!r} 無法對應 --narration-policy"
-        f"（可用：{'、'.join(NARRATION_POLICY_NAMES)}）。請重新定案，例如 "
-        "h3d decide dialogue_policy short-offscreen-h3 --quote \"<使用者原話>\""
+        f"dialogue_policy 定案值 {value!r} 無法辨識（可用：編譯器政策名 "
+        f"{'、'.join(NARRATION_POLICY_NAMES)}，或 ①～④ 選項）。請重新定案，例如 "
+        "h3d decide dialogue_policy ④ --quote \"<使用者原話>\""
     )
 
 
