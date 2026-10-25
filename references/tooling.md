@@ -194,7 +194,7 @@ python scripts/h3d.py compile --layer2 layer2/ --bible video-bible.json --bindin
 
 ## 2.6 決策收件匣與自動核准（h3d inbox／h3d approve --auto）
 
-**原則：人只看例外。** 收件匣取代逐階段把所有資料攤開的審核頁（舊八頁保留給除錯）。
+**原則：人只看例外。** 收件匣取代逐階段把所有資料攤開的審核頁（舊八頁保留給除錯；`--stage N` 仍負責綁審核快照）。版面、卡片欄位與禁止事項見 `references/review-page-spec.md`。
 
 - `h3d inbox --root .`（或 `build_stage_review.py --project-dir . --inbox`）產生 `review/inbox.html`（standalone、手機優先、縮圖 webp 內嵌、目標 < 5 MB）與 `review/inbox.json`。
   資料只讀 `decisions.json`、`review/verdicts.json`、`review/project-state.json`，選用 `videos/qa-report.json` 與影片抽 10 幀條（`--strips all|recent|none`）；階段 7 的待定音色角色另讀 `segments-ep*.json` 的 `external_narration[].speaker`。

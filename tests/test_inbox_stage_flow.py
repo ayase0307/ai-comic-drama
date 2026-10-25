@@ -115,6 +115,7 @@ class InboxStageCardTests(_Project):
     def test_stage2_approval_card_embeds_sheets_and_flags_flaws(self):
         self._manifest("Agent 自檢通過（有瑕疵）→ 待老大看臉")
         self.set_stage(2, "awaiting_user_approval")
+        ps.mark_awaiting_review(self.root, ps.load_state(self.root), 2)  # 核准卡只在審核快照有效時出現
         card = next(c for c in inbox.build_cards(self.root)["open"] if c["id"] == "D2-approve")
         self.assertNotIn("沒有例外", card["recommendation"])
         self.assertIn("瑕疵", card["recommendation"])

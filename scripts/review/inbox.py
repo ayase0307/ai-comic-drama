@@ -7,7 +7,8 @@
 原則是「人只看例外」：
 
   1. 需要你決定（0–5 張卡）：一句話問題、會影響什麼、我的建議、2–3 個選項
-     （點了就複製回覆文字）、一張證據縮圖。依會不會擋下一步排序。
+     （點了就複製回覆文字）、一張證據縮圖。依會不會擋下一步排序；超過 5 張把後面的併成一張。
+     版面與欄位規格見 references/review-page-spec.md（validate_model 檢查）。
   2. 你已經決定的（收合）：decisions.json 的定案、使用者裁示過的段落、人工核准紀錄。
   3. 我自動處理了 N 件事（收合）：依驗收政策自動通過的段、政策可接受的技術 QA、自動核准。
   4. 原始資料（只放連結，不內嵌）。
@@ -248,6 +249,7 @@ def _verdict_card(root: Path, sid: str, row: Dict[str, Any], raw: Dict[str, Any]
             {"label": "先放著", "reply": _reply(sid, "先放著，成片前再決定")},
         ]
         blocking, label = 2, "擋階段 6 核准"
+        if_ignored = raw.get("if_ignored") or "這段會帶著問題留在片裡；階段 6 不能核准。"
     else:
         impact = raw.get("impact") or "依你的驗收標準不算大錯，不擋核准；只是成片裡可能看得出來。"
         recommendation = raw.get("recommendation") or "維持暫過，不重跑。"
@@ -256,10 +258,11 @@ def _verdict_card(root: Path, sid: str, row: Dict[str, Any], raw: Dict[str, Any]
             {"label": "改提示詞重跑", "reply": _reply(sid, "改提示詞重跑一次")},
         ]
         blocking, label = 5, "不擋"
+        if_ignored = raw.get("if_ignored") or "維持暫過，成片照用這段。"
     return {
         "id": f"D6-{sid}", "kind": "verdict", "stage": 6, "segment": sid,
         "title": title, "finding": reason if reason != short_title(reason) else "",
-        "impact": impact, "recommendation": recommendation, "options": options,
+        "impact": impact, "recommendation": recommendation, "options": options, "if_ignored": if_ignored,
         "blocking": blocking, "blocking_label": label,
         "evidence_paths": _evidence_paths(root, raw or row, sid),
         "evidence_caption": f"{sid} 證據",
@@ -286,6 +289,7 @@ def _warn_group_card(root: Path, rows: List[Tuple[str, Dict[str, Any], Dict[str,
             {"label": "全部維持暫過", "reply": _reply(subject, "全部維持暫過，不重跑")},
             {"label": "逐段給我看", "reply": _reply(subject, "逐段拆成卡片給我看")},
         ],
+        "if_ignored": "全部維持暫過，成片照用。",
         "blocking": 5, "blocking_label": "不擋",
         "evidence_paths": evidence, "evidence_caption": "／".join(sids[:3]),
         "links": [], "source": "review/verdicts.json",
@@ -362,6 +366,7 @@ def stage2_cards(root: Path) -> List[Dict[str, Any]]:
                           + (f" 自檢備註：{notes[0]}" if notes else ""),
         "options": [{"label": "照建議重生成", "reply": f"階段 2：{names} 重生成後再給我看"},
                     {"label": "我看過，可以用", "reply": f"階段 2：{names} 我看過，接受目前版本"}],
+        "if_ignored": "設定圖維持現狀，階段 2 不能核准，後面全部停著。",
         "blocking": 1, "blocking_label": "擋階段 2 核准",
         "evidence_paths": [p for p in (_asset_path(root, a) for a in failed) if p][:3],
         "evidence_caption": "自檢不通過的設定圖", "links": [], "source": "assets/reference-manifest.json"}]
@@ -394,6 +399,7 @@ def stage4_cards(root: Path) -> List[Dict[str, Any]]:
         "recommendation": "我先補畫缺的鏡、重畫退回的鏡，齊了再出核准卡給你。",
         "options": [{"label": "照建議補齊", "reply": "階段 4：照建議補齊構圖，齊了再給我核"},
                     {"label": "先給我看退回的圖", "reply": "階段 4：先把自檢退回的構圖給我看"}],
+        "if_ignored": "階段 4 不能核准，提示詞編譯停在這裡。",
         "blocking": 2, "blocking_label": "擋階段 4 核准",
         "evidence_paths": _panel_evidence(root, rejected),
         "evidence_caption": "自檢退回的構圖" if rejected else "", "links": [],
@@ -434,6 +440,7 @@ def stage5_cards(root: Path, accept: set) -> Tuple[List[Dict[str, Any]], List[Di
             "recommendation": "缺的場景母版或設定圖我先補生成，補完重編這幾段。",
             "options": [{"label": "照建議補圖重編", "reply": "階段 5：照建議補參考圖並重編"},
                         {"label": "先列清單給我", "reply": "階段 5：先把缺圖清單給我看"}],
+            "if_ignored": "階段 5 不能核准，這幾段不會送件。",
             "blocking": 2, "blocking_label": "擋階段 5 核准", "evidence_paths": [], "links": [],
             "source": "segments-ep*.json reference_images"})
     mixed = mixed_face_segments(root)
@@ -449,6 +456,7 @@ def stage5_cards(root: Path, accept: set) -> Tuple[List[Dict[str, Any]], List[Di
             "recommendation": "非必要同框的段改一臉＋背影無臉裁切；確實要兩人露臉的段由你接受。",
             "options": [{"label": "照建議改一臉", "reply": "階段 5：混臉段改成一張臉＋無臉裁切"},
                         {"label": "我接受這些段", "reply": f"階段 5：接受混臉風險，驗收政策 accept 加 {MIXED_FACE_CODE}"}],
+            "if_ignored": "階段 5 不能核准；硬送的話這幾段很可能要重跑（浪費生成）。",
             "blocking": 2, "blocking_label": "擋階段 5 核准", "evidence_paths": [], "links": [],
             "source": "segments-ep*.json reference_images"})
     return cards, auto
@@ -487,6 +495,7 @@ def build_cards(root: Path, *, state: Optional[Dict[str, Any]] = None,
             "recommendation": "用 h3d decide 重寫有問題的定案（不要手改）。",
             "options": [{"label": "照建議修", "reply": "decisions.json：照建議用 h3d decide 重寫"},
                         {"label": "先放著", "reply": "decisions.json：先放著"}],
+            "if_ignored": "所有定案都讀不到，每個階段都不能往下。",
             "blocking": 0, "blocking_label": "擋全部", "evidence_paths": [], "links": [],
             "source": "decisions.json"})
     if verdict_error:
@@ -512,6 +521,7 @@ def build_cards(root: Path, *, state: Optional[Dict[str, Any]] = None,
             "segment": "全集", "title": f"「{meta['label']}」還沒定案",
             "impact": f"沒定案就不能往下；定案後編譯器、QA、收件匣都照它判斷（參考 {meta['reference']}）。",
             "recommendation": rec, "options": options, "blocking": 1, "blocking_label": "擋下一步",
+            "if_ignored": f"「{meta['label']}」沒定案，階段 {meta['required_by']} 不能往下。",
             "evidence_paths": [STYLE14_SHEET] if did == "style" and STYLE14_SHEET.is_file() else [],
             "evidence_caption": "14 號樣圖：上＝設定圖，下＝H3 成片" if did == "style" else "",
             "links": [], "source": "decisions.json"})
@@ -574,7 +584,8 @@ def build_cards(root: Path, *, state: Optional[Dict[str, Any]] = None,
                     {"label": "只確認這次", "reply": "階段 6：確認這次人工核准，政策先不改"},
                     {"label": "重跑技術 QA", "reply": "階段 6：先調 QA 閾值重跑，過了再核"},
                 ],
-                "blocking": 3, "blocking_label": "擋階段 6 核准",
+                "if_ignored": "階段 6 不能核准，成片停在這裡。",
+                "blocking": 2, "blocking_label": "擋階段 6 核准",
                 "evidence_paths": [p for sid in list(tech_rows)[:2] for p in _evidence_paths(root, {}, sid)[:1]],
                 "evidence_caption": "技術 QA 未過的段落", "links": [],
                 "source": "videos/qa-report.json"})
@@ -600,7 +611,8 @@ def build_cards(root: Path, *, state: Optional[Dict[str, Any]] = None,
                     {"label": "全部用畫內聲", "reply": "音色：全部角色都用畫內 H3 聲複製"},
                     {"label": "逐個角色問我", "reply": "音色：逐個角色附試聽問我"},
                 ],
-                "blocking": 3, "blocking_label": "擋配音定案", "evidence_paths": [], "links": [],
+                "if_ignored": "這些角色的畫外台詞沒有聲音，階段 7 不能核准。",
+                "blocking": 2, "blocking_label": "擋配音定案", "evidence_paths": [], "links": [],
                 "source": "segments-ep*.json external_narration＋decisions.json voice:*",
                 "characters": missing_voice})
 
@@ -618,22 +630,30 @@ def build_cards(root: Path, *, state: Optional[Dict[str, Any]] = None,
     cur_entry = stages[ps.stage_key(cur)]
     auto_stages, auto_item = decisions_mod.auto_approve_stages(decisions_data)
     same_stage = [c for c in open_cards if c["stage"] == cur]
+    # 核准卡必須綁在 review_snapshot 上：快照過期時 approve_stage_detailed 一定會拒，不能讓使用者白答（#review-inbox-first）
+    snapshot_ok = (cur_entry.get("status") == "awaiting_user_approval" and bool(cur_entry.get("review_snapshot"))
+                   and cur_entry["review_snapshot"] == ps.stage_snapshot(root, cur))
     if cur_entry.get("status") == "awaiting_user_approval" and not same_stage:
         if cur in auto_stages:
             auto.append({"text": f"階段 {cur} 沒有未決卡，符合自動核准授權",
                          "detail": "執行 h3d approve --auto 會核准並記錄依據。",
                          "source": "decisions.json auto_approve"})
+        elif not snapshot_ok:
+            notes.append(f"階段 {cur} 的審核快照已過期或沒有綁定；我先重跑 build_stage_review.py --stage {cur} 重綁，再出核准卡")
         else:
             title = ps.STAGE_TITLES.get(cur, "")
+            version = ps.snapshot_fingerprint(cur_entry["review_snapshot"])[:8]
             open_cards.append({
                 "id": f"D{cur}-approve", "kind": "approval", "stage": cur, "segment": "全集",
                 "title": f"階段 {cur}「{title}」等你核准",
                 "impact": "核准後才會進下一階段；核准後內容再改，核准會自動失效。",
                 "recommendation": "沒有例外要處理，建議通過。",
-                "options": [{"label": "通過", "reply": f"階段 {cur}：通過"},
+                "options": [{"label": "通過", "reply": f"階段 {cur}：通過（審核快照 {version}）"},
                             {"label": "要改", "reply": f"階段 {cur}：要改，____"}],
+                "if_ignored": f"停在階段 {cur}，後面的階段都不會開始。",
                 "blocking": 1, "blocking_label": "擋下一步", "evidence_paths": [],
-                "links": _review_page_link(root, cur), "source": "review/project-state.json"})
+                "review_snapshot": version,
+                "links": _review_page_link(root, cur), "source": f"review/project-state.json（審核快照 {version}）"})
             if cur == 2:
                 # 角色設定圖永遠要人看臉：卡片內嵌設定圖，不說「沒有例外」（#22）
                 sheets = stage2_sheet_paths(root)
@@ -789,7 +809,7 @@ def collect(root: Path, *, images: bool = True, strips: str = "all", out_dir: Op
                            "current": i == cur, "auto": bool(entry.get("auto_approval"))})
     blockers = [c for c in built["open"] if c["blocking"] <= 2]
     blocker = blockers[0]["title"] if blockers else ("沒有擋住下一步的事" if built["open"] else "")
-    return {
+    return validate_model({
         "schema_version": 1,
         "project": state.get("title") or root.name,
         "generated_at": datetime.now().astimezone().strftime("%Y-%m-%d %H:%M"),
@@ -799,7 +819,87 @@ def collect(root: Path, *, images: bool = True, strips: str = "all", out_dir: Op
         "videos": [{k: v for k, v in item.items() if k != "mtime"} for item in videos],
         "recent": [v["segment"] for v in recent],
         "raw_links": raw_links,
+    })
+
+
+# ------------------------------------------------------------------ 版面規格檢查（references/review-page-spec.md）
+MAX_OPEN_CARDS = 5
+MAX_QUESTION = 46
+VALID_BLOCKING = (0, 1, 2, 5)          # 0 擋全部／1 擋下一步／2 擋本階段核准／5 不擋
+REQUIRED_FIELDS = ("id", "kind", "stage", "title", "impact", "recommendation", "options", "blocking", "source")
+_IGNORED_FALLBACK = {0: "每個階段都不能往下。", 1: "停在這一步，後面都不會開始。",
+                     2: "本階段不能核准。", 5: "維持現狀，不擋核准。"}
+
+
+def _sort_key(card: Dict[str, Any]) -> Tuple[int, int, str]:
+    return card["blocking"], card["stage"], card["id"]
+
+
+def _merged_card(tail: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """超過 5 張時，把排在後面的卡併成一張（比照 _warn_group_card）；blocking 取組內最高（數字最小）。"""
+    top = min(tail, key=_sort_key)
+    ids = [c["id"] for c in tail]
+    segments = [s for c in tail for s in (c.get("segments") or [c.get("segment")]) if s]
+    subject = f"其餘 {len(tail)} 件"
+    return {
+        "id": "D-merged", "kind": "merged", "stage": min(c["stage"] for c in tail),
+        "segment": "、".join(map(str, segments[:4])) + ("…" if len(segments) > 4 else ""),
+        "title": f"還有 {len(tail)} 件待決：" + "；".join(short_title(c["title"], 14) for c in tail[:3]),
+        "finding": "；".join(f"{c['id']} {c['title']}" for c in tail[:6]) + ("…" if len(tail) > 6 else ""),
+        "impact": "每件的影響各不相同；其中擋關的照樣擋關，不會因為併成一張就放行。",
+        "recommendation": "照每件各自的建議處理；要細看再拆開。",
+        "options": [{"label": "照各件建議處理", "reply": f"{subject}：照各件建議處理（{'、'.join(ids)}）"},
+                    {"label": "逐件給我看", "reply": f"{subject}：逐件拆成卡片給我看"}],
+        "if_ignored": "這幾件都維持現狀；其中擋關的仍然擋關。",
+        "blocking": top["blocking"], "blocking_label": top.get("blocking_label", ""),
+        "evidence_b64": [b for c in tail for b in c.get("evidence_b64", [])[:1]][:3],
+        "evidence": [e for c in tail for e in c.get("evidence", [])[:1]][:3],
+        "evidence_caption": "／".join(ids[:3]), "links": [],
+        "source": "、".join(dict.fromkeys(str(c.get("source", "")) for c in tail)),
+        "segments": segments, "merged": ids,
     }
+
+
+def _normalize_card(card: Dict[str, Any], problems: List[str]) -> Dict[str, Any]:
+    missing = [f for f in REQUIRED_FIELDS if card.get(f) in (None, "", [])]
+    if missing:
+        raise ValueError(f"收件匣卡片 {card.get('id', '?')} 缺必備欄位：{'、'.join(missing)}")
+    out = dict(card)
+    cid = out["id"]
+    if out["blocking"] not in VALID_BLOCKING:
+        problems.append(f"{cid}: blocking={out['blocking']} 不在 {VALID_BLOCKING}，已改為 {2 if out['blocking'] < 5 else 5}")
+        out["blocking"] = 2 if out["blocking"] < 5 else 5
+    options = list(out["options"])
+    if len(options) > 3:
+        problems.append(f"{cid}: 選項 {len(options)} 個，只留前 3 個")
+        options = options[:3]
+    if len(options) < 2:
+        problems.append(f"{cid}: 選項只有 {len(options)} 個，補「先放著」")
+        options.append({"label": "先放著", "reply": f"{cid}：先放著"})
+    out["options"] = options
+    if not out.get("if_ignored"):
+        problems.append(f"{cid}: 缺 if_ignored，用預設文字")
+        out["if_ignored"] = _IGNORED_FALLBACK[out["blocking"]]
+    title = str(out["title"])
+    out["title"] = title if len(title) <= MAX_QUESTION else title[: MAX_QUESTION - 1] + "…"
+    # 規格欄位名對照：question＝title、why_you＝impact、recommendation 對應 options[0]（頁面標「建議」）
+    out["question"] = out["title"]
+    out["why_you"] = out["impact"]
+    out["recommended_option"] = options[0]["label"]
+    return out
+
+
+def validate_model(model: Dict[str, Any]) -> Dict[str, Any]:
+    """collect() 之後執行：補齊／檢查卡片欄位、待決卡 ≤ 5（超過就把後面的併成一張）。回傳新的 model。"""
+    problems: List[str] = []
+    cards = sorted((_normalize_card(c, problems) for c in model["cards"]), key=_sort_key)
+    pinned = [c for c in cards if c["blocking"] == 0 or c["kind"] == "approval"]
+    others = [c for c in cards if c not in pinned]
+    slots = max(MAX_OPEN_CARDS - 1 - len(pinned), 0)
+    if len(cards) > MAX_OPEN_CARDS and others[slots:]:
+        merged = _normalize_card(_merged_card(others[slots:]), problems)
+        cards = sorted(pinned + others[:slots] + [merged], key=_sort_key)
+    return {**model, "cards": cards, "problems": problems}
 
 
 # ------------------------------------------------------------------ HTML
@@ -918,7 +1018,7 @@ def _card_html(c: Dict[str, Any]) -> str:
   <div class="meta"><span class="tag{hot}">{E(c["blocking_label"])}</span><span class="seg">階段 {c["stage"]}・{E(str(c["segment"]))}</span></div>
   <h3>{E(c["title"])}</h3>
   {fig}
-  <dl>{f'<dt>判定</dt><dd>{E(c["finding"])}</dd>' if c.get("finding") else ""}<dt>影響</dt><dd>{E(c["impact"])}</dd><dt>建議</dt><dd class="recd">{E(c["recommendation"])}</dd></dl>
+  <dl>{f'<dt>判定</dt><dd>{E(c["finding"])}</dd>' if c.get("finding") else ""}<dt>影響</dt><dd>{E(c["impact"])}</dd><dt>建議</dt><dd class="recd">{E(c["recommendation"])}</dd><dt>不回覆</dt><dd>{E(c.get("if_ignored", ""))}</dd></dl>
   <div class="opts">{opts}</div>
   {f'<div class="links">{links}</div>' if links else ""}
   <p class="src">卡片 {E(c["id"])}・來源 {E(c.get("source", ""))}</p>
@@ -954,6 +1054,10 @@ def render_html(model: Dict[str, Any]) -> str:
         f'<span class="dot">{s["n"]}</span><span class="nm">{E(s["name"])}</span></li>' for s in stages)
     big = (f'有 <em>{len(cards)}</em> 件事等你決定' if cards else '目前沒有要你決定的事')
     c = model.get("counts") or {}
+    hard = [x for x in cards if x["blocking"] <= 2]
+    soft = [x for x in cards if x["blocking"] > 2]
+    stuck = short_title(hard[0]["title"], 24) if hard else "沒有"
+    progress = f'階段{cur}/7・{len(cards)}件待決・卡在{E(stuck)}'
     sub = f'目前在階段 {cur}「{E(STAGE_SHORT[cur])}」'
     if c:
         sub += f'・影片 通過 {c.get("pass", 0)}・附註 {c.get("warn", 0)}・重跑 {c.get("fail", 0)}'
@@ -973,9 +1077,14 @@ def render_html(model: Dict[str, Any]) -> str:
         f'<div class="vgrid">{"".join(_vid_html(v) for v in videos if v["ep"] == ep)}</div></details>' for ep in eps)
     decided = "".join(_decided_html(d) for d in model["decided"]) or '<p class="empty">還沒有定案紀錄</p>'
     auto = "".join(_auto_html(a) for a in model["auto"]) or '<p class="empty">還沒有自動處理的事</p>'
-    cards_html = "".join(_card_html(x) for x in cards) or (
-        '<article class="card"><h3>沒有待決事項</h3><dl><dt>下一步</dt>'
+    cards_html = "".join(_card_html(x) for x in hard) or (
+        '<article class="card"><h3>沒有擋關的待決事項</h3><dl><dt>下一步</dt>'
         '<dd class="recd">照 h3d next 繼續；符合授權的階段可用 h3d approve --auto 自動核准。</dd></dl></article>')
+    gate_items = "".join(f'<li><a class="lnk" href="#{E(x["id"])}">{E(x["title"])}</a></li>' for x in hard[:3])
+    gate_html = (f'<h2>真正擋關<span class="n">{len(hard)} 條</span></h2><ol class="notes">{gate_items}</ol>'
+                 if hard else "")
+    soft_html = (f'<details class="fold"><summary><span class="ft">可略過警告 {len(soft)} 件<small>不擋核准・點開才看</small>'
+                 f'</span></summary>{"".join(_card_html(x) for x in soft)}</details>' if soft else "")
     video_block = ""
     if videos:
         video_block = (f'<h2>最近完成的影片<span class="n">每張是 10 幀條・點了才載入影片</span></h2>'
@@ -993,6 +1102,7 @@ def render_html(model: Dict[str, Any]) -> str:
 <header>
   <h1>{E(model["project"])}・決策收件匣</h1>
   <p class="big">{big}</p>
+  <p class="sub progress">{progress}</p>
   <p class="sub">{sub}</p>
   <ol class="stages" aria-label="階段進度">{bar}</ol>
   {block}
@@ -1002,6 +1112,8 @@ def render_html(model: Dict[str, Any]) -> str:
 <main>
   <h2>需要你決定<span class="n">依會不會擋下一步排序・點選項＝複製回覆</span></h2>
   {cards_html}
+  {gate_html}
+  {soft_html}
 </main>
 <aside class="side">
   <h2>你已經決定的<span class="n">{len(model["decided"])} 件</span></h2>
@@ -1034,7 +1146,8 @@ def build(root: Path, *, out_dir: Optional[Path] = None, images: bool = True, st
     slim["videos"] = [{k: v for k, v in item.items() if k != "strip"} for item in model["videos"]]
     json_path.write_text(json.dumps(slim, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return {"html": html_path, "json": json_path, "bytes": html_path.stat().st_size,
-            "open": len(model["cards"]), "decided": len(model["decided"]), "auto": len(model["auto"])}
+            "open": len(model["cards"]), "decided": len(model["decided"]), "auto": len(model["auto"]),
+            "problems": model["problems"]}
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -1058,6 +1171,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     print(f"✅ {result['html']}（{size:.2f} MB）：待決 {result['open']}、已決定 {result['decided']}、自動處理 {result['auto']}")
     if result["bytes"] > 5 * 1024 * 1024:
         print("⚠️ 超過 5 MB：改用 --strips recent 或 --no-images", file=sys.stderr)
+    for problem in result["problems"]:
+        print(f"⚠️ 卡片規格：{problem}", file=sys.stderr)
     print(f"   機讀版：{result['json']}")
     return 0
 

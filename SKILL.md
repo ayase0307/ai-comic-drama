@@ -48,7 +48,7 @@ agent_created: true
 
 **正式階段核准以 `review/project-state.json` 為準**，只能走 `build_stage_review.py --approve-stage`（使用者原話）或 `h3d approve --auto`（使用者授權過的階段）。
 純文字草稿可按指定範圍交付，不必推進到媒體生成。八階段的產出與 HTML 審核頁對照見 `references/skill-guide.md`「八階段流程與 HTML 斷點」，
-詳細模板見 `references/pipeline.md`。
+詳細模板見 `references/pipeline.md`。各階段的 HTML 審核頁現在是除錯頁（綁審核快照用）；交給使用者的是 `h3d inbox` 收件匣，規格見 `references/review-page-spec.md`。
 
 ## 四道確定性檢查（交付的一部分）
 
@@ -61,6 +61,7 @@ agent_created: true
 - `references/tooling.md` — **h3d 全部指令與檢查**（跑任何指令前先讀）；§2.5 定案／逐段結論、§2.6 收件匣與自動核准、§2.7 runner／probe／配音／剪輯。
 - `references/skill-guide.md` — 原 SKILL.md 全文：核心原則 0–14、專案結構、階段 6 實戰定案、階段 7 配音分層、完整腳本清單。
 - `references/pipeline.md` — 八階段詳細流程、提問清單、模板；聲音三層決策與響度標準。
+- `references/review-page-spec.md` — 審查頁規格：交給使用者的是決策收件匣（版面順序、卡片必備欄位、禁止事項），舊階段頁只作除錯。
 - `references/adapt/`（改編）、`references/storyboard/`（導演分鏡）、`references/consistency.md`（資產一致性）、
   `references/styles.md`（風格鎖定錨）、`references/freevideo.md`、`references/model-profiles.md`、
   `references/minimax-h3.md` 與 `references/h3/`（H3 細部參考，同步自上游 h3-video-prompting）、`references/prompt-playbook.md`、

@@ -158,6 +158,101 @@ class InboxCardTests(TwoEpisodeProject):
         self.assertTrue((self.root / "review" / "inbox.html").is_file())
 
 
+class ReviewPageSpecTests(TwoEpisodeProject):
+    """references/review-page-spec.md：卡片欄位、≤5 張、blocking 值域、舊頁收合、next 指向收件匣。"""
+
+    def _eight_fails(self):
+        segs = {f"EP01-S{i:02d}": {"effective": "fail", "reason": f"第 {i} 段燒出字幕", "issues": ["burned_subtitle"],
+                                   "source": "agent"} for i in range(1, 9)}
+        return {"segments": segs, "counts": {"fail": 8}, "policy": {"accept": []}, "policy_is_decided": True}
+
+    def test_eight_fail_segments_merge_into_at_most_five_cards(self):
+        with patch.object(inbox.verdicts_mod, "classify", return_value=self._eight_fails()):
+            model = inbox.collect(self.root, images=False, strips="none")
+        cards = model["cards"]
+        self.assertLessEqual(len(cards), inbox.MAX_OPEN_CARDS)
+        merged = [c for c in cards if c["kind"] == "merged"]
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(merged[0]["blocking"], 2, "合併卡 blocking 取組內最高（數字最小）")
+        self.assertEqual(len(merged[0]["merged"]) + len(cards) - 1, 8, "沒有卡被丟掉")
+        page = inbox.render_html(model)
+        self.assertIn("階段6/7・", page)
+        self.assertIn("件待決・卡在", page)
+
+    def test_every_card_has_spec_fields(self):
+        (self.root / "decisions.json").unlink()  # 缺定案卡
+        with patch.object(inbox.verdicts_mod, "classify", return_value=self._eight_fails()):
+            model = inbox.collect(self.root, images=False, strips="none")
+        self.assertTrue(model["cards"])
+        for card in model["cards"]:
+            self.assertTrue(card["if_ignored"], card["id"])
+            self.assertIn(len(card["options"]), (2, 3), card["id"])
+            self.assertTrue(all(o.get("reply") for o in card["options"]), card["id"])
+            self.assertIn(card["blocking"], inbox.VALID_BLOCKING, card["id"])
+            self.assertLessEqual(len(card["question"]), inbox.MAX_QUESTION, card["id"])
+            self.assertEqual(card["recommended_option"], card["options"][0]["label"])
+        self.assertEqual(model["problems"], [], "內建產卡處都寫了 if_ignored／合法 blocking／2–3 選項")
+        page = inbox.render_html(model)
+        self.assertIn("<dt>不回覆</dt>", page)
+
+    def test_validate_model_normalizes_user_options_without_crashing(self):
+        card = {"id": "D6-X", "kind": "verdict", "stage": 6, "segment": "X", "title": "長" * 80, "impact": "i",
+                "recommendation": "r", "options": [{"label": "a", "reply": "X：a"}], "blocking": 3, "source": "s"}
+        model = inbox.validate_model({"cards": [card]})
+        out = model["cards"][0]
+        self.assertEqual(len(out["options"]), 2)
+        self.assertEqual(out["blocking"], 2)
+        self.assertEqual(len(out["title"]), inbox.MAX_QUESTION)
+        self.assertTrue(out["if_ignored"])
+        self.assertEqual(len(model["problems"]), 3)
+        with self.assertRaises(ValueError):
+            inbox.validate_model({"cards": [{"id": "D-bad", "kind": "x"}]})
+
+    def test_approval_card_requires_current_review_snapshot(self):
+        state = ps.load_state(self.root)
+        ps.mark_awaiting_review(self.root, state, 6)
+        with patch.object(inbox.verdicts_mod, "classify",
+                          return_value={"segments": {}, "counts": {}, "policy": {}, "policy_is_decided": True}):
+            card = next(c for c in inbox.build_cards(self.root)["open"] if c["id"] == "D6-approve")
+            self.assertIn("審核快照", card["options"][0]["reply"])
+            self.assertEqual(len(card["review_snapshot"]), 8)
+            (self.root / "videos" / "EP01-S01.mp4").write_bytes(b"changed")  # 快照過期
+            built = inbox.build_cards(self.root)
+        self.assertNotIn("D6-approve", _ids(built["open"]))
+        self.assertTrue(any("審核快照已過期" in n for n in built["notes"]))
+
+    def test_stage5_page_folds_every_prompt(self):
+        import build_stage_review as bsr
+        seg = self.root / "segments-ep01.json"
+        data = json.loads(seg.read_text(encoding="utf-8"))
+        data["segments"][0]["h3_prompt"] = "subject_definitions:\n<Subject 1> is a man.\nsummary:\nA man walks."
+        seg.write_text(json.dumps(data), encoding="utf-8")
+        _, _, page = bsr.build_stage_5(self.root, ps.load_state(self.root))
+        docs = page.count('class="prompt-doc"')
+        self.assertGreaterEqual(docs, 2)
+        self.assertEqual(page.count('<details class="prompt-fold">'), docs)
+        self.assertIn("舊版除錯頁", page)
+        self.assertIn("inbox.html", page)
+        self.assertNotIn("17 條 H3 防偷懶自檢", page)
+
+    def test_render_issues_shows_three_and_folds_the_rest(self):
+        import build_stage_review as bsr
+        errors = [f"EP01-S{i:02d}: 參考圖不存在 `x.png`" for i in range(1, 6)] + [f"第 {i} 種錯" for i in range(5)]
+        out = bsr.render_issues(errors)
+        visible = out.split("<details>")[0]
+        self.assertEqual(visible.count("<li>"), 3)
+        self.assertIn("5 處（EP01-S01、EP01-S02、EP01-S03…）", visible)
+        self.assertIn("其餘 3 條", out)
+
+    def test_next_step_points_awaiting_stage_to_inbox(self):
+        self.write_qa()
+        ps.mark_awaiting_review(self.root, ps.load_state(self.root), 6)
+        res = next_step.plan(self.root)
+        self.assertEqual(res["status"], "awaiting_user_approval")
+        self.assertIn("inbox", res["action"])
+        self.assertIn("停下", res["action"])
+
+
 class AutoApproveTests(TwoEpisodeProject):
     def pass_all(self):
         for sid in ALL_IDS:
