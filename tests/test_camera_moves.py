@@ -26,8 +26,13 @@ class CameraMovesTests(unittest.TestCase):
             camera_moves.expand_preset("zzz")
 
     def test_experimental_warns(self):
-        _, warn = camera_moves.expand_preset("dolly_zoom", {"subject": "<Subject 1>"})
-        self.assertTrue(warn)
+        camera_moves.PRESETS["_tmp_exp"] = {"aliases": [], "slots": [], "status": "experimental",
+                                             "strong": False, "clause": "x", "note": "n"}
+        try:
+            _, warn = camera_moves.expand_preset("_tmp_exp")
+            self.assertTrue(warn)
+        finally:
+            del camera_moves.PRESETS["_tmp_exp"]
 
     def test_every_preset_formats(self):
         for pid, spec in camera_moves.PRESETS.items():
