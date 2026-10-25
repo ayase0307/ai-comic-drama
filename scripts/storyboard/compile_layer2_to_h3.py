@@ -2381,6 +2381,7 @@ def compile_segment_h3(
         "speaker_ids": speaker_ids,
         "unanchored_in_frame_characters": unanchored_in_frame,
         "segment_end_state": layer2_data.get("segment_end_state"),
+        "carry_previous_end_state": (layer2_data.get("metadata") or {}).get("carry_previous_end_state", True) is not False,
         "compile_notes": notes + [f"參考圖不存在: {p}" for p in missing],
     }
 
@@ -2584,7 +2585,7 @@ def main() -> int:
     parser.add_argument("--no-lettering-guard", action="store_false", dest="lettering_guard", default=True,
                         help="不自動補「表面素淨、無文字無塗鴉」句（#138；預設遇到校徽／車門／斑駁牆等字詞時補）")
     parser.add_argument("--compact-description", action="store_true",
-                        help="W11 編譯時壓縮：刪 Camera 開頭重複的鏡頭參數、逐鏡 Sound 改只寫在 overall_soundscape（也可在 Layer 2 metadata.compact_description=true）")
+                        help="選用、預設關閉：只有使用者看過 W11 報告並同意壓縮時才開。壓縮內容：刪 Camera 開頭重複的鏡頭參數、逐鏡 Sound 改只寫在 overall_soundscape（也可在 Layer 2 metadata.compact_description=true）")
     parser.add_argument("--project-root", type=pathlib.Path, default=pathlib.Path("."), help="專案根目錄（預設當前目錄）")
     parser.add_argument("--skip-stage-gate", action="store_true", help="強制跳過階段 4 分鏡總覽圖門禁檢查（僅限測試或除錯）")
 
@@ -2663,7 +2664,7 @@ def main() -> int:
                 narration_policy=args.narration_policy,
                 allow_normalize_warnings=getattr(args, "allow_normalize_warnings", False),
                 embed_cut_markers=getattr(args, "embed_cut_markers", False),
-                previous_end_state=(neighbor_end_states.get(prev_sid) if (carry and prev_sid) else None),
+                previous_end_state=(neighbor_end_states.get(prev_sid) if (carry and prev_sid and (l2_data.get('metadata') or {}).get('carry_previous_end_state', True) is not False) else None),
                 no_lettering=getattr(args, "lettering_guard", True),
                 compact_description=getattr(args, "compact_description", False),
             )

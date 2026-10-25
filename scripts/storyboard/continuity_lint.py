@@ -164,6 +164,8 @@ def lint_adjacent(compiled: Sequence[Mapping[str, Any]],
         p = prev.get(sid)
         if not p:
             continue
+        if seg.get("carry_previous_end_state") is False:
+            continue  # 使用者明確關閉承接（例如段間有時間跳躍），不檢查 C1/C2
         prev_state = english_end_state(end_states.get(p))
         if not prev_state:
             warnings.append(

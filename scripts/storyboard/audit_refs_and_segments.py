@@ -127,6 +127,10 @@ REWRITE_NEGATIVE_PHRASES = {
 # 幀數計算與真實有效秒數 (17n+5 規則)
 # ==============================================================================
 
+SOFT_WORD_SUGGESTION = 700  # shot-five-part.md：未實測的建議值
+HARD_CHAR_LIMIT = 7000  # hosted API 送件硬上限
+
+
 def frames_for(s: float, rounding: str = "floor") -> int:
     """計算 FreeVideo / MiniMax H3 遵循的 17n+5 幀數規格。
 
@@ -893,10 +897,20 @@ def lint_h3_prompt(
             f"[W11: 描述偏短] detailed_description 英文字數僅 {word_count} 字，"
             f"低於推薦密度下限 {min_words} 字（時長 {eff_d:.1f}s）。"
         )
-    elif word_count > max_words:
+    elif word_count > SOFT_WORD_SUGGESTION:
+        # references/h3/shot-five-part.md「字數與字元上限」：≤700 是未實測的建議值，不是硬規則。
+        # 只報告字數與「若壓縮會犧牲什麼」，由使用者決定；不自動壓縮、不鼓勵壓縮。
         warnings.append(
-            f"[W11: 描述過長] detailed_description 英文字數達 {word_count} 字，"
-            f"超出推薦密度上限 {max_words} 字（時長 {eff_d:.1f}s）。"
+            f"[W11: 字數超過建議值] detailed_description {word_count} 英文字（建議 ≤{SOFT_WORD_SUGGESTION}，未實測，"
+            f"使用者可放行）。若要壓縮，依序會犧牲：① Camera 開頭重複的焦段／距離子句（標頭已有）、"
+            f"② 逐鏡 Sound 只留第一個子句（其餘只剩 overall_soundscape）、③ Performance／Light 的細節字；"
+            f"保留完整版的風險（文字與參考圖搶臉、後段細節被忽略）皆未驗證。"
+        )
+    details["prompt_char_count"] = len(clean_prompt)
+    if len(clean_prompt) > HARD_CHAR_LIMIT:
+        errors.append(
+            f"[E: 字元超過上限] 整段提示詞 {len(clean_prompt)} 字元，超過送件端（hosted API）硬上限 {HARD_CHAR_LIMIT}；"
+            f"只能壓縮或拆段。"
         )
 
     # --------------------------------------------------------------------------
