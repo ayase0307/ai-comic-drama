@@ -602,10 +602,19 @@ def collect_jobs(api_url: str, token: str, ledger_path: Path, output_dir: Path,
     output_dir.mkdir(parents=True, exist_ok=True)
     only_set = {str(item) for item in only} if only else None
 
-    for entry in ledger.get("jobs", []):
+    # #93：同一段只收「最新一次」送件；較舊的 job 視為 superseded，不把舊結果收回。
+    latest_idx: Dict[str, int] = {}
+    for idx, entry in enumerate(ledger.get("jobs", [])):
+        if entry.get("segment_id") and entry.get("id"):
+            latest_idx[str(entry["segment_id"])] = idx
+
+    for idx, entry in enumerate(ledger.get("jobs", [])):
         sid = entry.get("segment_id")
         jid = entry.get("id")
         if not sid or not jid:
+            continue
+        if latest_idx.get(str(sid)) != idx:
+            summary["skipped"] += 1
             continue
         if only_set is not None and str(sid) not in only_set:
             continue

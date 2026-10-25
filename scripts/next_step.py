@@ -106,7 +106,22 @@ ACTIVE_JOB_STATUSES = {"waiting", "queued", "running"}
 
 
 def _segment_files(root: Path) -> List[Path]:
+    # #74：階段 6 預設用 segments-all.json（若存在），不是逐集檔。
+    all_file = root / "segments-all.json"
+    if all_file.is_file():
+        return [all_file]
     return sorted(root.glob("segments-ep*.json"))
+
+
+def _delivery_scope(root: Path) -> Dict[str, Any]:
+    """讀 decisions 裡的 delivery_scope（no_video／trial_segments／max_segments）；沒有就回空 dict。"""
+    try:
+        raw = json.loads(decisions_mod.decisions_path(root).read_text(encoding="utf-8-sig"))
+        d = decisions_mod.get(raw, "delivery_scope")
+    except Exception:
+        return {}
+    val = (d or {}).get("value")
+    return val if isinstance(val, dict) else {}
 
 
 def _segment_ids(path: Path) -> List[str]:
@@ -182,13 +197,27 @@ def _stage6_work(res: Dict[str, Any], root: Path) -> Optional[Dict[str, Any]]:
     expected: List[str] = []
     for f in seg_files:
         expected.extend(_segment_ids(f))
+    scope = _delivery_scope(root)
+    if scope.get("trial_segments"):
+        allowed = {str(x) for x in scope["trial_segments"]}
+        expected = [sid for sid in expected if sid in allowed]
+    elif isinstance(scope.get("max_segments"), int) and scope["max_segments"] >= 0:
+        expected = expected[: scope["max_segments"]]
     missing_videos = [sid for sid in expected if not (root / "videos" / f"{sid}.mp4").is_file()]
+    if missing_videos and scope.get("no_video"):
+        res["blocked_on"].append("delivery_scope 為 no_video：使用者決定不生影片，不得送件")
+        res["action"] = ("停下：已定案的交付範圍不含影片。不要執行 resume；"
+                         "要生影片須先請使用者改 delivery_scope 並用 h3d decide 寫入。")
+        res["next_command"] = None
+        return res
     if missing_videos:
         first_file = next((f for f in seg_files if missing_videos[0] in _segment_ids(f)), seg_files[0])
         res["blocked_on"].append(f"尚有 {len(missing_videos)} 段沒有影片（例如 {missing_videos[0]}）")
         res["action"] = "先收件、再補送尚未產出的分段（ledger 自動去重）。一次只跑一個 runner。"
+        only = " ".join(missing_videos) if scope.get("trial_segments") or scope.get("max_segments") is not None else ""
         res["next_command"] = (f'{H3D} resume --segments {_rel(root, first_file)} '
-                               f'--output-dir videos --root-dir .')
+                               f'--output-dir videos --root-dir .'
+                               + (f' --segment-id {only}' if only else ''))
         return res
 
     hard, technical = ps.stage6_issues(root)
