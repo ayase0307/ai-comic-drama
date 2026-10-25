@@ -66,6 +66,7 @@ from director_storyboard_assistant import (
 )
 from handoff_to_skeleton import segment_sort_key
 import style_rules
+import camera_moves
 from speech_utils import count_speech_chars, normalize_speech
 
 try:  # 以 scripts/storyboard 為 sys.path 執行（CLI 慣例）
@@ -2161,10 +2162,15 @@ def compile_segment_h3(
         else:
             focal = "the scene"
 
-        motion = map_camera_motion(cam.get("movement_en") or cam.get("movement", "static"), idx).replace("camera ", "").strip()
-        mclause = "the camera holds a static shot" if ("static" in motion or "steady" in motion) else f"the camera {motion}"
-        if mclause in used_motion and "static" not in mclause:
-            mclause += " slowly"
+        if cam.get("move_preset"):
+            # PR-14b：運鏡預設展開成完整 Camera 子句（不加 slowly、不走動詞映射）
+            mclause, _preset_warn = camera_moves.expand_preset(cam["move_preset"], cam.get("move_slots"))
+            notes.extend(f"{s.get('shot_id')} {w}" for w in _preset_warn)
+        else:
+            motion = map_camera_motion(cam.get("movement_en") or cam.get("movement", "static"), idx).replace("camera ", "").strip()
+            mclause = "the camera holds a static shot" if ("static" in motion or "steady" in motion) else f"the camera {motion}"
+            if mclause in used_motion and "static" not in mclause:
+                mclause += " slowly"
         used_motion.add(mclause)
 
         act = s.get("action_and_performance", {}) or {}
