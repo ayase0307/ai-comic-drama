@@ -190,3 +190,9 @@ class CompilerContinuityTests(_Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FutureBlockingAnchorTests(unittest.TestCase):
+    def test_regex_flags_future_words(self):
+        self.assertTrue(continuity_lint.FUTURE_BLOCKING_RE.search("later both stand at the guardrail"))
+        self.assertFalse(continuity_lint.FUTURE_BLOCKING_RE.search("two figures stand apart at the rail"))

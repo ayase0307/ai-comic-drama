@@ -2036,6 +2036,9 @@ def compile_segment_h3(
         if _has_cjk(value):
             notes.append(f"連戲錨 {key} 是中文，未寫進英文提示詞；請在 en_overlay.continuity_anchors_en 補英文")
             continue
+        if key == "blocking" and continuity_lint.FUTURE_BLOCKING_RE.search(str(value)):
+            notes.append(f"連戲錨 blocking 含之後才發生的走位（{continuity_lint.FUTURE_BLOCKING_RE.search(str(value)).group(0)}）；"
+                         f"錨點只寫段落開頭狀態，否則空鏡會畫出人物分身（#95）")
         authored_anchors.append(f"{key}: {value}")
     if anchor:
         authored_anchors.insert(0, f"style anchor: {anchor}")
