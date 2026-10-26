@@ -215,17 +215,22 @@ def flow_hint(root: Path) -> str:
   審核狀態唯一存於 review/project-state.json。每階段核准綁定輸入 hash；輸入改變即需重新審核。"""
 
 
+GENRES = ["xuanhuan_revenge", "romance_emotional", "mystery_thriller",
+          "comedy_slice_of_life", "wuxia_action", "healing_literary"]
+DEFAULT_GENRE = "healing_literary"  # 沒指定 --genre 時的相容預設；請依題材指定
+
+
 def slugify_project(name: str) -> str:
     """把資料夾名轉成 handoff 的 project_id（kebab-case）。"""
     return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "project"
 
 
-def source_stub(title: str) -> dict:
+def source_stub(title: str, genre: str = DEFAULT_GENRE) -> dict:
     """提供符合 compare_adaptation.py 檢驗標準的初始原著分析骨架。"""
     return {
         "work_title": title,
         "segment_id": "seg-01",
-        "genre_mode": "healing_literary",
+        "genre_mode": genre,
         "is_incomplete": False,
         "known_contradictions": [],
         "must_keep": ["U01"],
@@ -242,11 +247,11 @@ def source_stub(title: str) -> dict:
     }
 
 
-def bible_stub(project_id: str) -> dict:
+def bible_stub(project_id: str, genre: str = DEFAULT_GENRE) -> dict:
     """提供符合 check_continuity.py 與 compare_adaptation.py 檢驗標準的初始世界觀與角色聖經骨架。"""
     return {
         "project_id": project_id,
-        "style_mode": "healing_literary",
+        "style_mode": genre,
         "irreversible_states": [
             "destroyed",
             "burned",
@@ -279,7 +284,8 @@ def bible_stub(project_id: str) -> dict:
 
 
 def handoff_stub(project_id: str, episode: int, series_format: str = LONGFORM,
-                 episode_seconds: float = SHORT_EPISODE_DEFAULT_SECONDS) -> dict:
+                 episode_seconds: float = SHORT_EPISODE_DEFAULT_SECONDS,
+                 genre: str = DEFAULT_GENRE) -> dict:
     """最小結構 stub：必要欄位齊全、enum 取合法值，但內容皆為待填。
     長篇漫劇（預設）不寫 target_duration_seconds（沒有單集秒數）；短劇短集才寫單集目標秒數。"""
     tag = f"EP{episode:02d}"
@@ -326,7 +332,7 @@ def handoff_stub(project_id: str, episode: int, series_format: str = LONGFORM,
         "project_id": project_id,
         "rights_status": "unconfirmed",
         "adaptation_mode": "balanced",
-        "genre_mode": "healing_literary",
+        "genre_mode": genre,
         "aspect_ratio": "9:16",
         "target_medium": "ai_animation",
         "episodes": [episode_entry],
@@ -380,15 +386,16 @@ def plan_section(series_format: str, episodes: int) -> str:
 
 
 def build_files(title: str, episodes: int, project_id: str, series_format: str = LONGFORM,
-                episode_seconds: float = SHORT_EPISODE_DEFAULT_SECONDS) -> dict[str, str]:
+                episode_seconds: float = SHORT_EPISODE_DEFAULT_SECONDS,
+                genre: str = DEFAULT_GENRE) -> dict[str, str]:
     files: dict[str, str] = {
         "project.md": PROJECT_TEMPLATE.format(
             title=title, format_line=format_line(series_format, episodes, episode_seconds),
             plan_section=plan_section(series_format, episodes)),
         "assets.md": ASSETS_TEMPLATE,
         "adapt/README.md": ADAPT_README,
-        "adapt/source.json": json.dumps(source_stub(title), ensure_ascii=False, indent=2) + "\n",
-        "adapt/bible.json": json.dumps(bible_stub(project_id), ensure_ascii=False, indent=2) + "\n",
+        "adapt/source.json": json.dumps(source_stub(title, genre), ensure_ascii=False, indent=2) + "\n",
+        "adapt/bible.json": json.dumps(bible_stub(project_id, genre), ensure_ascii=False, indent=2) + "\n",
         "adapt/character-bible.md": load_character_bible_template(title),
         "review/project-state.json": json.dumps(initial_project_state(title, project_id), ensure_ascii=False, indent=2) + "\n",
         "decisions.json": json.dumps(empty_decisions(), ensure_ascii=False, indent=2) + "\n",
@@ -397,7 +404,7 @@ def build_files(title: str, episodes: int, project_id: str, series_format: str =
         tag = f"ep{ep:02d}"
         files[f"script-{tag}.md"] = SCRIPT_TEMPLATE.format(episode=ep)
         files[f"handoff-{tag}.json"] = json.dumps(
-            handoff_stub(project_id, ep, series_format, episode_seconds), ensure_ascii=False, indent=2
+            handoff_stub(project_id, ep, series_format, episode_seconds, genre), ensure_ascii=False, indent=2
         ) + "\n"
         files[f"narration-{tag}.md"] = NARRATION_TEMPLATE.format(episode=ep)
     return files
@@ -416,6 +423,8 @@ def main() -> None:
                     help="成片形式：longform 長篇漫劇（預設）｜short 短劇短集（使用者明確選擇才用）")
     ap.add_argument("--episode-seconds", type=float, default=SHORT_EPISODE_DEFAULT_SECONDS,
                     help="短劇短集模式的單集目標秒數（預設 90；長篇模式忽略）")
+    ap.add_argument("--genre", choices=GENRES, default=DEFAULT_GENRE,
+                    help="題材（寫入 source/bible/handoff 的 genre_mode／style_mode；未指定時為 healing_literary 佔位，請依題材改）")
     args = ap.parse_args()
 
     root = Path(args.project_dir).expanduser().resolve()
@@ -424,7 +433,7 @@ def main() -> None:
         (root / d).mkdir(exist_ok=True)
 
     files = build_files(args.title, args.episodes, slugify_project(root.name),
-                        args.series_format, args.episode_seconds)
+                        args.series_format, args.episode_seconds, args.genre)
     created, skipped = [], []
     for name, content in files.items():
         p = root / name
