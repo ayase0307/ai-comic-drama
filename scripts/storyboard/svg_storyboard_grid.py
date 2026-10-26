@@ -758,7 +758,7 @@ def setup_shot(shot):
             cam.pos = tgt + side_dir * max(dist, 3.0) + np.array([0, .05 if low else .4, 0])
         cam.look_at(tgt)
         return cam, st, extras
-    if "貼地" in pd + txt:
+    if "貼地" in pd + txt and book is not None:
         tgt = book + np.array([0, .02, 0]); cam.pos = tgt + side_dir * dist + np.array([0, .06, 0]); cam.look_at(tgt)
         x, y = cam.proj(tgt); cam.du, cam.dv = .42 * W - x, .7 * H - y
         if "漾" in txt: extras.append(("ripple", None))
