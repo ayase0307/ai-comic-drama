@@ -861,6 +861,8 @@ def lint_h3_prompt(
         r"\bhead\s+thrusts?\s+back\b",
         r"\bdrives?\b.{0,100}\binto\s+(?:the\s+)?(?:.{0,40}\s+)?(?:wall|ground|floor)\b",
         r"\bdrops?\s+to\s+(?:the\s+)?(?:ground|floor)\b",
+        r"\bsnaps?\s+back\b", r"\bsnapped\s+back\b", r"\bkinks?(?:ed|ing)?\b",
+        r"\bconvuls(?:es?|ed|ing|ion)\b", r"\bwrithes?\b|\bwrithing\b",
     )
     executed_combat_desc = detailed_desc
     non_executed_combat_patterns = (

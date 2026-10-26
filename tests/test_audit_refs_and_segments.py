@@ -132,6 +132,8 @@ class AuthoredShotLintTests(unittest.TestCase):
             "Zhang swings the stick; the wrist jerks back.",
             "The serpent strikes; its head thrusts back and drives Luonian into the north wall.",
             "The serpent swings its body, recoils west, and Luonian drops to the ground.",
+            "Zhang strikes the snake; its neck snaps back and kinks.",
+            "The pen strikes; the snake convulses.",
         ]
         for description in descriptions:
             with self.subTest(description=description):
