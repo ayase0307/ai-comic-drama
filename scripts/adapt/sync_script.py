@@ -560,6 +560,7 @@ def main() -> int:
     parser.add_argument("--lock", action="store_true", help="強制鎖定場景")
     parser.add_argument("--unlock", action="store_true", help="解除場景鎖定")
     parser.add_argument("--force", action="store_true", help="忽略鎖定強制覆蓋修改")
+    parser.add_argument("--resign", action="store_true", help="改劇本並重新核准：等同 --force 同步，之後把同步前已核准的場景設回 approved＋locked（一步完成，免手動 --force 再 --set-status）")
     parser.add_argument("--prune-extra", action="store_true", help="若劇本場景數少於 Handoff，自動清理多出的未鎖定場景")
     args = parser.parse_args()
 
@@ -633,6 +634,13 @@ def main() -> int:
         if not target_scenes and args.handoff.exists():
             print(f"[錯誤] 在 Handoff 中找不到指定的場景 ID: {args.scene}", file=sys.stderr)
             return 1
+
+    if args.resign:
+        args.force = True
+    resign_ids = {
+        s.get("scene_id") for s in target_scenes
+        if (s.get("review") or {}).get("locked") or (s.get("review") or {}).get("review_status") == "approved"
+    } if args.resign else set()
 
     # 2. 處理純審核指令
     review_changed = False
@@ -822,6 +830,14 @@ def main() -> int:
                         f"[提示] 劇本場景數 ({len(script_scenes)}) 少於 Handoff 場景數 ({len(current_ep_scenes)})。"
                         f"多出場景：{', '.join(extra_ids)}。若需自動清理未鎖定的多餘場景，請加上 --prune-extra 參數。"
                     )
+
+    if resign_ids and sync_performed:
+        for s in all_scenes:
+            if s.get("scene_id") in resign_ids and update_scene_review_status(
+                s, "approved", args.note or "resign：劇本修改後重新核准", False, False
+            ):
+                review_changed = True
+                print(f"[重新核准] {s.get('scene_id')}: approved＋locked（rev {s['review'].get('revision')}）")
 
     if review_changed or sync_performed:
         args.handoff.write_text(json.dumps(handoff_data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

@@ -339,3 +339,6 @@ python scripts/sync_h3_reference.py --sync --write-manifest   # 同步並更新�
 
 ## clip-map（#163）
 `python scripts/edit/clip_map.py <專案根> [--cuts edit/cuts.json] [--write]` 產生 `edit/clip-map.json`（schema `ai-comic-drama/clip-map/1`）：每段的實際來源（原片或 videos/ramped/）、影格數（段長＝frames/fps）、time_map、cuts、變速＋剪鏡後的集內累積起點。只新增欄位，不改 speed-ramps.json／full-plan.json 既有欄位。`to_episode_time()` 把原片秒（台詞／ASR／配音）換成成片時間。voice_align／concat_adapter／assemble_episode 尚未改讀它（後續再接）。
+
+## sync_script --resign（R3-15）
+改已核准場景的劇本：`sync_script.py --handoff ... --script ... --resign`＝強制同步後把原本已核准的場景設回 approved＋locked，免手動 --force 再 --set-status。
