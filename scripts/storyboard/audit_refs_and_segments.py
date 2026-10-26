@@ -926,6 +926,17 @@ def lint_h3_prompt(
             f"② 逐鏡 Sound 只留第一個子句（其餘只剩 overall_soundscape）、③ Performance／Light 的細節字；"
             f"保留完整版的風險（文字與參考圖搶臉、後段細節被忽略）皆未驗證。"
         )
+    # #59：超過密度上限時，提示每鏡扣掉編譯器固定字後的可寫字數
+    if word_count > max_words and word_count <= SOFT_WORD_SUGGESTION:
+        _n_shots = max(1, len(shot_motions))
+        _fixed = 30 + 12 * _n_shots  # 估：光線句／外部 TTS 句＋每鏡 header、Expression／Blocking 標頭
+        _per_shot = max(0, (max_words - _fixed) // _n_shots)
+        details["w11_per_shot_budget"] = _per_shot
+        warnings.append(
+            f"[W11: 超過密度上限] detailed_description {word_count} 英文字，高於 33.1×時長 = {max_words}；"
+            f"扣掉編譯器固定字（估約 {_fixed} 字）後，{_n_shots} 鏡每鏡約剩 {_per_shot} 字可寫動作與走位。"
+            f"優先縮短開頭光線句，其次精簡各鏡 Light／Sound。（估算值，僅供參考）"
+        )
     details["prompt_char_count"] = len(clean_prompt)
     if len(clean_prompt) > HARD_CHAR_LIMIT:
         errors.append(

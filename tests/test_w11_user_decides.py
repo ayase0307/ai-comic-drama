@@ -24,6 +24,12 @@ class W11UserDecidesTest(unittest.TestCase):
         r = a.lint_h3_prompt(_prompt(10, pad_chars=7100), nominal_duration=15.0)
         self.assertTrue(any("字元超過上限" in e for e in r["errors"]))
 
+    def test_over_density_gives_per_shot_budget(self):
+        r = a.lint_h3_prompt(_prompt(400), nominal_duration=9.0)
+        w = [x for x in r["warnings"] if x.startswith("[W11: 超過密度上限]")]
+        self.assertTrue(w)
+        self.assertIn("每鏡約剩", w[0])
+
     def test_under_suggestion_no_w11(self):
         r = a.lint_h3_prompt(_prompt(450), nominal_duration=15.0)
         self.assertFalse(any(w.startswith("[W11") for w in r["warnings"]))
