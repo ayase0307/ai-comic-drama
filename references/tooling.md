@@ -336,3 +336,6 @@ python scripts/sync_h3_reference.py --sync --write-manifest   # 同步並更新�
 - 參考圖與文字矛盾時模型以圖為準：生物外觀不符時先查參考圖（舌、牙、口型、顏色）再改文字。
 - 色彩 QA：`python3 scripts/creature_color_qa.py --ref 參考圖 --frame 抽格.png ...`，色相、彩度分開報（預設容許 8°／0.10），超標 exit 1。
 - 驗收（#134）：階段 6 verdict 建議 ≥4 fps 影格條，逐鏡回答「動作是否完成、終態是否成立、該不在鏡的人有沒有入鏡」。
+
+## clip-map（#163）
+`python scripts/edit/clip_map.py <專案根> [--cuts edit/cuts.json] [--write]` 產生 `edit/clip-map.json`（schema `ai-comic-drama/clip-map/1`）：每段的實際來源（原片或 videos/ramped/）、影格數（段長＝frames/fps）、time_map、cuts、變速＋剪鏡後的集內累積起點。只新增欄位，不改 speed-ramps.json／full-plan.json 既有欄位。`to_episode_time()` 把原片秒（台詞／ASR／配音）換成成片時間。voice_align／concat_adapter／assemble_episode 尚未改讀它（後續再接）。
