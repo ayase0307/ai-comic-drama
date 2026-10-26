@@ -333,6 +333,7 @@ python scripts/sync_h3_reference.py --sync --write-manifest   # 同步並更新�
 
 ## 生物外觀檢查（#97 #101 #121）
 - 編譯器對生物主體：固定描述含無牙／蚯蚓／肉褶口等口型特徵時，retention 不再寫死「頭部特徵來自參考圖」，改為頭口細節以文字為準；描述寫蛇名詞又寫無牙、或設定無牙卻在動作寫 tongue／hiss／fangs，compile 給警告（scripts/storyboard/creature_lint.py）。
+- 生物階段（PR-17c，#142 #153 R3-2）：bible 角色 `variants.<階段>` 或 stage5 綁定的 `creatures[]` 條目可寫 `on_screen_en`（該階段逐鏡外觀句，編譯時只加在該階段的鏡頭）與 `banned_en`（前一型態詞，陣列或逗號分隔）；該鏡文字含禁用詞時 `compile_notes` 給 R3-2 警告，不中止；不寫則行為不變。動態詞庫與寫法見 references/h3/creature-motion.md。
 - 參考圖與文字矛盾時模型以圖為準：生物外觀不符時先查參考圖（舌、牙、口型、顏色）再改文字。
 - 色彩 QA：`python3 scripts/creature_color_qa.py --ref 參考圖 --frame 抽格.png ...`，色相、彩度分開報（預設容許 8°／0.10），超標 exit 1。
 - 驗收（#134）：階段 6 verdict 建議 ≥4 fps 影格條，逐鏡回答「動作是否完成、終態是否成立、該不在鏡的人有沒有入鏡」。

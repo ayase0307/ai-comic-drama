@@ -3,6 +3,7 @@
   "description": "references/h3 的上游同步紀錄；測試只驗這份紀錄與本地檔案一致。",
   "local_clone": "E:\\MinimaxH3\\h3-video-prompting",
   "local_only": [
+    "creature-motion.md",
     "lora-guide.md"
   ],
   "local_annotations": {
