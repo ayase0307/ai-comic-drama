@@ -48,3 +48,18 @@ class CraftPanelTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FirstLineTimestampTest(unittest.TestCase):
+    def test_no_timestamp_is_info_not_pass(self):
+        from craft import hit_review as hr
+        ep = {"scenes": [{"estimated_duration_seconds": 30, "dialogue": [{"text": "你來了"}]}]}
+        res = hr.review_stage3(ep)
+        hook = [r for r in res if r[1] == "開場鉤子"][0]
+        self.assertEqual(hook[0], "ℹ️")
+
+    def test_timestamp_still_judged(self):
+        from craft import hit_review as hr
+        ep = {"scenes": [{"estimated_duration_seconds": 30, "dialogue": [{"text": "x", "start": 2.0}]}]}
+        hook = [r for r in hr.review_stage3(ep) if r[1] == "開場鉤子"][0]
+        self.assertEqual(hook[0], "✅")
