@@ -66,6 +66,14 @@ def first_line_time(ep: Dict[str, Any]) -> Optional[float]:
     return None
 
 
+def first_line_has_timestamp(ep: Dict[str, Any]) -> bool:
+    """第一句台詞是否有真實時間戳（#33：沒有就只能退回場景起點，不能當證據）。"""
+    for _s, _e, sc in scene_spans(ep):
+        for d in sc.get("dialogue", []):
+            return "start" in d
+    return False
+
+
 def check_title(title: str) -> List[Finding]:
     out: List[Finding] = []
     for w in BANNED_TITLE_WORDS:
@@ -116,6 +124,8 @@ def review_stage3(ep: Dict[str, Any]) -> List[Finding]:
     first = first_line_time(ep)
     if first is None:
         out.append(("⚠️", "開場鉤子", "整集沒有台詞，無法估算開場時間"))
+    elif not first_line_has_timestamp(ep):
+        out.append(("ℹ️", "開場鉤子", "台詞沒有時間戳（start），無法量秒數；請 Agent 讀開場內容判斷 5 秒內有無衝突或反常資訊"))
     else:
         mark = "✅" if first <= OPENING_LIMIT_S else "⚠️"
         out.append((mark, "開場鉤子", f"第一句台詞在 {first:.1f}s（建議 ≤ {OPENING_LIMIT_S:.0f}s 進入衝突或反常資訊）"))
