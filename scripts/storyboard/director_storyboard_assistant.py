@@ -405,9 +405,16 @@ def auto_adapt_h3_loras(spec_or_shot: dict, enable_camera_lora: bool = False) ->
         melee_keywords = [
             "出拳", "重拳", "右拳", "左拳", "拳面", "拳風", "拳師",
             "飛踢", "側踢", "迴旋踢", "鞭腿", "過肩摔", "肘擊", "搏擊", "肉搏", "近身格鬥",
-            "punch", "kick", "martial arts", "takedown", "fistfight", "hand-to-hand"
+            "punch", "martial arts", "takedown", "fistfight", "hand-to-hand"
         ]
-        has_melee = (not is_furniture_smash) and (not is_pure_creature) and any(mk in clean_for_weapon for mk in melee_keywords)
+        # 英文 kick 只認踢人的片語；"his heels kick out"（被擊中後腳跟踢出）不算徒手搏擊（#151）
+        melee_regexes = (
+            r"\b(?:roundhouse|side|front|flying|spinning|high|low)\s+kicks?\b",
+            r"\bkicks?\s+(?:him|her|them|it|at|into|the\s+(?:man|woman|guard|opponent|enemy|door|wall))\b",
+        )
+        has_melee = (not is_furniture_smash) and (not is_pure_creature) and (
+            any(mk in clean_for_weapon for mk in melee_keywords)
+            or any(re.search(rx, clean_for_weapon, re.IGNORECASE) for rx in melee_regexes))
         if has_melee:
             loras.append({
                 "name": "H3_Combat_V2.safetensors",

@@ -878,6 +878,8 @@ def lint_h3_prompt(
         r"\bswings?\s+(?:open|shut|closed|gently|slowly|back\s+and\s+forth)\b",
         r"\b(?:door|gate|shutter|lamp|lantern|curtain|sign)s?\s+(?:\w+\s+)?swing(?:s|ing)?\b",
         r"\b(?:clock|bell)s?\s+strikes?\b",
+        # 生物甩頭／轉頸本身不是打擊（#154）；真要打擊會寫 whips its tail／whips at him，仍照常檢查
+        r"\bwhips?\s+(?:its|his|her|their)\s+(?:head|neck)\b(?!\s+(?:into|against|at)\b)",
     )
     for pattern in non_executed_combat_patterns:
         executed_combat_desc = re.sub(pattern, "", executed_combat_desc, flags=re.IGNORECASE)

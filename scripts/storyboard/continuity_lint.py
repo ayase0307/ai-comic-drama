@@ -203,7 +203,8 @@ def lint_adjacent(compiled: Sequence[Mapping[str, Any]],
 
 # ---------- 逐鏡畫面約束（#135 #136 #137，對齊噩盡島 G9b／G9d） ----------
 SHOT_RE = re.compile(r"\[Shot (\d+)\](.*?)(?=\[Shot \d+\]|\n\n|\Z)", re.S)
-SIZE_RE = re.compile(r"\b(ELS|EWS|VWS|WS|LS|MLS|MS|MCU|ECU|CU)\s*\((\d+)\s*mm,\s*([\d.]+)\s*m\)")
+# 複合景別（OTS_CU／OTS_MS）整個當一個 token，不能被拆成尾端的 CU／MS（#155）
+SIZE_RE = re.compile(r"(?<![A-Za-z0-9])(OTS[_ ](?:CU|MS)|ELS|EWS|VWS|WS|LS|MLS|MS|MCU|ECU|CU)\s*\((\d+)\s*mm,\s*([\d.]+)\s*m\)")
 WIDE_SIZES = {"ELS", "EWS", "VWS", "WS", "LS", "MLS", "MS"}
 END_MARKER = re.compile(
     r"\b(ends?|ending|comes? to rest|at the cut|until the cut|settles?|settling|stays?|remains?|holds?|freezes?)\b", re.I)
@@ -233,7 +234,7 @@ def lint_shots(compiled: Sequence[Mapping[str, Any]]) -> Dict[str, List[str]]:
                                 f"動作完成後人物會彈回參考圖姿勢。")
             if DIALOGUE_MARK.search(text):
                 sm = SIZE_RE.search(text)
-                if sm and (sm.group(1) in WIDE_SIZES or float(sm.group(3)) > 1.5):
+                if sm and not sm.group(1).startswith("OTS") and (sm.group(1) in WIDE_SIZES or float(sm.group(3)) > 1.5):
                     warnings.append(f"{sid} Shot {n}: [S3: 對白鏡太遠] {sm.group(0)} 臉太小吃不到臉部參考圖、看不到對嘴；"
                                     f"建議 CU (85mm, 1.2m) 或 MCU (50mm, 1.5m)。")
                 if not STATIC_MARK.search(text):

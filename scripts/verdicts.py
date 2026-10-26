@@ -265,7 +265,13 @@ def classify(root: Path, qa_report: Optional[Dict[str, Any]] = None,
             if not current:
                 vp = root / "videos" / f"{sid}.mp4"
                 current = _sha256(vp) if vp.is_file() else None
-            stale = bool(current) and str(current).lower().removeprefix("sha256:") != verdict["video_sha256"]
+            want = str(verdict["video_sha256"]).lower().removeprefix("sha256:")
+            stale = bool(current) and str(current).lower().removeprefix("sha256:") != want
+            if stale:
+                # 技術 QA 報告可能比影片舊；以磁碟上實際檔案的 sha 為準，只比 sha、不看 mtime（#147）
+                vp = root / "videos" / f"{sid}.mp4"
+                if vp.is_file():
+                    stale = _sha256(vp).lower().removeprefix("sha256:") != want
         if not verdict or stale:
             if set(soft) & rerun_on:
                 hit = sorted(set(soft) & rerun_on)

@@ -342,3 +342,9 @@ python scripts/sync_h3_reference.py --sync --write-manifest   # 同步並更新�
 
 ## sync_script --resign（R3-15）
 改已核准場景的劇本：`sync_script.py --handoff ... --script ... --resign`＝強制同步後把原本已核准的場景設回 approved＋locked，免手動 --force 再 --set-status。
+
+## 小修（PR-17a：#147 #151 #154 #155）
+- `verdicts.classify`：驗收結論是否過期只比影片 sha256；技術 QA 報告的 hash 與結論不符時，改以 `videos/<段>.mp4` 實檔 sha 複核，QA 報告比影片舊不會再誤報「影片已重生」（不看 mtime）。
+- 自動 LoRA：英文 `kick` 只認踢人片語（roundhouse／spinning kick、kicks him／at／into…）；「his heels kick out」不再掛 H3_Combat_V2。
+- E16：生物 `whips its neck／head` 單純甩頭不算打擊（`whips its tail at …` 仍檢查受擊反饋）。
+- 逐鏡 lint 的景別解析把 `OTS_CU`／`OTS_MS` 當一個 token，不會被誤拆成 CU／MS；OTS 對白鏡不受 S3「太遠」警告。
