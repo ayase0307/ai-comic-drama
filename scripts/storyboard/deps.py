@@ -72,6 +72,20 @@ def _segments_kind(name: str) -> str:
     return "episode" if match and match.group(1) != "all" else "all"
 
 
+def _bible_entities(root: Path) -> Dict[str, str]:
+    """video-bible.json 的角色／場景／道具 → {id: 該條目內容 sha}（R3-24：外觀依賴）。"""
+    bible = _load_json(Path(root) / "video-bible.json")
+    out: Dict[str, str] = {}
+    if not isinstance(bible, dict):
+        return out
+    for key in ("characters", "locations", "props"):
+        for item in bible.get(key) or []:
+            if isinstance(item, dict) and item.get("id"):
+                out[str(item["id"])] = sha256_text(
+                    json.dumps(item, ensure_ascii=False, sort_keys=True))
+    return out
+
+
 def scan(root: Path) -> Dict[str, Any]:
     """掃描專案，回傳 {"segments": {...}, "ignored_videos": [...]}（不寫檔）。"""
     root = Path(root)
@@ -83,7 +97,13 @@ def scan(root: Path) -> Dict[str, Any]:
             "layer2": {"path": None, "sha256": None},
             "prompts": [],
             "video": {"path": None, "sha256": None, "mtime": None},
+            "appearance": {},
         })
+
+    entities = _bible_entities(root)
+    aliases = (_load_json(root / "video-bible.json") or {}).get("id_aliases") or {}
+    if not isinstance(aliases, dict):
+        aliases = {}
 
     # 1) Layer 2
     for layer2_path in sorted(root.glob("layer2/layer2-*.json")):
@@ -96,6 +116,12 @@ def scan(root: Path) -> Dict[str, Any]:
             "path": layer2_path.relative_to(root).as_posix(),
             "sha256": sha256_file(layer2_path),
         }
+        if entities:
+            text = layer2_path.read_text(encoding="utf-8", errors="replace")
+            used = {eid for eid in entities if eid in text}
+            used |= {str(canon) for alias, canon in aliases.items()
+                     if alias in text and str(canon) in entities}
+            entry["appearance"] = {eid: entities[eid] for eid in sorted(used)}
 
     # 2) 編譯產物（只認 canonical 檔名；備份不會變成新基準）
     for segments_path in sorted(root.glob("segments-*.json")):
@@ -196,6 +222,11 @@ def record(root: Path, ledger_path: Optional[Path] = None) -> Path:
                 entry["video"] = new_video
         else:
             entry["video"] = old_video
+        # R3-24：影片產出當下的外觀依賴；影片沒換就沿用舊記錄（保留段不會被洗成最新）
+        if entry["video"].get("sha256") != old_video.get("sha256") or "video_appearance" not in was:
+            entry["video_appearance"] = now.get("appearance") or {}
+        else:
+            entry["video_appearance"] = was.get("video_appearance") or {}
         merged[segment_id] = entry
 
     # 保留已從磁碟移除的分段（status 要用它來報 removed）
@@ -267,6 +298,12 @@ def status(root: Path, ledger_path: Optional[Path] = None) -> Dict[str, Any]:
                 same_rules = rules_was == rules_now
                 if same_rules and str(video["mtime"]) < str(prompt["built_at"]):
                     reasons.append("video_older_than_prompt")
+            # R3-24：保留段（影片沒重跑）的 bible 外觀若在產片後改了 → 標 stale
+            recorded = was.get("video_appearance")
+            if recorded and video.get("sha256"):
+                current_app = now.get("appearance") or {}
+                if any(current_app.get(eid) not in (None, sha) for eid, sha in recorded.items()):
+                    reasons.append("appearance_changed")
             if was.get("prompt_ambiguous") or now.get("prompt_ambiguous"):
                 reasons.append("prompt_ambiguous")
         has_video = bool((was.get("video") or {}).get("sha256"))
