@@ -4,7 +4,8 @@
   "local_clone": "E:\\MinimaxH3\\h3-video-prompting",
   "local_only": [
     "creature-motion.md",
-    "lora-guide.md"
+    "lora-guide.md",
+    "r3-prompting-lessons.md"
   ],
   "local_annotations": {
     "scenarios-people.md": [

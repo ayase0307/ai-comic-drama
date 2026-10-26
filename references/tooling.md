@@ -349,3 +349,4 @@ python scripts/sync_h3_reference.py --sync --write-manifest   # 同步並更新�
 - 自動 LoRA：英文 `kick` 只認踢人片語（roundhouse／spinning kick、kicks him／at／into…）；「his heels kick out」不再掛 H3_Combat_V2。
 - E16：生物 `whips its neck／head` 單純甩頭不算打擊（`whips its tail at …` 仍檢查受擊反饋）。
 - 逐鏡 lint 的景別解析把 `OTS_CU`／`OTS_MS` 當一個 token，不會被誤拆成 CU／MS；OTS 對白鏡不受 S3「太遠」警告。
+- 第三輪打鬥／生物提示詞寫法（PR-17d）：references/h3/r3-prompting-lessons.md（節拍表、大招三拍、纏繞、因果重置、破音字等）。
