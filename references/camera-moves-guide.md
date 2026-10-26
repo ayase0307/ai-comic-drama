@@ -43,8 +43,11 @@
 - 未實測：緩推、後退跟拍、後拉、震屏；handheld 家機實測無效，不要用。
 - 不在 preset 內的運鏡：以 `move_preset` 留空、`mv` 手寫，lint 只給提示。
 
-## 基礎與進階運鏡速查（PR-15a，參考 https://24frames.art/ 的判斷後以自己的話改寫；網站自稱模板未真機驗證，以下全為「未實測」）
-preset 於 15b 補上；在那之前這些運鏡以 `mv` 手寫，lint 只給提示。秒數只用 5／8／10／15。
+## 基礎與進階運鏡速查（PR-15a，參考 https://24frames.art/ 的判斷後以自己的話改寫；網站自稱模板未真機驗證，第 4 輪 Colab 實測：14 pass；crane_up／pan／steadicam／truck 為 partial；crane_down、pov 為 fail，見下方實測欄）
+preset 已於 15b 補上，第 4 輪實測結果（2026-10-26）：
+- partial：crane_up（人物沉底被切，要寫人物留下方居中）、pan（目標物須放起幅畫外右側）、steadicam／truck（要寫死距離，人物在畫面中移動）。
+- fail：crane_down（幾乎靜止，暫不建議）、pov（Omni 有參考圖會硬放人物，改無參考圖或不用）。
+- 其餘 14 式 pass。秒數只用 5／8／10／15。
 
 | 運鏡 | 何時用 | 翻車點 | 幅度與秒數建議 |
 |---|---|---|---|
