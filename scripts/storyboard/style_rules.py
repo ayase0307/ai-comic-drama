@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """14 號風格「古風寫實厚塗・電影感」（key: xianxia-cinematic-semireal）的固定配方與檢查。
 
-來源：《我修的是遺忘課》10 集 115 段實戰（設定圖 Codex 內建生圖、影片 H3 Ref2VA）。
+來源：《我修的是遺忘課》10 集 115 段實戰（設定圖當時用 Codex 內建生圖；引擎現由 decisions.json design_engine 決定、影片 H3 Ref2VA）。
 翻車教訓：沒有角色參考圖的段（純物件／空景）會漂成平塗 cel 卡通——
 EP04-S02-a、EP09-S02-a、EP05-S02-a、EP09-S01-c 都發生過；原因是畫面只剩文字風格句可依，
 而當時模板句「Hand-painted 2D… soft cel-like shading… non-photorealistic」本身就在叫 H3 畫平塗。
@@ -22,7 +22,7 @@ STYLE14_KEY = "xianxia-cinematic-semireal"
 STYLE14_NAME = "古風寫實厚塗・電影感"
 DEFAULT_STYLE_KEY = STYLE14_KEY
 
-# 設定圖（Codex 內建生圖，四視圖母版）的風格句
+# 設定圖（四視圖母版；引擎依 design_engine，codex 或 grok）的風格句
 SHEET_STYLE_LINE = (
     "painterly xianxia illustration, thick painterly brush strokes on hair, skin and fabric, "
     "NOT 3D render/CGI/photograph, no glossy plastic skin; "

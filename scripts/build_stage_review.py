@@ -1811,7 +1811,7 @@ def build_stage_2(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
     body = f'<div class="side-by-side-list">{"".join(cards_html)}</div>'
     checklist = [
         "每一張角色圖片均已與左側《角色設定文件》之外貌、年齡、體型、服裝、武器形制（如單刃砍刀 vs 雙刃劍、銀槍三節棍、白色長背包）逐項並排核對無誤",
-        "所有角色圖片畫風 100% 統一（同為使用者指定之生圖工具如 Codex CLI 產出，無皮克斯卡通臉或異質畫風混入）",
+        "所有角色圖片畫風 100% 統一（同為 decisions.json design_engine 定案之生圖引擎（如 Codex CLI 或 Grok 內建 GenerateImage）產出，無皮克斯卡通臉或異質畫風混入）",
         "異獸／生物設定圖均為純灰／純白單色背景三視圖（Creature Sheet），無帶場景背景防染色",
     ]
     html_out = wrap_studio_html(

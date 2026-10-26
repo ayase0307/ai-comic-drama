@@ -12,10 +12,11 @@ export_asset_prompts.py — 核心資產提示詞自動組裝器與生圖引擎�
    - 場景（Scene）：無前景人物空景底圖（16:9，真實體積光，景深透視）。
    - 畫風鎖（Style Lock）：嚴格沿用 3D 國漫（STYLE-3d-donghua）或自訂風格錨。
 3. 核心資產生圖引擎確認門禁（跨章節畫風一致性保護）：
-   - 強制警告：跨章節核心資產設定圖嚴禁隨意更換生圖引擎！
-   - 若前章採用 Codex CLI (GPT Image)，本章必須沿用 Codex CLI，嚴禁改用 Qwen-Image 或其他模型，
-     避免兩個圖片模型畫風割裂導致全片崩毀。
-4. 支援匯出為 JSON、Markdown，或輸出為 Codex CLI / 外部工具生圖指令腳本。
+   - 引擎讀自專案定案 `decisions.json` 的 `design_engine`（`h3d decide design_engine ...`），
+     其次 `adapt/bible.json` 的 `design_engine`，可用 `--engine` 覆寫；都沒有時沿用 codex（舊行為）。
+   - 一經定案全集鎖定：同一專案內不得中途換引擎；換引擎必須重生全部核心資產並重新審核。
+4. 支援匯出為 JSON、Markdown；引擎為 grok 時另輸出「生圖清單」（manifest JSON＋md），
+   每張圖列出 id、目標輸出路徑、prompt、比例與要附的參考圖，交由 Grok 內建 GenerateImage 逐張生成。
 
 零外部依賴，純 Python 標準庫。全程繁體中文輸出。
 """
@@ -50,8 +51,8 @@ ENGINE_CONSISTENCY_GATE = """
 ================================================================================
 🚨【核心資產圖生圖引擎確認門禁（跨章節畫風一致性鐵律）】
 1. 核心彩色資產設定圖（角色設定板、場景空景底圖、怪物三視圖）決定全片基本視覺風格。
-2. 跨章節製作時，必須嚴格沿用前章相同的圖片生成引擎（如 Codex CLI / GPT Image 2.5）；
-   嚴禁本章改用 Qwen-Image 或其他圖片模型生成彩色核心資產！
+2. 跨章節製作時，必須嚴格沿用專案定案的設定圖引擎（decisions.json 的 design_engine，
+   如 codex 或 grok）；嚴禁本章私自改用其他圖片模型生成彩色核心資產！
 3. 圖片模型之間的筆觸、材質與膚色渲染（SSS）存在顯著割裂，一旦混用將導致片中角色換臉與風格跳變！
 4. 畫風語義漂移防禦（Anti-Pixar 鐵律）：
    - 角色 Prompt 必須嚴格指定「東亞五官骨相與比例（realistic East Asian facial proportions）」；
@@ -294,7 +295,7 @@ def parse_assets_markdown(assets_path: pathlib.Path) -> List[Dict[str, Any]]:
 
 
 CARD_LABEL = re.compile(r"^-\s*\*\*(.+?)\*\*[：:]\s*(.*)$")
-CARD_TYPES = (("C-", "character"), ("CREATURE-", "creature"), ("S-", "scene"), ("P-", "prop"))
+CARD_TYPES = (("C-", "character"), ("CREATURE-", "creature"), ("EXTRAS-", "extras"), ("S-", "scene"), ("P-", "prop"))
 TEMPLATE_VERSION = "master-4view-v1"
 
 
@@ -304,7 +305,7 @@ def parse_card_assets(text: str, style_lock: str = DEFAULT_STYLE_LOCK_3D) -> Lis
     角色描述優先取 **設定板描述**（母版中文槽位），其次 **固定描述片段**；**背面特徵** 併入描述。
     """
     assets: List[Dict[str, Any]] = []
-    for m in re.finditer(r"^###\s+((?:C|CREATURE|S|P)-[\w-]+)[　 ]*(.*?)\s*$(.*?)(?=^#{1,3}\s|\Z)", text, re.MULTILINE | re.DOTALL):
+    for m in re.finditer(r"^###\s+((?:C|CREATURE|EXTRAS|S|P)-[\w-]+)[　 ]*(.*?)\s*$(.*?)(?=^#{1,3}\s|\Z)", text, re.MULTILINE | re.DOTALL):
         aid, name, body = m.group(1), m.group(2).strip(), m.group(3)
         fields: Dict[str, str] = {}
         for line in body.splitlines():
@@ -370,6 +371,92 @@ def _compile_base_prompt(asset: Dict[str, Any], style: Optional[Dict[str, str]] 
 # CLI 主程式
 # ==============================================================================
 
+ENGINE_ALIASES = {
+    "codex": "codex", "codex_cli": "codex", "gpt_image": "codex",
+    "grok": "grok", "grok_generate_image": "grok", "grok_builtin": "grok", "generateimage": "grok",
+}
+DEFAULT_ENGINE = "codex"
+
+
+def normalize_engine(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    key = str(value).strip().lower().replace("-", "_").replace(" ", "_")
+    return ENGINE_ALIASES.get(key, key)
+
+
+def resolve_engine(cli_value: Optional[str], project_dir: Optional[pathlib.Path]) -> Dict[str, str]:
+    """依序：--engine → decisions.json design_engine → adapt/bible.json design_engine → 預設 codex。"""
+    if cli_value:
+        return {"engine": normalize_engine(cli_value), "source": "--engine"}
+    if project_dir:
+        dec = project_dir / "decisions.json"
+        if dec.exists():
+            try:
+                for d in json.loads(dec.read_text(encoding="utf-8")).get("decisions", []):
+                    if d.get("id") == "design_engine" and d.get("value"):
+                        return {"engine": normalize_engine(d["value"]), "source": "decisions.json"}
+            except (OSError, ValueError):
+                pass
+        bible = project_dir / "adapt" / "bible.json"
+        if bible.exists():
+            try:
+                v = json.loads(bible.read_text(encoding="utf-8")).get("design_engine")
+                if v:
+                    return {"engine": normalize_engine(v), "source": "adapt/bible.json"}
+            except (OSError, ValueError):
+                pass
+    return {"engine": DEFAULT_ENGINE, "source": "default"}
+
+
+ASPECT_BY_TYPE = {"character": "16:9", "creature": "16:9", "scene": "16:9", "prop": "16:9", "extras": "16:9"}
+
+
+def asset_id(item: Dict[str, Any]) -> str:
+    m = re.match(r"[A-Za-z][\w-]*", item["name"])
+    return m.group(0) if m else pathlib.Path(item["filename"]).stem
+
+
+def build_manifest(compiled: List[Dict[str, Any]], style: Dict[str, str], project_dir: pathlib.Path,
+                   images_dir: str = "images", aspect: Optional[str] = None) -> Dict[str, Any]:
+    """Grok 內建 GenerateImage 生圖清單：角色先、場景後；場景附角色設定圖以外的風格參考。"""
+    style_refs = [style["needs_reference"]] if style.get("needs_reference") else []
+    items = []
+    order = {"character": 0, "creature": 1, "extras": 2, "prop": 3, "scene": 4}
+    for c in sorted(compiled, key=lambda c: order.get(c["type"], 9)):
+        refs = list(style_refs)
+        items.append({
+            "id": asset_id(c),
+            "name": c["name"],
+            "type": c["type"],
+            "output_path": f"{images_dir}/{c['filename']}",
+            "prompt": c["full_prompt"],
+            "aspect_ratio": aspect or ASPECT_BY_TYPE.get(c["type"], "16:9"),
+            "reference_images": refs,
+            "status": "pending",
+        })
+    return {
+        "engine": "grok",
+        "tool": "GenerateImage",
+        "project_dir": str(project_dir),
+        "style": style.get("key"),
+        "note": "只列清單，不生圖。使用者核准設定後才逐張以 Grok 內建 GenerateImage 生成，"
+                "存到 output_path，生成後把 status 改為 done 並親眼驗收。",
+        "count": len(items),
+        "items": items,
+    }
+
+
+def manifest_markdown(m: Dict[str, Any]) -> str:
+    lines = [f"# Grok 生圖清單（{m['count']} 張）\n", f"- 引擎：Grok 內建 `{m['tool']}`", f"- 風格：`{m['style']}`",
+             f"- {m['note']}\n"]
+    for i, it in enumerate(m["items"], 1):
+        refs = "、".join(f"`{r}`" for r in it["reference_images"]) or "（無）"
+        lines += [f"## {i:02d}. {it['id']}（{it['type']}）", f"- 輸出：`{it['output_path']}`",
+                  f"- 比例：{it['aspect_ratio']}", f"- 參考圖：{refs}", "- Prompt：", "```text", it["prompt"], "```", ""]
+    return "\n".join(lines) + "\n"
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="核心資產提示詞自動組裝器與生圖引擎門禁工具 (export_asset_prompts.py)"
@@ -381,6 +468,10 @@ def main():
     parser.add_argument("--filter", type=str, default=None, help="過濾特定名稱或類別 (如 character, scene, ye-weishan)")
     parser.add_argument("--style", type=str, default=None, help=f"角色設定板風格：{STYLE_CHOICES}；不給則讀 assets.md 的 style_index，再不然用預設 {style_rules.STYLE14_KEY}")
     parser.add_argument("--no-gate", action="store_true", help="略過門禁警告輸出 (僅回傳純數據)")
+    parser.add_argument("--project-dir", type=str, default=None, help="專案根目錄（讀 decisions.json 的 design_engine；預設為 assets.md 所在目錄）")
+    parser.add_argument("--engine", type=str, default=None, help="覆寫設定圖引擎（codex｜grok）；正常應以 h3d decide design_engine 定案")
+    parser.add_argument("--manifest-out", type=str, default=None, help="引擎為 grok 時的生圖清單 JSON 路徑（同名 .md 一併輸出；預設 <專案>/images/grok-manifest.json）")
+    parser.add_argument("--images-dir", type=str, default="images", help="清單內輸出路徑的資料夾（相對專案根）")
 
     args = parser.parse_args()
 
@@ -456,6 +547,18 @@ def main():
             "template": TEMPLATE_VERSION if item["type"] == "character" else None,
             "style": style["key"] if item["type"] == "character" else None,
         })
+
+    project_dir = pathlib.Path(args.project_dir).resolve() if args.project_dir else (
+        used_assets_md.parent if used_assets_md else pathlib.Path.cwd())
+    engine = resolve_engine(args.engine, project_dir)
+    print(f"[引擎] 設定圖引擎：{engine['engine']}（來源：{engine['source']}）")
+    if engine["engine"] == "grok":
+        manifest = build_manifest(compiled_results, style, project_dir, args.images_dir)
+        mpath = pathlib.Path(args.manifest_out).resolve() if args.manifest_out else project_dir / args.images_dir / "grok-manifest.json"
+        mpath.parent.mkdir(parents=True, exist_ok=True)
+        mpath.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        mpath.with_suffix(".md").write_text(manifest_markdown(manifest), encoding="utf-8")
+        print(f"[Grok 生圖清單] {mpath}（{manifest['count']} 張；只列清單，未生圖）")
 
     # 4. 輸出列印或儲存
     if style.get("needs_reference"):
