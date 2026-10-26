@@ -257,6 +257,72 @@ class Stage5BindingTests(unittest.TestCase):
         self.assertNotIn("adult morphology", shot1_body)
         self.assertIn("images/E-SNAKE-adult.png", [r["path"] for r in refs])
 
+    def _stage_fixture(self):
+        registry = compiler.AssetRegistry(project_root=self.root)
+        registry.locations["S-HALL"] = {"id": "S-HALL", "name": "Hall", "desc_en": "school hall", "ref_img": "images/S-HALL.png"}
+        registry.characters["C-HERO"] = {"id": "C-HERO", "name": "hero", "desc_en": "a student", "short_en": "student", "ref_img": "images/C-HERO.png", "wardrobe_states": {}}
+        registry.characters["E-SNAKE"] = {
+            "id": "E-SNAKE", "name": "serpent", "desc_en": "huge serpent with a long body", "short_en": "serpent",
+            "ref_img": "images/E-SNAKE.png", "wardrobe_states": {}, "is_creature": True,
+            "variants": {"early": {"on_screen_en": "a finger-thick blind worm, one head end, tail tapers with no mouth",
+                                   "banned_en": ["serpent", "fangs"]}},
+        }
+        registry.props["P-SPEAR"] = {"id": "P-SPEAR", "name": "spear", "desc_en": "a silver spear", "ref_img": "images/P-SPEAR.png"}
+        registry.bodydetails["D-SCAR"] = {"id": "D-SCAR", "name": "scar", "desc_en": "a healed scar", "ref_img": "images/D-SCAR.png"}
+        for rel in ("images/E-SNAKE-early.png", "images/E-SNAKE-adult.png"):
+            (self.root / rel).write_bytes(b"variant-reference")
+        binding = copy.deepcopy(self.binding)
+        scene = [{"id": "S-HALL", "reference_image": "images/S-HALL.png"}]
+        hero = [{"id": "C-HERO", "costume_id": "W-01", "reference_image": "images/C-HERO.png"}]
+        binding["shots"] = [
+            {"global_shot_id": "EP03-SH001", "reference_paths": {
+                "scene": scene, "characters": hero,
+                "creatures": [{"id": "E-SNAKE", "variant": "early", "reference_image": "images/E-SNAKE-early.png", "desc_en": "a short yellow form"}],
+                "props": [], "bodydetails": [],
+            }, "visual_subject_ids": ["C-HERO", "E-SNAKE"]},
+            {"global_shot_id": "EP03-SH002", "reference_paths": {
+                "scene": scene, "characters": hero,
+                "creatures": [{"id": "E-SNAKE", "variant": "adult", "reference_image": "images/E-SNAKE-adult.png", "desc_en": "a large yellow serpent"}],
+                "props": [], "bodydetails": [],
+            }, "visual_subject_ids": ["C-HERO", "E-SNAKE"]},
+            {"global_shot_id": "EP03-SH003", "reference_paths": {
+                "scene": scene, "characters": hero, "creatures": [], "props": [], "bodydetails": [],
+            }, "visual_subject_ids": ["C-HERO"]},
+        ]
+        return registry, binding
+
+    def test_creature_stage_scopes_on_screen_sentence_and_warns_on_banned_words(self):
+        registry, binding = self._stage_fixture()
+        data = compiler.apply_stage5_binding(self.layer, binding)
+        data["shots"][0]["action_and_performance"]["action_stages_en"] = ["Stage 1: the serpent bares its fangs at the shoe."]
+        compiled = compiler.compile_segment_h3(data, registry, auto_lora=False, stage5_binding=binding)
+        prompt = compiled["h3_prompt"]
+        shot1 = prompt.split("[Shot 1]", 1)[1].split("[Shot 2]", 1)[0]
+        shot2 = prompt.split("[Shot 2]", 1)[1].split("[Shot 3]", 1)[0]
+        self.assertIn("In this shot the creature is: a finger-thick blind worm", shot1)
+        self.assertNotIn("finger-thick", shot2)
+        banned_notes = [n for n in compiled["compile_notes"] if "R3-2" in n]
+        self.assertEqual(len(banned_notes), 1, compiled["compile_notes"])
+        self.assertIn("serpent", banned_notes[0])
+        self.assertIn("fangs", banned_notes[0])
+        self.assertIn("early", banned_notes[0])
+
+    def test_creature_stage_without_fields_changes_nothing(self):
+        registry, binding = self._stage_fixture()
+        registry.characters["E-SNAKE"].pop("variants")
+        data = compiler.apply_stage5_binding(self.layer, binding)
+        compiled = compiler.compile_segment_h3(data, registry, auto_lora=False, stage5_binding=binding)
+        self.assertNotIn("In this shot the creature is", compiled["h3_prompt"])
+        self.assertFalse([n for n in compiled["compile_notes"] if "R3-2" in n])
+
+    def test_creature_stage_binding_entry_overrides_and_merges_banned(self):
+        registry, binding = self._stage_fixture()
+        binding["shots"][0]["reference_paths"]["creatures"][0].update(
+            {"on_screen_en": "a blind rounded stub", "banned_en": "eyes, face"})
+        data = compiler.apply_stage5_binding(self.layer, binding)
+        compiled = compiler.compile_segment_h3(data, registry, auto_lora=False, stage5_binding=binding)
+        self.assertIn("In this shot the creature is: a blind rounded stub.", compiled["h3_prompt"])
+
     def test_cli_uses_bindings_without_mutating_approved_layer2_and_rejects_stale_hash(self):
         bible = {
             "style": {"anchor": "normalized style", "negative": "No text", "lighting_lock_line": "soft daylight"},

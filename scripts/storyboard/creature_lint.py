@@ -13,6 +13,28 @@ HEAD_CLAIM_RE = re.compile(r"\b(toothless|no (?:teeth|tongue)|without (?:teeth|a
                            r"fleshy folds?|round (?:toothless )?mouth)\b", re.I)
 
 
+def normalize_banned(value) -> List[str]:
+    """banned_en 可寫成字串（逗號／分號分隔）或清單；回傳去空白、去重的詞。"""
+    if not value:
+        return []
+    items = re.split(r"[,;]", value) if isinstance(value, str) else list(value)
+    out: List[str] = []
+    for item in items:
+        word = str(item).strip()
+        if word and word.lower() not in (o.lower() for o in out):
+            out.append(word)
+    return out
+
+
+def banned_hits(text: str, banned: Sequence[str]) -> List[str]:
+    """階段禁用詞（R3-2）：整詞、不分大小寫比對；回傳命中的詞（依 banned 順序）。"""
+    hits: List[str] = []
+    for word in banned:
+        if re.search(r"(?<![A-Za-z])" + re.escape(word) + r"(?![A-Za-z])", text or "", re.I):
+            hits.append(word)
+    return hits
+
+
 def head_retention_clause(desc_en: str, index: int) -> str:
     """生物保留句：文字設定有口型／牙／舌特徵時，頭部細節以文字為準，不寫死「頭部特徵來自圖」。"""
     if desc_en and HEAD_CLAIM_RE.search(desc_en):

@@ -899,9 +899,16 @@ def _stage5_reference_path_map(binding: Dict[str, Any]) -> Tuple[Dict[str, str],
                         current = {
                             "id": str(aid), "variant": variant, "path": image,
                             "description": entry.get("desc_en") or entry.get("description_en") or "",
+                            "on_screen_en": "", "banned_en": [],
                             "shot_ids": [],
                         }
                         variants[key] = current
+                    # PR-17c（#142 #153 R3-2）：階段專屬的逐鏡外觀句與禁用詞，可寫在綁定或 bible 的 variants 裡
+                    if entry.get("on_screen_en") and not current["on_screen_en"]:
+                        current["on_screen_en"] = str(entry["on_screen_en"]).strip()
+                    for _bw in creature_lint.normalize_banned(entry.get("banned_en")):
+                        if _bw not in current["banned_en"]:
+                            current["banned_en"].append(_bw)
                     sid = shot_binding.get("global_shot_id")
                     if sid and sid not in current["shot_ids"]:
                         current["shot_ids"].append(sid)
@@ -1933,6 +1940,24 @@ def compile_segment_h3(
     # Stage5 supplementary props/body details are Pictures after the subject sequence.
     # They inform object or localized-detail appearance without becoming face Subjects.
     variant_picture_by_shot: Dict[str, List[Tuple[int, str]]] = {}
+    # PR-17c：逐鏡的生物階段（外觀句＋禁用詞）。來源＝綁定的變體條目，其次 bible 的 variants[階段]
+    variant_stage_by_shot: Dict[str, List[Dict[str, Any]]] = {}
+
+    def _register_stage(sid: str, variant: Dict[str, Any], info: Dict[str, Any]) -> None:
+        bible_variants = info.get("variants", {}) or {}
+        bible_info = bible_variants.get(variant["variant"], {}) if isinstance(bible_variants, dict) else {}
+        if not isinstance(bible_info, dict):
+            bible_info = {}
+        on_screen = variant.get("on_screen_en") or bible_info.get("on_screen_en") or ""
+        banned = list(variant.get("banned_en") or [])
+        for _bw in creature_lint.normalize_banned(bible_info.get("banned_en")):
+            if _bw not in banned:
+                banned.append(_bw)
+        if on_screen or banned:
+            variant_stage_by_shot.setdefault(sid, []).append({
+                "creature": variant["id"], "stage": variant["variant"],
+                "on_screen_en": str(on_screen).strip(), "banned_en": banned,
+            })
     if stage5_binding:
         supplementary: List[Tuple[str, Dict[str, Any]]] = []
         prop_ids: List[str] = []
@@ -2009,6 +2034,7 @@ def compile_segment_h3(
                 )
                 for sid in variant["shot_ids"]:
                     variant_picture_by_shot.setdefault(sid, []).append((pic_no, variant["variant"]))
+                    _register_stage(sid, variant, info)
                 continue
             reference_images.append({
                 "id": f"{variant['id']}@{variant['variant']}", "type": "creature_variant",
@@ -2026,6 +2052,7 @@ def compile_segment_h3(
             )
             for sid in variant["shot_ids"]:
                 variant_picture_by_shot.setdefault(sid, []).append((pic_no, variant["variant"]))
+                _register_stage(sid, variant, info)
 
     # 音色參考的音訊素材排在所有圖像素材之後：官方 ref-en §2.5 明載 <Video N> 與
     # <Audio N> 各自獨立編號，音訊不參與 <Picture N> 的序對。
@@ -2351,6 +2378,12 @@ def compile_segment_h3(
         global_shot_id = s.get("global_shot_id")
         for picture_no, variant_name in variant_picture_by_shot.get(global_shot_id, []):
             stage_refs += f" Stage-specific reference: use <Picture {picture_no}> for the creature's {variant_name} morphology in this shot only."
+        stage_sentence = ""
+        for _st in variant_stage_by_shot.get(global_shot_id, []):
+            if _st["on_screen_en"]:
+                _txt = _st["on_screen_en"].rstrip()
+                stage_sentence += f" In this shot the creature is: {_txt}" + ("" if _txt.endswith((".", "!", "?")) else ".")
+        stage_refs += stage_sentence
         # 整板查表角色：把「用哪一格」寫進鏡頭描述，讓模型知道該取板上的哪個人。
         bound_shot_refs = next((b for b in (stage5_binding or {}).get("shots", []) or []
                                 if b.get("global_shot_id") == global_shot_id), {})
@@ -2425,6 +2458,15 @@ def compile_segment_h3(
         else:
             closing = f"{speech}." if speech else ("." if (expr and not blocking_clause and not stage_refs and not expr.rstrip().endswith((".", "!", "?"))) else "")
             body = f"{head} {action}." + (f" Expression: {expr}" if expr else "") + blocking_clause + stage_refs + f"{closing}{tail}{marker}"
+        for _st in variant_stage_by_shot.get(global_shot_id, []):
+            if not _st["banned_en"]:
+                continue
+            _scan = body.replace(stage_sentence, "") if stage_sentence else body
+            _hits = creature_lint.banned_hits(_scan, _st["banned_en"])
+            if _hits:
+                notes.append(
+                    f"{s.get('shot_id')} 生物 {_st['creature']} 在 {_st['stage']} 階段，但鏡頭文字含前一型態／禁用詞"
+                    f"「{'、'.join(_hits)}」（variants.banned_en）；請改寫或確認是否該換階段 (R3-2)")
         det_lines.append(sanitize_english_text(body))
 
     detailed_block = "detailed_description:\n" + "\n".join(det_lines)
