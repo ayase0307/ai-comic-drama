@@ -68,3 +68,10 @@ class GrokManifestTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ExtrasCardTest(unittest.TestCase):
+    def test_extras_card_is_parsed(self):
+        text = "### EXTRAS-crowd　群演\n- **設定板描述**：`八名成年女子，素服`\n- **設定圖**：`images/extras-crowd.png`\n"
+        items = eap.parse_card_assets(text)
+        self.assertEqual([(a["type"], a["filename"]) for a in items], [("extras", "extras-crowd.png")])

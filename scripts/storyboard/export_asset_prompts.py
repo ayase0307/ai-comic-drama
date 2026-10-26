@@ -295,7 +295,7 @@ def parse_assets_markdown(assets_path: pathlib.Path) -> List[Dict[str, Any]]:
 
 
 CARD_LABEL = re.compile(r"^-\s*\*\*(.+?)\*\*[：:]\s*(.*)$")
-CARD_TYPES = (("C-", "character"), ("CREATURE-", "creature"), ("S-", "scene"), ("P-", "prop"))
+CARD_TYPES = (("C-", "character"), ("CREATURE-", "creature"), ("EXTRAS-", "extras"), ("S-", "scene"), ("P-", "prop"))
 TEMPLATE_VERSION = "master-4view-v1"
 
 
@@ -305,7 +305,7 @@ def parse_card_assets(text: str, style_lock: str = DEFAULT_STYLE_LOCK_3D) -> Lis
     角色描述優先取 **設定板描述**（母版中文槽位），其次 **固定描述片段**；**背面特徵** 併入描述。
     """
     assets: List[Dict[str, Any]] = []
-    for m in re.finditer(r"^###\s+((?:C|CREATURE|S|P)-[\w-]+)[　 ]*(.*?)\s*$(.*?)(?=^#{1,3}\s|\Z)", text, re.MULTILINE | re.DOTALL):
+    for m in re.finditer(r"^###\s+((?:C|CREATURE|EXTRAS|S|P)-[\w-]+)[　 ]*(.*?)\s*$(.*?)(?=^#{1,3}\s|\Z)", text, re.MULTILINE | re.DOTALL):
         aid, name, body = m.group(1), m.group(2).strip(), m.group(3)
         fields: Dict[str, str] = {}
         for line in body.splitlines():
