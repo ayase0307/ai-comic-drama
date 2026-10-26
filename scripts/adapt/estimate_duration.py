@@ -50,6 +50,7 @@ if sys.platform.startswith("win"):
             _stream.reconfigure(encoding="utf-8", errors="replace")
 
 from validate_structure import parse_and_validate_script
+from audio_keywords import classify_note
 from series_format import LONGFORM, SHORT, SHORT_EPISODE_DEFAULT_SECONDS, project_format
 from event_coverage import required_beats
 
@@ -104,6 +105,7 @@ def estimate_script_duration(
     total_min = 0.0
     total_max = 0.0
     total_spoken_chars = 0
+    vo_chars = 0  # 旁白／內心獨白走外部 TTS，不佔 H3 口型秒數（#35）
     max_single_line_chars = 0
 
     for sc in parsed["scenes"]:
@@ -119,7 +121,10 @@ def estimate_script_duration(
         for dlg in sc["dialogues"]:
             c_count = count_spoken_chars(dlg["text"])
             sc_chars += c_count
-            total_spoken_chars += c_count
+            if classify_note(dlg.get("note", "")) == "voiceover":
+                vo_chars += c_count
+            else:
+                total_spoken_chars += c_count
             if c_count > max_single_line_chars:
                 max_single_line_chars = c_count
 
@@ -228,6 +233,7 @@ def estimate_script_duration(
         "estimated_total_seconds": {"min": total_min, "max": total_max, "mid": mid_seconds},
         "budget_status": budget_status,
         "h3_speech_seconds": h3_speech_seconds,
+        "voiceover_chars_excluded": vo_chars,
         "h3_speech_ratio": h3_speech_ratio,
         "h3_audit": {
             "h3_mode": h3_mode,
