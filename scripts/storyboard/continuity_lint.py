@@ -214,6 +214,10 @@ STATIC_MARK = re.compile(r"\b(static|locked[- ]off|holds a static|stays? fixed)\
 EMPTY_BG = re.compile(r"\b(background|behind (?:him|her|them|it))\b[^.;]*\b(empty|bare|plain|no one|nobody|unpopulated)\b", re.I)
 
 
+CROWD_ANCHOR_RE = re.compile(r"\b(bullies|students|crowd|everyone|others|group|the (?:two|three|four|five|six) \w+|all of them)\b", re.I)
+SOLO_SIZES = ("CU", "MCU", "ECU")
+
+
 def lint_shots(compiled: Sequence[Mapping[str, Any]]) -> Dict[str, List[str]]:
     """逐鏡文字檢查（只警告）：
     S1 一鏡動作過多（', then ' 超過 1 個）；S2 最後動作句沒有終態詞；
@@ -223,6 +227,8 @@ def lint_shots(compiled: Sequence[Mapping[str, Any]]) -> Dict[str, List[str]]:
     for seg in compiled:
         sid = str(seg.get("segment_id"))
         prompt = str(seg.get("h3_prompt") or "")
+        anchor_m = re.search(r"Continuity anchors:.*?\bblocking:\s*([^;\n]*)", prompt, re.I)
+        anchor_blocking = anchor_m.group(1) if anchor_m else ""
         for m in SHOT_RE.finditer(prompt):
             n, text = m.group(1), m.group(2)
             body = re.split(r"\bBlocking:", text)[0]
@@ -232,6 +238,11 @@ def lint_shots(compiled: Sequence[Mapping[str, Any]]) -> Dict[str, List[str]]:
             if body.count(", then ") >= 1 and not END_MARKER.search(body.rsplit(", then ", 1)[-1]):
                 warnings.append(f"{sid} Shot {n}: [S2: 缺終態] 最後一個動作沒有結束姿勢（ends／comes to rest／settles／stays），"
                                 f"動作完成後人物會彈回參考圖姿勢。")
+            sm0 = SIZE_RE.search(text)
+            if (anchor_blocking and CROWD_ANCHOR_RE.search(anchor_blocking) and sm0 and sm0.group(1) in SOLO_SIZES
+                    and not EMPTY_BG.search(text)):
+                warnings.append(f"{sid} Shot {n}: [S6: 錨點帶出路人] 連戲錨 blocking 寫了多人（{CROWD_ANCHOR_RE.search(anchor_blocking).group(0)}），"
+                                f"但本鏡是 {sm0.group(1)} 單人特寫；模型會在背景畫出沒綁圖的人。請寫背景無人，或錨點只放本鏡在場者（#144）。")
             if DIALOGUE_MARK.search(text):
                 sm = SIZE_RE.search(text)
                 if sm and not sm.group(1).startswith("OTS") and (sm.group(1) in WIDE_SIZES or float(sm.group(3)) > 1.5):

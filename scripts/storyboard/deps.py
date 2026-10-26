@@ -120,6 +120,7 @@ def scan(root: Path) -> Dict[str, Any]:
                 "kind": _segments_kind(segments_path.name),
                 "sha256": sha256_text(str(prompt)) if prompt else None,
                 "frames": (item.get("metadata") or {}).get("frames"),
+                "compiler_rules": (item.get("metadata") or {}).get("compiler_rules"),
             })
 
     # 3) 影片（只收 id 已經存在的檔，其餘列 ignored，避免 `-v2` 之類生假段）
@@ -259,7 +260,12 @@ def status(root: Path, ledger_path: Optional[Path] = None) -> Dict[str, Any]:
             elif video.get("sha256") and video.get("sha256") != now_video.get("sha256"):
                 reasons.append("video_changed")
             elif video.get("sha256") and prompt.get("built_at") and video.get("mtime"):
-                if str(video["mtime"]) < str(prompt["built_at"]):
+                # #150：編譯規則版本不同時，提示詞變動來自規則改版而非內容修改，
+                # 不用時間判舊（layer2 內容與影片都沒變）；版本相同才比 mtime。
+                rules_was = prompt.get("compiler_rules")
+                rules_now = (now.get("prompt") or {}).get("compiler_rules")
+                same_rules = rules_was == rules_now
+                if same_rules and str(video["mtime"]) < str(prompt["built_at"]):
                     reasons.append("video_older_than_prompt")
             if was.get("prompt_ambiguous") or now.get("prompt_ambiguous"):
                 reasons.append("prompt_ambiguous")

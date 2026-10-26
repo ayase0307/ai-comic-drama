@@ -182,6 +182,9 @@ CAMERA_HOLD_ACTION_RE = re.compile(
 )
 
 
+COMPILER_RULES_VERSION = "2026-10-26"  # 改編譯輸出規則時更新（#150）
+
+
 def normalize_authored_camera_hold_action(stage: str) -> str:
     """Keep a stated held composition without duplicating the camera clause."""
     match = CAMERA_HOLD_ACTION_RE.match(stage.strip())
@@ -2504,6 +2507,8 @@ def compile_segment_h3(
             **metadata,
             # 編譯指紋：送件與階段 5 審查會比對，編譯後再被腳本或手動覆寫就擋下（E38）。
             "compiled_prompt_sha256": prompt_authoring.prompt_fingerprint(full_h3_prompt),
+            # #150：編譯規則版本；規則改版時 deps 不因提示詞變新就把舊影片標過期
+            "compiler_rules": COMPILER_RULES_VERSION,
             "aspect_ratio": aspect,
             "target_duration_sec": target_dur,
             "effective_duration_sec": round(eff_d, 3),
