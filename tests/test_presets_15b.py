@@ -10,11 +10,11 @@ class T(unittest.TestCase):
     def test_all_expand(self):
         for pid in NEW:
             spec = cm.PRESETS[pid]
-            self.assertEqual(spec["status"], "untested")
+            self.assertIn(spec["status"], ("pass","partial","fail"))
             slots = {k: "X" for k in spec["slots"]}
             clause, warns = cm.expand_preset(pid, slots)
             self.assertNotIn("{", clause)
-            self.assertTrue(any("未實測" in w for w in warns), pid)
+            self.assertEqual(any("第 4 輪" in w for w in warns), spec["status"]!="pass", pid)
             with self.assertRaises(ValueError):
                 if spec["slots"]:
                     cm.expand_preset(pid, {})
