@@ -105,11 +105,80 @@ def get_png_dimensions(path: Path) -> Optional[Tuple[int, int]]:
     return None
 
 
+# 圖片路徑：反引號內允許空白與中文（`images/scene 燈塔-master.png`）；裸寫的路徑到空白為止。
+_IMG_EXT = r"\.(?:png|jpg|jpeg|webp)"
+_IMG_TICK_RE = re.compile(r"`(images/[^`\n]+?" + _IMG_EXT + r")`", re.I)
+_IMG_BARE_RE = re.compile(r"images/[^\s`'\"|)）]+?" + _IMG_EXT, re.I)
+
+
+def image_refs(text: str) -> List[str]:
+    """抓出文字裡的 images/... 圖片路徑（依出現順序、去重）。
+
+    以前只認 `images/[A-Za-z0-9_.-]+.png`：中文檔名、含空白、子資料夾或 .jpg／.webp 的設定圖
+    在階段 2 審核頁會被當成「沒有圖」。"""
+    found: List[str] = []
+    for m in _IMG_TICK_RE.finditer(text or ""):
+        found.append(m.group(1).strip())
+    stripped = _IMG_TICK_RE.sub(" ", text or "")
+    for m in _IMG_BARE_RE.finditer(stripped):
+        found.append(m.group(0))
+    out: List[str] = []
+    for item in found:
+        if item not in out:
+            out.append(item)
+    return out
+
+
+_ASSET_CARD_IMAGE_LABELS = ("設定圖", "母版圖", "服裝設定圖", "三視圖")
+
+
+def assets_md_images(project_dir: Path) -> Dict[str, List[str]]:
+    """assets.md 卡片（### C-xxx／CREATURE-xxx／S-xxx…）登記的設定圖／母版圖路徑：{資產 ID: [路徑…]}。
+
+    階段 2 內容門禁（stage_content_checks）認的就是這些欄位；審核頁在 bible.json 沒寫圖時也要用同一份，
+    不然門禁說齊了、審核頁卻依 images/<id>.png 報缺圖阻斷。"""
+    path = Path(project_dir) / "assets.md"
+    if not path.is_file():
+        return {}
+    text = path.read_text(encoding="utf-8-sig", errors="replace")
+    out: Dict[str, List[str]] = {}
+    for m in re.finditer(r"^###\s+((?:C|CREATURE|EXTRAS|S|P)-[\w-]+)[^\n]*$(.*?)(?=^#{1,3}\s|\Z)", text, re.M | re.S):
+        aid, body = m.group(1), m.group(2)
+        paths: List[str] = []
+        for line in body.splitlines():
+            lm = re.match(r"^\s*-\s*\*\*([^*]+)\*\*\s*[：:]\s*(.*)$", line)
+            if not lm or not lm.group(1).strip().startswith(_ASSET_CARD_IMAGE_LABELS):
+                continue
+            for ref in image_refs(lm.group(2)):
+                if "<" not in ref and ref not in paths:
+                    paths.append(ref)
+        if paths:
+            out[aid] = paths
+    return out
+
+
+def no_image_scope(project_dir: Path) -> bool:
+    """delivery_scope.no_image：階段 2 只要文字設定卡，缺圖不阻斷（與 stage_content_checks 一致）。"""
+    try:
+        import decisions as decisions_mod
+        return bool(decisions_mod.delivery_scope(Path(project_dir)).get("no_image"))
+    except Exception:
+        return False
+
+
+def _load_json_file(path: Path) -> Any:
+    """讀 JSON（容忍 Windows 記事本存的 UTF-8 BOM）。"""
+    return json.loads(path.read_text(encoding="utf-8-sig"))
+
+
 def scene_master_image(project_dir: Path, loc: Dict[str, Any], lid: str) -> str:
-    """場景母版圖路徑：bible 明指 > images/<lid>.png > export_asset_prompts 的 images/scene-<slug>-master.png。"""
+    """場景母版圖路徑：bible 明指 > assets.md 該場景卡的「母版圖」> images/<lid>.png > images/scene-<slug>-master.png。"""
     explicit = loc.get("reference_image") or loc.get("image_path") or loc.get("image_file")
     if explicit:
         return str(explicit)
+    from_assets = assets_md_images(project_dir).get(lid)
+    if from_assets:
+        return from_assets[0]
     default = f"images/{lid}.png"
     slug = lid[2:] if lid.startswith("S-") else lid
     exported = f"images/scene-{slug}-master.png"
@@ -1521,8 +1590,11 @@ def build_stage_1(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
         )
         return False, errors, ""
 
-    md_text = char_bible_md.read_text(encoding="utf-8")
-    bible_json = json.loads(bible_json_path.read_text(encoding="utf-8")) if bible_json_path.exists() else None
+    md_text = char_bible_md.read_text(encoding="utf-8-sig")
+    try:
+        bible_json = _load_json_file(bible_json_path) if bible_json_path.exists() else None
+    except (ValueError, OSError) as exc:
+        return False, [f"adapt/bible.json 無法解析：{exc}"], ""
     val_res = validate_character_bible(md_text, bible_json)
     if not val_res["passed"]:
         errors.extend(val_res["errors"])
@@ -1530,8 +1602,11 @@ def build_stage_1(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
     source_html = ""
     unit_count = 0
     if source_json_path.exists():
-        sdata = json.loads(source_json_path.read_text(encoding="utf-8"))
-        units = sdata.get("story_units", [])
+        try:
+            sdata = _load_json_file(source_json_path)
+        except (ValueError, OSError) as exc:
+            return False, [f"adapt/source.json 無法解析：{exc}"], ""
+        units = sdata.get("story_units", []) if isinstance(sdata, dict) else []
         unit_count = len(units)
         rows = ["| 單元 ID | 原著事件摘要 | 保留分級 |", "|---|---|---|"]
         for u in units:
@@ -1589,12 +1664,12 @@ def collect_creatures(project_dir: Path, prefix: str = "CREATURE") -> List[Dict[
     seen_imgs = set()
     amd = project_dir / "assets.md"
     if amd.is_file():
-        text = amd.read_text(encoding="utf-8")
+        text = amd.read_text(encoding="utf-8-sig")
         for m in re.finditer(r"^###\s+(" + prefix + r"-[A-Za-z0-9_-]+)[\s\u3000]*(.*?)$(.*?)(?=^#{2,3}\s|\Z)", text, re.M | re.S):
             cid, title, body = m.group(1), m.group(2).strip(), m.group(3).strip()
             name = re.sub(r"[（(].*?[）)]", "", title).strip() or cid
-            im = re.search(r"images/[A-Za-z0-9_./-]+\.(?:png|jpg|jpeg|webp)", body)
-            img = im.group(0) if im else f"images/{cid.lower()}.png"
+            refs = image_refs(body)
+            img = refs[0] if refs else f"images/{cid.lower()}.png"
             seen_imgs.add(img)
             out.append({"id": cid, "name": name, "spec": body, "image": img})
     img_dir = project_dir / "images"
@@ -1625,11 +1700,18 @@ def build_stage_2(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
 
     char_blocks: Dict[str, str] = {}
     if char_bible_md.exists():
-        char_blocks = parse_character_blocks(char_bible_md.read_text(encoding="utf-8"))
+        char_blocks = parse_character_blocks(char_bible_md.read_text(encoding="utf-8-sig"))
     else:
         errors.append("缺少 `adapt/character-bible.md`，無法將角色設定表與產出圖片並排對照！")
 
-    bible_json = json.loads(bible_json_path.read_text(encoding="utf-8")) if bible_json_path.exists() else {}
+    try:
+        bible_json = _load_json_file(bible_json_path) if bible_json_path.exists() else {}
+    except (ValueError, OSError) as exc:
+        return False, [f"adapt/bible.json 無法解析：{exc}"], ""
+    if not isinstance(bible_json, dict):
+        bible_json = {}
+    card_images = assets_md_images(project_dir)
+    text_only = no_image_scope(project_dir)
     chars = bible_json.get("characters", [])
     locs = bible_json.get("locations", [])
 
@@ -1667,9 +1749,12 @@ def build_stage_2(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
             _wimg = ws.get("image_path") or ws.get("image_file") if isinstance(ws, dict) else ""
             if _wimg:
                 img_candidates.append((ws.get("label") or ws.get("wardrobe_id") or "服裝變體", _wimg))
-        for m_img in re.findall(r"images/[A-Za-z0-9_.-]+\.png", spec_md):
+        for m_img in image_refs(spec_md):
             if all(m_img != p for _, p in img_candidates):
                 img_candidates.append(("設定圖／服裝狀態", m_img))
+        if not img_candidates:
+            # bible.json 與角色設定都沒寫圖：用 assets.md 卡片登記的設定圖（init 模板的命名是 C-<slug>_W01_sheet_v1.png）
+            img_candidates.extend(("設定圖（assets.md）", p) for p in card_images.get(cid, []))
 
         if not img_candidates:
             img_candidates.append(("預設路徑", f"images/{cid}.png"))
@@ -1799,7 +1884,11 @@ def build_stage_2(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
         _no_master = []
     if _no_master:
         print(f"[階段 2 提醒] 劇本用到但沒有場景母版圖的場景：{', '.join(_no_master)}", file=sys.stderr)
-    if missing_assets:
+    if missing_assets and text_only:
+        # 不生圖（delivery_scope.no_image）：門禁只要文字設定卡（stage_content_checks），缺圖照樣畫紅框但不阻斷；
+        # 以前 h3d next 說「產物已齊、去產審核頁」，審核頁卻因缺圖阻斷，兩邊互卡。
+        print(f"[階段 2 提醒] 不生圖模式：{len(missing_assets)} 項資產沒有圖，只審文字設定卡", file=sys.stderr)
+    elif missing_assets:
         errors.append(f"[階段 2 缺圖阻斷] 共有 {len(missing_assets)} 項核心資產圖片尚未生成或路徑不存在：{', '.join(missing_assets)}")
 
     kpis = [
@@ -2772,7 +2861,8 @@ def main() -> int:
     parser.add_argument("--project-dir", type=Path, help="專案根目錄")
     parser.add_argument("--stage", type=int, choices=range(8), help="建構並驗證指定階段 (0..7) 之 HTML 審核頁面")
     parser.add_argument("--approve-stage", type=int, choices=range(8), help="使用者明確確認沒問題後，標記該階段為 approved 解鎖下一關")
-    parser.add_argument("--user-note", type=str, default="使用者確認通過", help="搭配 --approve-stage 記錄使用者簽核備註")
+    parser.add_argument("--user-note", type=str, default=None,
+                        help="搭配 --approve-stage 記錄使用者原話（省略時記「使用者確認通過」並在 stderr 提醒）")
     parser.add_argument("--override", action="store_true",
                         help="僅階段 6：技術 QA 為 PARTIAL 時，使用者看過影片仍核准；必須搭配 --reason")
     parser.add_argument("--reason", type=str, default=None, help="搭配 --override：使用者的覆寫理由（寫進 project-state）")
@@ -2849,8 +2939,13 @@ def main() -> int:
             if not ok:
                 print(f"❌ 無法簽核：前置階段已失效或未核准：{msg}", file=sys.stderr)
                 return 2
+        note = (args.user_note or "").strip()
+        if not note:
+            # 不擋（相容舊流程與自動化），但提醒：SKILL 要求核准記使用者原話，預設句不是原話。
+            print("⚠️ 沒有 --user-note：核准備註會記成預設句「使用者確認通過」；請改帶使用者原話。", file=sys.stderr)
+            note = "使用者確認通過"
         ok_approve, why = state_approve_stage_detailed(
-            project_dir, s_idx, args.user_note, args.reason if args.override else None)
+            project_dir, s_idx, note, args.reason if args.override else None)
         if not ok_approve:
             print(f"❌ 無法簽核：{why}", file=sys.stderr)
             return 2

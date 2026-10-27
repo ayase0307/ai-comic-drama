@@ -922,7 +922,11 @@ def approve_stage_detailed(root: Path, stage: int, note: str = "使用者確認�
     state = load_state(root)
     entry = state["stages"][stage_key(stage)]
     if entry.get("status") != "awaiting_user_approval" or not entry.get("review_snapshot"):
-        return False, "該階段尚未產生審核頁（狀態不是 awaiting_user_approval）；請先跑 --stage 產出審核頁"
+        if entry.get("status") == "approved" and entry.get("approval_snapshot") == stage_snapshot(root, stage):
+            # 以前重複簽核會說「尚未產生審核頁」，看起來像核准不見了。
+            return False, "該階段已核准且內容沒變，不需要重複簽核"
+        return False, (f"該階段尚未產生審核頁（目前狀態 {entry.get('status') or '未知'}，不是 awaiting_user_approval）；"
+                       "請先跑 --stage 產出審核頁")
     if entry["review_snapshot"] != stage_snapshot(root, stage):
         return False, "審核頁產出後輸入或產物已變更；請重建審核頁再請使用者確認"
     technical: list[str] = []
