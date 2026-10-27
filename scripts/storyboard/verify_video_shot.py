@@ -53,6 +53,10 @@ try:  # 以 scripts/storyboard 為 sys.path 執行（CLI 慣例）
     import evidence as evidence_mod
 except ImportError:  # pragma: no cover - 套件匯入路徑
     from . import evidence as evidence_mod
+try:  # ffmpeg／ffprobe 位置（AICD_FFMPEG／AICD_FFPROBE 可覆寫）
+    import media_tools
+except ImportError:  # pragma: no cover - 套件匯入路徑
+    from . import media_tools
 
 # 確保 Windows 終端以 UTF-8 輸出，避免繁體中文字元編碼異常
 if sys.platform.startswith("win"):
@@ -114,7 +118,7 @@ def probe_video_specs(video_path: Path) -> Dict[str, Any]:
         raise FileNotFoundError(f"影片檔案不存在: {video_path}")
 
     cmd = [
-        "ffprobe",
+        media_tools.ffprobe_bin(),
         "-v", "error",
         "-show_entries", "format=duration,size,bit_rate:stream=width,height,r_frame_rate,codec_type,codec_name,duration",
         "-of", "json",
@@ -176,7 +180,7 @@ def probe_video_specs(video_path: Path) -> Dict[str, Any]:
 def extract_frame_rgb(video_path: Path, timestamp: float, w: int = 360, h: int = 202) -> bytes:
     """使用 ffmpeg 抽取指定時間點的縮放 RGB24 影格資料。"""
     cmd = [
-        "ffmpeg",
+        media_tools.ffmpeg_bin(),
         "-hide_banner",
         "-loglevel", "error",
         "-ss", f"{timestamp:.3f}",
@@ -201,7 +205,7 @@ def generate_contact_sheet(video_path: Path, duration: float, out_path: Path, wi
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     cmd = [
-        "ffmpeg",
+        media_tools.ffmpeg_bin(),
         "-y",
         "-hide_banner",
         "-loglevel", "error",
@@ -367,6 +371,11 @@ def atomic_write_text(path: Path, content: str) -> None:
         tmp.replace(path)
     finally:
         tmp.unlink(missing_ok=True)
+
+
+QA_FPS = 24.0
+#: 與 submit_h3_segments／fv_runner 的時長斷言相同：一格（1/24 s）＋ 0.02 s 容器誤差（只記錄，不改判定）。
+FRAME_TOLERANCE_SEC = 1.0 / QA_FPS + 0.02
 
 
 def find_exact_segment_video(video_dir: Path, segment_id: str) -> Tuple[Optional[Path], bool]:
@@ -573,7 +582,16 @@ def verify_single_segment(
 
     # 1. 預期時長計算 (優先取 metadata 總秒數，次之 shots 總和，次之頂層 seconds)
     seg_meta = segment_spec.get("metadata") or metadata or {}
-    expected_duration = float(
+    # metadata.frames（17n+5）是送件時的權威影格數；有它就以 frames/fps 為預期長度
+    # （舊版只看 effective／target 秒數；手寫分段只有 target 時，會拿未量化秒數比對）。
+    # 判定容差仍是 0.5s（階段 6 閘門語意不變）；另記 frames_match（一格＋0.02s，與送件端斷言相同）供人判讀。
+    expected_frames = None
+    for key in ("frames", "effective_frames"):
+        raw_frames = seg_meta.get(key)
+        if isinstance(raw_frames, (int, float)) and not isinstance(raw_frames, bool) and int(raw_frames) > 0:
+            expected_frames = int(raw_frames)
+            break
+    expected_duration = (expected_frames / QA_FPS) if expected_frames else float(
         seg_meta.get("effective_duration_sec")
         or seg_meta.get("target_duration_sec")
         or 0.0
@@ -603,8 +621,12 @@ def verify_single_segment(
 
     # 3. 檢驗時長誤差 (大於 0.5s 告警/退稿)
     duration_diff = abs(actual_duration - expected_duration)
-    duration_ok = duration_diff <= 0.5
+    tolerance = 0.5
+    duration_ok = duration_diff <= tolerance
+    frames_match = (duration_diff <= FRAME_TOLERANCE_SEC) if expected_frames else None
     duration_note = f"預期 {expected_duration:.2f}s, 實際 {actual_duration:.2f}s (差額 {duration_diff:.2f}s)"
+    if expected_frames:
+        duration_note += f"；要求 {expected_frames} 幀，實測約 {round(actual_duration * QA_FPS)} 幀"
 
     aspect_diff = abs(actual_aspect_val - target_aspect_val) / target_aspect_val if target_aspect_val > 0 else 0
     aspect_ok = aspect_diff <= 0.05
@@ -704,6 +726,10 @@ def verify_single_segment(
             "aspect_ratio": specs["aspect_ratio_val"],
         },
         "duration_check": {
+            "expected_frames": expected_frames,
+            "measured_frames_approx": round(actual_duration * QA_FPS) if expected_frames else None,
+            "frames_match": frames_match,
+            "tolerance_sec": tolerance,
             "expected_sec": expected_duration,
             "actual_sec": actual_duration,
             "diff_sec": round(duration_diff, 2),
@@ -1050,7 +1076,7 @@ def run_self_test() -> bool:
         # A: 正常彩色影片 (3.0s, 16:9, 彩色, 帶音訊)
         p_normal = tmp_dir / "normal_color.mp4"
         cmd_a = [
-            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            media_tools.ffmpeg_bin(), "-y", "-hide_banner", "-loglevel", "error",
             "-f", "lavfi", "-i", "testsrc=duration=3.0:size=1280x720:rate=24",
             "-f", "lavfi", "-i", "sine=frequency=1000:duration=3.0",
             "-c:v", "libx264", "-c:a", "aac", "-pix_fmt", "yuv420p",
@@ -1061,7 +1087,7 @@ def run_self_test() -> bool:
         # B: 灰階黑白污染影片 (3.0s, 16:9, 灰階)
         p_gray = tmp_dir / "grayscale_bleed.mp4"
         cmd_b = [
-            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            media_tools.ffmpeg_bin(), "-y", "-hide_banner", "-loglevel", "error",
             "-f", "lavfi", "-i", "testsrc=duration=3.0:size=1280x720:rate=24",
             "-vf", "format=gray,format=yuv420p",
             "-c:v", "libx264", "-pix_fmt", "yuv420p",
@@ -1079,7 +1105,7 @@ def run_self_test() -> bool:
             "drawbox=x=0:y=479:w=1280:h=3:color=black@1.0:t=fill"
         )
         cmd_c = [
-            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            media_tools.ffmpeg_bin(), "-y", "-hide_banner", "-loglevel", "error",
             "-f", "lavfi", "-i", "testsrc=duration=3.0:size=1280x720:rate=24",
             "-vf", grid_filter,
             "-c:v", "libx264", "-pix_fmt", "yuv420p",
@@ -1090,7 +1116,7 @@ def run_self_test() -> bool:
         # D: 時長不符影片 (1.5s vs 預期 3.0s)
         p_baddur = tmp_dir / "bad_duration.mp4"
         cmd_d = [
-            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            media_tools.ffmpeg_bin(), "-y", "-hide_banner", "-loglevel", "error",
             "-f", "lavfi", "-i", "testsrc=duration=1.5:size=1280x720:rate=24",
             "-c:v", "libx264", "-pix_fmt", "yuv420p",
             str(p_baddur)

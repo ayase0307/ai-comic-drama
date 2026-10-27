@@ -27,11 +27,11 @@ python scripts/h3d.py status --root . # 全局狀態（階段／依賴／送件�
 | `audit` | 參考圖／主體定義／台詞預算對帳 | 編譯後單獨重驗 |
 | `refcheck` | 參考包涵蓋檢查：提示詞寫到的具名角色／生物／道具／場景／群眾是否都有綁包（remix E50／E51 擋；ref2va 只提示），`--takes` 查已送出抽次的快照（§2.3.1d） | remix 每次改提示詞、送件前 |
 | `staging` | 站位／視線／運鏡閘門 D06–D14（兩個 backend；預設全部警告，`staging_gate=strict` 時 D06–D08 擋，§2.3.1d） | 階段 5 寫完提示詞後 |
-| `submit` | 送 FreeVideo：能力表＋時長斷言＋ledger 去重 | 使用者要求生成時 |
-| `collect` | 只把「已完成但沒下載」的工作收回來 | 批次中斷後 |
-| `resume` | collect 後補送未產出的段 | 中斷後續跑 |
+| `submit` | 送 FreeVideo：能力表＋時長斷言＋ledger 去重（`--output-dir` 預設 `<--root-dir>/videos`；`h3d submit --root X` 會轉成 `--root-dir X`） | 使用者要求生成時 |
+| `collect` | 只把「已完成但沒下載」的工作收回來；影片已在但帳本仍記進行中的段，只查一次服務端並更新帳本 | 批次中斷後 |
+| `resume` | collect 後補送未產出的段；collect 有失敗／漂移就停，處置後用 `--resume-past-failures` 續送其餘缺片段（漂移段要 `submit --segment-id` 明確重送） | 中斷後續跑 |
 | `qa` | 影片驗收＋**證據分級** | 拿到影片後 |
-| `assemble` | 配音、字幕、響度、拼接 | 交付前 |
+| `assemble` | 配音、字幕、響度（整片 loudnorm，預設 EBU R128 −23 LUFS／TP −1.5）、拼接；`--output` 預設 `<videos-dir>/final-<集數>.mp4` | 交付前 |
 | `deps` | segment 級依賴帳本（`--record`／`--status`） | 改動後查「哪幾段要重跑」 |
 | `catalog` | 失敗目錄（`--list`／`--check`／`--acks`／`--prune-acks`） | 想知道「這句為什麼會被擋」 |
 | `ack` | 記錄「我接受這條警告」的憑證 | 確認是誤報、但不想改稿時 |
@@ -383,6 +383,19 @@ python scripts/h3d.py compile --layer2 layer2/ --bible video-bible.json --bindin
 - **進度檔**：`videos/_runner-progress.json`；`h3d run --status --root .`。
 - 結束碼：0 完成、1 審查失敗、2 無令牌、3 佇列／送件被擋、4 同錯兩次、5 輪詢逾時、6 暫停、7 有別的 runner、8 probe 擋下、9 例外。
 
+**環境變數與路徑覆寫（預設值不變，換機器時才需要）**
+
+| 變數 | 作用 | 預設 |
+|---|---|---|
+| `FREEVIDEO_API_URL` | submit／collect／resume／run／probe 的 API 位址，`h3d doctor` 也用它探測 port | `http://127.0.0.1:8189/freevideo/agent/v1` |
+| `FREEVIDEO_TOKEN`／`FREEVIDEO_TOKEN_FILE` | 令牌本身／令牌檔路徑 | 依序找 `E:\FreeVideo\agent\token`、`~/.freevideo/agent/token`、`C:\FreeVideo\agent\token`（非 Windows 只看家目錄） |
+| `AICD_FFMPEG`／`AICD_FFPROBE` | ffmpeg／ffprobe 完整路徑（只設 ffmpeg 時 ffprobe 取同目錄） | PATH |
+| `COMFYUI_URL`／`VOICESTUDIO_URL` | `h3d doctor` 探測的 ComfyUI／VoiceStudio 位址 | `127.0.0.1:8188`／`127.0.0.1:8001`（TTS 位址另由 `config/tts.json` 的 `engines.voicestudio.base_url` 決定） |
+| `AICD_OMNIVOICE_LAUNCHER` | tts_doctor 提示的 OmniVoice 啟動檔 | `E:\OmniVoice\啟動-OmniVoice.bat` |
+| `AICD_H3_UPSTREAM` | `sync_h3_reference.py` 的上游 clone | 依序 `E:\MinimaxH3\h3-video-prompting`、本 repo 同層 `../h3-video-prompting` |
+
+本機服務（127.x／localhost）的 HTTP 請求一律不走系統 `HTTP(S)_PROXY`（送件端與 TTS 都是）；設了代理的機器以前會把 VoiceStudio 健康檢查丟給代理，造成「沒開卻回報可用」。
+
 **`h3d probe --segments segments-ep*.json`**（`scripts/runner/fv_probe.py`）：GET agent 根取已安裝 LoRA、GET `openapi.json` 取 JobSpec；
 LoRA 沒裝 → error，附「拿掉 LoRA」與相近的已安裝名稱；多帶 `trigger`／`reason` → warning（送件端 `sanitize_loras` 只送 name＋strength）。
 離線：`--installed a,b --schema openapi.json`。
@@ -459,6 +472,8 @@ python scripts/sync_h3_reference.py --sync --write-manifest   # 同步並更新�
 | `失敗目錄: [F-...]` | 命中已知失敗模式且該條 `enforce=error` | 依 `minimal_fix` 改稿 |
 | `需明確確認：... --ack-warnings` | 命中警告，尚未 ack | 改稿，或改用 `h3d ack` |
 | `已有 waiting 的 job` | 服務端還有活著的工作 | 先 `collect`，不要重送（會重複計費） |
+| `duration_drift`／`.drift.mp4`／`.unverified.mp4` | 服務端回報或下載後量到的長度和要求的 `17n+5` 影格不符，片子已隔離 | 停下回報使用者（`h3d next` 也會停）；查是否手改過 segments。使用者決定重跑：`h3d submit --segments … --segment-id <段> --root-dir .`；其餘缺片段 `h3d resume … --resume-past-failures`。**不要用 `--force` 續跑**（會覆蓋既有影片、略過帳本去重） |
+| `本機停止等待（timeout／interrupted）` | 本機輪詢逾時或被中斷；服務端工作沒有取消 | 不是失敗：稍後 `h3d collect`／`h3d resume` 收件，不要重送 |
 | `QA 證據等級為 PARTIAL` | 缺段或未達 VERIFIED | 缺段：補跑後重驗。全段都有、只是彩度／分鏡總覽圖等量化指標未過：先 `h3d verdict` 逐段目視，使用者看過仍要核准時用 `--approve-stage 6 --override --reason "<使用者理由>"`（理由寫進 project-state） |
 | `QA 含非預期分段` | QA 報告只對一集的 segments 檔，卻含其他集的結果 | 多集一次跑：`h3d qa --segments segments-ep01.json segments-ep02.json ... --videos-dir videos --out-json videos/qa-report.json` |
 | `驗收結論需重跑` | `review/verdicts.json` 依 `acceptance_policy` 判為 fail | 改提示詞後只重跑這些段；不能用 `--override` 放行 |

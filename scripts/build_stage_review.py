@@ -2522,6 +2522,7 @@ def build_stage_6(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
     except Exception:
         verdict_rows = {}
     videos: List[Path] = []
+    video_sid: Dict[Path, str] = {}
     qa_path = project_dir / "videos" / "qa-report.json"
     qa_map: Dict[str, Any] = {}
     if qa_path.exists():
@@ -2536,6 +2537,9 @@ def build_stage_6(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
                 video_path = video_path.resolve()
                 if video_path.is_relative_to(project_dir.resolve()) and video_path.is_file():
                     videos.append(video_path)
+                    if item.get("segment_id"):
+                        # QA 也收 `seg-<段>.mp4` 檔名；卡片要用段 id 對 verdicts／layer2，不能用檔名 stem。
+                        video_sid[video_path] = str(item["segment_id"])
             if item.get("segment_id"):
                 qa_map[str(item["segment_id"])] = item
 
@@ -2552,7 +2556,7 @@ def build_stage_6(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
     design_covered = 0
 
     for vp in videos:
-        seg_id = vp.stem
+        seg_id = video_sid.get(vp, vp.stem)
         v_rel = "../" + vp.relative_to(project_dir.resolve()).as_posix()
         q_item = qa_map.get(seg_id, {})
         q_pass = q_item.get("passed") is True

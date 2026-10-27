@@ -39,6 +39,11 @@ from typing import Any, Dict, List, Optional, Tuple
 import wave
 from unittest.mock import patch
 
+try:  # ffmpeg／ffprobe 位置（AICD_FFMPEG／AICD_FFPROBE 可覆寫）
+    import media_tools
+except ImportError:  # pragma: no cover - 套件匯入路徑
+    from . import media_tools
+
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 if hasattr(sys.stderr, "reconfigure"):
@@ -124,6 +129,7 @@ def synthesize_speech(
 
     out_wav.parent.mkdir(parents=True, exist_ok=True)
 
+    module_reason = ""
     if tts_module is not None:
         result = tts_module.synthesize(
             clean_text, out_wav, engine=engine, speaker=speaker,
@@ -133,6 +139,8 @@ def synthesize_speech(
             return str(result.get("engine") or engine)
         if engine != "auto":
             raise RuntimeError(f"TTS 合成失敗 ({engine}): {result.get('reason')}")
+        # auto：多後端都失敗才退回內建備援；保留原因，否則最後只看到「Edge 與 SAPI 失敗」而不知道主線為何不行。
+        module_reason = str(result.get("reason") or "")
 
     # ---- 內建離線備援 ----
     # 角色音色推測（僅備援路徑使用；主線以設定檔 voice_map 為準）
@@ -156,7 +164,9 @@ def synthesize_speech(
         # 降級至 SAPI 備案
         if generate_sapi_tts(clean_text, out_wav):
             return "windows-sapi (fallback)"
-        raise RuntimeError("語音生成雙引擎 (Edge-TTS 與 SAPI) 均失敗！")
+        detail = f"；多後端 tts_engine 失敗原因：{module_reason}" if module_reason else ""
+        raise RuntimeError("語音生成雙引擎 (Edge-TTS 與 SAPI) 均失敗！" + detail
+                           + "（先跑 tts_doctor.py 看哪個引擎可用，再用 --tts-engine 指定）")
 
     return "none"
 
@@ -166,14 +176,22 @@ def synthesize_speech(
 # ==============================================================================
 
 def escape_ffmpeg_path(path: Path) -> str:
-    """將 Windows 檔案路徑轉換為適用於 FFmpeg subtitles 濾鏡之跳脫字串 (C\\:/path/to/file)。"""
-    return str(path.resolve()).replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
+    """把檔案路徑轉成 filtergraph 裡可直接當選項值的字串（不要再包單引號）。
+
+    ffmpeg 有兩層跳脫（見官方「Notes on filtergraph escaping」）：
+      1. 選項值層：`\\`、`'`、`:` 前面加反斜線（Windows 磁碟代號 `C:` → `C\\:`）；
+      2. filtergraph 層：`\\`、`'`、`[`、`]`、`,`、`;` 前面再加反斜線。
+    舊版只做第一層又包在單引號裡，路徑含 `'`（例如 `Tom's Drama`）時 subtitles 濾鏡會開不到檔。
+    """
+    value = str(path.resolve()).replace("\\", "/")
+    level1 = value.replace("\\", "\\\\").replace("'", "\\'").replace(":", "\\:")
+    return "".join("\\" + ch if ch in "\\'[],;" else ch for ch in level1)
 
 
 def probe_video_specs(video_path: Path) -> Dict[str, Any]:
     """Read stream presence and duration without decoding the media."""
     result = subprocess.run([
-        "ffprobe", "-v", "error", "-show_entries",
+        media_tools.ffprobe_bin(), "-v", "error", "-show_entries",
         "format=duration:stream=codec_type,width,height", "-of", "json", str(video_path),
     ], capture_output=True, text=True, encoding="utf-8", errors="replace")
     if result.returncode != 0:
@@ -194,7 +212,7 @@ def probe_video_specs(video_path: Path) -> Dict[str, Any]:
 def probe_audio_duration(audio_path: Path) -> float:
     """Return decoded audio stream duration, rejecting missing/invalid audio."""
     result = subprocess.run([
-        "ffprobe", "-v", "error", "-show_entries", "format=duration:stream=codec_type,duration",
+        media_tools.ffprobe_bin(), "-v", "error", "-show_entries", "format=duration:stream=codec_type,duration",
         "-of", "json", str(audio_path),
     ], capture_output=True, text=True, encoding="utf-8", errors="replace")
     if result.returncode != 0:
@@ -216,7 +234,7 @@ def validate_video_decode(video_path: Path) -> Dict[str, Any]:
     if not specs["has_video"]:
         return {"decode_ok": False, "duration": specs["duration"], "error": "no video stream"}
     result = subprocess.run([
-        "ffmpeg", "-v", "error", "-xerror", "-i", str(video_path), "-f", "null", "-",
+        media_tools.ffmpeg_bin(), "-v", "error", "-xerror", "-i", str(video_path), "-f", "null", "-",
     ], capture_output=True, text=True, encoding="utf-8", errors="replace")
     return {
         "decode_ok": result.returncode == 0,
@@ -246,6 +264,11 @@ def atomic_write_json(path: Path, payload: Dict[str, Any]) -> None:
 
 def expected_segment_duration(segment: Dict[str, Any]) -> float:
     metadata = segment.get("metadata") or {}
+    # metadata.frames 是編譯器寫的權威影格數（17n+5），影片實際長度＝frames/24；
+    # 只寫 target_duration_sec 的舊／手寫分段若不先看 frames，會拿未量化秒數去比 ±0.1s 而誤判。
+    frames = metadata.get("frames")
+    if isinstance(frames, (int, float)) and not isinstance(frames, bool) and int(frames) > 0:
+        return int(frames) / 24.0
     candidates = [metadata.get("effective_duration_sec"), metadata.get("target_duration_sec"), segment.get("seconds")]
     for candidate in candidates:
         try:
@@ -374,7 +397,7 @@ def process_single_segment(
     if audio_required and audio_mode in {"tts_replace", "narration_only"} and not tts_tracks:
         return False, "分鏡要求音訊，但沒有成功生成任何 TTS 音軌"
 
-    cmd = ["ffmpeg", "-y", "-i", str(in_video)]
+    cmd = [media_tools.ffmpeg_bin(), "-y", "-hide_banner", "-loglevel", "error", "-i", str(in_video)]
     for wav_p, _ in tts_tracks:
         cmd.extend(["-i", str(wav_p)])
 
@@ -382,7 +405,7 @@ def process_single_segment(
     if has_sub:
         esc_srt = escape_ffmpeg_path(srt_file)
         sub_style = "FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2"
-        v_filter = f"subtitles='{esc_srt}':force_style='{sub_style}'"
+        v_filter = f"subtitles=filename={esc_srt}:force_style='{sub_style}'"
 
     # 原生音軌降音量只會降低其中的語音與環境音；不會分離或移除原生人聲。
     filter_complex_parts = []
@@ -460,6 +483,14 @@ def process_single_segment(
 # FFmpeg Concat 協議無縫拼接
 # ==============================================================================
 
+def _concat_quote(path: Path) -> str:
+    """concat demuxer 清單的單引號跳脫（`'` → `'\\''`）；拒絕換行。"""
+    value = path.resolve().as_posix()
+    if "\n" in value or "\r" in value:
+        raise ValueError("影片路徑不得包含換行字元")
+    return "'" + value.replace("'", "'\\''") + "'"
+
+
 def build_pcm_audio_track(video_list: List[Path], work_dir: Path) -> Optional[Path]:
     """逐段解成 PCM、長度鎖成該段影片時長再串接（#168）。
 
@@ -477,10 +508,10 @@ def build_pcm_audio_track(video_list: List[Path], work_dir: Path) -> Optional[Pa
         wav = work_dir / f".pcm_{os.getpid()}_{idx:03d}.wav"
         fmt = "aresample=48000,aformat=channel_layouts=stereo"
         if sp["has_audio"]:
-            cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", str(video.resolve()), "-vn",
+            cmd = [media_tools.ffmpeg_bin(), "-y", "-hide_banner", "-loglevel", "error", "-i", str(video.resolve()), "-vn",
                    "-af", f"{fmt},apad,atrim=0:{dur:.6f}"]
         else:
-            cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi",
+            cmd = [media_tools.ffmpeg_bin(), "-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi",
                    "-i", "anullsrc=r=48000:cl=stereo", "-t", f"{dur:.6f}"]
         cmd += ["-c:a", "pcm_s16le", str(wav)]
         res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
@@ -490,9 +521,10 @@ def build_pcm_audio_track(video_list: List[Path], work_dir: Path) -> Optional[Pa
             raise RuntimeError(f"解 PCM 失敗 {video.name}: {res.stderr[:300]}")
         wavs.append(wav)
     lst = work_dir / f".pcm_{os.getpid()}.txt"
-    lst.write_text("".join(f"file '{w.resolve().as_posix()}'\n" for w in wavs), encoding="utf-8")
+    # 與 concat_videos 同一套引號規則：路徑含 `'` 時舊寫法會讓 concat demuxer 開不到檔。
+    lst.write_text("".join(f"file {_concat_quote(w)}\n" for w in wavs), encoding="utf-8")
     joined = work_dir / f".pcm_{os.getpid()}_all.wav"
-    res = subprocess.run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-f", "concat", "-safe", "0",
+    res = subprocess.run([media_tools.ffmpeg_bin(), "-y", "-hide_banner", "-loglevel", "error", "-f", "concat", "-safe", "0",
                           "-i", str(lst.resolve()), "-c", "copy", str(joined)],
                          capture_output=True, text=True, encoding="utf-8", errors="replace")
     for w in wavs:
@@ -519,13 +551,7 @@ def concat_videos(
     out_video.parent.mkdir(parents=True, exist_ok=True)
     list_file = out_video.parent / f"concat_{out_video.stem}_{os.getpid()}.txt"
 
-    def concat_quote(path: Path) -> str:
-        value = path.resolve().as_posix()
-        if "\n" in value or "\r" in value:
-            raise ValueError("影片路徑不得包含換行字元")
-        return "'" + value.replace("'", "'\\''") + "'"
-
-    lines = [f"file {concat_quote(v)}" for v in video_list]
+    lines = [f"file {_concat_quote(v)}" for v in video_list]
     list_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
     staging_video = out_video.with_name(f".{out_video.stem}.{os.getpid()}.concat{out_video.suffix}")
     staging_video.unlink(missing_ok=True)
@@ -536,7 +562,7 @@ def concat_videos(
         list_file.unlink(missing_ok=True)
         return False, f"拼接失敗: {exc}"
     cmd = [
-        "ffmpeg", "-y", "-hide_banner", "-f", "concat", "-safe", "0",
+        media_tools.ffmpeg_bin(), "-y", "-hide_banner", "-f", "concat", "-safe", "0",
         "-i", str(list_file.resolve()),
     ]
     if pcm is not None:
@@ -586,12 +612,12 @@ def run_self_test() -> bool:
 
         # 1. 產生兩段測試短片 (帶基本音訊)
         cmd1 = [
-            "ffmpeg", "-y", "-f", "lavfi", "-i", "color=c=blue:s=640x360:d=4.0:r=24",
+            media_tools.ffmpeg_bin(), "-y", "-f", "lavfi", "-i", "color=c=blue:s=640x360:d=4.0:r=24",
             "-f", "lavfi", "-i", "sine=frequency=440:duration=4.0",
             "-c:v", "libx264", "-c:a", "aac", str(vid1)
         ]
         cmd2 = [
-            "ffmpeg", "-y", "-f", "lavfi", "-i", "color=c=green:s=640x360:d=4.0:r=24",
+            media_tools.ffmpeg_bin(), "-y", "-f", "lavfi", "-i", "color=c=green:s=640x360:d=4.0:r=24",
             "-f", "lavfi", "-i", "sine=frequency=880:duration=4.0",
             "-c:v", "libx264", "-c:a", "aac", str(vid2)
         ]
@@ -654,6 +680,25 @@ def run_self_test() -> bool:
 # CLI 入口
 # ==============================================================================
 
+def _default_episode_label(args: argparse.Namespace) -> str:
+    """預設輸出檔名用的集數：segments 的 episode／episode_id → 檔名 epNN → ep01（舊預設）。"""
+    if args.segments and args.segments.is_file():
+        try:
+            raw = json.loads(args.segments.read_text(encoding="utf-8-sig"))
+        except (OSError, json.JSONDecodeError):
+            raw = None
+        if isinstance(raw, dict):
+            label = str(raw.get("episode") or raw.get("episode_id") or "").strip()
+            if re.fullmatch(r"[A-Za-z0-9_-]+", label):
+                return label.lower()
+    for source in (args.segments, args.layer2_dir, args.timeline):
+        if source is not None:
+            match = re.search(r"ep\d+", Path(source).name, re.IGNORECASE)
+            if match:
+                return match.group(0).lower()
+    return "ep01"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="assemble_episode.py — AI 漫劇階段 7 配音分層、字幕燒錄與拼接成片工具"
@@ -663,7 +708,9 @@ def main() -> int:
     parser.add_argument("--timeline", type=Path, help="timeline-epXX.csv 時間線檔案")
     parser.add_argument("--narration", type=Path, help="narration-epXX.md 旁白字幕對照稿")
     parser.add_argument("--videos-dir", type=Path, default=Path("videos"), help="影片片段來源目錄 (預設 videos/)")
-    parser.add_argument("--output", type=Path, default=Path("videos/final-ep01.mp4"), help="最終成片輸出路徑")
+    parser.add_argument("--output", type=Path, default=None,
+                        help="最終成片輸出路徑（預設 <videos-dir>/final-<集數>.mp4；集數取自 segments 的 episode 或檔名，"
+                             "取不到時為 final-ep01.mp4）")
     parser.add_argument("--audio-mode", type=str, default="auto",
                         choices=["auto", "tts_replace", "native_sub", "narration_only"],
                         help="配音模式 (預設 auto 逐段裁決：有可見嘴對白→native_sub 留 H3 口型；"
@@ -706,6 +753,9 @@ def main() -> int:
     if args.self_test:
         success = run_self_test()
         return 0 if success else 1
+
+    if args.output is None:
+        args.output = args.videos_dir / f"final-{_default_episode_label(args)}.mp4"
 
     # Invalidate any prior success claim before reading or processing this run's inputs.
     # The prior final file remains intact until a fully validated candidate replaces it.

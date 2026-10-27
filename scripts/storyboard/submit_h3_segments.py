@@ -63,6 +63,7 @@ except ImportError:
     lint_h3_prompt = None
 
 import h3_spec
+import media_tools
 import provider_caps
 
 try:  # 以 scripts/storyboard 為 sys.path 執行（CLI 慣例）
@@ -73,7 +74,10 @@ except ImportError:  # pragma: no cover - 套件匯入路徑
     from . import prompt_authoring
 
 
-DEFAULT_API_URL = "http://127.0.0.1:8189/freevideo/agent/v1"
+DEFAULT_API_URL_FALLBACK = "http://127.0.0.1:8189/freevideo/agent/v1"
+#: FreeVideo Agent API 位址：環境變數 FREEVIDEO_API_URL > 家機預設 127.0.0.1:8189。
+#: 每個指令另有 --api-url／--api 可覆寫；h3d doctor 也讀同一個值探測 port。
+DEFAULT_API_URL = os.environ.get("FREEVIDEO_API_URL", "").strip() or DEFAULT_API_URL_FALLBACK
 SAFE_VRAM_MB = 4300  # 本機經驗性提醒值，不是 H3 跨環境硬性規格
 POLL_TIMEOUT_SECONDS = 1800
 
@@ -248,7 +252,7 @@ def probe_video_duration(video_path: Path) -> Optional[float]:
     """用 ffprobe 量實際檔案長度；失敗回 None（不代表通過）。"""
     try:
         result = subprocess.run(
-            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+            [media_tools.ffprobe_bin(), "-v", "error", "-show_entries", "format=duration",
              "-of", "default=nw=1:nk=1", str(video_path)],
             capture_output=True, text=True, timeout=60,
         )
@@ -277,19 +281,45 @@ def get_gpu_vram() -> Optional[Tuple[int, int]]:
         return None
 
 
+def token_candidates() -> List[Path]:
+    """令牌檔搜尋順序（不含 FREEVIDEO_TOKEN 環境變數本身）。
+
+    FREEVIDEO_TOKEN_FILE > 家機 E:/FreeVideo > 使用者家目錄（USERPROFILE／HOME）> C:/FreeVideo。
+    舊版在 USERPROFILE 未設定（Linux／macOS）時會變成「目前目錄下的 .freevideo/…」，
+    等於拿工作目錄裡的任意檔當令牌；現在空值一律略過、改用 Path.home()。
+    """
+    candidates: List[Path] = []
+    explicit = os.environ.get("FREEVIDEO_TOKEN_FILE", "").strip()
+    if explicit:
+        candidates.append(Path(explicit).expanduser())
+    candidates.append(Path(r"E:\FreeVideo\agent\token"))
+    homes: List[Path] = []
+    profile = os.environ.get("USERPROFILE", "").strip()
+    if profile:
+        homes.append(Path(profile))
+    try:
+        homes.append(Path.home())
+    except (RuntimeError, KeyError):  # pragma: no cover - 沒有家目錄的環境
+        pass
+    for home in homes:
+        candidate = home / ".freevideo" / "agent" / "token"
+        if candidate.is_absolute() and candidate not in candidates:
+            candidates.append(candidate)
+    candidates.append(Path("C:/FreeVideo/agent/token"))
+    # 非 Windows 上 `E:/...`／`C:/...` 會被當成相對路徑（＝目前目錄下的檔案），一律略過；
+    # 只有使用者明確指定的 FREEVIDEO_TOKEN_FILE 允許相對路徑。
+    return [c for i, c in enumerate(candidates) if c.is_absolute() or (explicit and i == 0)]
+
+
 def find_token() -> str:
     """自動從常見路徑安全讀取 FreeVideo 令牌，嚴禁對外列印。"""
-    token_candidates = [
-        Path(r"E:\FreeVideo\agent\token"),
-        Path(os.environ.get("USERPROFILE", "")) / ".freevideo" / "agent" / "token",
-        Path("C:/FreeVideo/agent/token"),
-    ]
     env_token = os.environ.get("FREEVIDEO_TOKEN", "").strip()
     if env_token:
         return env_token
+    token_candidates_list = token_candidates()
 
-    for p in token_candidates:
-        if p.exists():
+    for p in token_candidates_list:
+        if p.is_file():
             try:
                 t = p.read_text(encoding="utf-8").strip()
                 if t:
@@ -565,6 +595,9 @@ def audit_segment_prompts(todo_segs: List[Dict[str, Any]], root_dir: Optional[Pa
     return len(errors) == 0, errors
 
 
+#: 影片檔已存在、但帳本最新一筆仍是這些狀態時，collect 只查一次服務端並更新帳本。
+REFRESHABLE_WHEN_FILE_EXISTS = {"waiting", "queued", "running", "unknown", "timeout", "interrupted"}
+
 ACTIVE_LEDGER_STATUSES = {
     "waiting", "queued", "running", "succeeded", "timeout", "interrupted", "unknown",
 }
@@ -580,12 +613,23 @@ def active_job_for(ledger_path: Path, segment_id: str) -> Optional[Dict[str, Any
     for entry in reversed(ledger.get("jobs", []) or []):
         if str(entry.get("segment_id")) != str(segment_id):
             continue
+        # 只看該段「最新一次」送件（與 collect 的 #93 規則一致）：較舊的 job 已被取代，
+        # 舊版會越過最新的 downloaded 繼續往回找，撿到被取代的 running 而誤擋重送。
         status = str(entry.get("status") or "")
-        if status in ACTIVE_LEDGER_STATUSES:
-            return entry
-        if status in ("failed", "cancelled", "duration_drift"):
-            return None
+        return entry if status in ACTIVE_LEDGER_STATUSES else None
     return None
+
+
+def latest_job_for(ledger_path: Path, segment_id: str) -> Optional[Dict[str, Any]]:
+    """帳本裡該段最新一次送件紀錄（沒有就 None）。"""
+    ledger = load_job_ledger(ledger_path)
+    for entry in reversed(ledger.get("jobs", []) or []):
+        if str(entry.get("segment_id")) == str(segment_id):
+            return entry
+    return None
+
+
+DRIFT_LEDGER_STATUSES = {"duration_drift", "duration_unverified"}
 
 
 def collect_jobs(api_url: str, token: str, ledger_path: Path, output_dir: Path,
@@ -641,9 +685,31 @@ def collect_jobs(api_url: str, token: str, ledger_path: Path, output_dir: Path,
             continue
         out_mp4 = output_dir / f"{sid}.mp4"
         if out_mp4.exists():
+            # 檔案已在，但帳本最新一筆還是進行中（例如 runner 被砍、別的流程先把檔放好）：
+            # 只查一次服務端並把狀態寫回，不下載、不覆蓋。否則 `h3d next` 會一直判「還有工作在跑」
+            # 而指示 collect，collect 又因檔案存在而跳過——永遠卡住。
+            if str(entry.get("status")) in REFRESHABLE_WHEN_FILE_EXISTS:
+                try:
+                    resp = call_api(api_url, token, "GET", f"/jobs/{jid}?wait=0", timeout=10)
+                    state = str(((resp or {}).get("job") or {}).get("status") or "")
+                except Exception as exc:
+                    print(f"[collect] {sid}: 影片已存在，但查詢帳本中的 job 失敗 {exc}")
+                    summary["unreachable"] += 1
+                    continue
+                if state in ("succeeded", "failed", "cancelled", "interrupted"):
+                    record_job(ledger_path, project=project, api_scope=api_scope,
+                               batch_id=str(entry.get("batch_id") or "collect"), segment_id=str(sid),
+                               job_id=str(jid), status=f"{state}_file_exists")
+                    print(f"[collect] {sid}: 影片已存在；帳本中的 job {jid} 服務端為 {state}，已更新帳本（未下載、未覆蓋）")
+                elif state:
+                    summary["still_running"] += 1
+                    continue
             summary["skipped"] += 1
             continue
         if str(entry.get("status")) == "duration_drift":
+            # 先前已判定的漂移件：不再查服務端、不再下載，但要算進 drift（舊版只算 failed，摘要顯示 drift 0 會誤導）。
+            print(f"[collect] {sid}: 先前判定 duration_drift，不收件（處置見 references/tooling.md §4）")
+            summary["drift"] += 1
             summary["failed"] += 1
             continue
         try:
@@ -723,7 +789,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
     parser.add_argument("--segments", type=Path, help="compile_layer2_to_h3 產出的 segments-epXX.json 路徑")
     parser.add_argument("--segment-id", nargs="*", help="指定僅執行特定分段 ID (如 EP01-S01-seg01)，預設跑全部")
-    parser.add_argument("--output-dir", type=Path, default=Path("videos"), help="影片輸出儲存目錄 (預設 videos/)")
+    parser.add_argument("--output-dir", type=Path, default=None,
+                        help="影片輸出儲存目錄（預設 <--root-dir>/videos；舊版預設是「目前目錄」下的 videos/）")
     parser.add_argument("--api-url", type=str, default=DEFAULT_API_URL, help="FreeVideo Agent API 位址")
     parser.add_argument("--quality", type=str, default="light", choices=["light", "medium", "high", "max"], help="生成畫質模式 (預設 light)")
     parser.add_argument("--dry-run", action="store_true", help="送件前乾跑檢查：檢查參考圖存在、SHA256、顯存狀態與分段摘要")
@@ -732,6 +799,9 @@ def main(argv: Optional[List[str]] = None) -> int:
                         help="只收件：掃 ledger，把已完成但沒下載的工作補抓回來，不送新件（不做 provider 能力校驗）")
     parser.add_argument("--resume", action="store_true",
                         help="續跑：先 collect 補回已完成的工作，再送尚未產出的分段")
+    parser.add_argument("--resume-past-failures", action="store_true",
+                        help="搭配 --resume：collect 有失敗／漂移時仍續送其餘缺片段（照樣跳過已有影片與帳本進行中的段，"
+                             "不會像 --force 一樣覆蓋既有影片或重送進行中的工作）；查詢失敗（服務端狀態未知）仍會停")
     parser.add_argument("--collect-wait", type=int, default=0,
                         help="collect 時對每個工作的等待秒數（預設 0，只查現況）")
     parser.add_argument("--provider", default="freevideo", help="provider 能力表名稱（預設 freevideo）")
@@ -749,6 +819,14 @@ def main(argv: Optional[List[str]] = None) -> int:
                         help="每個 FreeVideo job 最長等待秒數；逾時保留 ledger 並回傳失敗")
 
     args = parser.parse_args(argv)
+    if args.output_dir is None:
+        args.output_dir = args.root_dir / "videos"
+    if (args.segments is not None and not args.segments.is_absolute() and not args.segments.exists()
+            and (args.root_dir / args.segments).exists()):
+        # `h3d submit --root <專案> --segments segments-ep01.json` 從別的目錄執行時，分段檔以專案根解析。
+        args.segments = args.root_dir / args.segments
+    if args.resume_past_failures and not args.resume:
+        parser.error("--resume-past-failures 只能搭配 --resume 使用。")
 
     # 1. 檢查 FreeVideo 令牌
     token = find_token()
@@ -771,10 +849,21 @@ def main(argv: Optional[List[str]] = None) -> int:
             return 2
         if args.collect and not args.resume:
             return 1 if bad else 0
-        if bad and not args.force:
-            print("❌ collect 沒有全部收乾淨（失敗或查詢失敗）；為避免重複送件，停止續跑。"
-                  "確認後可加 --force 強制續跑。")
+        if summary["unreachable"]:
+            # 服務端狀態未知時續送可能重複計費；--resume-past-failures 也不放行（--force 維持舊行為）。
+            if not args.force:
+                print("❌ collect 有工作查詢失敗（服務端狀態未知）；為避免重複送件，停止續跑。"
+                      "先確認 FreeVideo 可連線後重跑 h3d resume。")
+                return 1
+        elif bad and not (args.force or args.resume_past_failures):
+            print("❌ collect 有失敗或時長漂移的段（見上方）；為避免在未處置前重送，停止續跑。\n"
+                  "   duration_drift／無法斷言：照 references/tooling.md §4 處置並回報使用者；\n"
+                  "   確認後要續送其餘缺片段：h3d resume ... --resume-past-failures"
+                  "（不覆蓋既有影片、不重送進行中的工作）；只重送單一段：h3d submit ... --segment-id <段>。\n"
+                  "   注意：--force 會覆蓋既有影片並略過帳本去重，不要用來續跑。")
             return 1
+        elif bad:
+            print("⚠️ collect 有失敗或漂移的段，依 --resume-past-failures／--force 繼續送其餘缺片段。")
 
     if not args.segments:
         parser.error("請提供 --segments 參數指定分段 JSON 檔案，或使用 --cancel-stale。")
@@ -1042,6 +1131,14 @@ def main(argv: Optional[List[str]] = None) -> int:
 
         # ledger 去重：服務端可能還有活著的 job（中斷不會取消遠端任務），
         # 只憑「本地沒有 mp4」就重送會造成同一段重複計費。
+        if args.resume_past_failures and not (args.segment_id and sid in args.segment_id):
+            latest = latest_job_for(ledger_path, str(sid))
+            if latest and str(latest.get("status")) in DRIFT_LEDGER_STATUSES:
+                print(f"\n[#{idx:02d} {sid}] 帳本最新一筆是 {latest.get('status')}；--resume-past-failures 不自動重送漂移段，"
+                      "處置後用 --segment-id 明確指定。")
+                stats["skipped"] += 1
+                continue
+
         existing_job = active_job_for(ledger_path, str(sid))
         if existing_job and not args.force:
             print(f"\n[#{idx:02d} {sid}] ledger 已有 {existing_job.get('status')} 的 job "
@@ -1130,6 +1227,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             continue
 
         # 輪詢進度
+        started_wall = time.time()  # 只用於顯示耗時；逾時判斷仍用 monotonic
         deadline = time.monotonic() + max(1, args.poll_timeout)
         while job.get("status") not in ("succeeded", "failed", "cancelled", "interrupted"):
             remaining = deadline - time.monotonic()
@@ -1156,7 +1254,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 continue
 
         status = job.get("status")
-        elapsed_min = 0.0
+        elapsed_min = max(0.0, time.time() - started_wall) / 60.0
 
         if status == "succeeded":
             # 終態再斷言一次：POST 建立任務當下通常還沒有 geometry，
@@ -1208,6 +1306,12 @@ def main(argv: Optional[List[str]] = None) -> int:
             else:
                 print(f"  ❌ 任務標記成功但無影片 URL！")
                 stats["failed"] += 1
+        elif status in ("timeout", "interrupted"):
+            # 不是失敗：服務端工作仍可能在跑，只是本機不再等。帳本保留 job id，之後用 collect 收。
+            print(f"  ⏸️ 本機停止等待（{status}）；job {jid} 仍記在帳本、未取消。稍後跑 h3d collect／h3d resume 收件，不要重送。")
+            stats["failed"] += 1
+            record_job(ledger_path, project=str(project_root), api_scope=args.api_url,
+                       batch_id=batch_id, segment_id=str(sid), job_id=str(jid), status=str(status))
         else:
             err = job.get("error") or {}
             print(f"  ❌ 任務失敗: {status} | 代碼: {err.get('code')} | 訊息: {err.get('message')}")

@@ -115,6 +115,7 @@ def stage5_producer(root: Path, errors: List[str]) -> tuple:
 
 
 ACTIVE_JOB_STATUSES = {"waiting", "queued", "running"}
+DRIFT_JOB_STATUSES = {"duration_drift", "duration_unverified"}
 
 
 def _segment_files(root: Path) -> List[Path]:
@@ -150,16 +151,27 @@ def _segment_ids(path: Path) -> List[str]:
     return [str(i["segment_id"]) for i in items if isinstance(i, dict) and i.get("segment_id")]
 
 
-def _active_jobs(root: Path) -> List[str]:
-    found: List[str] = []
+def _latest_ledger_jobs(root: Path) -> Dict[str, Dict[str, Any]]:
+    """每段只取帳本裡最新一次送件（與 collect 的 #93 規則一致；較舊的 job 已被取代）。"""
+    latest: Dict[str, Dict[str, Any]] = {}
     for ledger in sorted(root.glob("videos/**/_fv-job-ledger.json")):
         try:
             payload = json.loads(ledger.read_text(encoding="utf-8-sig"))
         except (OSError, json.JSONDecodeError):
             continue
         for job in payload.get("jobs", []) or []:
-            if str(job.get("status")) in ACTIVE_JOB_STATUSES:
-                found.append(f"{job.get('segment_id', '?')}（{job.get('job_id', '?')}，{job.get('status')}）")
+            if isinstance(job, dict) and job.get("segment_id"):
+                latest[str(job["segment_id"])] = job
+    return latest
+
+
+def _active_jobs(root: Path) -> List[str]:
+    # 舊版掃全部紀錄：同段被重送過時，被取代的舊 job 永遠停在 running，collect 又刻意不收它，
+    # `h3d next` 就一直指示 collect（死循環）。帳本欄位是 `id`，舊版讀 `job_id` 永遠印「?」。
+    found: List[str] = []
+    for sid, job in _latest_ledger_jobs(root).items():
+        if str(job.get("status")) in ACTIVE_JOB_STATUSES:
+            found.append(f"{sid}（{job.get('id') or job.get('job_id') or '?'}，{job.get('status')}）")
     return found
 
 
@@ -225,6 +237,18 @@ def _stage6_work(res: Dict[str, Any], root: Path) -> Optional[Dict[str, Any]]:
         res["blocked_on"].append("delivery_scope 為 no_video：使用者決定不生影片，不得送件")
         res["action"] = ("停下：已定案的交付範圍不含影片。不要執行 resume；要生影片須先請使用者同意改範圍，"
                          "再用 `" + H3D + " decide delivery_scope full --quote \"<使用者原話>\" --root .` 寫入。")
+        res["next_command"] = None
+        return res
+    drifted = [sid for sid in missing_videos
+                if str((_latest_ledger_jobs(root).get(sid) or {}).get("status")) in DRIFT_JOB_STATUSES]
+    if drifted:
+        # 漂移件被隔離成 .drift.mp4／.unverified.mp4，看起來像「缺片」；舊版這裡會指示 resume，
+        # resume 的 collect 又因漂移停下——兩邊互相指。這裡直接照開工規則 6 停下。
+        res["blocked_on"].append(f"{len(drifted)} 段時長漂移或無法斷言（例如 {drifted[0]}），影片已隔離")
+        res["action"] = ("停下：出現時長漂移（duration_drift）。不要把漂移的片子拿去 QA，也不要用 --force 重送；"
+                         "照 references/tooling.md §4 查明原因並回報使用者。使用者決定重跑後，只重送這幾段："
+                         f"{H3D} submit --segments <分段檔> --segment-id {' '.join(drifted[:10])} --root-dir .；"
+                         "其餘缺片段可用 h3d resume ... --resume-past-failures。")
         res["next_command"] = None
         return res
     if missing_videos:
