@@ -296,6 +296,16 @@ LoRA 沒裝 → error，附「拿掉 LoRA」與相近的已安裝名稱；多帶
 - `h3d assemble`、`h3d concat plan` 自動改用變速版並以 `time_map` 換算字幕／旁白／配音時間（`--no-speed-ramps` 關掉）。
 - 規則、清單格式與實測：`references/speed-ramp.md`。
 
+### 2.8.1 交界連續性 QA（h3d qa --continuity，R3-16 方案 B，只警告）
+
+`python scripts/h3d.py qa --continuity --root . [--segments segments-ep01.json ...] [--segment-id <段>...] [--window 0.9] [--out-dir ...]`（`scripts/storyboard/continuity_qa.py`，需 ffmpeg／ffprobe、numpy、Pillow）
+
+- **實際切點**：模型常提早／延後 0.1–0.5 s 切鏡，用規劃秒數抽格會抽到錯的鏡。每個規劃切點（`metadata.cut_markers[].at_seconds`，沒有就 `shots[1:].start_time`）±0.9 s 內，取相鄰兩格 1−相關係數最大者為實際切點（新鏡第一格）；峰值 < 0.12 或不到窗內中位數 2 倍 → 「切點不明」（可能沒切或溶接）；偏離 > 0.5 s 另列警告。
+- **拼貼圖**（每段一張 `videos/qa/continuity/<段>.png`）：「上段末格｜本段首格」、每個鏡交界「切前一格｜切後一格」、「本段末格｜下段首格」；上／下段取同一分段檔內相鄰段，沒影片的列略過。
+- **三欄幀差**：每個鏡（實際切點之間，排除切點那一對）左中右三欄平均絕對幀差；某欄 < 最大欄 25%（最大欄 ≥ 1.0）→「一側靜止候選」（例如對打一方定住；單人置中構圖也會觸發，目視拼貼判斷）。
+- 結果：`videos/qa/continuity/continuity-report.json`（`gate: warning_only`）。階段 6 審核頁（`build_stage_review.py --stage 6`）每段附拼貼、切點與警告。
+- **只警告、不擋任何關卡**：不寫 `qa-report.json`／verdicts、不在任何核准快照內、結束碼只反映執行錯誤。人工 9 項判定（cut_pos、cut_state、seg_in、seg_out、identity、all_move、reaction、causality、smooth）尚未實作；目視問題照常用 `h3d verdict` 記結論。
+
 ## 3. 文件同步（references/h3）
 
 `references/h3/` 是上游 `h3-video-prompting` 的 `references/` 同步副本，**不是手寫的**。
