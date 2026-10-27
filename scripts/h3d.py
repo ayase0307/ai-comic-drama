@@ -100,6 +100,9 @@ MODULE_FOR = {
     "ack": "failure_catalog",
 }
 
+# 專案根旗標叫 --root-dir 的子命令（h3d 會把 --root 轉過去）
+ROOT_DIR_COMMANDS = ("submit", "collect", "resume")
+
 # 需要自動補上前置旗標的子命令
 IMPLIED_FLAGS = {
     "collect": ["--collect"],
@@ -176,11 +179,19 @@ def _ledger_summary(root: Path) -> List[str]:
         except (OSError, json.JSONDecodeError) as exc:
             lines.append(f"  {ledger.relative_to(root).as_posix()}：無法解析（{exc}）")
             continue
+        # 每段只算最新一筆（與 collect／next 一致）；被重送取代的舊 job 另計，不再混進 running 之類的計數。
+        latest: Dict[str, Dict[str, Any]] = {}
+        jobs = [job for job in payload.get("jobs", []) or [] if isinstance(job, dict)]
+        for job in jobs:
+            latest[str(job.get("segment_id") or job.get("id") or "?")] = job
         counts: Dict[str, int] = {}
-        for job in payload.get("jobs", []) or []:
+        for job in latest.values():
             status = str(job.get("status") or "unknown")
             counts[status] = counts.get(status, 0) + 1
         summary = ", ".join(f"{key}={value}" for key, value in sorted(counts.items())) or "（空）"
+        superseded = len(jobs) - len(latest)
+        if superseded > 0:
+            summary += f"（另有 {superseded} 筆被重送取代的舊紀錄）"
         lines.append(f"  {ledger.relative_to(root).as_posix()}：{summary}")
     return lines
 
@@ -279,6 +290,22 @@ def main(argv: Optional[List[str]] = None) -> int:
             passthrough += ["--root", str(args.root)]
         if args.json and "--json" not in passthrough:
             passthrough.append("--json")
+    elif command in ROOT_DIR_COMMANDS:
+        # submit／collect／resume 的專案根旗標叫 --root-dir；`--root` 是其他子命令的慣例，
+        # 舊版直接丟給 argparse 會報「unrecognized arguments」，`h3d --root X submit` 則被默默忽略。
+        passthrough = ["--root-dir" if a == "--root" else
+                       ("--root-dir=" + a[len("--root="):] if a.startswith("--root=") else a)
+                       for a in passthrough]
+        if args.root is not None and not any(a == "--root-dir" or a.startswith("--root-dir=") for a in passthrough):
+            passthrough += ["--root-dir", str(args.root)]
+    elif command == "doctor":
+        if args.root is not None and "--root" not in passthrough:
+            passthrough += ["--root", str(args.root)]
+        if args.json and "--json" not in passthrough:
+            passthrough.append("--json")
+    elif args.root is not None:
+        print(f"⚠️ h3d --root 對 `{command}` 沒有作用（這個子命令的路徑以目前目錄解析）；"
+              f"請在專案根目錄執行，或用子命令自己的路徑參數（h3d {command} --help）。", file=sys.stderr)
     return _invoke(module, passthrough)
 
 

@@ -102,7 +102,7 @@ AUDIO_MAGIC: Tuple[bytes, ...] = (
     b"\x1a\x45\xdf\xa3",  # Matroska / WebM
 )
 
-#: ffmpeg 不在 PATH 時的已知安裝位置（WinGet Gyan 套件）。
+#: ffmpeg 不在 PATH 時的已知安裝位置（作者家機 WinGet Gyan 套件；其他機器請設環境變數 AICD_FFMPEG）。
 FFMPEG_KNOWN_PATHS: Tuple[str, ...] = (
     "C:\\Users\\kirit\\AppData\\Local\\Microsoft\\WinGet\\Packages\\"
     "Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-9.0.2-full_build\\bin\\ffmpeg.exe",
@@ -160,6 +160,13 @@ class _HttpResponse:
             raise TtsError(f"回應不是合法 JSON: {exc}") from exc
 
 
+def _is_loopback_url(url: str) -> bool:
+    """URL 的主機是否為本機 loopback（localhost、127.x、::1）。"""
+    from urllib.parse import urlsplit
+    host = (urlsplit(url).hostname or "").lower()
+    return host == "localhost" or host.startswith("127.") or host == "::1"
+
+
 def _default_transport(method: str, url: str, headers: Optional[Dict[str, str]] = None,
                        body: Optional[bytes] = None, timeout: float = 30.0) -> _HttpResponse:
     """預設 HTTP 傳輸：以 urllib.request 實作，永遠帶逾時。"""
@@ -167,7 +174,11 @@ def _default_transport(method: str, url: str, headers: Optional[Dict[str, str]] 
     for key, value in (headers or {}).items():
         request.add_header(str(key), str(value))
     try:
-        with urlrequest.urlopen(request, timeout=timeout) as response:
+        # 本機服務（VoiceStudio 127.0.0.1:8001 之類）一律直連：系統若設了 HTTP(S)_PROXY，
+        # urlopen 會把 loopback 請求也丟給代理，結果是「伺服器沒開卻回報可用」或連線失敗。
+        opener = (urlrequest.build_opener(urlrequest.ProxyHandler({})) if _is_loopback_url(url)
+                  else urlrequest.build_opener())
+        with opener.open(request, timeout=timeout) as response:
             return _HttpResponse(response.status, dict(response.headers.items()), response.read())
     except urlerror.HTTPError as exc:            # 4xx/5xx：仍要取回內文當錯誤訊息
         payload = b""
@@ -386,6 +397,9 @@ def _join_url(base_url: str, path: str) -> str:
 
 def _find_tool(name: str) -> Optional[str]:
     """尋找外部執行檔；ffmpeg 額外試探已知的 WinGet 安裝路徑。"""
+    explicit = os.environ.get({"ffmpeg": "AICD_FFMPEG", "ffprobe": "AICD_FFPROBE"}.get(name, ""), "").strip()
+    if explicit and Path(explicit).is_file():
+        return explicit
     found = shutil.which(name)
     if found:
         return found
@@ -1244,6 +1258,12 @@ def engine_health(engine_id: str, config: Optional[Dict[str, Any]] = None) -> Di
     return result
 
 
+def _omnivoice_launch_hint() -> str:
+    """OmniVoice 啟動方式提示：環境變數 AICD_OMNIVOICE_LAUNCHER 指向啟動檔；未設定時沿用作者家機路徑。"""
+    launcher = os.environ.get("AICD_OMNIVOICE_LAUNCHER", "").strip() or "E:\\OmniVoice\\啟動-OmniVoice.bat"
+    return f"執行 {launcher} "
+
+
 def _vram_warnings(health: Dict[str, Any]) -> List[str]:
     """OmniVoice 與 ComfyUI 共用 8 GB 顯存的衝突警告。"""
     warnings: List[str] = []
@@ -1259,7 +1279,7 @@ def _vram_warnings(health: Dict[str, Any]) -> List[str]:
             warnings.append(
                 f"{name} 已用 {used} MB／{total} MB：ComfyUI 很可能仍佔著顯存。"
                 "OmniVoice 另需 3～4 GB，兩者同時跑會毀掉聲音品質——"
-                "請先關閉 ComfyUI，再執行 E:\\OmniVoice\\啟動-OmniVoice.bat。"
+                f"請先關閉 ComfyUI，再{_omnivoice_launch_hint()}。"
             )
         elif total and total <= 8192:
             warnings.append(
@@ -1274,7 +1294,7 @@ def _next_steps(engine_id: str, health: Dict[str, Any]) -> str:
     if engine_id == "voicestudio":
         if health.get("available"):
             return "可直接使用；例如 --tts-engine voicestudio（記得先關閉 ComfyUI 釋放顯存）"
-        return "雙擊 E:\\OmniVoice\\啟動-OmniVoice.bat 啟動本機伺服器（啟動前先關閉 ComfyUI），再重跑 doctor"
+        return f"{_omnivoice_launch_hint()}啟動本機伺服器（啟動前先關閉 ComfyUI），再重跑 doctor"
     if engine_id == "fish":
         if health.get("available"):
             return "可直接使用；注意 Community License 與託管服務的額外協議限制"

@@ -4,7 +4,8 @@
 
 比 `check_environment.py` 多做三件事：
   1. 量 GPU 剩餘顯存，並對照本機經驗值（4.20 GiB）。
-  2. 探測產線三個服務的 port 是否在聽（FreeVideo 8189 / ComfyUI 8188 / VoiceStudio 8001）。
+  2. 探測產線三個服務的 port 是否在聽（預設本機 FreeVideo 8189 / ComfyUI 8188 / VoiceStudio 8001；
+     可用 FREEVIDEO_API_URL／COMFYUI_URL／VOICESTUDIO_URL 指到別台機器或別的 port）。
   3. 實測 ffmpeg 是否還吃 `-vsync`（9.0 起移除，須改用 `-fps_mode`）。
 
 紀律：不寫檔、不讀 token、不上傳、不呼叫任何生成端點。
@@ -34,6 +35,52 @@ SERVICE_PORTS = {
     "comfyui_8188": 8188,
     "voicestudio_8001": 8001,
 }
+
+#: 服務名稱 → 覆寫用環境變數（值是 URL，例如 http://192.168.1.20:8189/freevideo/agent/v1）。
+#: 名稱沿用舊鍵（含家機預設 port）以保持 JSON 報告相容；實際探測的 host:port 寫在每項的 host／port。
+SERVICE_URL_ENV = {
+    "freevideo_8189": "FREEVIDEO_API_URL",
+    "comfyui_8188": "COMFYUI_URL",
+    "voicestudio_8001": "VOICESTUDIO_URL",
+}
+
+
+def service_endpoints() -> Dict[str, tuple]:
+    """各服務要探測的 (host, port)：環境變數 URL > 家機預設 127.0.0.1:<port>。"""
+    import os
+    from urllib.parse import urlsplit
+
+    endpoints: Dict[str, tuple] = {}
+    for name, default_port in SERVICE_PORTS.items():
+        host, port = "127.0.0.1", default_port
+        raw = os.environ.get(SERVICE_URL_ENV.get(name, ""), "").strip()
+        if raw:
+            parts = urlsplit(raw if "://" in raw else "http://" + raw)
+            if parts.hostname:
+                host = parts.hostname
+            try:
+                port = parts.port or ({"https": 443}.get(parts.scheme, default_port) if parts.hostname else default_port)
+            except ValueError:
+                port = default_port
+        endpoints[name] = (host, port)
+    return endpoints
+
+
+def _media_tools():
+    storyboard = str(Path(__file__).resolve().parent / "storyboard")
+    if storyboard not in sys.path:
+        sys.path.insert(0, storyboard)
+    import media_tools  # noqa: E402
+    return media_tools
+
+
+def _ffmpeg_bin() -> str:
+    """AICD_FFMPEG > PATH（見 scripts/storyboard/media_tools.py）。"""
+    return _media_tools().ffmpeg_bin()
+
+
+def _ffprobe_bin() -> str:
+    return _media_tools().ffprobe_bin()
 
 
 def _run(command: list, timeout: int = 20) -> Optional[subprocess.CompletedProcess]:
@@ -80,14 +127,15 @@ def check_gpu() -> Dict[str, Any]:
     }
 
 
-def check_port(port: int, timeout: float = 0.4) -> Dict[str, Any]:
+def check_port(port: int, timeout: float = 0.4, host: str = "127.0.0.1") -> Dict[str, Any]:
     try:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            sock.settimeout(timeout)
-            listening = sock.connect_ex(("127.0.0.1", port)) == 0
+        with socket.create_connection((host, port), timeout=timeout):
+            listening = True
+    except (ConnectionRefusedError, socket.timeout, TimeoutError):
+        listening = False
     except OSError:
-        return {"status": "unknown", "port": port, "listening": None}
-    return {"status": "ready" if listening else "closed", "port": port, "listening": listening}
+        return {"status": "unknown", "host": host, "port": port, "listening": None}
+    return {"status": "ready" if listening else "closed", "host": host, "port": port, "listening": listening}
 
 
 def check_ffmpeg_vsync() -> Dict[str, Any]:
@@ -97,10 +145,11 @@ def check_ffmpeg_vsync() -> Dict[str, Any]:
     其他任何失敗（缺 lavfi、編碼器問題、逾時）都回 unknown——
     把不確定的失敗講成「你的 ffmpeg 太新」是另一種假資訊。
     """
-    if not shutil.which("ffmpeg"):
+    ffmpeg = _ffmpeg_bin()
+    if not shutil.which(ffmpeg) and not Path(ffmpeg).is_file():
         return {"status": "unknown", "accepts_vsync": None}
     result = _run([
-        "ffmpeg", "-hide_banner", "-loglevel", "error",
+        ffmpeg, "-hide_banner", "-loglevel", "error",
         "-f", "lavfi", "-i", "testsrc=duration=0.10:size=64x64:rate=24",
         "-vf", "fps=24", "-vsync", "0", "-f", "null", "-",
     ], timeout=30)
@@ -132,12 +181,12 @@ def check_disk(path: Path) -> Dict[str, Any]:
 
 def build_report(root: Path) -> Dict[str, Any]:
     tools = {
-        "ffmpeg": check_tool("ffmpeg", ["ffmpeg", "-version"]),
-        "ffprobe": check_tool("ffprobe", ["ffprobe", "-version"]),
+        "ffmpeg": check_tool("ffmpeg", [_ffmpeg_bin(), "-version"]),
+        "ffprobe": check_tool("ffprobe", [_ffprobe_bin(), "-version"]),
         "nvidia_smi": check_tool("nvidia-smi", ["nvidia-smi", "--version"]),
     }
     gpu = check_gpu()
-    services = {name: check_port(port) for name, port in SERVICE_PORTS.items()}
+    services = {name: check_port(port, host=host) for name, (host, port) in service_endpoints().items()}
     ffmpeg_vsync = check_ffmpeg_vsync()
     disk = check_disk(root)
 
@@ -186,7 +235,7 @@ def print_human(report: Dict[str, Any]) -> None:
         print(f"- GPU: {gpu.get('note')}")
     for name, info in report["services"].items():
         state = "在聽" if info.get("listening") else ("未開" if info.get("listening") is False else "未知")
-        print(f"- 服務 {name}: {state}")
+        print(f"- 服務 {name}（{info.get('host', '127.0.0.1')}:{info.get('port')}）: {state}")
     vsync = report["ffmpeg_vsync"]
     print(f"- ffmpeg -vsync: {vsync.get('note') or '未測'}")
     print(f"- 磁碟: {report['disk'].get('free_gib')} GiB 可用")
