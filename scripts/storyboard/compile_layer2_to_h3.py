@@ -2633,6 +2633,28 @@ def load_stage5_bindings(path: pathlib.Path) -> Dict[str, Dict[str, Any]]:
     return result
 
 
+def remix_bindings_reason(path: pathlib.Path) -> Optional[str]:
+    """video_backend=remix 的綁定檔目前不能進這支編譯器（REMIX 三欄提示詞輸出是 PR-R5）。
+
+    單臉模式、Subject↔Picture 序對都是 Ref2VA 專屬；硬把 refmods 綁定塞進六段式編譯，
+    只會產出 remix 用不了、ref2va 也不對的提示詞，所以明確拒絕而不是靜默降級。
+    """
+    try:
+        payload = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+    except Exception:
+        return None  # 讀檔錯誤交給 load_stage5_bindings 報
+    if not isinstance(payload, dict):
+        return None
+    remix = payload.get("video_backend") == "remix" or any(
+        isinstance(seg, dict) and (seg.get("video_backend") == "remix" or "refmods" in seg)
+        for seg in payload.get("segments") or [])
+    if not remix:
+        return None
+    return ("video-bindings.json 是 video_backend=remix（refmods 角色包）；這支編譯器只產 Ref2VA 六段式。"
+            "REMIX 三欄提示詞輸出尚未實作（PR-R5）。目前可用 h3d bind 產 refmods、"
+            "手寫或外部產生 remix 段落後用 audit_refs_and_segments.py --audit-refs <檔> --backend remix 檢查。")
+
+
 def render_markdown_package(
     compiled_segments: List[Dict[str, Any]],
     episode: Optional[str] = None
@@ -2817,6 +2839,15 @@ def main() -> int:
         print(f"[錯誤] {exc}", file=sys.stderr)
         return 1
 
+    try:
+        sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+        import decisions as _decisions_mod
+        if _decisions_mod.video_backend(args.project_root) == "remix":
+            print("[提示] decisions.json 定案 video_backend=remix，但這支編譯器只產 Ref2VA 六段式（REMIX 三欄輸出待 PR-R5）；"
+                  "這次的輸出只能送 FreeVideo。", file=sys.stderr)
+    except ImportError:  # pragma: no cover
+        pass
+
     layer2_files = load_layer2_files(args.layer2)
     if not layer2_files:
         print(f"[錯誤] 找不到任何 Layer 2 分鏡檔案: {args.layer2}", file=sys.stderr)
@@ -2830,6 +2861,10 @@ def main() -> int:
     if args.bindings:
         if not args.bible:
             print("[錯誤] 使用 --bindings 時必須同時以 --bible 指定 normalized video-bible.json", file=sys.stderr)
+            return 1
+        remix_reason = remix_bindings_reason(args.bindings)
+        if remix_reason:
+            print(f"[錯誤] {remix_reason}", file=sys.stderr)
             return 1
         try:
             bindings_by_segment = load_stage5_bindings(args.bindings)
@@ -2942,7 +2977,8 @@ def main() -> int:
             sid = seg["segment_id"]
             dur = seg["metadata"]["target_duration_sec"]
             # 模式 A: 參考圖序對
-            refs_res = audit_refs_and_subjects(seg, project_root=args.project_root)
+            # 這支編譯器只產 Ref2VA 六段式（remix 綁定在入口就被拒絕），審查一律走 ref2va 分支。
+            refs_res = audit_refs_and_subjects(seg, project_root=args.project_root, backend="ref2va")
             # 模式 B: H3 提示詞 17 條自檢
             lint_res = lint_h3_prompt(
                 seg["h3_prompt"],
