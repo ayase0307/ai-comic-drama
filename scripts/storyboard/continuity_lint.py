@@ -8,7 +8,7 @@
 - previous_segment_map()：同一 scene_id 內依段號排序，找出每段的前一段。
 - carry_sentence()：把前段 segment_end_state 的英文終態寫成下一段第 1 鏡的起始狀態句。
 - lint_adjacent()：相鄰段姿勢矛盾（前段躺／坐／跪，下一段第 1 鏡卻站著且沒有起身動作）、
-  同場景前段沒寫英文終態（無法帶入）、同場景各段光線鎖不一致。
+  同場景前段沒寫英文終態（無法帶入）、同場景各段光線鎖不一致、同場景相鄰段各自生配樂（C4）。
 - needs_no_lettering()／NO_LETTERING_SENTENCE：校徽、計程車門、斑駁牆這類可預測的燒字來源，
   自動補一句正向的「表面素淨、無文字無塗鴉」。
 
@@ -198,7 +198,57 @@ def lint_adjacent(compiled: Sequence[Mapping[str, Any]],
                 f"{scene}: [C3: 同場光線分裂] 同一場景的段落用了 {len(locks)} 種光線鎖（{desc}）；"
                 f"改光線請以整個場景為單位，或改用後製統一調色。"
             )
+    warnings.extend(lint_scene_music(compiled))
     return {"warnings": warnings}
+
+
+# ---------- 同場配樂（C4，抖音蒸餾 2026-10 A 批 #1） ----------
+# 每段獨立送 H3 時，non_diegetic_music 一寫就會各生一段新配樂；7–10 秒一段拼起來，
+# 同一場戲的音樂每段換一次。做法是同場各段寫 N/A，配樂到後製依劇情段統一鋪。
+MUSIC_BLOCK_RE = re.compile(r"non_diegetic_music:[ \t]*(.*?)(?=\n\s*\n[a-z_]+:|\Z)", re.S)
+MUSIC_NONE_RE = re.compile(
+    r"^(?:n/?a|none|no music|no background music|silence|silent|無|无|不需要|不用)?[.。]?$", re.I)
+
+
+def music_text(prompt: str) -> str:
+    """取 h3_prompt 的 non_diegetic_music 內容（六段式與 REMIX 三欄都適用）；沒有這欄回空字串。"""
+    m = MUSIC_BLOCK_RE.search(prompt or "")
+    return re.sub(r"\s+", " ", m.group(1)).strip() if m else ""
+
+
+def is_no_music(text: str) -> bool:
+    """空白、N/A、none、no music 都算「這段不帶配樂」（編譯器沒填時本來就補 N/A）。"""
+    return bool(MUSIC_NONE_RE.match((text or "").strip()))
+
+
+def lint_scene_music(compiled: Sequence[Mapping[str, Any]]) -> List[str]:
+    """C4 同場配樂跟著生成段走（只警告不擋）。
+
+    同一 scene_id 內依段號排序，相鄰兩段只要有一段的 non_diegetic_music 不是 N/A 就警告：
+    文字不同 → 拼起來每段換一首；文字相同 → H3 仍會每段各生一次，接縫處照樣斷。
+    只比這次輸入裡有提示詞的段；單段場景不警告。
+    """
+    music: Dict[str, str] = {}
+    scenes: Dict[str, str] = {}
+    for seg in compiled:
+        sid = str(seg.get("segment_id") or "")
+        if not sid or not seg.get("scene_id"):
+            continue
+        scenes[sid] = str(seg.get("scene_id"))
+        music[sid] = music_text(str(seg.get("h3_prompt") or ""))
+    out: List[str] = []
+    for sid, p in sorted(previous_segment_map(scenes.items()).items(), key=lambda kv: segment_sort_key(kv[0])):
+        a, b = music.get(p, ""), music.get(sid, "")
+        if is_no_music(a) and is_no_music(b):
+            continue
+        kind = "描述不同" if a.strip().lower() != b.strip().lower() else "兩段都寫了配樂"
+        out.append(
+            f"{sid}: [C4: 同場配樂跟著生成段走] 與同場前一段 {p} 的 non_diegetic_music {kind}"
+            f"（{p}：{(a or 'N/A')[:40]}；{sid}：{(b or 'N/A')[:40]}）。每段獨立生成會各生一段新配樂，"
+            f"拼起來音樂每段換一次；建議同場各段寫 N/A，配樂到後製依劇情段統一鋪"
+            f"（references/edit/manju-editing-playbook.md §8.1）。刻意每段換曲時可忽略。"
+        )
+    return out
 
 
 # ---------- 逐鏡畫面約束（#135 #136 #137，對齊噩盡島 G9b／G9d） ----------

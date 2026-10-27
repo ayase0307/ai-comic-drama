@@ -53,7 +53,7 @@
 | 🧭 **八階段＋審核鎖** | 階段 0–7 每段都有審核頁、人工核准與輸入 hash 鎖；**上游一改，下游核准自動失效**。不知道下一步就跑 `h3d next`，它只給你一條指令。 |
 | 🎛️ **`h3d` 單一入口** | 29 個子命令一個入口：`next` 指路、`decide` 記定案、`sketch` 出構圖、`compile` 編譯、`qa` 驗收、`status` 看全局。只做路由，規則留在各自模組。 |
 | 🔒 **四道確定性檢查** | **時長量子** 17n+5 影格、**證據分級** `VERIFIED／PARTIAL／UNVERIFIED`、segment 級**依賴帳本**、**失敗目錄**＋ack 憑證（綁定提示詞 hash，改稿即失效）。 |
-| 🎞️ **雙影片後端** | 預設 **ref2va**（FreeVideo，獨立 Ref2VA、一段一張角色圖）；可選 **remix**（家機 REMIX 角色包）。remix 的綁定、refcheck、站位閘門、**REMIX 三欄提示詞輸出（R5）**已接上，**送件 adapter（R7）尚未完成**。 |
+| 🎞️ **雙影片後端** | 預設 **ref2va**（FreeVideo，獨立 Ref2VA、程式預設單人裁切）；可選 **remix**（家機 REMIX 角色包）。remix 的綁定、refcheck、站位閘門、**REMIX 三欄提示詞輸出（R5）**已接上，**送件 adapter（R7）尚未完成**。 |
 | 🎬 **導演級分鏡** | 每鏡先寫 `shot_intent` 再定技術值，焦距與物距成對寫；站位／視線／運鏡 lint **D06–D14**；`h3d sketch` 用 2.5D 相機算出 **免生圖 SVG 構圖**，0 次生圖 API。 |
 | 🎨 **創作 lens（只建議、不擋關）** | AI 漫劇爆款方法論、荒木飛呂彥、Robert McKee、Scott McCloud，另有 Murch／Hamilton 剪輯 lens；報告寫進 `review/craft/`，不改任何門禁。 |
 | 🧪 **實測驅動** | 規則標 `measured`／`sourced`／`inferred`；外部方法未經 H3 實測前**只警告不擋**。 |

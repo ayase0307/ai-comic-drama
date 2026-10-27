@@ -3363,7 +3363,7 @@ def main() -> int:
                 print(f"    [編譯提醒] {note}")
                 total_warnings += 1
 
-        # 段間連戲（#133 #139）：前段終態、相鄰段姿勢矛盾、同場光線鎖一致；只警告不擋
+        # 段間連戲（#133 #139）：前段終態、相鄰段姿勢矛盾、同場光線鎖一致、同場配樂（C4）；只警告不擋
         cont_res = continuity_lint.lint_adjacent(compiled_results, neighbor_end_states, neighbor_scenes)
         if cont_res["warnings"]:
             print("\n🔗 段間連戲檢查")

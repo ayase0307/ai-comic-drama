@@ -8,6 +8,13 @@
 
 ## [未發布]
 
+### 新增
+- 抖音蒸餾 A 批（2026-10，外部，未經 H3 實測）：同場配樂不跟生成段走（剪輯手冊 §8.1）、三人以上按當下那一對畫軸線（continuity-ledger §4／§5）、音色母帶挑平穩句且固定聲音描述只寫身份（consistency §6）、場景多角度分步生成（consistency §4）、動作中段反覆失敗改用省略（revision-and-retry §2）。
+- 連戲警告 C4「同場配樂跟著生成段走」：同一場相鄰段的 `non_diegetic_music` 不同或非 N/A 就警告，不擋（`continuity_lint.lint_scene_music`，`compile --check` 會印）。
+
+### 變更
+- `consistency.md` §7.1 改寫：「一段一張角色參考圖／一段一張臉」已撤銷（D3），新流程用 remix 角色卡維持人物一致；如實記 ref2va 程式預設（單人裁切、`--max-char-refs` 1、混臉只警告）與 remix 送件 adapter 尚未完成。skill-guide、pipeline、minimax-h3、anime-drama-grid、README 同步。
+
 ## [0.9.0] - 2026-10-27
 
 第一個正式版本。之前 107 個合併 PR（#1–#105）沒有版號，視為 0.9.0 之前的開發期；
