@@ -88,11 +88,19 @@ def stage4_producer(root: Path, errors: List[str]) -> tuple:
 
 def stage5_producer(root: Path, errors: List[str]) -> tuple:
     """階段 5 下一步：印完整 compile 參數，照抄就會寫出 prompts／segments（#56）。"""
-    # REMIX 三欄輸出尚未實作（PR-R5）：bind／compile 都解不了，先停下回報，別讓人先跑一輪 bind 再撞牆。
+    # 定案 remix 但提示詞包還是 Ref2VA 六段式（PR-R5 起 compile 會產 REMIX 三欄）：
+    # 綁定不是 remix 或已落後 → 先 bind；綁定已是新鮮的 remix → 照常給 compile 指令重編。
     remix_gap = next((e for e in errors if "video_backend=remix" in e), None)
-    if remix_gap:
-        return (None, remix_gap)
     import generate_bindings
+    if remix_gap:
+        try:
+            bound = json.loads((root / "video-bindings.json").read_text(encoding="utf-8-sig")).get("video_backend")
+        except (OSError, json.JSONDecodeError, AttributeError):
+            bound = None
+        if bound != "remix" or generate_bindings.bindings_stale(root):
+            return (f"{H3D} bind --root .",
+                    "定案 video_backend=remix：先產 REMIX 角色包綁定（refmods，讀 assets/character-packs.json），"
+                    "再用 --bindings 重編成 REMIX 三欄。")
     stale = generate_bindings.bindings_stale(root)
     if stale:
         # 沒有 bindings 時編譯器會拿四視圖整板、只錨定一個角色 → E19／E20 必擋。

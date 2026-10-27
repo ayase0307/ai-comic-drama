@@ -330,8 +330,17 @@ class Stage5StrictTests(TmpProject):
         remix = [e for e in errors if "video_backend=remix" in e]
         self.assertTrue(remix, errors)
         command, action = next_step.stage5_producer(self.root, remix)
-        self.assertIsNone(command, "REMIX 編譯尚未實作：停下回報，不給會失敗的 compile 指令")
-        self.assertIn("PR-R5", action)
+        # PR-R5 起 compile 會產 REMIX 三欄：還沒有 remix 綁定 → 先 bind
+        self.assertIn("bind", command)
+        self.assertIn("refmods", action)
+        # 已有新鮮的 remix 綁定 → 照常給 compile 指令（帶 --bindings）
+        self.write("video-bible.json", {})
+        self.write("video-bindings.json", {"video_backend": "remix", "segments": [
+            {"source_layer2_path": "layer2/layer2-EP01-S01.json", "source_sha256": self.sha(self.l1), "refmods": []},
+            {"source_layer2_path": "layer2/layer2-EP02-S01.json", "source_sha256": self.sha(self.l2), "refmods": []}]})
+        command, _ = next_step.stage5_producer(self.root, remix)
+        self.assertIn("compile", command)
+        self.assertIn("--bindings video-bindings.json", command)
 
     def test_unacked_catalog_warning_blocks_and_ack_clears_it(self):
         # 綁定新鮮（綁定落後時改稿重編前要先 bind，next 會先給 bind；這裡只驗目錄分支）

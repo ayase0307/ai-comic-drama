@@ -47,7 +47,7 @@ agent_created: true
 | 7 配音剪輯 | 已核准的動作段後製變速（原片不動、台詞原速）、ASR 對位、畫外句壓原聲、響度、每角色音色一次定案、全集單一剪輯專案 | 長旁白交給 H3 念（短畫外句與短旁白預設留 H3，長旁白才外部化）；替使用者定音色；覆寫原片；變速台詞區 | `h3d ramp`、`h3d voice align`、`h3d concat plan/build`、`h3d assemble`；剪輯 lens（只給建議）`scripts/craft/edit_review.py` | `references/tooling.md` §2.7、`references/skill-guide.md`「階段 7」、`references/edit/manju-editing-playbook.md`（剪點／轉場／特效／字幕／登場卡／配樂 ducking／響度）、`references/craft/murch-cut`、`references/craft/hamilton-action` |
 
 **正式階段核准以 `review/project-state.json` 為準**，只能走 `build_stage_review.py --approve-stage`（使用者原話）或 `h3d approve --auto`（使用者授權過的階段）。
-**影片生成路線**：預設 Ref2VA（FreeVideo，單人裁切）；使用者改用家機 REMIX 角色包時定案 `h3d decide video_backend remix`，`h3d bind` 改綁角色包、audit 依 backend 分支（REMIX 提示詞輸出與送件尚未接上，見 `references/tooling.md` §2.3.1c）。
+**影片生成路線**：預設 Ref2VA（FreeVideo，單人裁切）；使用者改用家機 REMIX 角色包時定案 `h3d decide video_backend remix`，`h3d bind` 改綁角色包、`h3d compile` 帶 remix 綁定產 REMIX 三欄（風格錨開頭、`<Picture N>`／`<Video N>` 依包各自編號）、audit 依 backend 分支（送件 adapter 尚未接上，FreeVideo 送件端會拒送 remix 段；見 `references/tooling.md` §2.3.1c）。
 階段 5 審核頁會自動對 ref2va 段補跑 refcheck／staging 並列成提醒（remix 段在 audit 內跑）；手動時跑 `h3d refcheck`（提示詞寫到的角色／生物／道具／群眾都要有包；remix 擋、ref2va 只提示）與 `h3d staging`（站位左到右、視線、不面向鏡頭；預設警告，`staging_gate strict` 才擋），見 `references/tooling.md` §2.3.1d。
 
 **階段 5 段級核准**：階段 5 核准會記每段指紋。核准後只改了部分段 → 只有改過的段（含新增／刪除的段）待重審，沒改的段保持核准、照樣可送件（`h3d submit`／`h3d run` 自動跳過或拒送待重審段）；改過的段一律人工重審：`build_stage_review.py --project-dir . --stage 5 --segments X,Y` 產重審頁 → 使用者通過後 `h3d approve --stage 5 --segments X,Y --user-note "<使用者原話>"`，**不得用 `--auto`**。已有影片的段被改會出現在 `h3d deps --status` 的 stale（`prompt_stale`）。舊快照或共用部分（分段檔外殼、未綁段的 ack、前置階段）變了仍要整份重審。詳見 `references/tooling.md` §2.6。

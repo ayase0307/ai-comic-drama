@@ -380,14 +380,16 @@ class RemixBindingsTests(unittest.TestCase):
         self.assertEqual(code, 1, "ref2va 分支沒有設定圖，照舊列缺口")
         self.assertFalse((self.root / "video-bindings.json").exists())
 
-    def test_compiler_refuses_remix_bindings_until_r5(self):
+    def test_compiler_backend_must_match_bindings(self):
+        """PR-R5 起 remix 綁定會編成 REMIX 三欄（tests/test_remix_compile.py）；硬指定 ref2va 要擋。"""
         self.write_plan()
         self.assertEqual(self.bind()[0], 0)
         result = run([ROOT / "scripts" / "storyboard" / "compile_layer2_to_h3.py", "--layer2", "layer2/",
-                      "--bible", "video-bible.json", "--bindings", "video-bindings.json",
+                      "--bible", "video-bible.json", "--bindings", "video-bindings.json", "--backend", "ref2va",
                       "--project-root", ".", "--skip-stage-gate"], self.root)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("PR-R5", result.stderr)
+        self.assertIn("不一致", result.stderr)
+        self.assertNotIn("PR-R5", result.stderr)
 
 
 # ---------------------------------------------------------------------------

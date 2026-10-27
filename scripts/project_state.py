@@ -789,8 +789,8 @@ def _stage5_freshness_errors(root: Path, segments: list[Path]) -> list[str]:
                  if not seg.get("refmods") and (seg.get("metadata") or {}).get("video_backend") != "remix"]
         if wrong:
             errors.append(f"定案 video_backend=remix，但提示詞包這些段是 Ref2VA 六段式（沒有 refmods）：{'、'.join(wrong[:10])}；"
-                          f"REMIX 三欄提示詞輸出尚未實作（PR-R5），compile 只產 Ref2VA。請停下回報使用者："
-                          f"手寫／外部產生 remix 段落後用 audit_refs_and_segments.py --backend remix 檢查，或改回 "
+                          f"請先 {h3d} bind --root .（remix 分支產 refmods），再用 --bible video-bible.json "
+                          f"--bindings video-bindings.json 重編（compile 會產 REMIX 三欄，PR-R5）；要改回 FreeVideo 則 "
                           f"{h3d} decide video_backend ref2va")
     missing = [sid for sid in current if sid not in compiled]
     if missing:
@@ -910,6 +910,11 @@ def stage_validation_errors(root: Path, stage: int, allow_technical: bool = Fals
                 items = raw if isinstance(raw, list) else raw.get("segments", [raw])
                 for seg in items:
                     sid = seg.get("segment_id", path.name)
+                    if "refmods" in seg or (seg.get("metadata") or {}).get("video_backend") == "remix":
+                        # PR-R5：remix 段綁的是家機角色包（refmods），沒有本機參考圖；包的涵蓋與編號由 audit E50–E55 審
+                        if not seg.get("refmods"):
+                            errors.append(f"{sid}: remix 段缺少 refmods（角色包）")
+                        continue
                     refs = seg.get("reference_images", []) or []
                     if not refs:
                         errors.append(f"{sid}: 缺少 reference_images")
