@@ -90,9 +90,14 @@ KNOWN_DECISIONS: Dict[str, Dict[str, Any]] = {
     # 選填：英文影片風格錨句。remix 沒有 negative 欄位，提示詞開頭必須是這句（audit E55）。
     "style_anchor": {"label": "影片風格錨句（英文；remix 提示詞開頭必須一致）", "stages": [5, 6],
                      "required_by": 99, "reference": "references/styles.md"},
+    # 選填：站位／視線／運鏡閘門（PR-R6，h3d staging）的嚴重度。warn＝預設，全部只警告；
+    # strict＝measured 的三條（D06 面向鏡頭、D07 對話缺視線、D08 多人缺左到右）擋。證據只有 ch02 EP04，故預設保守。
+    "staging_gate": {"label": "站位／視線閘門嚴重度（warn 預設／strict）", "stages": [5, 6],
+                     "required_by": 99, "reference": "references/tooling.md"},
 }
 
 VIDEO_BACKENDS = ("ref2va", "remix")
+STAGING_GATES = ("warn", "strict")
 DEFAULT_VIDEO_BACKEND = "ref2va"
 # 與 scripts/storyboard/providers/remix.json 的 max_refmods（GET /capabilities refmods_max）一致；
 # tests/test_remix_backend.py 會對帳。
@@ -230,6 +235,8 @@ def validate(data: Any) -> List[str]:
             cap = item["value"]
             if not isinstance(cap, int) or isinstance(cap, bool) or not 1 <= cap <= REMIX_MAX_REFMODS:
                 errors.append(f"remix_pack_cap 必須是 1–{REMIX_MAX_REFMODS} 的整數（只能加嚴，不可超過伺服器上限；收到 {cap!r}）")
+        if did == "staging_gate" and "value" in item and item["value"] not in STAGING_GATES:
+            errors.append(f"staging_gate 只能是 {'／'.join(STAGING_GATES)}（收到 {item['value']!r}）")
         if did == "style_anchor" and "value" in item and (not isinstance(item["value"], str) or not item["value"].strip()):
             errors.append("style_anchor 必須是非空的英文錨句")
         if isinstance(did, str) and did.startswith(VOICE_PREFIX) and isinstance(source, dict) \
@@ -301,6 +308,18 @@ def remix_pack_cap(root: Optional[Path]) -> Optional[int]:
         return None
     value = (item or {}).get("value")
     return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def staging_gate(root: Optional[Path]) -> str:
+    """站位閘門嚴重度（PR-R6）：沒定案或讀不到＝warn。"""
+    if root is None:
+        return "warn"
+    try:
+        item = get(load(Path(root)), "staging_gate")
+    except DecisionError:
+        return "warn"
+    value = (item or {}).get("value")
+    return value if value in STAGING_GATES else "warn"
 
 
 def style_anchor(root: Optional[Path]) -> Optional[str]:

@@ -25,6 +25,8 @@ python scripts/h3d.py status --root . # 全局狀態（階段／依賴／送件�
 | `doctor` | GPU 顯存、ffmpeg（含 `-vsync` 回歸）、服務 port、磁碟 | 開工前、換機器後 |
 | `compile` | Layer 2 → H3 六段式提示詞＋`segments-*.json`；`--check` 同時跑 17 條自檢與失敗目錄 | 每次改完分鏡 |
 | `audit` | 參考圖／主體定義／台詞預算對帳 | 編譯後單獨重驗 |
+| `refcheck` | 參考包涵蓋檢查：提示詞寫到的具名角色／生物／道具／場景／群眾是否都有綁包（remix E50／E51 擋；ref2va 只提示），`--takes` 查已送出抽次的快照（§2.3.1d） | remix 每次改提示詞、送件前 |
+| `staging` | 站位／視線／運鏡閘門 D06–D14（兩個 backend；預設全部警告，`staging_gate=strict` 時 D06–D08 擋，§2.3.1d） | 階段 5 寫完提示詞後 |
 | `submit` | 送 FreeVideo：能力表＋時長斷言＋ledger 去重 | 使用者要求生成時 |
 | `collect` | 只把「已完成但沒下載」的工作收回來 | 批次中斷後 |
 | `resume` | collect 後補送未產出的段 | 中斷後續跑 |
@@ -219,7 +221,7 @@ python scripts/h3d.py decide style_anchor "<英文錨句>" --quote "<原話>" --
 
 | 門禁 | ref2va（不動） | remix |
 |---|---|---|
-| E19 未錨定在場人物 | 擋 | 改 **E50 具名角色沒有包**（最小版：看段落的在場名單；提示詞文字比對＝R4 refcheck） |
+| E19 未錨定在場人物 | 擋 | 改 **E50 具名角色沒有包**（段落在場名單＋R4 refcheck 的提示詞文字比對，見 §2.3.1d） |
 | E20 多視圖板、E26 non_face 缺圖、E27 panel 缺格位 | 擋 | 跳過 |
 | E21 無參考群眾 | 擋 | 保留，cue 另加 students／people／classmates／others（`as tall as the others` 這類比例錨不算）；有 `kind: extras` 包才放行 |
 | 混臉／單段多張角色圖警告 | 警告 | 關閉，改 **E54 包數**（能力表分級；`remix_pack_cap` 超過才擋） |
@@ -228,7 +230,52 @@ python scripts/h3d.py decide style_anchor "<英文錨句>" --quote "<原話>" --
 | E28 14 號風格 | 擋 | 照用（參考看 refmods） |
 | — | — | **E55** `integrated_multimodal_description` 開頭≠風格錨（段落 `metadata.style_anchor_en` > 定案 `style_anchor` > 14 號固定錨；都沒有也擋） |
 
-`lint_h3_prompt(..., backend="remix")` 的必填區塊改成三欄 `integrated_multimodal_description`／`overall_soundscape`／`non_diegetic_music`，其餘規則照用。尚未做：refcheck（R4）、REMIX 提示詞輸出（R5）、站位閘門（R6）、送件 adapter（R7）、`h3d pack`（R8）、single480 抽卡流程（R9）、verdict／失敗目錄（R10）。
+`lint_h3_prompt(..., backend="remix")` 的必填區塊改成三欄 `integrated_multimodal_description`／`overall_soundscape`／`non_diegetic_music`，其餘規則照用。refcheck（R4）與站位閘門（R6）見 §2.3.1d。尚未做：REMIX 提示詞輸出（R5）、送件 adapter（R7，含送件前自動跑 refcheck）、`h3d pack`（R8）、single480 抽卡流程（R9）、verdict／失敗目錄（R10）。
+
+### 2.3.1d 參考包涵蓋 `h3d refcheck`（PR-R4）與站位／視線閘門 `h3d staging`（PR-R6）
+
+> **證據範圍**：下列 measured 全部只來自《噩盡島》ch02 **EP04** 的有效抽（家機 REMIX，V1.3＋turbo）；其他專案、其他 backend 都沒量。規則的寫法規範見 `references/storyboard/continuity-ledger.md` §2／§4／§5，這一節是它的程式版。
+
+**`h3d refcheck`**（`scripts/storyboard/refcheck.py`）：
+
+```
+python scripts/h3d.py refcheck --root .                               # 根目錄 segments*.json（缺 refmods 時用 video-bindings.json 同 ID 段補）
+python scripts/h3d.py refcheck --root . --segments segments-ep04.json --json
+python scripts/h3d.py refcheck --root . --takes videos/remix-queue.jsonl   # 已送出抽次：每行 key、prompt 或 prompt_file、packs 或 refmods
+```
+
+- **詞表不寫死**：從 `adapt/bible.json` 的 characters／creatures／extras／locations／props 與 `assets/character-packs.json` 的 packs 每項讀 `name_en`、`aliases_en`（字面詞，大小寫不分、整字、容許複數）、`alias_patterns_en`（正則）；中文 name 不參與比對。計畫表頂層可寫 `"refcheck": {"strip_patterns": [...], "generic_en": [...]}`：固定句（Style lock、NOTEXT 之類）剝掉不比，普通物件只列出給人看。只看畫面描述欄（`integrated_multimodal_description`／`detailed_description`），環境音與風格錨不算。
+- **E50 具名資產沒有包**：提示詞命中某資產的詞、或段落在場名單有它，refmods 卻沒有它的包（看 `id`，或計畫表登記的包名＋服裝變體包名）。**E50 豁免缺原話**：`pack_waivers`／計畫表 `waivers.<段>` 沒有 `quote` 不算豁免。（measured：ch02 S01-a／c／d 寫了巨蟒、銀槍卻沒包，VOID-refs S01-d t1 槍沒有斷成三節棍、蛇骸像焦黑盤管；用同一份 queue 回測，結果和 ch02 refcheck 一致，差別只在 ch02 把銀槍豁免寫死在程式裡。）
+- **E51 未綁包的人群字眼**：students／crowd／people／classmates／others／bystanders／onlookers／passers-by；有 `kind: extras` 包、句中有失焦／剪影寫法、`as tall as the others` 比例錨、`Only these … people` 宣告句都不算；也可 `{"id": "E51", "quote": …}` 豁免。audit 的 E21 已擋同類問題，所以 E51 只在 refcheck 報，不在 audit 重複。
+- **backend**：remix＝錯誤（exit 1）；**ref2va 同樣檢查但只提示**（訊息標「ref2va 只提示」、exit 0；覆蓋看 `reference_images`／`identity_anchor_ids`／`face_subject_ids`），既有 ref2va 門禁一個都沒改。
+- **audit 整合**：`audit_refs_and_segments.py --audit-refs … --project-root .` 在 remix 分支會把 refcheck 的文字比對併進 E50（專案詞表有英文名時才有作用；沒寫 `name_en`／`aliases_en` 時行為同 R3）。
+- **還沒接**：送件前自動呼叫（R7 送件 adapter 才有 remix 送件）。
+
+**`h3d staging`**（`scripts/storyboard/staging_lint.py`，兩個 backend 都適用；碼延續 `director_lint.py` 的 D 系列，D01–D05 是階段 4 分鏡層）：
+
+```
+python scripts/h3d.py staging --root .                 # 預設全部警告，exit 0
+python scripts/h3d.py staging --root . --strict        # 本次把 D06–D08 當錯誤
+python scripts/h3d.py decide staging_gate strict --quote "<使用者原話>" --root .   # 專案定案加嚴（warn＝預設）
+```
+
+| 碼 | 規則 | 預設 | strict | 證據 |
+|---|---|---|---|---|
+| D06 | 面向鏡頭：faces/looks/turns… at/toward the camera／lens／viewer、breaks the fourth wall、面向／直視鏡頭；`positions.facing=toward` 也算。否定句（never looking at the camera）、背對鏡頭不算 | 警告 | 擋 | measured（對鏡頭站著講 4 抽）；但 4 抽的提示詞都沒有字面「facing the camera」，文字 lint 抓不到那 4 抽，是防再犯 |
+| D07 | 對話段（有 `<d>`／`(Sx)`）且畫面上 ≥2 個角色，整段沒有視線句（eyes on／looks at／glares at／turns to…；外觀介紹句的 cool gaze 不算） | 警告 | 擋 | measured；回測抓到 S04-b t1（兩人並肩對鏡），19 抽 pass 0 誤報；另 3 抽對鏡 fail 抓不到 |
+| D08 | 同一鏡 ≥3 個具名角色沒寫「left to right: A, B, C」／rightmost／leftmost（每人都在動作句緊貼畫面側也算）；兩人鏡只在明寫 two-shot 卻沒交代兩人畫面側時提醒 | 警告 | 擋 | measured（左右對調 5 抽，全在三人段；補左到右後 S04-a t2、S01-c t2 一抽就過）。回測：5 抽對調抓到 4；**19 抽 pass 也有 10 抽被提醒**（點名不等於在畫面上），所以預設只警告 |
+| D09 | 提示詞「left to right」名單順序和段落 `positions.order_lr` 相反 | 警告 | 警告 | inferred |
+| D10 | 相鄰同場兩段 `positions` 的共同角色左右對調，且後段沒寫 `metadata.staging_reset`（原因） | 警告 | 警告 | inferred（continuity-ledger §5） |
+| D11 | all three／both of them／in unison… 多人同步動作，建議逐人寫 | 警告 | 警告 | inferred（S06-b t1→t2 修法，1 抽） |
+| D12 | 慢詞 slowly／gradually／near-freeze／hangs poised… | 警告 | 警告 | inferred（h3-video-prompting／h3-combat-impact 規範） |
+| D13 | 每一鏡都是 static | 警告 | 警告 | inferred |
+| D14 | remix 多人段沒有 `positions`（D09／D10 無從比對） | 警告（只 remix） | 警告 | — |
+
+- **「每鏡剛好 1 個運鏡句」「鏡長 ≥2 s」不重做**：`--lint-h3` 的 E6（缺運鏡）、E14（同鏡重複運鏡句）、E4（切點間隔／首末鏡 <2 s）早就是錯誤，兩個 backend 共用；衝擊幀串段的短鏡例外照 h3-combat-impact。
+- **嚴重度為什麼保守**：證據只有一個專案一集；D08 回測誤報率高、D06／D07 抓得到的只是失敗抽的一部分；其餘規則沒有對照組。專案要擋就 `h3d decide staging_gate strict`（只升 D06–D08，inferred 規則 strict 也只警告）。
+- **豁免**：段落 `metadata.staging_waivers: [{"code": "D06", "reason": "…", "quote": "<使用者原話>"}]`（例如刻意讓角色對鏡頭說話）；沒有 `quote` 不算豁免，另列「豁免缺原話」。
+- **remix audit 會帶上**：`audit_refs_and_segments.py --audit-refs` 的 remix 分支把 D06–D14 併進 warnings（strict 時 D06–D08 進 errors）；**ref2va 的 audit 輸出不變**，ref2va 專案請另跑 `h3d staging`。
+- 角色名來源：`<Video N>／<Subject N> is 名字,` 介紹句、refmods 的 `display_name`、專案詞表（同 refcheck）。D10 只比相鄰且同 `scene_id` 的兩段。
 
 ### 2.3.2 全集 `segments-all.json` 怎麼產
 
