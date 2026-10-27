@@ -23,7 +23,7 @@ python scripts/h3d.py status --root . # 全局狀態（階段／依賴／送件�
 | `voice` | `voice align`：ASR 對位、畫外句區間壓原聲（−22 dB）、響度標準化（−16 LUFS） | 階段 7 配音完成後 |
 | `concat` | `concat plan`／`concat build`：全集單一 Concat 剪輯專案（T1 影片、T2 字幕、T3 畫外音） | 剪輯方式定案為 Concat 時 |
 | `doctor` | GPU 顯存、ffmpeg（含 `-vsync` 回歸）、服務 port、磁碟 | 開工前、換機器後 |
-| `compile` | Layer 2 → H3 六段式提示詞＋`segments-*.json`；`--check` 同時跑 17 條自檢與失敗目錄 | 每次改完分鏡 |
+| `compile` | Layer 2 → H3 六段式提示詞＋`segments-*.json`（remix 綁定＝REMIX 三欄，§2.3.1c）；`--check` 同時跑 17 條自檢與失敗目錄 | 每次改完分鏡 |
 | `audit` | 參考圖／主體定義／台詞預算對帳 | 編譯後單獨重驗 |
 | `refcheck` | 參考包涵蓋檢查：提示詞寫到的具名角色／生物／道具／場景／群眾是否都有綁包（remix E50／E51 擋；ref2va 只提示），`--takes` 查已送出抽次的快照（§2.3.1d） | remix 每次改提示詞、送件前 |
 | `staging` | 站位／視線／運鏡閘門 D06–D14（兩個 backend；預設全部警告，`staging_gate=strict` 時 D06–D08 擋，§2.3.1d） | 階段 5 寫完提示詞後 |
@@ -111,7 +111,7 @@ python scripts/h3d.py deps --root . --status --strict
 - E30／E31／E32：每鏡五小節要齊，Motion、Performance 不得過薄，Motion 要寫動作過程。
 - E33／E34／E35：套句、後設詞（authored／approved…）、防禦性禁止句堆疊。
 - E36／E37：違背分鏡運鏡、嘴部可見的對白被寫成畫外音。
-- E38：`detailed_description` 與 `metadata.compiled_prompt_sha256` 不符＝編譯後被改寫。
+- E38：`detailed_description`（REMIX 三欄：`integrated_multimodal_description`）與 `metadata.compiled_prompt_sha256` 不符＝編譯後被改寫。
 - W41–W45（只警告，D40–D46，來源 Foyege、H3 0 實測）：W41 台詞鏡視線沒寫螢幕方向（和 `h3d staging` D07 共用 `staging_lint.find_gaze`：沒有視線句只由 D07 報）、W42 `subject_definitions` 寫位置或姿態、W43 寫實畫風全身／遠景寫毛孔（定版皮膚段豁免）、W44 Performance 只有情緒詞或 AU 代碼、W45 中段鏡重列全場世界站位（`left to right` 名單不算）。
 - 處置：回 Layer 2 的 `five_part_en` 逐鏡改稿再編譯。不准改檢查器門檻、不准手改 segments 過關。規範見 `references/prompt-authoring.md`。
 
@@ -176,7 +176,7 @@ python scripts/h3d.py bind --root .
 - `h3d next` 在階段 5 發現沒有 bindings、或任一 layer2 在綁定後被改（`source_sha256` 不符）時，會先帶出 `h3d bind`，之後才給 compile 指令。
 - 尚未處理：道具、身體細節與音色母帶 `audio_references` 不自動綁，需要時手寫進 bindings（重產會保留）。
 
-### 2.3.1c REMIX 角色包 backend（`video_backend: remix`，PR-R1～R3）
+### 2.3.1c REMIX 角色包 backend（`video_backend: remix`，PR-R1～R3、R5）
 
 > **量測範圍**：以下 measured 全部只在 **8 GB RTX 4060 Ti、H3 Singularity ref2va Pruned V1.3 int8＋4step turbo**（家機 REMIX Studio，《噩盡島》ch02 EP04）上量過；其他顯存、其他底模（含早期 v0.8）都沒量。證據等級：**measured**＝本專案實跑、**docs**＝家機指南或 `GET /capabilities`、**inferred**＝從量測推出。
 
@@ -224,7 +224,25 @@ python scripts/h3d.py decide style_anchor "<英文錨句>" --quote "<原話>" --
 - 在場角色／生物／群眾、場景、`asset_refs.props` 沒有包也沒有豁免 → 列出缺口（換服裝＝換包，沒登記變體不退回預設包；**預設包本身穿的就是這套服裝**時在 `packs.<id>` 寫 `"default_costume": "W-x-01"`（或陣列 `default_costumes`），該服裝直接用預設包、不算缺口）、**不寫任何檔案**。`h3d pack build` 尚未提供（PR-R8），先在家機建包、回讀確認後寫進計畫表。沒寫 `tag` 時依 kind 推定並警告。
 - `--backend ref2va|remix` 可覆蓋定案。
 
-**編譯**：`compile_layer2_to_h3.py` 只產 Ref2VA 六段式；看到 remix 綁定會**明確拒絕**（REMIX 三欄輸出是 PR-R5），單臉模式因此只在 ref2va 執行。
+**編譯（PR-R5，REMIX 三欄輸出）**：`--bindings` 是 remix 綁定（頂層或段落 `video_backend: remix`、段落帶 `refmods`）時，`compile_layer2_to_h3.py` 改產 REMIX 三欄；ref2va 綁定照舊產六段式，單臉模式、`<Subject k>`↔`<Picture k+1>` 序對只在 ref2va 執行。
+
+```
+python scripts/h3d.py bind --root .                                   # remix 分支：讀 assets/character-packs.json 產 refmods
+python scripts/h3d.py compile --layer2 "layer2/layer2-EP04-*.json" --episode EP04 --project-root . \
+    --bible video-bible.json --bindings video-bindings.json \
+    --output-md prompts-ep04.md --output-segments segments-ep04.json --check
+```
+
+- **輸出格式**（實戰來源：《噩盡島》ch02 EP04 家機送件 `ch02/build.py`，measured 只在那一集）：
+  `integrated_multimodal_description:` ＝ **風格錨**（E55，段落 `metadata.style_anchor_en` > 定案 `style_anchor` > 14 號固定錨；都沒有就報錯，不自己補）→ 畫幅與光線鎖一句 → `[Shot 1]` 場景句＋**每個包一句介紹**（`<Picture 1> is the location, keep its layout, lighting and render style.`、`<Video N> is <英文名>, <外觀錨>.`）→ 鏡頭句＋五小節 → `[Shot 2] At 00:04.300, …` → **Style lock** 句（`metadata.style_lock_tail_en` 可換）→ 無字句（預設開；`--no-lettering-guard` 或 `metadata.allow_lettering=true` 關）；接著 `overall_soundscape:`、`non_diegetic_music:`（空的寫 `N/A`）。**不輸出** `subject_definitions`／`summary`／`retention_analysis`。
+- **標籤**：`<Picture N>`／`<Video N>` 依 refmods 的 `tag` **各自**從 1 編號、順序＝refmods 順序、場景包第一（綁定的 `label` 和順序不符、場景包不在第一、同包掛兩次都直接報錯，同 E52／E53）。介紹句**只寫是誰與外觀，不寫位置或姿態**（站位、坐站寫在各鏡五小節；W42 會對介紹句裡的位置／姿態詞提醒）。鏡內一律用英文名：五小節的 `{C-id}` 換成英文名（ref2va 是換成 `<Subject N>`）。
+- **英文名**（介紹句、refcheck、站位閘門都靠它對人）：refmods `name_en` > 計畫表 `packs.<id>.name_en` > bible `name_en` > 英文的 `display_name`／`name`；演員／生物／群演找不到英文名就報錯。**外觀錨**：refmods `description_en` > 計畫表 `description_en`（服裝變體寫在 `costumes.<W-id>.description_en`）> bible `visual_prompt_en`（含服裝）；建包時的描述和 bible 不同時，把包的描述寫進計畫表，兩邊要一致。`h3d bind` 產的 `video-bible.json` 會帶上 `name_en`／`aliases_en`。
+- **台詞與畫外音**：與 ref2va 同一套（`<d>[Chinese] …</d>`、`(Sx)`、畫外 O.S.／V.O. 官方句式＋閉唇、長句外部化、E22–E25、E43／E44）；說話者代號依第一次發聲順序 `(S1)`、`(S2)`（沒有 `<Subject k>` 可對齊）。remix 多人同框的可見台詞，同鏡其他演員另加 `while A's and B's lips remain completely closed`（ch02 寫法）。
+- **其他**：秒數→影格照 ref2va（台詞段往上取，`metadata.frames` 送 `frames/24` 精確值，家機往下取也落在同一量子），超出 REMIX 區間 56–243 幀記 compile note；`audio_references`、`en_overlay.show` 不輸出（REMIX 沒有音訊參考；可見度寫進五小節）；Combat_Impact 段不自動掛 LoRA（FreeVideo LoRA 目錄在 V1.3 未驗證）。
+- **segments 欄位**：`metadata.video_backend: "remix"`、`metadata.style_anchor_en`、`refmods`（含 `label`）、`pack_waivers`、`positions`、逐鏡 `visual_subject_ids`／`no_visual_reference_ids`／`pack_ids`、`reference_images: []`；編譯指紋 `compiled_prompt_sha256` 照舊（REMIX 取 `integrated_multimodal_description`，E38）。
+- **`--check`**：audit 走 remix 分支（E50–E55＋refcheck 文字比對＋站位 D06–D14）、`lint_h3_prompt(backend="remix")`（三欄沒有 summary，時長改以 authored 時間軸與切點時間戳對帳）、失敗目錄、段間連戲、逐鏡撰寫審查（E30–E40、W41–W45；E40／E41 改看 refmods 與介紹句英文名，帶原話的 `pack_waivers` 視為已處置）。
+- **backend 一致**：綁定是 remix 就產三欄；`--backend ref2va` 配 remix 綁定、或定案 remix 卻沒有 remix 綁定 → 報錯，先用同一個 backend 重跑 `h3d bind`。定案和綁定不同時照綁定編、印提示。
+- **送件**：`h3d submit`／`h3d run`（FreeVideo）看到 remix 段一律拒送；remix 送件 adapter 是 PR-R7，完成前在家機 REMIX Studio 手動送 `h3_prompt`＋`refmods`（依順序）。
 
 **審查（`audit_refs_and_segments.py`，依 backend 分支）**：backend 判定順序＝`--backend` > 段落 `metadata.video_backend` > 段落帶 `refmods` > `--project-root` 的 decisions > ref2va。
 
@@ -239,7 +257,7 @@ python scripts/h3d.py decide style_anchor "<英文錨句>" --quote "<原話>" --
 | E28 14 號風格 | 擋 | 照用（參考看 refmods） |
 | — | — | **E55** `integrated_multimodal_description` 開頭≠風格錨（段落 `metadata.style_anchor_en` > 定案 `style_anchor` > 14 號固定錨；都沒有也擋） |
 
-`lint_h3_prompt(..., backend="remix")` 的必填區塊改成三欄 `integrated_multimodal_description`／`overall_soundscape`／`non_diegetic_music`，其餘規則照用。refcheck（R4）與站位閘門（R6）見 §2.3.1d。尚未做：REMIX 提示詞輸出（R5）、送件 adapter（R7，含送件前自動跑 refcheck）、`h3d pack`（R8）、single480 抽卡流程（R9）、verdict／失敗目錄（R10）。
+`lint_h3_prompt(..., backend="remix")` 的必填區塊改成三欄 `integrated_multimodal_description`／`overall_soundscape`／`non_diegetic_music`，其餘規則照用。refcheck（R4）與站位閘門（R6）見 §2.3.1d。REMIX 三欄輸出（R5）已接上（見上方「編譯」）。尚未做：送件 adapter（R7，含送件前自動跑 refcheck）、`h3d pack`（R8）、single480 抽卡流程（R9）、verdict／失敗目錄（R10）。
 
 ### 2.3.1d 參考包涵蓋 `h3d refcheck`（PR-R4）與站位／視線閘門 `h3d staging`（PR-R6）
 
@@ -302,7 +320,7 @@ python scripts/h3d.py compile --layer2 layer2/ --bible video-bible.json --bindin
 - **提示詞落後**：段落 `metadata.source_layer2_sha256`（新版編譯器寫入）≠ 目前 Layer 2 → 分鏡改過沒重編；舊版編譯的段沒有此欄位不追溯。
 - **綁定新鮮度**：有 `video-bindings.json` 時，每段 `source_sha256` 要等於目前 Layer 2，且 `inputs_sha256` 記錄的輸入沒變；否則先 `h3d bind` 再重編。
 - **失敗目錄未處置**：權威提示詞命中 `enforce=error` 條目一律擋；命中警告而沒有涵蓋現稿（段＋提示詞 hash＋目錄版本）的 ack 也擋。首選改稿重編；使用者看過並接受才 `h3d ack <ID> --root . --note "<使用者原話>"`——要在**核准前**處置，因為 ack 檔在階段 5 快照內，核准後再 ack 會讓該段變成待重審。目錄或 ack 檔壞掉時 fail closed。
-- **backend 一致**：定案 `video_backend=remix` 但段落是 Ref2VA 六段式（沒有 `refmods`）→ 擋，`h3d next` 不給指令、要求停下回報使用者（REMIX 三欄輸出尚未實作，PR-R5）；此判斷排在綁定新鮮度之前。
+- **backend 一致**：定案 `video_backend=remix` 但段落是 Ref2VA 六段式（沒有 `refmods`）→ 擋；`h3d next` 在綁定不是 remix 或已落後時先給 `h3d bind`，remix 綁定新鮮時直接給帶 `--bindings` 的 compile 指令重編成 REMIX 三欄（PR-R5）；此判斷排在綁定新鮮度之前。
 - `h3d next` 的優先序：backend 不符 → 綁定落後（`h3d bind`）→ 只剩失敗目錄命中時給 `h3d catalog --list` → 補編。核准已失效時先查產物本身，產物不齊就先給修正指令，不重建審核頁。
 
 逐集 `segments-epXX.json` 則用 `--episode EPxx` 另編；`--bindings` 含其他集的段會自動略過。`--check` 的「17 條」是 `audit_refs_and_segments.py --lint-h3` 的 E1–E9、W10–W13、E14–E16、E18；E19 起是參考圖對帳與逐鏡撰寫審查。

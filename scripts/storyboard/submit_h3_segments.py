@@ -534,6 +534,11 @@ def audit_segment_prompts(todo_segs: List[Dict[str, Any]], root_dir: Optional[Pa
         if not str(prompt).strip():
             errors.append(f"[{sid}] 缺少 H3 prompt，拒絕送件")
             continue
+        if "refmods" in seg or (seg.get("metadata") or {}).get("video_backend") == "remix":
+            # PR-R5 產的 REMIX 三欄只能送家機 REMIX Studio；送件 adapter 是 PR-R7，FreeVideo 這條路不送
+            errors.append(f"[{sid}] 這段是 video_backend=remix（REMIX 三欄＋角色包），FreeVideo 送件端不送；"
+                          f"remix 送件 adapter（PR-R7）完成前請在家機 REMIX Studio 手動送件")
+            continue
 
         dur = 7.0
         if "metadata" in seg and isinstance(seg["metadata"], dict):

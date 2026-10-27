@@ -47,7 +47,7 @@ COMMANDS: Dict[str, str] = {
     "sketch": "免生圖 SVG 構圖分鏡總覽圖（階段 4 構圖來源，回寫 sketch_file 供審核門禁）",
     "crop": "依比例／格位裁設定板頭像（輸出 tmp/crops，不進 images/）",
     "bind": "產生階段 5 video-bible.json／video-bindings.json（正臉單視角裁切、側背／生物整板查表）",
-    "compile": "Layer 2 → H3 六段式提示詞與 segments（--check 可同時審查）",
+    "compile": "Layer 2 → H3 六段式提示詞與 segments（remix 綁定＝REMIX 三欄；--check 可同時審查）",
     "audit": "分段參考圖／主體定義／台詞預算的確定性對帳",
     "author": "逐鏡撰寫審查（防偷懶 E30–E38，references/prompt-authoring.md）",
     "refcheck": "參考包涵蓋檢查（PR-R4）：提示詞寫到的具名角色／生物／道具／群眾是否都有綁包（remix E50／E51 擋，ref2va 只提示）",

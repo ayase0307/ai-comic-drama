@@ -105,6 +105,11 @@ def segment_states(seg_id: str, shots: List[Dict[str, Any]], visibility: Dict[st
     return {cid: ("face" if "face" in s else "back" if "back" in s else "profile") for cid, s in found.items()}
 
 
+def _english_names(rec: Dict[str, Any]) -> Dict[str, Any]:
+    """name_en／aliases_en 帶進 video-bible.json（PR-R5：REMIX 介紹句的英文名；沒寫就不帶）。"""
+    return {key: rec[key] for key in ("name_en", "aliases_en") if rec.get(key)}
+
+
 def video_bible(registry: AssetRegistry, raw_bible: Dict[str, Any]) -> Dict[str, Any]:
     names = {str(c.get("character_id") or c.get("id")): c.get("canonical_name") or c.get("name")
              for c in raw_bible.get("characters", []) or [] if isinstance(c, dict)}
@@ -118,14 +123,16 @@ def video_bible(registry: AssetRegistry, raw_bible: Dict[str, Any]) -> Dict[str,
             "is_creature": bool(rec.get("is_creature")), "is_group": bool(rec.get("is_group")),
             "voice_only": bool(rec.get("voice_only")), "no_visual_reference": bool(rec.get("no_visual_reference")),
             "wardrobe_states": rec.get("wardrobe_states") or {}, "variants": rec.get("variants") or {},
+            **_english_names(rec),
         })
     locations = []
     for lid in registry.locations:
         rec = registry.get_location(lid)
         locations.append({"id": lid, "name": rec.get("name", lid), "visual_prompt_en": rec.get("desc_en", ""),
-                          "reference_image": rec.get("ref_img") if registry.path_exists(rec.get("ref_img", "")) else None})
+                          "reference_image": rec.get("ref_img") if registry.path_exists(rec.get("ref_img", "")) else None,
+                          **_english_names(rec)})
     props = [{"id": pid, "name": p.get("name", pid), "visual_prompt_en": p.get("desc_en", ""),
-              "reference_image": p.get("ref_img") or None} for pid, p in registry.props.items()]
+              "reference_image": p.get("ref_img") or None, **_english_names(p)} for pid, p in registry.props.items()]
     style = {key: registry.style[src] for key, src in (("anchor", "style_anchor"), ("negative", "style_negative"),
                                                      ("lighting_lock_line", "lighting_lock_line")) if registry.style.get(src)}
     return {"schema_version": "1.0-stage5-derived", "derived_for": "Stage 5 compiler input only (h3d bind)",

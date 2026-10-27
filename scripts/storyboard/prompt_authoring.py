@@ -113,6 +113,10 @@ COMPILER_BOILERPLATE = [
     re.compile(r"is the visible speaking character", re.I),
     re.compile(r"the final second holds still before the cut", re.I),
     re.compile(r"<d>", re.I),
+    # PR-R5：REMIX 三欄的編譯器固定句（每段最後一鏡都有，跨段重複不算套句）
+    re.compile(r"^Style lock for every shot:", re.I),
+    re.compile(r"stay plain and unmarked, with no lettering", re.I),
+    re.compile(r"<(?:Picture|Video)\s*\d+> is ", re.I),
 ]
 
 STATIC_HEAD = re.compile(r"\b(holds a steady static shot|holds a static shot|static shot|locked[- ]off|stays static|remains static)\b", re.I)
@@ -212,16 +216,36 @@ def subject_definitions_block(prompt: str) -> str:
     return m.group(1) if m else ""
 
 
+# REMIX 介紹句「<Video N> is 誰, 外觀.」（PR-R5；場景的 <Picture N> is the location 不算映射層角色句）
+REMIX_INTRO = re.compile(r"<(?:Video|Picture)\s*\d+>\s+is\s+(?!the location\b)[^.]*\.", re.I)
+# REMIX 第 1 鏡：介紹句之後由編譯器接「The shot opens on a …」
+REMIX_SHOT_OPEN = re.compile(r"\bThe shot opens on an?\b")
+
+
+def _mapping_lines(prompt: str) -> List[str]:
+    lines = [l for l in subject_definitions_block(prompt).splitlines() if re.search(r"<Subject\s*\d+>", l)]
+    if not lines and re.search(r"integrated_multimodal_description:", prompt, re.I):
+        lines = [m.group(0) for m in REMIX_INTRO.finditer(detailed_description(prompt))]
+    return lines
+
+
+def _strip_remix_intro(shot: str) -> str:
+    """REMIX 第 1 鏡開頭的場景句＋介紹句是映射層（同 Ref2VA 的 subject_definitions），不算鏡內撰寫內容。"""
+    m = REMIX_SHOT_OPEN.search(shot)
+    if m and re.search(r"<(?:Video|Picture)\s*\d+>\s+is\b", shot[:m.start()]):
+        lead = re.match(r"\s*\[Shot\s+\d+\]\s*", shot)
+        return (lead.group(0) if lead else "") + shot[m.start():]
+    return shot
+
+
 def audit_mapping_layer(prompt: str) -> List[str]:
-    """W42：subject_definitions 只寫「<Subject N> 是 <Picture N> 裡的誰」，不寫位置或姿態。"""
+    """W42：subject_definitions（REMIX：<Video N> 介紹句）只寫「誰是哪張圖／哪個包」，不寫位置或姿態。"""
     out: List[str] = []
-    for line in subject_definitions_block(prompt).splitlines():
-        if not re.search(r"<Subject\s*\d+>", line):
-            continue
+    for line in _mapping_lines(prompt):
         text = MAPPING_BOILERPLATE.sub(" ", line)
         m = MAPPING_POSITION.search(text) or MAPPING_POSE.search(text)
         if m:
-            tag = re.search(r"<Subject\s*\d+>", line).group(0)
+            tag = re.search(r"<(?:Subject|Video|Picture)\s*\d+>", line).group(0)
             out.append(f"[W42: 映射層寫了位置或姿態] subject_definitions 的 {tag} 出現「{m.group(0)}」；"
                        "這一層只寫身份對應（誰是哪張圖），站位、坐站姿態寫進各鏡的 Motion／Camera，"
                        "否則換機位後模型會照映射層硬套（來源 Foyege 三層空間協議，H3 0 實測）。")
@@ -326,8 +350,12 @@ def _is_boilerplate(sentence: str) -> bool:
 
 
 def detailed_description(prompt: str) -> str:
-    m = re.search(r"detailed_description:(.*?)(?:\n\s*\n[a-z_]+:|\Z)", prompt, re.S | re.I)
-    return m.group(1).strip() if m else prompt
+    """逐鏡描述欄：Ref2VA 的 detailed_description；REMIX 三欄（PR-R5）的 integrated_multimodal_description。"""
+    for section in ("detailed_description", "integrated_multimodal_description"):
+        m = re.search(rf"{section}:(.*?)(?:\n\s*\n[a-z_]+:|\Z)", prompt, re.S | re.I)
+        if m:
+            return m.group(1).strip()
+    return prompt
 
 
 def split_shots(prompt: str) -> List[str]:
@@ -393,6 +421,8 @@ def audit_segment(prompt: str, authored_shots: Optional[Sequence[Dict[str, Any]]
 
     for idx, shot in enumerate(shots, start=1):
         a = authored[idx - 1] if aligned else None
+        if idx == 1:
+            shot = _strip_remix_intro(shot)
         head, parts = split_parts(shot)
         tag = f"[Shot {idx}]"
         is_static = bool(STATIC_HEAD.search(head) or re.match(r"\s*(static|locked[- ]off)\b", parts.get("Camera", ""), re.I))
@@ -518,6 +548,8 @@ def audit_subject_coverage(seg: Dict[str, Any]) -> List[str]:
     """E40：畫面實體沒掛進影片參考圖；E41：有掛但該鏡提示詞沒點名（<Subject N>）。"""
     sid = str(seg.get("segment_id") or "")
     prompt = seg.get("h3_prompt") or seg.get("prompt") or ""
+    if isinstance(seg.get("refmods"), list):
+        return _audit_remix_coverage(seg, sid, prompt)
     bound = {str(r.get("id")) for r in (seg.get("reference_images") or []) if isinstance(r, dict)}
     pic_of = {str(r.get("id")): n for n, r in enumerate(seg.get("reference_images") or [], start=1) if isinstance(r, dict)}
     subj_of_pic = {int(p): f"<Subject {k}>" for k, p in re.findall(r"<Subject (\d+)> is the [^\n]*?<Picture (\d+)>", prompt)}
@@ -537,6 +569,45 @@ def audit_subject_coverage(seg: Dict[str, Any]) -> List[str]:
                            f"請在 five_part_en 用 {{{ent}}} 點名並寫出位置與動作。")
             elif ent not in token and ent in bound:
                 out.append(f"{sid}: [E41: 畫面實體未在提示詞點名] {ent} 有綁參考圖，但 subject_definitions 沒有它的 <Subject N>。")
+    return out
+
+
+def _audit_remix_coverage(seg: Dict[str, Any], sid: str, prompt: str) -> List[str]:
+    """REMIX 版 E40／E41（PR-R5）：畫面實體要有包（refmods）或帶原話的豁免；有包就要在該鏡點名（英文名）。
+
+    名字取自介紹句「<Video N> is 名字, …」（依 refmods label 對回資產 id）。
+    """
+    refs = [r for r in seg.get("refmods") or [] if isinstance(r, dict) and r.get("id")]
+    bound = {str(r["id"]) for r in refs}
+    waived = {str(w.get("id")) for w in seg.get("pack_waivers") or []
+              if isinstance(w, dict) and w.get("id") and str(w.get("quote") or "").strip()}
+    det = detailed_description(prompt)
+    label_to_id = {str(r.get("label") or "").replace(" ", ""): str(r["id"]) for r in refs}
+    name_of: Dict[str, str] = {}
+    for m in re.finditer(r"<(Video|Picture)\s*(\d+)>\s+is\s+([^,.;]+)", det):
+        aid = label_to_id.get(f"<{m.group(1)}{m.group(2)}>")
+        if aid and not m.group(3).strip().lower().startswith("the location"):
+            name_of[aid] = m.group(3).strip()
+    parts = re.split(r"\[Shot (\d+)\]", det)
+    blocks = {int(parts[j]): parts[j + 1] for j in range(1, len(parts) - 1, 2)}
+    out: List[str] = []
+    for n, shot in enumerate(seg.get("shots") or [], start=1):
+        shot_id = shot.get("shot_id") or f"#{n}"
+        for ent in shot_entities(shot):
+            if ent in waived:
+                continue
+            if ent not in bound:
+                out.append(f"{sid}: [E40: 畫面實體未綁參考包] {shot_id} 的分鏡／character_ids 有 {ent}，但 refmods 沒有它的包；"
+                           f"建包寫進 assets/character-packs.json 後重跑 h3d bind，或確定不入鏡就寫進 offscreen_subject_ids，"
+                           f"或在計畫表 waivers 附使用者原話。")
+                continue
+            name = name_of.get(ent)
+            block = _strip_remix_intro(f"[Shot {n}]" + blocks.get(n, "")) if blocks else ""
+            if name and blocks and not re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", block, re.I):
+                out.append(f"{sid}: [E41: 畫面實體未在提示詞點名] {shot_id} 有 {ent}（{name}），但 [Shot {n}] 沒寫到它；"
+                           f"請在 five_part_en 用 {{{ent}}} 點名並寫出位置與動作。")
+            elif not name and ent in bound:
+                out.append(f"{sid}: [E41: 畫面實體未在提示詞點名] {ent} 有包，但介紹句沒有「<Video N> is 名字」。")
     return out
 
 

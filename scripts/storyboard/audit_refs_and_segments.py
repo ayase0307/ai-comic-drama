@@ -916,9 +916,11 @@ def lint_h3_prompt(
                     clean_prompt,
                     re.IGNORECASE,
                 )
-                if not declared:
+                if not declared and not remix:
                     raise ValueError("prompt summary does not state effective and target durations")
-                declared_effective, declared_target = map(float, declared.groups())
+                # REMIX 三欄沒有 summary 欄（PR-R5）：時長以 authored 時間軸＋切點時間戳對帳
+                declared_effective, declared_target = (map(float, declared.groups()) if declared
+                                                       else (eff_d, nominal_duration))
                 if abs(declared_target - nominal_duration) > 1e-3 or abs(declared_effective - eff_d) > 1e-3:
                     raise ValueError(
                         f"prompt summary duration {declared_target:.3f}s target/{declared_effective:.3f}s effective "
