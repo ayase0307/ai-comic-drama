@@ -99,7 +99,7 @@ class BindingsGeneratorEndToEnd(unittest.TestCase):
         first = run([h3d, "bind", "--root", "."], self.root)
         self.assertEqual(first.returncode, 1)
         self.assertIn("C-HERO", first.stderr)
-        self.assertIn("h3d.py crop", first.stderr)
+        self.assertRegex(first.stderr, r'h3d\.py"? crop')
         self.assertFalse((self.root / "video-bindings.json").exists(), "有缺口時不得寫半套綁定")
 
         cropped = run([h3d, "crop", "--root", ".", "--image", "images/char-HERO.png", "--box", gb.FACE_PANEL_BOX,

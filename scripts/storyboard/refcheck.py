@@ -18,7 +18,7 @@
     E50 豁免缺原話：pack_waivers 沒有 quote（使用者原話）不算豁免。
     E51 未綁包的人群字眼：students／crowd／people／classmates／others／bystanders 等，
         段落沒有 kind=extras 的包、句中也沒有不可辨識寫法（失焦／剪影）→ REMIX 會長出沒綁包的陌生人。
-        「as tall as the others」這類比例錨、「other people」否定句不算。
+        「as tall as the others」這類比例錨、「no other people／without other people」否定句不算（肯定句 other people 照報）。
     普通物件（generic_en）只列出給人看，不擋。
   backend：remix＝錯誤（exit 1）；ref2va＝同樣的碼但只提示（列在 warnings，exit 0），不改 ref2va 既有門禁。
   豁免：段落 `pack_waivers`（bindings 產生）或計畫表 `waivers.<段>`，每項 {id 或 pack, reason, quote}；
@@ -49,11 +49,14 @@ TAIL_SECTIONS = ("overall_soundscape", "non_diegetic_music", "subject_definition
 
 # 人群字眼（照 ch02 refcheck UNBOUND）。後看斷言排除比例錨與否定句。
 UNBOUND_PEOPLE = re.compile(
-    r"\bstudents\b|\bcrowds?\b|(?<!other )(?<!these two )(?<!these three )(?<!these four )\bpeople\b"
+    r"\bstudents\b|\bcrowds?\b|(?<!these two )(?<!these three )(?<!these four )\bpeople\b"
     r"|\bclassmates\b|(?<!as the )(?<!than the )\bothers\b(?!')|\bbystanders\b|\bonlookers\b|\bpassers-?by\b",
     re.I)
 # 「as tall as the others」比例錨、「Only these … people」宣告句不算人群
-_UNBOUND_EXEMPT_CONTEXT = re.compile(r"\bas\s+\w+\s+as\s+the\s+others\b|\bonly these\b|\bno other\b|\bempty of\b", re.I)
+# 「other people」只有在否定句（no other／without other／nobody else）才不算；肯定句「other people browse behind」
+# 會長出陌生人，所以不再用後看斷言整個排除（那會把肯定句也放掉）。
+_UNBOUND_EXEMPT_CONTEXT = re.compile(r"\bas\s+\w+\s+as\s+the\s+others\b|\bonly these\b|\bno other\b|\bwithout (?:any )?other\b"
+                                     r"|\bnever any other\b|\bempty of\b", re.I)
 _NON_IDENTIFIABLE = re.compile(
     r"out of focus|blurred|indistinct|no facial detail|without facial detail|unrecogni[sz]able|silhouett", re.I)
 

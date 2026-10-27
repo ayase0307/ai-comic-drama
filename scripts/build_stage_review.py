@@ -2115,7 +2115,7 @@ def build_stage_4(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
         shots = d.get("shots", [])
 
         panel_boxes: List[str] = []
-        for sh in shots:
+        for sh_index, sh in enumerate(shots, start=1):
             sh_id = sh.get("shot_id", "")
             global_shot_id = sh.get("global_shot_id") or sh_id
             sh_dur = sh.get("duration", 0)
@@ -2130,6 +2130,10 @@ def build_stage_4(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
                 else:
                     panel_candidates.extend((project_dir / sketch_path, p.parent / sketch_path))
             panel_candidates.extend((
+                # 與 stage4_artifacts 門禁同一套命名（panel-NN-<shot>.png），門禁認得的圖審核頁也要顯示得出來
+                project_dir / "panels" / f"panel-{sh_index:02d}-{sh_id}.png",
+                p.parent / "panels" / f"panel-{sh_index:02d}-{sh_id}.png",
+                project_dir / f"panel-{sh_index:02d}-{sh_id}.png",
                 project_dir / "panels" / f"panel-{seg_id}-{sh_id}.png",
                 project_dir / "panels" / f"panel-{sh_id}.png",
             ))
@@ -2261,7 +2265,7 @@ def build_stage_5(project_dir: Path, state: Dict[str, Any],
             sid = seg.get("segment_id", f"seg-{total_segs}")
             dur = float(seg.get("metadata", {}).get("target_duration_sec", 7.0))
             prompt_str = extract_prompt_from_seg(seg)
-            r_res = audit_refs_and_subjects(seg)
+            r_res = audit_refs_and_subjects(seg, project_root=project_dir)  # 要讀像素才判得出 E20 整板／E26–E27
             l_res = lint_h3_prompt(
                 prompt_str,
                 nominal_duration=dur,
@@ -2316,6 +2320,10 @@ def build_stage_5(project_dir: Path, state: Dict[str, Any],
     author_res = _author_audit(seg_files)
     errors.extend(f"撰寫審查 {e}" for e in author_res["errors"]
                   if only is None or any(str(sid) in str(e) for sid in only))
+    # 失敗目錄：enforce=error 或未 ack 的警告要在交給使用者之前處置（核准門禁同一套，見 project_state）
+    from project_state import _stage5_catalog_errors  # noqa: E402
+    errors.extend(e for e in _stage5_catalog_errors(project_dir)
+                  if only is None or any(str(e).startswith(f"{sid}:") for sid in only))
 
     kpis = [
         ("已編譯分段數" if only is None else "待重審分段", f"{total_segs} 段", "gold"),
@@ -2855,7 +2863,7 @@ def _build_stage5_rereview(project_dir: Path, state: Dict[str, Any], raw_ids: st
         return 1
     record_segment_review(project_dir, wanted)
     print("🛑 段級重審快照已綁定（其他段的核准不受影響）。交給使用者後【停下】。")
-    print(f"👉 使用者明確回覆「通過」後：python scripts/h3d.py approve --stage 5 --segments {','.join(wanted)} "
+    print(f"👉 使用者明確回覆「通過」後：python \"{(Path(__file__).resolve().parent / 'h3d.py').as_posix()}\" approve --stage 5 --segments {','.join(wanted)} "
           '--user-note "<使用者原話>" --root .（改過的段一律人工重審，不得 --auto）')
     return 0
 

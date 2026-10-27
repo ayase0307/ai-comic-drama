@@ -348,7 +348,7 @@ class AssetRegistry:
         if isinstance(style, dict):
             for key in ("anchor", "negative", "lighting_lock_line"):
                 value = style.get(key)
-                if value:
+                if value and not re.fullmatch(r"\s*<[^<>]*>\s*", str(value)):  # 模板佔位不是定案值
                     mapped_key = {"anchor": "style_anchor", "negative": "style_negative"}.get(key, key)
                     self.style[mapped_key] = str(value)
 
@@ -366,7 +366,10 @@ class AssetRegistry:
             # 風格錨點
             m = re.match(r"^-\s*\*\*(style_anchor|style_negative|lighting_lock_line|style_index)\*\*[：:]\s*`([^`]+)`", line)
             if m:
-                self.style[m.group(1)] = m.group(2).strip()
+                value = m.group(2).strip()
+                # init_project 的模板佔位（`<全片共用風格，例：…>`）不是定案值，不能寫進提示詞
+                if not re.fullmatch(r"<[^<>]*>", value):
+                    self.style[m.group(1)] = value
                 continue
             # 卡片標題
             m = re.match(r"^#{2,4}\s*((?:C|CREATURE|EXTRAS)-[\w-]+|CREATURE-\d+)\s*[　\s]*(.*)$", line)
@@ -2929,6 +2932,8 @@ def main() -> int:
                 no_lettering=getattr(args, "lettering_guard", True),
                 compact_description=getattr(args, "compact_description", False),
             )
+            # 來源指紋：階段 5 strict 檢查用它判斷「分鏡改了、提示詞沒重編」（不影響 compiled_prompt_sha256）
+            seg_res.setdefault("metadata", {})["source_layer2_sha256"] = hashlib.sha256(p.read_bytes()).hexdigest()
             compiled_results.append(seg_res)
             print(f"  ✅ 成功編譯段落: {seg_res['segment_id']} ({len(seg_res['shots'])} 鏡, {seg_res['metadata']['target_duration_sec']}s)")
         except Exception as exc:
