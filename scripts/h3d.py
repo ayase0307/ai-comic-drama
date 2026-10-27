@@ -50,7 +50,7 @@ COMMANDS: Dict[str, str] = {
     "compile": "Layer 2 → H3 六段式提示詞與 segments（--check 可同時審查）",
     "audit": "分段參考圖／主體定義／台詞預算的確定性對帳",
     "author": "逐鏡撰寫審查（防偷懶 E30–E38，references/prompt-authoring.md）",
-    "qa": "影片自動審查（時長／色彩／分鏡總覽圖／證據分級）",
+    "qa": "影片自動審查（時長／色彩／分鏡總覽圖／證據分級）；--continuity：交界連續性 QA（實際切點＋交界拼貼＋一側靜止，只警告）",
     "motion": "階段 6 動態 QA（光流量凍結／定住／起手延遲）＋自動提案變速清單 videos/speed-ramps.json",
     "ramp": "依已核准的變速清單產 videos/ramped/<段>.mp4（原片不動，台詞區 1×＋音訊相關驗證）",
     "submit": "送件到 FreeVideo（含能力校驗與時長斷言）",
@@ -256,10 +256,18 @@ def main(argv: Optional[List[str]] = None) -> int:
         known, _ = sub.parse_known_args(list(args.args))
         return cmd_status(Path(known.root).resolve(), known.json or args.json)
 
-    module = _load(command)
     passthrough = list(args.args)
     if passthrough and passthrough[0] == "--":
         passthrough = passthrough[1:]
+    if command == "qa" and "--continuity" in passthrough:
+        # R3-16：交界連續性 QA 是獨立工具（只警告、不寫 qa-report.json），不混進 verify_video_shot 的旗標。
+        passthrough = [a for a in passthrough if a != "--continuity"]
+        if args.root is not None and "--root" not in passthrough:
+            passthrough += ["--root", str(args.root)]
+        if args.json and "--json" not in passthrough:
+            passthrough.append("--json")
+        return _invoke(importlib.import_module("continuity_qa"), passthrough)
+    module = _load(command)
     passthrough = IMPLIED_FLAGS.get(command, []) + passthrough
     if command in ("next", "decide", "verdict", "inbox", "approve", "run"):
         # 允許 `h3d --root X next` 與 `h3d next --root X` 兩種寫法

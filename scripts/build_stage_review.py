@@ -2381,6 +2381,43 @@ def _stage6_split(project_dir: Path) -> Tuple[List[str], List[str]]:
     return [e for e in errors if e not in technical_set], [e for e in errors if e in technical_set]
 
 
+def _continuity_entries(project_dir: Path) -> Dict[str, Dict[str, Any]]:
+    """R3-16 交界連續性 QA 報告（videos/qa/continuity/continuity-report.json）；沒有就空。只供顯示。"""
+    try:
+        import continuity_qa
+    except ImportError:
+        return {}
+    return continuity_qa.load_report(project_dir)
+
+
+def _continuity_panel(project_dir: Path, entry: Optional[Dict[str, Any]]) -> str:
+    """每段附交界拼貼（上段末｜本段首、每個鏡交界、本段末｜下段首）與警告；只警告、不影響核准。"""
+    head = '<h4 class="md-h4">交界連續性（h3d qa --continuity，只警告、不擋核准）</h4>'
+    if not entry:
+        return head + '<p class="md-p">（尚未產生：<code>python scripts/h3d.py qa --continuity --root .</code>）</p>'
+    parts = [head]
+    montage = entry.get("montage")
+    if montage:
+        src_rel, real = rel_img_src(project_dir, str(montage))
+        if real is not None and real.exists():
+            parts.append(f'<div class="asset-img-box"><img src="{src_rel}" alt="continuity {html.escape(str(entry.get("segment_id")))}"></div>')
+    cuts = entry.get("cuts") or []
+    if cuts:
+        cells = "".join(
+            f'<span class="tag-badge {"emerald" if c.get("confident") else "gold"}">'
+            f'切點 {i}: 規劃 {c.get("planned")}s → 實際 {c.get("actual")}s'
+            + (f'（{c["offset"]:+.2f}s）' if isinstance(c.get("offset"), (int, float)) else "")
+            + ("" if c.get("confident") else " 不明") + '</span> '
+            for i, c in enumerate(cuts, start=1))
+        parts.append(f'<div>{cells}</div>')
+    warnings = entry.get("warnings") or []
+    if warnings:
+        parts.append('<ul class="md-ul">' + "".join(f'<li>⚠️ {html.escape(str(w))}</li>' for w in warnings) + '</ul>')
+    elif entry.get("status") == "analyzed":
+        parts.append('<p class="md-p">✅ 沒有交界警告（仍請目視拼貼確認動作、位置、身分連續）</p>')
+    return "".join(parts)
+
+
 def build_stage_6(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[str], str]:
     """階段 6：分段影片 × 分鏡總覽圖構圖 × 角色設定圖 × QA 指標，四項並排驗收。
 
@@ -2420,6 +2457,7 @@ def build_stage_6(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
 
     bible = _load_bible_characters(project_dir)
     manifest = _manifest_character_images(project_dir)
+    continuity = _continuity_entries(project_dir)
     cards: List[str] = []
     grid_covered = 0
     design_covered = 0
@@ -2514,6 +2552,7 @@ def build_stage_6(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
             f'      {design_html}'
             f'      <h4 class="md-h4">自動品質審查數據 (verify_video_shot.py)</h4>'
             f'      <div class="qa-box">{qa_panel(q_item)}</div>'
+            f'      {_continuity_panel(project_dir, continuity.get(seg_id))}'
             f'    </div>'
             f'  </div>'
             f'</article>'
