@@ -285,9 +285,10 @@ def audit_remix(seg_data: Dict[str, Any], project_root: Optional[Path] = None,
     跳過（Ref2VA 專屬，在 REMIX 上不是誤擋就是沒意義）：E19（改 E50）、E20、E26、E27、
     混臉／單段多張角色圖警告、<Subject k>↔<Picture k+1> 序對、圖 ≤9／總 ≤12、主角前 5 名。
     保留：E21（擴大人群 cue）、E22–E25、E43／E44、E28。
-    新增：E50（最小版：具名角色沒有包；文字比對的完整版在 PR-R4 refcheck）、
+    新增：E50（具名角色沒有包：在場名單＋PR-R4 refcheck 的提示詞文字比對）、
     E52（<Picture N>／<Video N> 各自編號對 refmods tag、每包都要被引用）、E53（場景包第一）、
-    E54（包數，依 providers/remix.json 顯存分級）、E55（提示詞開頭＝風格錨）。
+    E54（包數，依 providers/remix.json 顯存分級）、E55（提示詞開頭＝風格錨）、
+    D06–D14 站位／視線閘門（PR-R6，staging_lint.py；預設警告）。
     """
     errors: List[str] = []
     warnings: List[str] = []
@@ -312,7 +313,46 @@ def audit_remix(seg_data: Dict[str, Any], project_root: Optional[Path] = None,
         errors.append(
             f"[E50: 具名角色沒有包] {', '.join(missing)} 在畫面上，refmods 卻沒有他們的包。"
             f"REMIX 會照文字自由發揮（ch02：沒綁包的巨蟒、銀槍都漂了）。請建包加進 refmods，"
-            f"或移出畫面，或寫 pack_waivers 並附使用者原話。（提示詞文字比對的完整版待 PR-R4 refcheck）")
+            f"或移出畫面，或寫 pack_waivers 並附使用者原話。")
+
+    # ---------- E50（文字比對，PR-R4 refcheck）：提示詞寫到的具名資產沒有包 ----------
+    # 詞表來自專案的 bible.json／character-packs.json 的 name_en／aliases_en；沒寫英文名就沒有詞，行為同 R3。
+    # E51（人群字眼）不在這裡重複：audit 的 E21 已擋同一類問題；完整報表跑 `h3d refcheck`。
+    if project_root is not None:
+        try:
+            import refcheck as refcheck_mod
+        except ImportError:  # pragma: no cover
+            refcheck_mod = None
+        if refcheck_mod is not None:
+            plan = refcheck_mod.load_pack_plan(Path(project_root))
+            lexicon = refcheck_mod.load_lexicon(Path(project_root), plan)
+            if lexicon:
+                anchors = [a for a in [decisions_mod.style_anchor(Path(project_root)) if decisions_mod else None] if a]
+                rc = refcheck_mod.check_segment(seg_data, lexicon, "remix", plan, anchors, include_presence=False)
+                already = set(missing) | waived
+                text_missing = [m for m in rc["missing"] if m.split("（", 1)[0] not in already]
+                if text_missing:
+                    errors.append(f"[E50: 具名資產沒有包] 提示詞寫到 {'；'.join(text_missing)}，refmods 卻沒有對應的包"
+                                  f"（refcheck 文字比對）。建包加進 refmods，或從提示詞拿掉，或寫 pack_waivers 並附使用者原話")
+
+    # ---------- D06–D14：站位／視線／運鏡閘門（PR-R6；預設警告，staging_gate=strict 時 D06–D08 擋） ----------
+    try:
+        import staging_lint as staging_mod
+    except ImportError:  # pragma: no cover
+        staging_mod = None
+    if staging_mod is not None and prompt_text:
+        lex = None
+        if project_root is not None:
+            try:
+                import refcheck as refcheck_mod
+                lex = refcheck_mod.load_lexicon(Path(project_root))
+            except ImportError:  # pragma: no cover
+                lex = None
+        staging_errors, staging_warnings = staging_mod.split_findings(
+            staging_mod.lint_segment(seg_data, "remix", lexicon=lex,
+                                     strict=staging_mod.project_strict(project_root)))
+        errors.extend(staging_errors)
+        warnings.extend(staging_warnings)
 
     # ---------- E52：refmods 結構與 <Picture N>／<Video N> 對帳 ----------
     counters = {"Picture": 0, "Video": 0}
