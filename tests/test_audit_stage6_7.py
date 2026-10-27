@@ -315,9 +315,9 @@ class H3dRoutingTests(unittest.TestCase):
         self.assertNotIn("--root", seen["argv"])
         seen, _ = self.captured(["--root", "/p", "resume", "--segments", "s.json"])
         self.assertEqual(seen["argv"][0], "--resume")
-        self.assertEqual(seen["argv"][-2:], ["--root-dir", "/p"])
+        self.assertEqual(seen["argv"][-2:], ["--root-dir", str(Path("/p"))])
         seen, _ = self.captured(["collect", "--root=/p"])
-        self.assertIn("--root-dir=/p", seen["argv"])
+        self.assertTrue(any(a in ("--root-dir=/p", "--root-dir=" + str(Path("/p"))) for a in seen["argv"]), seen["argv"])
 
     def test_global_root_is_not_silently_ignored(self):
         _, err = self.captured(["--root", "/p", "assemble", "--segments", "s.json"])
@@ -325,7 +325,7 @@ class H3dRoutingTests(unittest.TestCase):
 
     def test_doctor_receives_root(self):
         seen, _ = self.captured(["--root", "/p", "doctor"])
-        self.assertEqual(seen["argv"][-2:], ["--root", "/p"])
+        self.assertEqual(seen["argv"][-2:], ["--root", str(Path("/p"))])
 
 
 class AssembleTests(unittest.TestCase):
@@ -456,7 +456,7 @@ class HardcodedPathTests(unittest.TestCase):
                 self.assertEqual(media_tools.ffmpeg_bin(), str(ffmpeg))
                 self.assertEqual(media_tools.ffprobe_bin(), str(ffprobe))  # 同目錄推得
         with mock.patch.dict(os.environ, {"AICD_FFMPEG": "", "AICD_FFPROBE": ""}):
-            self.assertTrue(media_tools.ffmpeg_bin().endswith(("ffmpeg", "ffmpeg.exe")))
+            self.assertTrue(media_tools.ffmpeg_bin().lower().endswith(("ffmpeg", "ffmpeg.exe")))
 
     def test_doctor_service_endpoints_follow_env(self):
         env = {"FREEVIDEO_API_URL": "http://192.168.1.20:9189/freevideo/agent/v1",
@@ -485,7 +485,7 @@ class HardcodedPathTests(unittest.TestCase):
              contextlib.redirect_stderr(err):
             code = sync_h3_reference.main(["--check"])
         self.assertEqual(code, 2)
-        self.assertIn("/nonexistent/a", err.getvalue())
+        self.assertIn(str(Path("/nonexistent/a")), err.getvalue())
 
 
 if __name__ == "__main__":
