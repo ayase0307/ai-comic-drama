@@ -251,11 +251,11 @@ def load_inputs(project_dir: Optional[Path], source: Optional[Path], handoffs: L
             handoffs = sorted(str(p) for p in project_dir.glob("handoff-ep*.json"))
     if source is None:
         raise SystemExit("[錯誤] 需要 --source 或 --project-dir")
-    source_data = json.loads(Path(source).read_text(encoding="utf-8"))
+    source_data = json.loads(Path(source).read_text(encoding="utf-8-sig"))
     paths: List[str] = []
     for h in handoffs:
         paths.extend(sorted(glob.glob(h)) or [h])
-    handoff_data = [json.loads(Path(p).read_text(encoding="utf-8")) for p in paths]
+    handoff_data = [json.loads(Path(p).read_text(encoding="utf-8-sig")) for p in paths]
     return source_data, handoff_data
 
 

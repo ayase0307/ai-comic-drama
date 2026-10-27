@@ -202,7 +202,8 @@ def validate_character_bible(
                 )
 
             # 檢查服裝狀態機圖片路徑
-            img_paths = re.findall(r"images/[A-Za-z0-9_.-]+\.png", block)
+            # 允許中文檔名、子資料夾與 .jpg／.jpeg／.webp（以前只認 ASCII 檔名的 .png，合法設定圖被判 E11）
+            img_paths = re.findall(r"images/[^\s`'\"|)）]+?\.(?:png|jpe?g|webp)", block, flags=re.I)
             if not img_paths:
                 errors.append(
                     f"[E11: 缺少服裝狀態圖路徑] 角色「{cname}」的「視覺與服裝狀態機」未綁定 `images/*.png` 路徑！"
@@ -440,10 +441,21 @@ def main() -> int:
         print(f"❌ [錯誤] 找不到角色設定文件: {args.bible_md}", file=sys.stderr)
         return 1
 
-    md_text = args.bible_md.read_text(encoding="utf-8")
+    md_text = args.bible_md.read_text(encoding="utf-8-sig")
     bible_json = None
-    if args.bible_json and args.bible_json.exists():
-        bible_json = json.loads(args.bible_json.read_text(encoding="utf-8"))
+    if args.bible_json:
+        # 以前 --bible-json 指錯路徑會默默跳過雙向對帳、照樣 PASS；壞掉的 JSON 直接 traceback。
+        if not args.bible_json.is_file():
+            print(f"❌ [錯誤] 找不到 bible.json：{args.bible_json}（要略過雙向對帳就不要帶 --bible-json）", file=sys.stderr)
+            return 1
+        try:
+            bible_json = json.loads(args.bible_json.read_text(encoding="utf-8-sig"))
+        except ValueError as exc:
+            print(f"❌ [錯誤] {args.bible_json} 不是合法的 JSON：{exc}", file=sys.stderr)
+            return 1
+        if not isinstance(bible_json, dict):
+            print(f"❌ [錯誤] {args.bible_json} 應是物件（含 characters），收到 {type(bible_json).__name__}", file=sys.stderr)
+            return 1
 
     res = validate_character_bible(md_text, bible_json)
     if args.json:
