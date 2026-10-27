@@ -1,0 +1,48 @@
+name: Release
+
+# 合併到 main 後：VERSION 若沒有對應的 vX.Y.Z tag，就自動打 tag 並以 CHANGELOG 該版內容建立 GitHub Release。
+on:
+  push:
+    branches: [main]
+    paths: [VERSION]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Read version
+        id: v
+        run: |
+          V="$(tr -d '[:space:]' < VERSION)"
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          if git rev-parse -q --verify "refs/tags/v$V" >/dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Extract release notes from CHANGELOG
+        if: steps.v.outputs.exists == 'false'
+        run: |
+          V="${{ steps.v.outputs.version }}"
+          awk -v v="$V" '
+            $0 ~ "^## \\[" v "\\]" {grab=1; next}
+            grab && /^## \[/ {exit}
+            grab {print}
+          ' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "::error::CHANGELOG.md 沒有 ## [$V] 區塊"; exit 1
+          fi
+      - name: Create tag and release
+        if: steps.v.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          V="${{ steps.v.outputs.version }}"
+          gh release create "v$V" --target "$GITHUB_SHA" --title "v$V" --notes-file notes.md

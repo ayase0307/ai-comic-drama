@@ -32,6 +32,7 @@ for candidate in (str(SCRIPTS_DIR), str(SCRIPTS_DIR / "storyboard"), str(SCRIPTS
 import decisions as decisions_mod  # noqa: E402
 import project_state as ps  # noqa: E402
 import verdicts as verdicts_mod  # noqa: E402
+import skill_version  # noqa: E402
 
 H3D = f'python "{(SCRIPTS_DIR / "h3d.py").as_posix()}"'
 REVIEW = f'python "{(SCRIPTS_DIR / "build_stage_review.py").as_posix()}"'
@@ -370,6 +371,17 @@ def _stage5_partial_step(res: Dict[str, Any], root: Path, review: Dict[str, Any]
 
 
 def plan(root: Path) -> Dict[str, Any]:
+    res = _plan(root)
+    res["version_notice"] = None
+    try:
+        if ps.state_path(Path(root).expanduser().resolve()).is_file():
+            res["version_notice"] = skill_version.check_project(ps.load_state(Path(root).expanduser().resolve()))
+    except ValueError:
+        pass
+    return res
+
+
+def _plan(root: Path) -> Dict[str, Any]:
     root = Path(root).expanduser().resolve()
     if not ps.state_path(root).is_file():
         res = _result(root, None, "uninitialized")
@@ -553,6 +565,9 @@ def render(res: Dict[str, Any]) -> str:
         lines.append("先讀：" + "、".join(res["read"]))
     for note in res["notes"]:
         lines.append(f"附註：{note}")
+    notice = res.get("version_notice")
+    if notice:
+        lines.append(("版本：⚠️ " if notice.get("level") == "warn" else "版本：ℹ️ ") + notice["message"])
     return "\n".join(lines)
 
 

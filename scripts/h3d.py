@@ -67,6 +67,7 @@ COMMANDS: Dict[str, str] = {
     "catalog": "失敗目錄（--list／--check／--acks）",
     "ack": "記錄失敗目錄的 ack 憑證（綁定提示詞 hash 與目錄版本）",
     "status": "綜合狀態：階段門禁＋依賴帳本＋送件帳本＋失敗目錄",
+    "version": "技能版本／資料格式版本；--root 比對專案版本章，--accept 看過 CHANGELOG 後更新版本章",
 }
 
 MODULE_FOR = {
@@ -98,6 +99,7 @@ MODULE_FOR = {
     "deps": "deps",
     "catalog": "failure_catalog",
     "ack": "failure_catalog",
+    "version": "skill_version",
 }
 
 # 專案根旗標叫 --root-dir 的子命令（h3d 會把 --root 轉過去）
@@ -240,6 +242,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="AI 漫劇產線單一入口（把 scripts/ 的工具收成一個名字）",
         epilog="每個子命令都支援 --help，例如：h3d compile --help",
     )
+    parser.add_argument("--version", action="store_true", help="印出技能版本（VERSION）")
     parser.add_argument("--list", action="store_true", help="列出所有子命令")
     parser.add_argument("--root", type=Path, default=None, help="專案根目錄（給 status／next／decide／verdict 用）")
     parser.add_argument("--json", action="store_true", help="status／next 以 JSON 輸出")
@@ -251,6 +254,11 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Optional[List[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if args.version:
+        import skill_version
+        print(f"ai-comic-drama v{skill_version.skill_version()}")
+        return 0
 
     if args.list or not args.command:
         print("h3d 子命令：")
@@ -284,7 +292,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         return _invoke(importlib.import_module("continuity_qa"), passthrough)
     module = _load(command)
     passthrough = IMPLIED_FLAGS.get(command, []) + passthrough
-    if command in ("next", "decide", "verdict", "inbox", "approve", "run", "refcheck", "staging"):
+    if command in ("next", "decide", "verdict", "inbox", "approve", "run", "refcheck", "staging", "version"):
         # 允許 `h3d --root X next` 與 `h3d next --root X` 兩種寫法
         if args.root is not None and "--root" not in passthrough:
             passthrough += ["--root", str(args.root)]
