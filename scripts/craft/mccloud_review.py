@@ -27,7 +27,7 @@ def load_shots(project_dir: Path, episode: str, layer2_dir: Optional[Path] = Non
     shots: List[Dict[str, Any]] = []
     for p in sorted(d.glob("layer2-*.json")) if d.exists() else []:
         try:
-            seg = json.loads(p.read_text(encoding="utf-8"))
+            seg = json.loads(p.read_text(encoding="utf-8-sig"))
         except (OSError, json.JSONDecodeError):
             continue
         sid = str(seg.get("segment_id") or p.stem.replace("layer2-", ""))
@@ -126,7 +126,7 @@ def self_test() -> bool:
         seg2 = {"segment_id": "EP01-S02-A", "scene_id": "EP01-S02", "shots": [shot(1, ["a"], "近景")]}
         for s in (seg1, seg2):
             (p / "layer2" / f"layer2-{s['segment_id']}.json").write_text(json.dumps(s, ensure_ascii=False), encoding="utf-8")
-        t = run(p, "EP01").read_text(encoding="utf-8")
+        t = run(p, "EP01").read_text(encoding="utf-8-sig")
         ok = all(k in t for k in ["moment-to-moment 2", "subject-to-subject 1", "scene-to-scene 1",
                                    "最多連續 3 個 shot", "沒有 aspect-to-aspect"])
     print("mccloud_review self-test:", "PASS" if ok else "FAIL")
