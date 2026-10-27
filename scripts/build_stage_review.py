@@ -1185,14 +1185,36 @@ STUDIO_JS = r"""
 
 
 
+# 各階段可用的創作 lens（只建議、不擋關）。沒有報告時審核頁列出指令提醒，避免 lens 寫好卻沒人跑。
+CRAFT_LENSES_BY_STAGE: Dict[int, List[Tuple[str, str, str]]] = {
+    0: [("爆款方法論", "hit_review.py", "--stage 0")],
+    1: [("爆款方法論", "hit_review.py", "--stage 1")],
+    2: [("荒木飛呂彥", "araki_review.py", "--stage 2")],
+    3: [("爆款方法論", "hit_review.py", "--stage 3"),
+        ("荒木飛呂彥", "araki_review.py", "--stage 3"),
+        ("McKee 場景與對白", "mckee_review.py", "")],
+    4: [("McCloud 分鏡轉場", "mccloud_review.py", "")],
+    7: [("Murch／Hamilton 剪輯", "edit_review.py", "--lens all")],
+}
+
+
 def craft_lens_panel(project_dir: Path, stage: int) -> str:
     """Advisory craft-lens reports (review/craft/stage-N-*.md). Display only; never affects gates."""
     craft_dir = project_dir / "review" / "craft"
-    if not craft_dir.is_dir():
-        return ""
-    reports = sorted(craft_dir.glob(f"stage-{stage}-*.md"))
+    reports = sorted(craft_dir.glob(f"stage-{stage}-*.md")) if craft_dir.is_dir() else []
     if not reports:
-        return ""
+        lenses = CRAFT_LENSES_BY_STAGE.get(stage)
+        if not lenses:
+            return ""
+        rows = []
+        for name, script, extra in lenses:
+            script_path = (SCRIPTS_DIR / "craft" / script).as_posix()
+            cmd = f'python "{script_path}" --project-dir . {extra}'.strip()
+            rows.append(f"<li>{html.escape(name)}：<code>{html.escape(cmd)}</code></li>")
+        items = "".join(rows)
+        return ('<section class="section-panel"><h2>創作 lens 建議（不擋關）</h2>'
+                '<p>本階段還沒有 lens 報告。可選擇先跑下列 lens（只給建議，報告寫進 <code>review/craft/</code> 後重建審核頁就會顯示）：</p>'
+                f'<ul>{items}</ul></section>')
     parts = []
     for rp in reports:
         try:
@@ -2243,6 +2265,57 @@ def build_stage_4(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
     return len(errors) == 0, errors, html_out
 
 
+def stage5_ref2va_advisory(project_dir: Path, seg_files: List[Path],
+                           only: Optional[set] = None) -> Tuple[List[str], str]:
+    """ref2va 段的 refcheck（E50/E51）與 staging（D06–D14）。
+
+    remix 段已在 audit_refs_and_subjects 內跑過；ref2va 原本只有手動 `h3d refcheck`／`h3d staging`
+    才看得到，審核頁漏掉。這裡補上：預設只列警告（不改 ref2va 既有門禁），
+    decisions staging_gate=strict 時 D06–D08 才回傳成錯誤。回傳 (errors, panel_html)。
+    """
+    try:
+        import refcheck as refcheck_mod  # noqa: E402
+        import staging_lint as staging_mod  # noqa: E402
+    except ImportError:  # pragma: no cover
+        return [], ""
+    root = project_dir.resolve()
+    errors: List[str] = []
+    notes: List[str] = []
+    try:
+        for row in refcheck_mod.run(root, seg_files, None):
+            sid = str(row.get("segment_id") or row.get("key") or "")
+            if row.get("backend") != "ref2va" or (only is not None and sid not in only):
+                continue
+            notes.extend(f"{sid}: {w}" for w in row.get("warnings", []))
+        plan = refcheck_mod.load_pack_plan(root)
+        lexicon = refcheck_mod.load_lexicon(root, plan)
+        anchors = refcheck_mod._anchors(root)
+        bindings = refcheck_mod._bindings_by_id(root)
+        segments = []
+        for path in seg_files:
+            for seg in refcheck_mod._load_segments(path):
+                segments.append(refcheck_mod._merge_binding(seg, bindings.get(str(seg.get("segment_id")))))
+        strict = staging_mod.project_strict(root)
+        rows = staging_mod.lint_segments(segments, lambda s: refcheck_mod._resolve_backend(s, root, None),
+                                         lexicon, strict, anchors)
+        for row in rows:
+            sid = str(row.get("segment_id"))
+            if row.get("backend") != "ref2va" or (only is not None and sid not in only):
+                continue
+            errs, warns = staging_mod.split_findings(row["findings"])
+            errors.extend(f"{sid}: {e}" for e in errs)
+            notes.extend(f"{sid}: {w}" for w in warns)
+    except Exception as exc:  # 檢查器自身出錯不擋審核頁，但要讓人看到
+        notes.append(f"refcheck／staging 執行失敗：{exc}")
+    if not notes:
+        return errors, ""
+    items = "".join(f"<li>{html.escape(n)}</li>" for n in notes)
+    panel = ('<section class="section-panel"><h2>參考包涵蓋與站位視線提醒（ref2va，只提示）</h2>'
+             '<p>來源：h3d refcheck（E50/E51）與 h3d staging（D06–D14）。逐段回到該鏡意圖判斷要不要改；'
+             '不准為了消警告刪劇情需要的人或道具。</p><ul>' + items + '</ul></section>')
+    return errors, panel
+
+
 def build_stage_5(project_dir: Path, state: Dict[str, Any],
                   only: Optional[set] = None, removed: Optional[List[str]] = None) -> Tuple[bool, List[str], str]:
     """only：PR-19a 段級重審，只列這些段（其餘已核准未變的段不顯示、不檢查）。"""
@@ -2325,13 +2398,17 @@ def build_stage_5(project_dir: Path, state: Dict[str, Any],
     errors.extend(e for e in _stage5_catalog_errors(project_dir)
                   if only is None or any(str(e).startswith(f"{sid}:") for sid in only))
 
+    # ref2va 段補跑 refcheck／staging（remix 段已在 audit 內跑過）
+    adv_errors, adv_panel = stage5_ref2va_advisory(project_dir, seg_files, only)
+    errors.extend(adv_errors)
+
     kpis = [
         ("已編譯分段數" if only is None else "待重審分段", f"{total_segs} 段", "gold"),
     ]
     for sid in removed or []:
         cards.append(f'<article class="sbs-card"><div class="sbs-header"><h3 class="sbs-title">🗑️ `{html.escape(sid)}` '
                      f'已從提示詞包刪除（核准時存在）：通過＝確認刪除</h3></div></article>')
-    body = f'<div class="side-by-side-list">{"".join(cards)}</div>'
+    body = f'<div class="side-by-side-list">{"".join(cards)}</div>' + adv_panel
     checklist = [
         "已逐段檢查右側 `<Picture 1..N>` 縮圖，確認角色服裝（如夜間便服 vs 日間制服）與該場次時空 100% 吻合",
         "已確認外掛 LoRA 合理（非人異獸或砸鐵凳未誤掛刀劍/拳腳人形 LoRA）",

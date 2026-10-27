@@ -224,6 +224,7 @@ H3 的聲音與畫面在同一次 forward 生成，輸出是**單一 32 kHz 立�
   - `scenarios-world-and-styles.md` — 情境庫 C：空鏡、自然、動物、車輛、2D anime、3D 卡通、黏土紙藝、手繪融合、動態圖形、VFX、循環、設定板、綠幕、混剪。
   - `scenarios-commercial.md` — 情境庫 B：產品 hero、開箱、液體食物、品牌片、時尚美妝、logo 片頭、UI、電商、工業、建築。
   - `camera-and-transitions.md` — 運鏡詞表、景別鏡頭角度、各類型預設鏡頭、切鏡、轉場寫成事件、手持感、運鏡動機、rack focus。
+  - `camera-moves-handbook.md` — 17 式＋Loop Forge 6 式運鏡的英文骨架、Colab 實測狀態（✅／🟡）與「場景意圖→運鏡」表；與本 repo `references/camera-moves-guide.md`／`camera_moves.py` preset 對照用（preset 是編譯器展開的定版，手冊是原始骨架與實測紀錄）。
   - `audio-and-dialogue.md`、`audio-pipeline.md` — 三層音軌、對白預算、speaker 格式；聲音一次到位、跨片段鎖音色、外部 TTS、Openverse 後製。
   - `lighting-and-color.md` — 光影配色與跨鏡頭色彩一致；腳本 `scripts/color_qa.py`。
   - `references-and-editing.md`、`long-form-planning.md` — 素材分工、遷移、影片編輯、續接；長片分段規劃。

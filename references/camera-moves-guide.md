@@ -3,6 +3,7 @@
 階段 4 導演分鏡時，每鏡先寫 `shot_intent`，再依本表選 `camera_optics.move_preset`，並在 `choice_why` 寫選用理由。
 階段 5 編譯器展開 preset；`scripts/storyboard/move_lint.py` 會對不當組合發 warning。
 驗證狀態來自 Colab 第 1–3 輪實測（work/camera-moves/results.csv）；家機 2–3 秒子鏡的可信度約降半級。
+原始英文骨架、每式風險與第 3 輪 Loop Forge 6 式見 `references/h3/camera-moves-handbook.md`（上游同步檔）；不在 preset 內的運鏡手寫 `mv` 時照那份骨架寫。
 
 ## 節奏成本
 - 一鏡一個運鏡；一段最多 1–2 個強運鏡（`strong: True` 的 preset）。
