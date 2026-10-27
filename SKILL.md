@@ -41,7 +41,7 @@ agent_created: true
 | 1 改編 | 保留分級、**事件交代完整性**（每個事件起因→經過→結果，壓縮／跳過清單交使用者決定）、依事件估總長、A/B/C 方案、段落架構（使用者要求才分集）、因果債務 | 小說直接當劇本；為秒數壓縮事件；自行砍事件交代 | `event_coverage.py`、`estimate_duration.py --events`、`h3d next` | `references/adapt/novel-to-manju.md`、`references/adapt/structure-and-pacing.md` §零 |
 | 2 設定圖 | 主角優先出圖、自檢後重生；引擎定案後全集鎖定 | 換生圖引擎不並排比對；自動核准（永遠要人看臉和服裝） | `h3d decide design_engine`、審核頁 | `references/consistency.md`、`references/styles.md` |
 | 3 劇本 | 場景化改寫、台詞預算（4 字/秒、說話 ≤ 60%）、改編差異 | 超預算照送 | `estimate_duration.py --h3`、`sync_script.py` | `references/adapt/screenplay-format.md` |
-| 4 分鏡 | **每鏡先寫 `shot_intent`（觀眾要看懂什麼）再定技術值，每項選擇在 `choice_why` 寫理由**；運鏡依 beat 情緒查 `references/camera-moves-guide.md` 選 `move_preset`（選用理由寫進分鏡表，編譯器展開、`move_lint` 警告）；一鏡一張臉、遠景不放人、焦距物距成對寫 | 沒有對應構圖 PNG 就進編譯；按警告類型批量改、為過關改核准內容（人群換空座、補 empty background）；分鏡圖換人或漏關鍵道具 | `h3d sketch`、`validate_storyboard.py` | `references/storyboard/shot-intent.md`、`references/storyboard/cinematic-director.md`；有打鬥／招式／特效另載 `h3-combat-impact`（見下節） |
+| 4 分鏡 | **每鏡先寫 `shot_intent`（觀眾要看懂什麼）再定技術值，每項選擇在 `choice_why` 寫理由**；運鏡依 beat 情緒查 `references/camera-moves-guide.md` 選 `move_preset`（選用理由寫進分鏡表，編譯器展開、`move_lint` 警告）；每段附人物賬、台詞鏡寫視線、段縫寫末態並換機位（`continuity-ledger.md`）；Ref2VA 預設一鏡一張可辨識臉（單人裁切，走角色卡 remix 時不受此限）、遠景不放人、焦距物距成對寫 | 沒有對應構圖 PNG 就進編譯；按警告類型批量改、為過關改核准內容（人群換空座、補 empty background）；分鏡圖換人或漏關鍵道具 | `h3d sketch`、`validate_storyboard.py` | `references/storyboard/shot-intent.md`、`references/storyboard/cinematic-director.md`、`references/storyboard/continuity-ledger.md`；有打鬥／招式／特效另載 `h3-combat-impact`（見下節） |
 | 5 提示詞 | **逐鏡親手寫** Layer 2 `five_part_en`（Camera／Motion／Performance／Light／Sound，Motion 與 Performance 必須詳寫；每句要對應看得到或聽得到的結果，不重寫參考圖已有的外貌，寫站位、視線、起訖姿勢、關鍵道具），讀分鏡、構圖與前一鏡狀態後再寫；編譯器只負責組成六段式 | 寫程式產生五小節；編譯後覆寫 segments；用後設詞（authored／approved）或禁止句堆疊交差；沒 ack 就放過警告 | `h3d bind`（先產參考圖綁定）、`h3d author`、`h3d compile --check`、`h3d catalog --check` | `references/prompt-authoring.md`、`references/h3/prompt-formats.md`、`references/tooling.md`；打鬥／大招段同時照 `h3-combat-impact` 寫 |
 | 6 影片 | 送件 → 收件 → QA → 動態 QA（光流量凍結／定住，自動提案變速清單）→ 交界連續性 QA（實際切點＋交界拼貼＋一側靜止候選，只警告）→ 逐段結論 → 收件匣 | 兩個 runner 同時跑；碰別人的 job；漂移片拿去 QA；用規劃秒數抽格判交界（先看 `--continuity` 找到的實際切點） | `h3d probe`、`h3d run --plan`、`h3d qa`、`h3d motion`、`h3d qa --continuity`、`h3d verdict`、`h3d inbox` | `references/tooling.md` §2.5–2.8（交界 QA 見 §2.8.1）、`references/speed-ramp.md`、`references/skill-guide.md`「階段 6 生成」 |
 | 7 配音剪輯 | 已核准的動作段後製變速（原片不動、台詞原速）、ASR 對位、畫外句壓原聲、響度、每角色音色一次定案、全集單一剪輯專案 | 長旁白交給 H3 念（短畫外句與短旁白預設留 H3，長旁白才外部化）；替使用者定音色；覆寫原片；變速台詞區 | `h3d ramp`、`h3d voice align`、`h3d concat plan/build`、`h3d assemble`；剪輯 lens（只給建議）`scripts/craft/edit_review.py` | `references/tooling.md` §2.7、`references/skill-guide.md`「階段 7」、`references/edit/manju-editing-playbook.md`（剪點／轉場／特效／字幕／登場卡／配樂 ducking／響度）、`references/craft/murch-cut`、`references/craft/hamilton-action` |
@@ -62,6 +62,8 @@ agent_created: true
 - **階段 7**：已核准的打鬥段依衝擊幀計畫做變速（`h3d ramp`，或該技能的 `impact_frame.py ramp`）或合成（`impact_frame.py composite`）；台詞區仍原速。
 - 鏡長：衝擊幀串段、打擊短鏡可以短於 h3-video-prompting 的「每鏡 ≥2 s」，以 h3-combat-impact 為準。
 
+本 repo 的配套寫法：`references/storyboard/xuanhuan-combat-contract.md`（戰鬥分支、動作成立條件、場地、衝擊三層、鏡頭速度用語、大招過程鏈）與 `references/storyboard/vfx-design-and-review.md`（特效設計卡、保臉防線、看圖驗收與返修、局部修正寫法）；兩份都是外部技能蒸餾、未經 H3 實測。
+
 這是轉介，不改本技能的門禁：`validate_storyboard.py`、`h3d compile --check`、`h3d catalog --check` 照常要過。
 
 ## 四道確定性檢查（交付的一部分）
@@ -81,4 +83,6 @@ agent_created: true
   `references/minimax-h3.md` 與 `references/h3/`（H3 細部參考，同步自上游 h3-video-prompting）、`references/prompt-playbook.md`、
   `references/craft/`（創作 lens，只給建議不改門禁）、`references/edit/`（階段 7 漫劇剪輯手冊、Concat／剪映草稿調查）。
 - 打鬥／招式／特效／衝擊幀：外部技能 `h3-combat-impact`（ayase0307/h3-combat-impact），見上方「打鬥／招式／特效段」。
+- `references/revision-and-retry.md` — 改稿必附改動清單＋聯動結論、同鏡重抽最多 2 次後回層診斷、驗收比較原則。
+- `references/storyboard/continuity-ledger.md` — 人物賬、分鏡審查清單、三種方位、站位附表、正反打、段縫末態、參考圖用途。
 - 格式：`references/schemas/`（decisions、verdicts）。給 agent 的硬規則另見 `AGENTS.md`。
