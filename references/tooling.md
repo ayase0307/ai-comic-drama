@@ -112,6 +112,7 @@ python scripts/h3d.py deps --root . --status --strict
 - E33／E34／E35：套句、後設詞（authored／approved…）、防禦性禁止句堆疊。
 - E36／E37：違背分鏡運鏡、嘴部可見的對白被寫成畫外音。
 - E38：`detailed_description` 與 `metadata.compiled_prompt_sha256` 不符＝編譯後被改寫。
+- W41–W45（只警告，D40–D46，來源 Foyege、H3 0 實測）：W41 台詞鏡視線沒寫螢幕方向（和 `h3d staging` D07 共用 `staging_lint.find_gaze`：沒有視線句只由 D07 報）、W42 `subject_definitions` 寫位置或姿態、W43 寫實畫風全身／遠景寫毛孔（定版皮膚段豁免）、W44 Performance 只有情緒詞或 AU 代碼、W45 中段鏡重列全場世界站位（`left to right` 名單不算）。
 - 處置：回 Layer 2 的 `five_part_en` 逐鏡改稿再編譯。不准改檢查器門檻、不准手改 segments 過關。規範見 `references/prompt-authoring.md`。
 
 ### (h) 鏡頭意圖（shot_intent／choice_why，I01–I06）

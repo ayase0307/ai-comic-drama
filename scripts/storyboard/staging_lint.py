@@ -219,6 +219,24 @@ def _positions_order(seg: Dict[str, Any]) -> List[str]:
     return [str(p["id"]) for p in sorted(pos, key=lambda p: p["order_lr"])]
 
 
+def find_gaze(text: str) -> Optional["re.Match[str]"]:
+    """回傳第一個視線句（看對方／看道具／turns toward…）；看鏡頭的不算、外觀介紹句（cool gaze）不算。
+
+    D07（本檔，段級「整段有沒有視線句」）與 prompt_authoring W41（鏡級「視線句有沒有寫螢幕方向」）共用這個判斷，
+    W41 只在這裡找得到視線句時才看方向，所以「完全沒有視線句」只會由 D07 報一次。"""
+    return next(iter_gaze(text), None)
+
+
+def iter_gaze(text: str) -> Iterable["re.Match[str]"]:
+    """逐一列出視線句；外觀介紹句先換成等長空白，回傳的座標對得上原文。"""
+    acting = _INTRO.sub(lambda m: " " * len(m.group(0)), text)
+    for m in GAZE.finditer(acting):
+        tail = acting[m.end():m.end() + 30]
+        if re.match(rf"\s*(?:the\s+){_CAM}\b", tail, re.I):
+            continue
+        yield m
+
+
 # ---------------------------------------------------------------------------
 # 單段
 # ---------------------------------------------------------------------------
@@ -264,14 +282,7 @@ def lint_segment(seg: Dict[str, Any], backend: str = "ref2va", prev: Optional[Di
     count = _onscreen_count(seg, body, people)
     # D07 對話段缺視線句
     if _DIALOGUE.search(body) and count >= 2:
-        hit = None
-        acting = _INTRO.sub(" ", body)  # 外觀介紹句的「cool gaze」不算視線句
-        for m in GAZE.finditer(acting):
-            tail = acting[m.end():m.end() + 30]
-            if re.match(rf"\s*(?:the\s+){_CAM}\b", tail, re.I):
-                continue
-            hit = m
-            break
+        hit = find_gaze(body)
         if hit is None:
             add("D07", "有台詞、畫面上 ≥2 個角色，整段沒有任何視線句（看對方臉／看手中道具／看畫外某物…）；"
                        "ch02 EP04 對鏡頭站著講 4 抽（measured），continuity-ledger §2 第 4 條")

@@ -21,6 +21,14 @@
   W40 空泛氣氛詞：cinematic、dramatic、tense atmosphere 這類詞在同一句沒有任何可見線索。
   W33 同段零星重複句（可能是刻意的連戲／防混臉錨）。
   W39 八成以上是固定鏡（運鏡屬階段 4 決定，只提醒）。
+
+Foyege 導演法併入（PR-F2，D40–D46；來源 Foyege、H3 0 實測，所以全部只警告不擋）：
+  W41 台詞鏡的視線句沒寫螢幕方向：有 <d> 的鏡寫了「看誰」，卻沒寫往畫面哪一側（frame left／off-screen right…）。
+      「整段完全沒有視線句」由 `h3d staging` D07 判斷；兩者共用 staging_lint.find_gaze，同一個問題只報一次。
+  W42 subject_definitions 寫了位置或姿態：映射層只管「誰是哪張圖」，站位與姿態寫在鏡頭內。
+  W43 寫實畫風的全身／遠景鏡寫毛孔、絨毛：景別裝不下這種細節（守富 9/16 定版皮膚段本身豁免，不受影響）。
+  W44 Performance 只有情緒詞或 AU 代碼：刪掉情緒詞後沒有可見線索；AU 代碼只當中文規劃用語，不進英文提示詞。
+  W45 中段鏡重列全場站位：第 2 鏡以後同一句把 ≥3 個主體各配一個世界位置（by the door、at the head of the table…）。
 """
 from __future__ import annotations
 
@@ -133,6 +141,155 @@ VISUAL_CUE = re.compile(
     re.IGNORECASE,
 )
 
+# ---------------------------------------------------------------------------
+# W41–W45（Foyege 導演法，PR-F2；全部只警告）
+# ---------------------------------------------------------------------------
+_DIALOGUE_IN_SHOT = re.compile(r"<d>|\(S\d+\)\s+(?:says|continues|asks|replies)", re.I)
+# 螢幕方向：staging_lint.SIDE_MARKER 之外，再收 off-screen left、camera left、lower-left corner 這類寫法
+SCREEN_DIRECTION_EXTRA = re.compile(
+    r"\boff[- ]?screen[- ](?:left|right)\b|\b(?:camera|lens)[- ](?:left|right)\b"
+    r"|\b(?:lower|upper|bottom|top)[- ](?:left|right)\b|\b(?:left|right)\s+(?:third|half|side)\s+of\s+(?:the\s+)?frame\b"
+    r"|\b(?:toward|towards|to)\s+(?:the\s+)?(?:left|right)\s+(?:of\s+(?:the\s+)?)?(?:frame|screen)\b", re.I)
+
+# W42：映射層（subject_definitions）裡的位置／姿態詞
+MAPPING_POSITION = re.compile(
+    r"\b(?:frame|screen)[- ](?:left|right|centre|center)\b|\b(?:on|to)\s+the\s+(?:far\s+)?(?:left|right)\b"
+    r"|\bin\s+the\s+(?:foreground|background|centre|center)\b|\b(?:left|right)\s+of\s+(?:the\s+)?frame\b"
+    r"|\bleft\s+to\s+right\b|\b(?:left|right)most\b", re.I)
+MAPPING_POSE = re.compile(
+    r"\b(?:seated|sitting|sits|kneeling|kneels|crouching|crouches|squatting|lying\s+(?:on|down|in)|"
+    r"leaning\s+(?:on|against)|standing\s+(?:at|by|on|in|near|beside|behind|before|next|with)|stands\s+\w+)\b", re.I)
+# 編譯器自己寫的固定句（不是 agent 寫的站位）
+MAPPING_BOILERPLATE = re.compile(
+    r"they stay in the background as a group|a full-body back-view reference", re.I)
+
+# W43：寫實畫風才檢查；全身／遠景鏡寫毛孔、絨毛
+REALISTIC_STYLE = re.compile(
+    r"\bphoto[- ]?realistic\b|\bphotoreal\w*\b|\blive[- ]action\b|\bsemi[- ]realistic\b|\br34l1sm\b"
+    r"|\brealistic skin\b|\bKodak Portra\b", re.I)
+WIDE_SHOT_HEAD = re.compile(
+    r"\b(?:EWS|ELS|VLS|WS|LS|FS)\b|\b(?:extreme\s+)?(?:wide|long|full)[- ]shot\b|\bfull[- ]body\s+shot\b"
+    r"|\bestablishing\s+shot\b", re.I)
+PORE_WORDS = re.compile(
+    r"\bpores?\b|\bvellus\b|\bpeach[- ]fuzz\b|\bskin\s+(?:micro-?)?texture\b|\bmicro-?texture\b"
+    r"|\bsubsurface\s+scattering\b|\bfine\s+facial\s+hair\b", re.I)
+# 守富 2026-09-16 定版皮膚段（references/h3/skin-realism-block.md）：整段照抄，不受 W43 影響
+LOCKED_SKIN_BLOCK = re.compile(
+    r"photorealistic skin with visible pores and natural micro-texture.*?(?:silver-halide grain\.?|$)", re.I | re.S)
+
+# W44：Performance 只有情緒詞或 AU 代碼
+AU_CODE = re.compile(r"\bAU\s?\d{1,2}[A-E]?\b(?:\s*\+\s*\d{1,2}[A-E]?)*")
+EMOTION_WORDS = re.compile(
+    r"\b(?:angry|anger|furious|rage|enraged|sad|sadness|sorrowful|grief(?:-stricken)?|heartbroken|devastated|"
+    r"shocked|surprised|astonished|stunned|scared|afraid|frightened|terrified|fearful|nervous|anxious|worried|"
+    r"happy|joyful|delighted|excited|upset|hurt|jealous|desperate|hopeless|determined|confident|ashamed|guilty|"
+    r"embarrassed|disgusted|contemptuous|resentful|emotional|sorrow|despair|panicked|relieved)\b", re.I)
+PERFORMANCE_CUE = re.compile(
+    r"\b(?:eyes?|eyelids?|lids?|lashes|brows?|eyebrows?|forehead|gaze|glance\w*|blinks?|blinking|stares?|"
+    r"mouth|lips?|jaw|chin|cheeks?|nostrils?|nose|throat|swallow\w*|teeth|tongue|neck|shoulders?|chest|breath\w*|"
+    r"exhale\w*|inhale\w*|sigh\w*|hands?|fingers?|knuckles?|fists?|palms?|wrists?|arms?|head|spine|back|knees?|"
+    r"feet|foot|steps?|voice|tears?|nods?|tremb\w*|shak\w*|clench\w*|press\w*|tighten\w*|lowers?|lifts?|raises?)\b",
+    re.I)
+
+# W45：中段鏡重列全場站位（世界位置錨點；畫面左右屬 h3d staging D08 的範圍，這裡不算）
+WORLD_POSITION = re.compile(
+    r"\b(?:at|by|near|beside|behind|against|next\s+to|in\s+front\s+of|across\s+from|opposite)\s+the\s+"
+    r"(?:(?:head|foot|end|edge|corner|far\s+end)\s+of\s+the\s+)?[a-z][\w-]*", re.I)
+SUBJECT_TOKEN = re.compile(r"<(?:Subject|Video)\s*\d+>", re.I)
+
+
+def _staging():
+    """延遲匯入 staging_lint（D07 的視線判斷與 SIDE_MARKER），避免循環匯入。"""
+    try:
+        import staging_lint  # type: ignore
+    except ImportError:  # pragma: no cover - 套件匯入路徑
+        from . import staging_lint  # type: ignore
+    return staging_lint
+
+
+def subject_definitions_block(prompt: str) -> str:
+    m = re.search(r"subject_definitions:(.*?)(?:\n\s*\n[a-z_]+:|\Z)", prompt, re.S | re.I)
+    return m.group(1) if m else ""
+
+
+def audit_mapping_layer(prompt: str) -> List[str]:
+    """W42：subject_definitions 只寫「<Subject N> 是 <Picture N> 裡的誰」，不寫位置或姿態。"""
+    out: List[str] = []
+    for line in subject_definitions_block(prompt).splitlines():
+        if not re.search(r"<Subject\s*\d+>", line):
+            continue
+        text = MAPPING_BOILERPLATE.sub(" ", line)
+        m = MAPPING_POSITION.search(text) or MAPPING_POSE.search(text)
+        if m:
+            tag = re.search(r"<Subject\s*\d+>", line).group(0)
+            out.append(f"[W42: 映射層寫了位置或姿態] subject_definitions 的 {tag} 出現「{m.group(0)}」；"
+                       "這一層只寫身份對應（誰是哪張圖），站位、坐站姿態寫進各鏡的 Motion／Camera，"
+                       "否則換機位後模型會照映射層硬套（來源 Foyege 三層空間協議，H3 0 實測）。")
+    return out
+
+
+def _foyege_shot_warnings(idx: int, head: str, shot: str, parts: Dict[str, str], realistic: bool) -> List[str]:
+    """W41、W43、W44、W45：單鏡的 Foyege 警告。"""
+    out: List[str] = []
+    tag = f"[Shot {idx}]"
+    st = _staging()
+
+    # W41 台詞鏡：有視線句但沒寫螢幕方向（沒有視線句＝D07 的範圍，這裡不報）
+    if _DIALOGUE_IN_SHOT.search(shot):
+        acting = re.sub(r"<d>.*?</d>", lambda m: " " * len(m.group(0)), shot, flags=re.S)
+        gazes = list(st.iter_gaze(acting))
+        gaze = gazes[0] if gazes else None
+
+        def _directed(m: "re.Match[str]") -> bool:
+            # 視線所在的那一句（或該鏡 Camera 節的朝向句）要有螢幕方向；別句的 sun from frame right 不算
+            start = max(acting.rfind(".", 0, m.start()), acting.rfind(";", 0, m.start())) + 1
+            ends = [i for i in (acting.find(".", m.end()), acting.find(";", m.end())) if i != -1]
+            sent = acting[start:min(ends) if ends else len(acting)]
+            return bool(st.SIDE_MARKER.search(sent) or SCREEN_DIRECTION_EXTRA.search(sent))
+
+        camera_dir = parts.get("Camera", "")
+        camera_ok = bool(re.search(r"\b(?:fac\w*|look\w*|eyes?|gaze)\b", camera_dir, re.I)
+                         and (st.SIDE_MARKER.search(camera_dir) or SCREEN_DIRECTION_EXTRA.search(camera_dir)))
+        if gaze is not None and not camera_ok and not any(_directed(m) for m in gazes):
+            out.append(f"[W41: 台詞鏡視線沒寫螢幕方向] {tag} 寫了「{gaze.group(0).strip()}」，卻沒寫視線往畫面哪一側"
+                       "（toward frame left／off-screen right）；正反打兩人要一左一右，過肩前景寫在哪個角"
+                       "（her shoulder in the lower-left corner）。整段沒有視線句由 h3d staging D07 報（來源 Foyege，H3 0 實測）。")
+
+    # W43 寫實畫風的全身／遠景鏡寫毛孔
+    if realistic and WIDE_SHOT_HEAD.search(head):
+        body = LOCKED_SKIN_BLOCK.sub(" ", shot[len(head):] if shot.startswith(head) else shot)
+        m = PORE_WORDS.search(body)
+        if m:
+            out.append(f"[W43: 遠景寫膚質] {tag} 是全身／遠景，卻寫了「{m.group(0)}」；這個景別看不到毛孔絨毛，"
+                       "字數留給姿態與動作。定版皮膚段不受影響（來源 Foyege 景別決定膚質字數，H3 0 實測）。")
+
+    # W44 Performance 只有情緒詞或 AU 代碼
+    perf = parts.get("Performance", "")
+    if perf:
+        au = AU_CODE.search(perf)
+        if au:
+            out.append(f"[W44: Performance 寫了 AU 代碼] {tag} 出現「{au.group(0)}」；AU 只當階段 4 中文規劃用語，"
+                       "英文提示詞寫成自然語言（brows pull together and down），T1 實測前不寫代碼"
+                       "（acting-and-emotion-library §0；來源 Foyege，H3 0 實測）。")
+        else:
+            emo = EMOTION_WORDS.search(perf)
+            if emo and not PERFORMANCE_CUE.search(perf):
+                out.append(f"[W44: Performance 只有情緒詞] {tag} 只寫「{emo.group(0)}」這類情緒詞，沒有眼、嘴、呼吸、手等可見線索；"
+                           "刪掉情緒詞後要還看得出觸發、壓住或放出、程度（acting-and-emotion-library §0）。")
+
+    # W45 中段鏡重列全場站位
+    if idx >= 2 and not WIDE_SHOT_HEAD.search(head):
+        for sent in _sentences(shot[len(head):] if shot.startswith(head) else shot):
+            subjects = {t.replace(" ", "").lower() for t in SUBJECT_TOKEN.findall(sent)}
+            anchors = WORLD_POSITION.findall(sent)
+            if len(subjects) >= 3 and len(anchors) >= 3:
+                out.append(f"[W45: 中段鏡重列全場站位] {tag} 同一句把 {len(subjects)} 個主體各配了世界位置；"
+                           "全場站位在首鏡或站位附表交代一次，後面的鏡只寫這一鏡的變化（誰動了、往哪裡），"
+                           "畫面左右順序照 h3d staging D08 寫 left to right 即可（來源 Foyege，H3 0 實測）。")
+                break
+    return out
+
+
 SHOT_SPLIT = re.compile(r"(\[Shot\s+\d+\])", re.I)
 PART_LABEL = re.compile(r"\b(Camera|Motion|Performance|Light|Sound):", re.I)
 
@@ -231,6 +388,8 @@ def audit_segment(prompt: str, authored_shots: Optional[Sequence[Dict[str, Any]]
     aligned = len(authored) == len(shots)
     seen_in_segment: Dict[str, List[int]] = defaultdict(list)
     static_flags: List[bool] = []
+    warnings.extend(audit_mapping_layer(prompt))
+    realistic = bool(REALISTIC_STYLE.search(prompt))
 
     for idx, shot in enumerate(shots, start=1):
         a = authored[idx - 1] if aligned else None
@@ -278,6 +437,8 @@ def audit_segment(prompt: str, authored_shots: Optional[Sequence[Dict[str, Any]]
                 warnings.append(f"[W40: 空泛氣氛詞] {tag} 「{mw.group(0)}」所在的句子沒有任何可見線索；"
                                 "改寫成模型畫得出來的東西（光從哪來、誰的手在做什麼），或刪掉。")
                 break
+
+        warnings.extend(_foyege_shot_warnings(idx, head, shot, parts, realistic))
 
         sents = [s for s in _sentences(shot) if not _is_boilerplate(s)]
         prohib = [s for s in sents if PROHIBITIVE.search(s) and CONTROL_WORDS.search(s)]

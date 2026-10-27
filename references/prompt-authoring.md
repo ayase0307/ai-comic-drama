@@ -53,6 +53,7 @@
 | **E40** 抹背景 | `the background is empty`、`blank/plain background`、`empty backdrop`：為了消「背景未鎖」把背景整個抹掉。 | 照綁定的場景圖寫出看得到的東西（vine-wrapped pillars behind her）；只是不要路人就寫 `no one else behind her`。 |
 
 警告（不擋，但要看）：W40 沒有視覺線索的氣氛詞（cinematic、dramatic、tense atmosphere…，同句沒有光、手、眼、動作等具體線索）；W30 舊產物沒有編譯指紋；W33 零星重複句；W39 八成以上是固定鏡（運鏡是階段 4 的決定，確認是刻意的）。
+Foyege 導演法的警告（D40–D46，來源 Foyege、H3 0 實測，**只警告不擋**）：W41 台詞鏡有視線句卻沒寫螢幕方向（整段完全沒有視線句由 `h3d staging` D07 報，不重複）；W42 `subject_definitions` 寫了位置或姿態；W43 寫實畫風的全身／遠景鏡另外寫毛孔、絨毛（定版皮膚段豁免）；W44 Performance 只有情緒詞、或出現 AU 代碼；W45 第 2 鏡以後同一句把 ≥3 個主體各配一個世界位置。
 
 ## 動作鏡怎麼寫才不慢（打擊、追逐、被炸飛）
 
@@ -102,6 +103,14 @@ Motion: First he walks backward two steps along the rim, then he turns his torso
 ## 嚴謹度：每句都要對生成有幫助
 
 寫每一句前問：刪掉這句，影片會不一樣嗎？不會就刪。要寫的是站位（frame left third）、視線、起始與**結束姿勢**、關鍵道具英文名與位置、場景圖裡看得到的背景；不要寫參考圖已有的髮型服裝、沒有線索的氣氛詞。一鏡只放一個主要動作，塞不下回階段 4 拆鏡。每鏡的寫法從 `shot_intent` 推（`references/storyboard/shot-intent.md` §三）。
+
+**每種資訊只寫在一層**（2026-10 Foyege 併入，D41；來源 Foyege，H3 0 實測）：
+- 先依鏡頭分，再在鏡頭內切子時間碼：一段先切成 `[Shot N]`，表演要更細的時間點就寫在該鏡五小節裡（`at about 0.8 s`、`on the word "你"`），不另開一套跨鏡的時間軸（`h3/shot-five-part.md` 的 shot 結構本來就是這樣）。
+- `subject_definitions` 只寫「<Subject N> 是 <Picture N> 裡的誰」，不寫 frame left、in the foreground、seated、standing by the door（W42）。站位、坐站姿態寫在那個人真正入鏡的 `[Shot N]`。
+- 全場站位在第 1 鏡（或站位附表）交代一次；第 2 鏡起只寫這一鏡的變化（誰動了、往哪裡），不再把三個以上的人各配一個世界位置重列一遍（W45）。畫面左右順序照 `h3d staging` D08 寫 `left to right: A, B, C` 一句即可。
+- 外貌、皮膚不重寫：參考圖已有的不寫（見上）。守富 2026-09-16 定版皮膚段照舊整段照抄（`h3/skin-realism-block.md`）；景別小的鏡不要**另外**加毛孔、絨毛（W43）。
+- Performance 寫看得到的線索，不寫情緒清單、不寫 AU 代碼（W44；AU 只當中文規劃用語，見 `storyboard/acting-and-emotion-library.md` §0.1）。
+- 台詞鏡的視線要寫螢幕方向（W41；`storyboard/continuity-ledger.md` §5）。
 
 ## 處理警告
 

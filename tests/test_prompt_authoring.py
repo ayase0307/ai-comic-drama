@@ -139,5 +139,113 @@ class BackgroundAndMoodTests(unittest.TestCase):
         warns = " ".join(pa.audit_segment(prompt(f"{HEAD2} {bad}"))["warnings"])
         self.assertIn("W40", warns)
 
+
+class FoyegeWarningTests(unittest.TestCase):
+    """PR-F2：Foyege 導演法的 W41–W45（來源 Foyege、H3 0 實測，全部只警告不擋）。"""
+
+    DIALOGUE = " <Subject 1> (S1) says: <d>[Chinese] 你昨晚去哪了？</d>."
+
+    def _warns(self, text):
+        res = pa.audit_segment(text)
+        return res, " ".join(res["warnings"])
+
+    def test_w41_gaze_with_screen_direction_passes(self):
+        body = GOOD1.replace("Performance: His brows", "Performance: He looks at her off-screen left; his brows") + self.DIALOGUE
+        res, warns = self._warns(prompt(f"{HEAD1} {body}"))
+        self.assertTrue(res["passed"], res["errors"])
+        self.assertNotIn("W41", warns)
+
+    def test_w41_gaze_without_direction_warns_only(self):
+        body = GOOD1.replace("Performance: His brows", "Performance: He looks at her; his brows") + self.DIALOGUE
+        res, warns = self._warns(prompt(f"{HEAD1} {body}"))
+        self.assertIn("W41", warns)
+        self.assertFalse(any("W41" in e for e in res["errors"]))
+
+    def test_w41_no_gaze_is_left_to_d07(self):
+        # 完全沒有視線句：那是 h3d staging D07 的範圍，W41 不重複報
+        body = GOOD1 + self.DIALOGUE
+        _, warns = self._warns(prompt(f"{HEAD1} {body}"))
+        self.assertNotIn("W41", warns)
+
+    def test_w41_light_side_does_not_count_as_gaze_direction(self):
+        # GOOD1 的 Light 有 frame right（陽光方向），不能拿來當視線方向
+        body = GOOD1.replace("Performance: His brows", "Performance: He looks at her; his brows") + self.DIALOGUE
+        self.assertIn("frame right", body)
+        _, warns = self._warns(prompt(f"{HEAD1} {body}"))
+        self.assertIn("W41", warns)
+
+    def test_d07_and_w41_share_gaze_detection(self):
+        import staging_lint
+        self.assertIsNotNone(staging_lint.find_gaze("He looks at her across the table."))
+        self.assertIsNone(staging_lint.find_gaze("He looks at the camera."))
+
+    def test_w42_clean_mapping_passes(self):
+        text = prompt(f"{HEAD1} {GOOD1}").replace(
+            "subject_definitions:\nx", "subject_definitions:\n<Subject 1> is the character in <Picture 2> (Lin; reference image 2), a lean young guide.")
+        self.assertNotIn("W42", self._warns(text)[1])
+
+    def test_w42_position_or_pose_in_mapping_warns(self):
+        for extra in ("standing at frame left by the door", "seated at the table", "in the foreground"):
+            text = prompt(f"{HEAD1} {GOOD1}").replace(
+                "subject_definitions:\nx", f"subject_definitions:\n<Subject 1> is the character in <Picture 2> (Lin), {extra}.")
+            res, warns = self._warns(text)
+            self.assertIn("W42", warns, extra)
+            self.assertTrue(res["passed"], res["errors"])
+
+    def test_w42_compiler_extras_line_is_exempt(self):
+        text = prompt(f"{HEAD1} {GOOD1}").replace(
+            "subject_definitions:\nx", "subject_definitions:\n<Subject 2> is the group of background extras in <Picture 3> "
+            "(villagers; a crowd group reference), farmers; they stay in the background as a group.")
+        self.assertNotIn("W42", self._warns(text)[1])
+
+    WIDE = "[Shot 1] The scene opens with <Picture 1> as a scene/style reference for spatial guidance: WS (24mm, 8m) of <Subject 1>, as the camera trucks left."
+
+    def test_w43_pores_in_wide_realistic_shot_warns(self):
+        body = GOOD1.replace("Performance: His brows", "Performance: Visible pores on his cheeks; his brows")
+        res, warns = self._warns(prompt(f"Photorealistic live-action film. {self.WIDE} {body}"))
+        self.assertIn("W43", warns)
+        self.assertTrue(res["passed"], res["errors"])
+
+    def test_w43_close_up_and_locked_skin_block_pass(self):
+        body = GOOD1.replace("Performance: His brows", "Performance: Visible pores on his cheeks; his brows")
+        # 近景寫毛孔：不報
+        self.assertNotIn("W43", self._warns(prompt(f"Photorealistic live-action film. {HEAD1} {body}"))[1])
+        # 遠景但只有守富定版皮膚段：不報
+        locked = ("photorealistic skin with visible pores and natural micro-texture; fine peach-fuzz vellus hairs along the cheek edge. "
+                  "Shot on 35mm Kodak Portra 400 film, fine silver-halide grain.")
+        self.assertNotIn("W43", self._warns(prompt(f"{self.WIDE} {GOOD1.replace('Sound:', locked + ' Sound:')}"))[1])
+        # 非寫實畫風：不報
+        self.assertNotIn("W43", self._warns(prompt(f"{self.WIDE} {body}"))[1])
+
+    def test_w44_emotion_only_and_au_codes_warn(self):
+        emo = GOOD2.replace("Performance: His eyes widen and dart twice; the breath stops in his throat and his mouth hangs half open.",
+                            "Performance: He is shocked, scared and deeply upset, overwhelmed and sad.")
+        res, warns = self._warns(prompt(f"{HEAD2} {emo}"))
+        self.assertIn("W44", warns)
+        self.assertFalse(any("W44" in e for e in res["errors"]))
+        au = GOOD2.replace("Performance: His eyes widen", "Performance: AU1+2 then AU25; his eyes widen")
+        self.assertIn("W44", self._warns(prompt(f"{HEAD2} {au}"))[1])
+
+    def test_w44_visible_cues_pass(self):
+        ok = GOOD2.replace("Performance: His eyes widen", "Performance: Shocked, his eyes widen")
+        self.assertNotIn("W44", self._warns(prompt(f"{HEAD2} {ok}"))[1])
+
+    def test_w45_mid_shot_relisting_world_positions_warns(self):
+        relist = GOOD2.replace("Light: Sun glare",
+                               "Light: <Subject 1> stays by the door, <Subject 2> sits at the head of the table and "
+                               "<Subject 3> waits beside the window. Sun glare")
+        res, warns = self._warns(prompt(f"{HEAD1} {GOOD1}", f"{HEAD2} {relist}"))
+        self.assertIn("W45", warns)
+        self.assertTrue(res["passed"], res["errors"])
+
+    def test_w45_first_shot_and_left_to_right_pass(self):
+        relist = GOOD1.replace("Light: The noon", "Light: <Subject 1> stays by the door, <Subject 2> sits at the head of the table and "
+                               "<Subject 3> waits beside the window. The noon")
+        self.assertNotIn("W45", self._warns(prompt(f"{HEAD1} {relist}"))[1])
+        # D08 要的 left to right 名單不是世界站位，不報
+        ltr = GOOD2.replace("Light: Sun glare", "Light: Left to right: <Subject 1>, <Subject 2>, <Subject 3>. Sun glare")
+        self.assertNotIn("W45", self._warns(prompt(f"{HEAD1} {GOOD1}", f"{HEAD2} {ltr}"))[1])
+
+
 if __name__ == "__main__":
     unittest.main()
