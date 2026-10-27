@@ -14,7 +14,7 @@ import sys
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
@@ -111,7 +111,7 @@ class InitProjectTests(unittest.TestCase):
                     self.assertNotIn("Traceback", res.stderr)
 
     def test_cd_command_is_platform_aware(self):
-        root = Path("/tmp/a b/it's")
+        root = PurePosixPath("/tmp/a b/it's")
         self.assertEqual(init_project.cd_command(root, "linux"), "cd '/tmp/a b/it'\\''s'")
         self.assertTrue(init_project.cd_command(root, "win32").startswith("Set-Location -LiteralPath"))
 
