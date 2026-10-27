@@ -301,6 +301,30 @@ def _auto_step(res: Dict[str, Any], root: Path, stage: int) -> Optional[Dict[str
     return res
 
 
+def _stage5_partial_step(res: Dict[str, Any], root: Path, review: Dict[str, Any]) -> Dict[str, Any]:
+    """PR-19a：階段 5 只有部分段在核准後變了。沒變的段可送件；變了的段要人工重審（不自動核准）。"""
+    pending = review["pending"]
+    ids = ",".join(pending)
+    res["status"] = "segments_pending_review"
+    res["segments_pending_review"] = pending
+    res["segments_approved"] = review["approved"]
+    res["blocked_on"].append(review["reason"])
+    if review.get("removed"):
+        res["notes"].append("已刪除的段也要重審確認刪除：" + "、".join(review["removed"]))
+    res["action"] = ("只重審改過的段：跑下面指令產生只列這些段的重審頁（不改其他段的核准），交給使用者並停下。"
+                     "使用者明確回覆「通過」後才執行 "
+                     f"{H3D} approve --stage 5 --segments {ids} --user-note \"<使用者原話>\" --root .；"
+                     "改過的段一律人工重審，不得用 --auto。")
+    res["next_command"] = f"{REVIEW} --project-dir . --stage 5 --segments {ids}"
+    if review["approved"]:
+        segs = _segment_files(root)
+        seg_arg = f" --segments {_rel(root, segs[0])}" if segs else ""
+        shown = " ".join(review["approved"][:20])
+        res["notes"].append(f"已核准且未變的 {len(review['approved'])} 段現在就能送件（送件閘門自動跳過待重審段）："
+                            f"{H3D} submit{seg_arg} --segment-id {shown} --root-dir .")
+    return res
+
+
 def plan(root: Path) -> Dict[str, Any]:
     root = Path(root).expanduser().resolve()
     if not ps.state_path(root).is_file():
@@ -381,6 +405,10 @@ def plan(root: Path) -> Dict[str, Any]:
         except Exception:
             pass
 
+    if status == "approved" and stage == 5:
+        review = ps.stage5_segment_review(root)
+        if review["mode"] == "partial":
+            return _stage5_partial_step(res, root, review)
     if status == "approved":
         res["status"] = "approval_invalid"
         res["blocked_on"].append(f"核准已失效：{first_failure}")

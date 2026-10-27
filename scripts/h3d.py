@@ -42,7 +42,7 @@ COMMANDS: Dict[str, str] = {
     "decide": "把使用者定案寫進 decisions.json（必附 --quote 使用者原話）",
     "verdict": "階段 6 逐段目視結論寫進 review/verdicts.json；--summary 依驗收政策分類；import 轉舊格式",
     "inbox": "決策收件匣 review/inbox.html：只列需要使用者決定的事（手機優先、內嵌縮圖）",
-    "approve": "--auto：沒有未決卡且符合 decisions 政策時自動核准並記錄依據",
+    "approve": "--auto：沒有未決卡且符合 decisions 政策時自動核准並記錄依據；--stage 5 --segments X,Y：人工重審改過的段",
     "doctor": "本機環境自檢（GPU／ffmpeg／服務 port／-vsync）",
     "sketch": "免生圖 SVG 構圖分鏡總覽圖（階段 4 構圖來源，回寫 sketch_file 供審核門禁）",
     "crop": "依比例／格位裁設定板頭像（輸出 tmp/crops，不進 images/）",

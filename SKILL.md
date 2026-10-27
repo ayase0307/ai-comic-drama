@@ -47,6 +47,7 @@ agent_created: true
 | 7 配音剪輯 | 已核准的動作段後製變速（原片不動、台詞原速）、ASR 對位、畫外句壓原聲、響度、每角色音色一次定案、全集單一剪輯專案 | 長旁白交給 H3 念（短畫外句與短旁白預設留 H3，長旁白才外部化）；替使用者定音色；覆寫原片；變速台詞區 | `h3d ramp`、`h3d voice align`、`h3d concat plan/build`、`h3d assemble`；剪輯 lens（只給建議）`scripts/craft/edit_review.py` | `references/tooling.md` §2.7、`references/skill-guide.md`「階段 7」、`references/edit/manju-editing-playbook.md`（剪點／轉場／特效／字幕／登場卡／配樂 ducking／響度）、`references/craft/murch-cut`、`references/craft/hamilton-action` |
 
 **正式階段核准以 `review/project-state.json` 為準**，只能走 `build_stage_review.py --approve-stage`（使用者原話）或 `h3d approve --auto`（使用者授權過的階段）。
+**階段 5 段級核准**：階段 5 核准會記每段指紋。核准後只改了部分段 → 只有改過的段（含新增／刪除的段）待重審，沒改的段保持核准、照樣可送件（`h3d submit`／`h3d run` 自動跳過或拒送待重審段）；改過的段一律人工重審：`build_stage_review.py --project-dir . --stage 5 --segments X,Y` 產重審頁 → 使用者通過後 `h3d approve --stage 5 --segments X,Y --user-note "<使用者原話>"`，**不得用 `--auto`**。已有影片的段被改會出現在 `h3d deps --status` 的 stale（`prompt_stale`）。舊快照或共用部分（分段檔外殼、未綁段的 ack、前置階段）變了仍要整份重審。詳見 `references/tooling.md` §2.6。
 純文字草稿可按指定範圍交付，不必推進到媒體生成：用 `h3d decide delivery_scope script-only|storyboard-only|prompts-only|full --quote "<使用者原話>"` 定案交付終點（沒定案＝全流程），`h3d next` 到終點就回報 done；`no_image` 時階段 2 只要求文字設定卡。注意：`no_image` 只解除階段 2，階段 4 以後仍要求構圖圖，終點要在階段 3 以前或另行決定。八階段的產出與 HTML 審核頁對照見 `references/skill-guide.md`「八階段流程與 HTML 斷點」，
 詳細模板見 `references/pipeline.md`。各階段的 HTML 審核頁現在是除錯頁（綁審核快照用）；交給使用者的是 `h3d inbox` 收件匣，規格見 `references/review-page-spec.md`。
 

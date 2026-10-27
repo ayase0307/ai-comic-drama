@@ -2150,7 +2150,9 @@ def build_stage_4(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
     return len(errors) == 0, errors, html_out
 
 
-def build_stage_5(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[str], str]:
+def build_stage_5(project_dir: Path, state: Dict[str, Any],
+                  only: Optional[set] = None, removed: Optional[List[str]] = None) -> Tuple[bool, List[str], str]:
+    """only：PR-19a 段級重審，只列這些段（其餘已核准未變的段不顯示、不檢查）。"""
     errors: List[str] = []
     seg_files = sorted(project_dir.glob("segments-ep*.json"))
     if not seg_files:
@@ -2164,6 +2166,8 @@ def build_stage_5(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
         data = json.loads(sf.read_text(encoding="utf-8"))
         segs = data if isinstance(data, list) else data.get("segments", [data])
         for seg in segs:
+            if only is not None and str(seg.get("segment_id")) not in only:
+                continue
             total_segs += 1
             sid = seg.get("segment_id", f"seg-{total_segs}")
             dur = float(seg.get("metadata", {}).get("target_duration_sec", 7.0))
@@ -2221,11 +2225,15 @@ def build_stage_5(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
     # 逐鏡撰寫審查（防偷懶）：最終送件文字要逐鏡親手寫，套模板／後設詞／禁止句堆疊直接擋核准
     from prompt_authoring import audit_files as _author_audit  # noqa: E402
     author_res = _author_audit(seg_files)
-    errors.extend(f"撰寫審查 {e}" for e in author_res["errors"])
+    errors.extend(f"撰寫審查 {e}" for e in author_res["errors"]
+                  if only is None or any(str(sid) in str(e) for sid in only))
 
     kpis = [
-        ("已編譯分段數", f"{total_segs} 段", "gold"),
+        ("已編譯分段數" if only is None else "待重審分段", f"{total_segs} 段", "gold"),
     ]
+    for sid in removed or []:
+        cards.append(f'<article class="sbs-card"><div class="sbs-header"><h3 class="sbs-title">🗑️ `{html.escape(sid)}` '
+                     f'已從提示詞包刪除（核准時存在）：通過＝確認刪除</h3></div></article>')
     body = f'<div class="side-by-side-list">{"".join(cards)}</div>'
     checklist = [
         "已逐段檢查右側 `<Picture 1..N>` 縮圖，確認角色服裝（如夜間便服 vs 日間制服）與該場次時空 100% 吻合",
@@ -2673,6 +2681,53 @@ def run_self_test() -> bool:
     return True
 
 
+REREVIEW_FILE = "stage-5-prompts-rereview.html"
+
+
+def _build_stage5_rereview(project_dir: Path, state: Dict[str, Any], raw_ids: str, self_contained: bool) -> int:
+    """PR-19a：只列核准後改過的段；通過後用 h3d approve --stage 5 --segments 人工核准。"""
+    import copy
+    from project_state import record_segment_review, stage5_segment_review
+    review = stage5_segment_review(project_dir)
+    if review["mode"] != "partial":
+        print(f"❌ 無法段級重審（{review['mode']}）：{review['reason'] or '沒有待重審的段'}。"
+              "整份重審請用 --stage 5（不帶 --segments）。", file=sys.stderr)
+        return 2
+    pending = set(review["pending"])
+    wanted = sorted(pending) if raw_ids.strip().lower() == "all" else sorted(
+        {x.strip() for x in raw_ids.replace("，", ",").split(",") if x.strip()})
+    outside = [x for x in wanted if x not in pending]
+    if not wanted or outside:
+        print(f"❌ 這些段不在待重審清單：{'、'.join(outside) or '（未指定）'}；待重審：{'、'.join(sorted(pending))}",
+              file=sys.stderr)
+        return 2
+    view_state = copy.deepcopy(state)
+    view_state["stages"][stage_key(5)]["status"] = "awaiting_user_approval"
+    removed = [x for x in wanted if x in set(review["removed"])]
+    passed, errors, html_content = build_stage_5(project_dir, view_state, only=set(wanted), removed=removed)
+    banner = (f'<div class="issues-box"><strong>段級重審</strong>：只列核准後改過的 {len(wanted)} 段'
+              f'（{html.escape("、".join(wanted))}）。其餘 {len(review["approved"])} 段維持原核准、不在此頁。</div>')
+    review_dir = project_dir / "review"
+    review_dir.mkdir(parents=True, exist_ok=True)
+    out_html = review_dir / REREVIEW_FILE
+    if html_content:
+        html_content = html_content.replace("<!--ISSUES-->", banner + render_issues(errors if not passed else []))
+        if self_contained:
+            html_content, _embedded = inline_local_images(html_content, review_dir)
+        out_html.write_text(html_content, encoding="utf-8")
+        print(f"🎨 已產出段級重審頁: {out_html}")
+    if not passed:
+        print(f"❌ 待重審段的檢查未通過（{len(errors)} 項）：", file=sys.stderr)
+        for e in errors:
+            print(f"  - {e}", file=sys.stderr)
+        return 1
+    record_segment_review(project_dir, wanted)
+    print("🛑 段級重審快照已綁定（其他段的核准不受影響）。交給使用者後【停下】。")
+    print(f"👉 使用者明確回覆「通過」後：python scripts/h3d.py approve --stage 5 --segments {','.join(wanted)} "
+          '--user-note "<使用者原話>" --root .（改過的段一律人工重審，不得 --auto）')
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="八階段強制斷點狀態機與高設計感 HTML 視覺化審核介面產生器")
     parser.add_argument("--project-dir", type=Path, help="專案根目錄")
@@ -2682,6 +2737,8 @@ def main() -> int:
     parser.add_argument("--override", action="store_true",
                         help="僅階段 6：技術 QA 為 PARTIAL 時，使用者看過影片仍核准；必須搭配 --reason")
     parser.add_argument("--reason", type=str, default=None, help="搭配 --override：使用者的覆寫理由（寫進 project-state）")
+    parser.add_argument("--segments", type=str, default=None,
+                        help="僅搭配 --stage 5：段級重審頁，只列核准後改過的段（逗號分隔或 all）；不改其他段的核准")
     parser.add_argument("--require-approved", type=int, choices=range(8), help="供下游腳本檢查指定前置階段是否已 approved")
     parser.add_argument("--force-unlock-prev", action="store_true", help="相容舊 CLI；不會授予核准，使用時明確拒絕並要求逐階段重審")
     parser.add_argument("--self-test", action="store_true", help="執行內建自檢")
@@ -2771,6 +2828,12 @@ def main() -> int:
         if s_idx + 1 in STAGE_META:
             print(f"🔓 已解鎖下一階段：「{STAGE_META[s_idx + 1]['name']}」。")
         return 0
+
+    # 2b. PR-19a：階段 5 段級重審頁（不動狀態、不讓其他段失去核准）
+    if args.segments is not None:
+        if args.stage != 5:
+            parser.error("--segments 只能搭配 --stage 5")
+        return _build_stage5_rereview(project_dir, state, args.segments, args.self_contained)
 
     # 3. 建構指定階段之 HTML 審核頁面
     if args.stage is not None:

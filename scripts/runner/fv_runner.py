@@ -222,6 +222,31 @@ class Runner:
             todo.append((item, files[name][item["segment_id"]]))
         return todo
 
+    def stage5_pending(self, todo: List[Tuple[Dict[str, Any], Dict[str, Any]]]) -> List[str]:
+        """PR-19a：stage-5 段級核准是 partial 時，列出計畫裡待重審的段（其他情況不擋，維持舊行為）。"""
+        try:
+            import project_state as ps
+        except ImportError:  # pragma: no cover
+            return []
+        if not ps.state_path(self.root).is_file():
+            return []
+        try:
+            review = ps.stage5_segment_review(self.root)
+        except Exception:  # pragma: no cover - 狀態檔壞掉時由其他門禁回報
+            return []
+        if review.get("mode") != "partial":
+            return []
+        out: List[str] = []
+        cache: Dict[str, set] = {}
+        for item, seg in todo:
+            name = item.get("segments") or "segments-ep01.json"
+            if name not in cache:
+                allowed, _pending, _why = ps.stage5_submittable_ids(self.root, self.root / name)
+                cache[name] = allowed or set()
+            if seg["segment_id"] not in cache[name]:
+                out.append(item["key"])
+        return out
+
     def wait_queue(self, rec: Dict[str, Any]) -> bool:
         q = self.api.queue()
         start = time.monotonic()
@@ -269,6 +294,13 @@ class Runner:
         prog.save()
         todo = self.load_segments()
         segs = [s for _, s in todo]
+        pending = self.stage5_pending(todo)
+        if pending:
+            prog.data["stage5_pending_review"] = pending
+            self.state("stage5_pending_review")
+            self.log("STAGE5 這些段核准後改過、待人工重審，不送件：" + "、".join(pending)
+                     + "（用 --only 只跑已核准的段，或重審：h3d approve --stage 5 --segments ...）")
+            return RC_AUDIT
         if not self.skip_audit:
             ok, errs = self.S.audit_segment_prompts(segs, root_dir=self.root)
             if not ok:

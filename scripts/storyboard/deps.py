@@ -245,7 +245,60 @@ def record(root: Path, ledger_path: Optional[Path] = None) -> Path:
     return ledger_path
 
 
+def stage5_review_stale(root: Path) -> List[Dict[str, Any]]:
+    """PR-19a：stage-5 段級核准後被改、且已有影片的段 → prompt_stale（＋stage5_pending_review）。
+
+    不需要先 --record：核准快照本身就是「影片是照哪一版提示詞產的」的基準。
+    """
+    root = Path(root)
+    scripts_dir = Path(__file__).resolve().parents[1]
+    if str(scripts_dir) not in sys.path:
+        sys.path.insert(0, str(scripts_dir))
+    try:
+        import project_state as ps
+        if not ps.state_path(root).is_file():
+            return []
+        review = ps.stage5_segment_review(root)
+    except Exception:
+        return []
+    if review.get("mode") != "partial":
+        return []
+    out = []
+    for sid in review.get("changed", []) + review.get("removed", []):
+        video = root / "videos" / f"{sid}.mp4"
+        if video.is_file():
+            out.append({"segment_id": sid, "reasons": ["prompt_stale", "stage5_pending_review"]})
+    return out
+
+
+def _merge_stage5(report: Dict[str, Any], root: Path) -> Dict[str, Any]:
+    extra = stage5_review_stale(root)
+    if not extra:
+        return report
+    by_id = {item["segment_id"]: item for item in report.get("stale", [])}
+    for item in extra:
+        sid = item["segment_id"]
+        if sid in by_id:
+            for reason in item["reasons"]:
+                if reason not in by_id[sid]["reasons"]:
+                    by_id[sid]["reasons"].append(reason)
+        else:
+            by_id[sid] = {"segment_id": sid, "reasons": list(item["reasons"])}
+        seg = report.setdefault("segments", {}).setdefault(sid, {"reasons": [], "has_video": True})
+        for reason in item["reasons"]:
+            if reason not in seg["reasons"]:
+                seg["reasons"].append(reason)
+        if sid in report.get("unproduced", []):
+            report["unproduced"].remove(sid)
+    report["stale"] = [by_id[k] for k in sorted(by_id)]
+    return report
+
+
 def status(root: Path, ledger_path: Optional[Path] = None) -> Dict[str, Any]:
+    return _merge_stage5(_ledger_status(root, ledger_path), Path(root))
+
+
+def _ledger_status(root: Path, ledger_path: Optional[Path] = None) -> Dict[str, Any]:
     root = Path(root)
     ledger_path = Path(ledger_path) if ledger_path else root / LEDGER_NAME
     if not ledger_path.is_file():
@@ -328,7 +381,12 @@ def status(root: Path, ledger_path: Optional[Path] = None) -> Dict[str, Any]:
 
 def render(report: Dict[str, Any]) -> str:
     if not report.get("recorded"):
-        return f"（尚未建立依賴帳本：{report['ledger']}；先跑 --record）"
+        head = f"（尚未建立依賴帳本：{report['ledger']}；先跑 --record）"
+        if report.get("stale"):
+            lines = [head, f"⚠️ {len(report['stale'])} 段需要重跑（stage-5 核准後提示詞改了、已有影片）："]
+            lines.extend(f"  - {item['segment_id']}: {', '.join(item['reasons'])}" for item in report["stale"])
+            return "\n".join(lines)
+        return head
     if report.get("schema_mismatch"):
         return f"⚠️ {report.get('note')}"
     lines = [f"依賴帳本：{report['ledger']}（記錄於 {report.get('generated_at')}）"]
