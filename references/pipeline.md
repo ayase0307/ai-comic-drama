@@ -323,12 +323,12 @@ python scripts/storyboard/compile_layer2_to_h3.py \
 > **段落選填欄位**：`asset_refs.primary_character`（指定綁圖主角）、`metadata.mood_en` / `music_en` / `soundscape_en`（英文摘要、配樂、音效）。
 > **畫風**：取自 `style_lock.anchor`，其次 `assets.md` 的 `style_anchor`，不再寫死 live-action。寫實皮膚 LoRA 只在寫實風格才掛；LoRA 只在含 `Combat_Impact` 鏡頭的段落推導。
 > **旁白**：`speaker` 為旁白／V.O. 時寫成 off-screen narrator，永不成為參考圖主體。
-1. **`subject_definitions`**：定義參考素材與角色對應標籤（`<Picture 1>` 場景圖、`<Picture 2>` 核心角色圖）。嚴格落實**防混臉單圖排序（一段一張角色圖）**，同場其他次要角色轉為純外觀文字描述，防止多角色特徵平均化。
+1. **`subject_definitions`**：定義參考素材與角色對應標籤（`<Picture 1>` 場景圖、`<Picture 2>` 核心角色圖）。Ref2VA 預設**防混臉單圖排序**（只為 `face_subject_ids` 掛臉部參考圖，沒有綁定時 `--max-char-refs` 預設 1），同場其他次要角色轉為純外觀文字描述。「一段一張臉」已不是通則（D3）：新流程用 remix 角色卡維持多人一致，見 `references/consistency.md` §7.1。
 2. **`summary`**：整段秒數、情境氛圍與核心戲劇主旨概述。
 3. **`retention_analysis`**：精確聲明各參考圖的繼承層級（如「保留 Picture 2 面部五官與服裝，服裝顏色嚴格依照設定圖」）。
 4. **`detailed_description`**：`[Shot 1]` ～ `[Shot N]` 逐鏡細節，整合焦距物距、光源名詞映射、官方運鏡詞多樣化子句（**杜絕重複運鏡句與語法錯誤**）、動作力學三要素與角色表情，台詞精確封裝於 `<d>角色：台詞</d>`。**徹底消滅「Then the motion transitions smoothly.」等罐頭廢話**。
 5. **`overall_soundscape`**：環境音效、動作打擊音、喘息與擬音（Foley）。
-6. **`non_diegetic_music`**：非附隨性配樂、BGM 風格與情緒走向。
+6. **`non_diegetic_music`**：非附隨性配樂、BGM 風格與情緒走向。**同一場戲有多段時一律寫 `N/A`**，配樂到後製統一鋪；相鄰段各寫配樂會被 `--check` 的 C4 提醒（見 `references/edit/manju-editing-playbook.md` §8.1）。
 
 ### 5.2 服裝狀態機（`wardrobe_states`）解析
 編譯器依 Layer 2 `asset_refs.characters[].costume_id` 綁定服裝圖，來源為 `bible.json` 的 `wardrobe_states`，或 `assets.md` 角色卡的：
