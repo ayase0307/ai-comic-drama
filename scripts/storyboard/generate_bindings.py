@@ -64,7 +64,11 @@ DEFAULT_PANEL_LABELS = {
     "back": "the full-body back view, the rightmost of the three standing full-body figures",
     "creature": "the full-body side view, the middle of the three standing full-body figures",
 }
-FACE_PANEL_BOX = "0,0,0.25,1"  # 標準板第一格（面部特寫）
+# 標準四視圖板（2560×1440）左側頭部特寫格＝像素 (0, 0, 950, 910)（references/skill-guide.md 單人身份裁切，
+# 實測與 FreeVideo media API 裁切像素相同）；換算成比例，任何尺寸的同版面板都適用。
+# 版面不同時在計畫表寫 face_crop_box（頂層＝全專案、characters.<id>.default／costumes.<W>＝單一角色）。
+FACE_PANEL_BOX = "0,0,0.3711,0.6319"
+H3D_CMD = f'python "{(HERE.parent / "h3d.py").as_posix()}"'
 
 
 def _load_json(path: Path, default: Any) -> Any:
@@ -91,7 +95,11 @@ def segment_states(seg_id: str, shots: List[Dict[str, Any]], visibility: Dict[st
     found: Dict[str, set] = {}
     for shot in shots:
         gid = str(shot.get("global_shot_id") or "")
-        row = visibility.get(f"{seg_id}/{gid}") or visibility.get(gid) or {}
+        sid = str(shot.get("shot_id") or "")
+        # 文件寫的鍵是「global_shot_id 或 segment_id/shot_id」；global_shot_id 若是 EP01-S01-a-SH01，
+        # 只查 segment_id/global_shot_id 會漏掉 segment_id/SH01 這種寫法。
+        row = next((visibility[k] for k in (f"{seg_id}/{gid}", f"{seg_id}/{sid}", gid) if k and k in visibility), None)
+        row = row or (visibility.get(sid) if sid and sid != gid else None) or {}
         for cid, state in row.items():
             found.setdefault(cid, set()).add(state)
     return {cid: ("face" if "face" in s else "back" if "back" in s else "profile") for cid, s in found.items()}
@@ -128,11 +136,22 @@ def video_bible(registry: AssetRegistry, raw_bible: Dict[str, Any]) -> Dict[str,
             "id_aliases": dict(registry.id_aliases)}
 
 
-def _crop_hint(sheet: str, cid: str) -> str:
-    return (f"python scripts/h3d.py crop --root . --image {sheet} --box {FACE_PANEL_BOX} "
-            f"--out-dir assets/crops --prefix {cid}-face（--box 假設標準板面部特寫在最左四分之一，"
-            f"裁完務必目視確認只剩一張臉，版面不同就改 --box），再把產出檔寫進 assets/character-reference-plans.json "
-            f"的 characters.{cid}.default.face_crop")
+def face_crop_box(plans: Dict[str, Any], plan: Optional[Dict[str, Any]] = None) -> str:
+    """裁切框：角色計畫 > 計畫表頂層 face_crop_box > 預設標準板頭部特寫格。"""
+    for source in (plan or {}, plans or {}):
+        box = source.get("face_crop_box") if isinstance(source, dict) else None
+        if isinstance(box, str) and box.strip():
+            return box.strip()
+        if isinstance(box, (list, tuple)) and len(box) == 4:
+            return ",".join(str(v) for v in box)
+    return FACE_PANEL_BOX
+
+
+def _crop_hint(sheet: str, cid: str, box: str = FACE_PANEL_BOX) -> str:
+    return (f'{H3D_CMD} crop --root . --image "{sheet}" --box {box} '
+            f"--out-dir assets/crops --prefix {cid}-face（--box 預設是標準四視圖板左側頭部特寫格 0,0,950,910 的比例；"
+            f"裁完務必目視確認只剩一張臉，版面不同就改 --box 或在計畫表寫 face_crop_box），再把產出檔寫進 "
+            f"assets/character-reference-plans.json 的 characters.{cid}.default.face_crop")
 
 
 def choose_reference(root: Path, registry: AssetRegistry, plans: Dict[str, Any], cid: str, state: str,
@@ -167,7 +186,8 @@ def choose_reference(root: Path, registry: AssetRegistry, plans: Dict[str, Any],
         crop = plan.get("face_crop") or ("" if is_board else sheet)
         if not crop or not (root / crop).is_file():
             gaps.append(f"{where} 角色 {cid} 看得到正臉，需要單視角正面裁切"
-                        + (f"（計畫表寫的 {crop} 不存在）" if plan.get("face_crop") else f"：{_crop_hint(sheet, cid) if sheet else '先登記設定圖'}"))
+                        + (f"（計畫表寫的 {crop} 不存在）" if plan.get("face_crop") else
+                           f"：{_crop_hint(sheet, cid, face_crop_box(plans, plan)) if sheet else '先登記設定圖'}"))
             return None
         entry["reference_image"] = crop
         return entry
@@ -254,7 +274,15 @@ def _pack_record(asset_id: str, raw: Any, costume: Optional[str], warnings: List
         return None
     base: Dict[str, Any] = {"pack": raw} if isinstance(raw, str) else dict(raw)
     chosen = base
-    if costume:
+    default_costumes = base.get("default_costume") or base.get("default_costumes") or []
+    if isinstance(default_costumes, str):
+        default_costumes = [default_costumes]
+    if costume and costume in default_costumes:
+        # 預設包本身穿的就是這套（例如 W-x-01）：不用另建變體包
+        costume_is_default = True
+    else:
+        costume_is_default = False
+    if costume and not costume_is_default:
         variant = (base.get("costumes") or {}).get(costume)
         if variant is None:
             # 服裝變體在家機是獨立的包；沒登記就不能默默退回預設服裝的包
@@ -392,7 +420,8 @@ def build_segment_remix(root: Path, registry: AssetRegistry, pack_plan: Dict[str
         if record is None:
             if asset_id in packs and costume:
                 gaps.append(f"{seg_id} {asset_id} 服裝 {costume} 沒有對應的變體包（換服裝＝換包）："
-                            f"{_pack_hint(asset_id, kind)}")
+                            f"{_pack_hint(asset_id, kind)}；若預設包穿的就是這套，在 packs.{asset_id} 寫 "
+                            f"\"default_costume\": \"{costume}\"")
             else:
                 gaps.append(f"{seg_id} {asset_id}（{kind}）沒有 REMIX 包：{_pack_hint(asset_id, kind)}")
             return False
@@ -479,16 +508,48 @@ def merge_existing(generated: Dict[str, Any], old: Optional[Dict[str, Any]]) -> 
     if not old:
         return generated
     old_shots = {s.get("global_shot_id"): s for s in old.get("shots", []) or [] if isinstance(s, dict)}
-    merged = {**{k: v for k, v in old.items() if k not in GENERATED_SEGMENT_KEYS}, **generated}
-    merged["shots"] = [{**{k: v for k, v in old_shots.get(s["global_shot_id"], {}).items() if k not in GENERATED_SHOT_KEYS}, **s}
+    merged = {**{k: v for k, v in old.items() if k not in GENERATED_SEGMENT_KEYS and k not in REF2VA_SEGMENT_DROP},
+              **generated}
+    merged["shots"] = [{**{k: v for k, v in old_shots.get(s["global_shot_id"], {}).items()
+                           if k not in GENERATED_SHOT_KEYS and k not in REF2VA_SHOT_DROP}, **s}
                        for s in generated["shots"]]
     return merged
+
+
+# 從 remix 切回 ref2va 時，remix 專屬欄位要拿掉；留著的話編譯器看到 refmods 會當成 remix 綁定而拒絕編譯。
+# positions 兩個 backend 的站位閘門都用，保留。
+REF2VA_SEGMENT_DROP = {"video_backend", "refmods", "pack_waivers"}
+REF2VA_SHOT_DROP = {"pack_ids"}
+REF2VA_TOP_DROP = ("segments", "packs", "video_backend")
 
 
 # 產生器擁有的欄位：重產時一律以新值為準（沒產出就是刪除），避免舊的 face／anchor 名單殘留互相衝突。
 GENERATED_SEGMENT_KEYS = {"segment_id", "source_layer2_path", "source_sha256", "scene_reference", "shots"}
 GENERATED_SHOT_KEYS = {"global_shot_id", "reference_paths", "visual_subject_ids", "no_visual_reference_ids",
                        "face_subject_ids", "identity_anchor_ids"}
+
+
+def input_fingerprints(root: Path, paths: List[Path]) -> Dict[str, Optional[str]]:
+    """綁定的輸入檔指紋（計畫表、逐鏡判讀、包計畫表、聖經）：改了這些也要重綁。檔案不存在記 None。"""
+    out: Dict[str, Optional[str]] = {}
+    for path in paths:
+        try:
+            key = path.resolve().relative_to(root.resolve()).as_posix()
+        except ValueError:
+            key = str(path.resolve())
+        out[key] = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
+    return out
+
+
+def inputs_stale(root: Path, recorded: Any) -> Optional[str]:
+    if not isinstance(recorded, dict):
+        return None  # 舊版綁定沒記輸入指紋：不追溯
+    for key, sha in recorded.items():
+        path = Path(key) if Path(key).is_absolute() else root / key
+        now = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
+        if now != sha:
+            return f"{key} 在綁定後{'被刪除' if now is None else '新增' if sha is None else '修改'}"
+    return None
 
 
 def bindings_stale(root: Path) -> Optional[str]:
@@ -508,7 +569,11 @@ def bindings_stale(root: Path) -> Optional[str]:
         rel = _rel(root, path)
         if known.get(rel) != hashlib.sha256(path.read_bytes()).hexdigest():
             return f"{rel} 沒有綁定或已在綁定後修改"
-    return None
+    try:
+        recorded = json.loads(bindings_path.read_text(encoding="utf-8-sig")).get("inputs_sha256")
+    except (OSError, json.JSONDecodeError, AttributeError):
+        recorded = None
+    return inputs_stale(root, recorded)
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -540,16 +605,19 @@ def main(argv: Optional[List[str]] = None) -> int:
     gaps: List[str] = []
     segments = [build_segment(root, registry, plans, visibility, p, gaps) for p in layer2]
     if gaps:
-        print(f"❌ 綁定缺 {len(gaps)} 項，未寫入任何檔案：", file=sys.stderr)
+        print(f"❌ 綁定缺 {len(dict.fromkeys(gaps))} 項，未寫入任何檔案：", file=sys.stderr)
         for gap in dict.fromkeys(gaps):
             print(f"  - {gap}", file=sys.stderr)
         return 1
     segments = [merge_existing(seg, old_by_id.get(seg["segment_id"])) for seg in segments]
     bible = video_bible(registry, _load_json(bible_path, {}))
     (root / "video-bible.json").write_text(json.dumps(bible, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    payload = {**{k: v for k, v in old_bindings.items() if k != "segments"},
+    inputs = input_fingerprints(root, [bible_path, assets_path,
+                                       args.plans or root / "assets" / "character-reference-plans.json",
+                                       args.visibility or root / "assets" / "face-visibility.json"])
+    payload = {**{k: v for k, v in old_bindings.items() if k not in REF2VA_TOP_DROP},
                "schema_version": "1.0-stage5-bindings", "derived_for": "Stage 5 compiler binding sidecar (h3d bind)",
-               "segments": segments}
+               "inputs_sha256": inputs, "segments": segments}
     (root / "video-bindings.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     panels = sum(1 for s in segments for b in s["shots"] for g in b["reference_paths"].values()
                  for e in g if e.get("reference_view") == "panel")
@@ -578,7 +646,9 @@ def _main_remix(args: argparse.Namespace, root: Path, registry: AssetRegistry, b
     for p in layer2:
         sid_guess = None
         try:
-            sid_guess = json.loads(p.read_text(encoding="utf-8-sig")).get("segment_id")
+            raw_doc = json.loads(p.read_text(encoding="utf-8-sig"))
+            # 與 build_segment_remix 同一規則，否則沒有 segment_id 的段找不到舊綁定、手寫欄位會遺失
+            sid_guess = str(raw_doc.get("segment_id") or raw_doc.get("scene_id") or p.stem)
         except (OSError, json.JSONDecodeError, AttributeError):
             pass
         segments.append(build_segment_remix(root, registry, pack_plan, p, old_by_id.get(sid_guess), gaps,
@@ -586,7 +656,7 @@ def _main_remix(args: argparse.Namespace, root: Path, registry: AssetRegistry, b
     for warning in dict.fromkeys(warnings):
         print(f"⚠️ {warning}", file=sys.stderr)
     if gaps:
-        print(f"❌ remix 綁定缺 {len(gaps)} 項，未寫入任何檔案：", file=sys.stderr)
+        print(f"❌ remix 綁定缺 {len(dict.fromkeys(gaps))} 項，未寫入任何檔案：", file=sys.stderr)
         for gap in dict.fromkeys(gaps):
             print(f"  - {gap}", file=sys.stderr)
         return 1
@@ -595,7 +665,9 @@ def _main_remix(args: argparse.Namespace, root: Path, registry: AssetRegistry, b
     (root / "video-bible.json").write_text(json.dumps(bible, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     payload = {**{k: v for k, v in old_bindings.items() if k not in ("segments", "packs", "video_backend")},
                "schema_version": "1.0-stage5-bindings", "derived_for": "Stage 5 compiler binding sidecar (h3d bind)",
-               "video_backend": "remix", "packs": normalize_packs(pack_plan), "segments": segments}
+               "video_backend": "remix", "packs": normalize_packs(pack_plan),
+               "inputs_sha256": input_fingerprints(root, [bible_path, args.assets or root / "assets.md", pack_path]),
+               "segments": segments}
     (root / "video-bindings.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(f"✅ 已寫 video-bible.json 與 video-bindings.json（remix）：{len(segments)} 段、"
           f"refmods 共 {sum(len(s['refmods']) for s in segments)} 個、豁免 {sum(len(s.get('pack_waivers') or []) for s in segments)} 筆")

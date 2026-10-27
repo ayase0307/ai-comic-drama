@@ -134,6 +134,12 @@ def evaluate(root: Path, stage: Optional[int] = None) -> Dict[str, Any]:
                   else ps.stage_validation_errors(root, stage, strict=True))
         if errors:
             blockers.append(f"產物檢查失敗：{errors[0]}")
+    if not blockers and stage in (4, 5):
+        # 人工路線要先過審核頁 builder（階段 4 validate_storyboard／跨段罐頭詞；階段 5 參考圖對帳＋17 條自檢＋
+        # 逐鏡撰寫審查）才會進 awaiting；自動核准不經過審核頁，所以在這裡跑同一套，不然 TODO 分鏡也能自動過。
+        review_errors = _review_builder_errors(root, stage, state)
+        if review_errors:
+            blockers.append(f"審核頁門禁未過（{len(review_errors)} 項）：{review_errors[0]}")
     counts_txt = ""
     if stage == 6 and "verdicts" in basis:
         c = basis["verdicts"]["counts"]
@@ -144,6 +150,16 @@ def evaluate(root: Path, stage: Optional[int] = None) -> Dict[str, Any]:
     result["basis"] = basis
     result["eligible"] = not blockers
     return result
+
+
+def _review_builder_errors(root: Path, stage: int, state: Dict[str, Any]) -> List[str]:
+    """跑 build_stage_review 的階段 builder（只取錯誤，不寫檔、不改狀態）。"""
+    try:
+        import build_stage_review as bsr
+        passed, errors, _html = bsr.STAGE_BUILDERS[stage](root, state)
+    except Exception as exc:  # fail closed
+        return [f"審核頁門禁無法執行：{type(exc).__name__}: {exc}"]
+    return [] if passed else [str(e) for e in errors]
 
 
 def run(root: Path, stage: Optional[int] = None, dry_run: bool = False) -> Dict[str, Any]:

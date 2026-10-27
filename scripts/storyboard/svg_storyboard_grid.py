@@ -13,8 +13,31 @@ try:
 except ImportError as _e:  # 選用依賴：只有這支構圖工具需要
     sys.stderr.write(f"缺少選用依賴（{_e.name}）：pip install numpy resvg-py Pillow\n"); sys.exit(2)
 
-W, H = 768, 432
+W, H = 768, 432          # 目前畫布；每段依 Layer 2 metadata.aspect_ratio 由 set_canvas() 改寫
+CANVAS_LONG_EDGE = 768
+DEFAULT_ASPECT = "16:9"
 SENSOR_W = 36.0
+
+
+def parse_aspect(value):
+    """'9:16'／'16x9'／'2.39:1' → (寬, 高)；看不懂回 None。"""
+    m = re.fullmatch(r"\s*(\d+(?:\.\d+)?)\s*[:xX×/]\s*(\d+(?:\.\d+)?)\s*", str(value or ""))
+    if not m:
+        return None
+    a, b = float(m.group(1)), float(m.group(2))
+    return (a, b) if a > 0 and b > 0 else None
+
+
+def set_canvas(aspect=None):
+    """依畫面比例設定畫布（長邊固定 CANVAS_LONG_EDGE）；16:9 維持舊的 768×432。回傳 (W, H, 實際比例字串)。"""
+    global W, H
+    ratio = parse_aspect(aspect) or parse_aspect(DEFAULT_ASPECT)
+    a, b = ratio
+    if a >= b:
+        W, H = CANVAS_LONG_EDGE, int(round(CANVAS_LONG_EDGE * b / a))
+    else:
+        W, H = int(round(CANVAS_LONG_EDGE * a / b)), CANVAS_LONG_EDGE
+    return W, H, (aspect if parse_aspect(aspect) else DEFAULT_ASPECT)
 INK = "#2b2b2b"
 
 def nrm(v): v = np.asarray(v, float); n = np.linalg.norm(v); return v / n if n else v
@@ -29,7 +52,7 @@ class Cam:
     def __init__(s, pos, yaw=0.0, pitch=0.0, f=50):
         s.pos = np.array(pos, float); s.yaw, s.pitch = yaw, pitch; s.f = f; s.du = s.dv = 0.0; s.update()
     @property
-    def fx(s): return s.f / SENSOR_W * W
+    def fx(s): return s.f / SENSOR_W * max(W, H)  # 36mm 片幅對長邊：豎屏＝相機轉 90°，16:9 時等同舊式
     def update(s):
         cy, sy, cp, sp = math.cos(s.yaw), math.sin(s.yaw), math.cos(s.pitch), math.sin(s.pitch)
         s.fw = np.array([sy * cp, sp, cy * cp]); s.rt = np.array([cy, 0, -sy]); s.up = np.cross(s.fw, s.rt)
@@ -978,7 +1001,8 @@ def _rel(path, root):
     return os.path.relpath(os.path.abspath(path), os.path.abspath(root)).replace(os.sep, "/")
 
 
-def run_project(root, layer2_files, staging=None, cast=None, rules=None, force=False, write_back=True, dry_run=False, log=print):
+def run_project(root, layer2_files, staging=None, cast=None, rules=None, force=False, write_back=True, dry_run=False, log=print,
+                aspect=None):
     """渲染指定 Layer 2 段落：每鏡 panels/panel-NN-<shot>.png、每段 images/grid-<segment>.png，
     並把 sketch_file／sketch_sha256／sketch_generation.grid_file 回寫 Layer 2，讓 stage-4 門禁與審核頁直接採用。"""
     root = os.path.abspath(root)
@@ -1003,6 +1027,11 @@ def run_project(root, layer2_files, staging=None, cast=None, rules=None, force=F
     for f in sorted(targets):
         d = docs[f]; shots = d.get("shots", [])
         seg = d.get("segment_id") or os.path.basename(f)[len("layer2-"):-len(".json")]
+        # 構圖要和成片同比例：豎屏專案畫成 16:9 會讓審核者誤判走位與景別（--aspect 可整批覆寫）
+        seg_aspect = aspect or (d.get("metadata") or {}).get("aspect_ratio")
+        if seg_aspect and not parse_aspect(seg_aspect):
+            WARN.append(f"{seg} metadata.aspect_ratio={seg_aspect!r} 看不懂，改用 {DEFAULT_ASPECT}")
+        set_canvas(seg_aspect)
         panel_paths, changed = [], False
         for idx, s in enumerate(shots, start=1):
             pp = os.path.join(root, "panels", f"panel-{idx:02d}-{s['shot_id']}.png")
@@ -1026,7 +1055,7 @@ def run_project(root, layer2_files, staging=None, cast=None, rules=None, force=F
             if write_back:
                 s["sketch_file"] = _rel(pp, root); s["sketch_sha256"] = _sha256(pp); s["sketch_status"] = "generated"
                 s["sketch_generation"] = dict(backend="svg-rig", tool="scripts/storyboard/svg_storyboard_grid.py", version=TOOL_VERSION,
-                                              grid_file=f"images/grid-{seg}.png", api_calls=0)
+                                              grid_file=f"images/grid-{seg}.png", api_calls=0, canvas=[W, H])
                 changed = True
         if dry_run or not panel_paths: continue
         ok_shots = [x for x in shots if any(os.path.basename(pp_).startswith(f'panel-') and x['shot_id'] in os.path.basename(pp_) for pp_ in panel_paths)] if summary.get('failed') else shots[:len(panel_paths)]
@@ -1054,7 +1083,11 @@ def main(argv=None):
     ap.add_argument("--force", action="store_true", help="連 sketch_status 為 locked/approved/manual 的鏡頭也重畫")
     ap.add_argument("--no-write-back", action="store_true", help="只輸出圖片，不改 Layer 2")
     ap.add_argument("--dry-run", action="store_true", help="只列出會產生的檔案")
+    ap.add_argument("--aspect", default=None,
+                    help="畫面比例（例如 9:16）；預設讀每段 Layer 2 的 metadata.aspect_ratio，沒有才用 16:9")
     args = ap.parse_args(argv)
+    if args.aspect and not parse_aspect(args.aspect):
+        ap.error(f"--aspect 看不懂：{args.aspect}（例：16:9、9:16、2.39:1）")
     root = os.path.abspath(args.root)
     if args.layer2: files = args.layer2
     else:
@@ -1065,7 +1098,7 @@ def main(argv=None):
     if not files: ap.error("找不到任何 Layer 2 檔")
     staging = args.staging or os.path.join(root, "staging")
     s = run_project(root, files, staging=staging, cast=args.cast, rules=args.rules, force=args.force,
-                    write_back=not args.no_write_back, dry_run=args.dry_run)
+                    write_back=not args.no_write_back, dry_run=args.dry_run, aspect=args.aspect)
     for w in WARN: print("⚠ 方向" if "構圖卻朝" in w else "⚠", w)
     print(f"完成：渲染 {s['rendered']} 鏡、略過鎖定 {s['skipped']} 鏡、分鏡總覽圖 {s['segments']} 段；API 呼叫 0 次")
     return 0

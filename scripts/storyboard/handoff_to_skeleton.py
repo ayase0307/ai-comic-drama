@@ -129,14 +129,53 @@ def slugify(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
 
 
+# 名稱 → 聖經 ID（--bible 載入；沒載入時維持舊行為：slug／雜湊）。鍵是 (prefix, 名稱)。
+_BIBLE_IDS: dict[tuple[str, str], str] = {}
+_BIBLE_GROUPS = (("C", "characters", ("character_id", "id")), ("S", "locations", ("location_id", "id")),
+                 ("P", "props", ("prop_id", "id")))
+
+
+def load_bible_ids(path: Path) -> dict[tuple[str, str], str]:
+    """讀 adapt/bible.json，把 canonical_name／name／aliases／ID 本身對到聖經 ID。
+
+    中文名用 make_id 只會得到 C-x1a2b3c 這種雜湊 ID，h3d bind／compile 會全部判成「未在 bible.json 登記」；
+    有聖經時先查表，查不到才退回雜湊並警告。
+    """
+    data = json.loads(path.read_text(encoding="utf-8-sig"))
+    out: dict[tuple[str, str], str] = {}
+    for prefix, group, id_keys in _BIBLE_GROUPS:
+        for rec in data.get(group, []) or []:
+            if not isinstance(rec, dict):
+                continue
+            asset_id = next((str(rec[k]) for k in id_keys if rec.get(k)), "")
+            if not asset_id:
+                continue
+            names = [asset_id, rec.get("canonical_name"), rec.get("name"), *(rec.get("aliases") or [])]
+            for name in names:
+                if isinstance(name, str) and name.strip() and not name.strip().startswith("<"):
+                    out.setdefault((prefix, name.strip()), asset_id)
+    return out
+
+
 def make_id(prefix: str, raw: str, index: int) -> str:
-    """把名稱轉成 PREFIX-slug；已是 PREFIX- 格式就原樣保留；無法轉 ASCII（如純中文）時用序號。"""
+    """把名稱轉成 PREFIX-slug；已是 PREFIX- 格式就原樣保留；無法轉 ASCII（如純中文）時用序號。
+
+    有載入聖經（--bible）時先用名稱／別名查聖經 ID。
+    """
+    known = _BIBLE_IDS.get((prefix, raw.strip()))
+    if known:
+        return known
     if re.fullmatch(rf"{prefix}-[a-z0-9-]+", raw):
         return raw
     slug = slugify(raw)
     if not slug:  # 純中文名：用名稱雜湊，穩定且不會變 item1／item2（#37）
         slug = "x" + hashlib.sha1(raw.encode("utf-8")).hexdigest()[:6]
+    if _BIBLE_IDS:
+        _UNMATCHED.add(f"{raw} → {prefix}-{slug}")
     return f"{prefix}-{slug}"
+
+
+_UNMATCHED: set[str] = set()
 
 
 def segment_suffix(index: int) -> str:
@@ -625,6 +664,9 @@ def main() -> int:
     ap.add_argument("--max-shots", type=int, default=DEFAULT_MAX_SHOTS,
                     help="單段最大鏡頭數（預設 3 鏡，每段建議 2–3 節拍）")
     ap.add_argument("--force", action="store_true", help="覆寫已存在的骨架檔")
+    ap.add_argument("--bible", type=Path, default=None,
+                    help="角色／場景／道具聖經；用 canonical_name／name／aliases 把 handoff 的名稱對到聖經 ID。"
+                         "預設自動找 <handoff 所在目錄>/adapt/bible.json；--bible none 關閉")
     ap.add_argument("--duration-policy", choices=("report", "fit"), default="report",
                     help="report（預設）：只回報自然總長與目標的偏差，不改鏡頭秒數；"
                          "fit：把總長壓/拉到目標（會把動作鏡擠成預告片節奏，僅在使用者明確要求硬性片長時用）")
@@ -643,6 +685,21 @@ def main() -> int:
         for err in schema_errors:
             print(f"[handoff 錯誤] {err}", file=sys.stderr)
         return 1
+
+    bible_path = args.bible
+    if bible_path is None:
+        auto = args.handoff.resolve().parent / "adapt" / "bible.json"
+        bible_path = auto if auto.is_file() else None
+    elif str(bible_path).lower() == "none":
+        bible_path = None
+    _BIBLE_IDS.clear()
+    _UNMATCHED.clear()
+    if bible_path is not None:
+        try:
+            _BIBLE_IDS.update(load_bible_ids(bible_path))
+        except (OSError, ValueError) as exc:
+            print(f"[錯誤] 讀取聖經 {bible_path} 失敗：{exc}", file=sys.stderr)
+            return 2
 
     try:
         results = convert_handoff(handoff, args.scene,
@@ -682,6 +739,9 @@ def main() -> int:
         print(f"[錯誤] {exc}", file=sys.stderr)
         return 2
     print_summary(rows)
+    for item in sorted(_UNMATCHED):
+        warn(f"聖經裡找不到「{item.split(' → ')[0]}」，暫用 {item.split(' → ')[1]}；"
+             f"請在 bible.json 補 aliases 或改 handoff 名稱，否則 h3d bind 會判成未登記")
     return 1 if any(r["errors"] for r in rows) else 0
 
 

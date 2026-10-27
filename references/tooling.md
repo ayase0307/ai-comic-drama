@@ -119,6 +119,10 @@ python scripts/h3d.py deps --root . --status --strict
 
 Layer 2 每鏡新增必填欄位 `shot_intent`（audience、story_beat、pov、emotional_shift）與 `choice_why`（shot_size、lens_distance、movement、blocking、background；有對白加 line_timing），schema 見 `references/storyboard/templates/layer2-storyboard.schema.json`。`handoff_to_skeleton.py` 會放 TODO 佔位；`validate_storyboard.py` 擋：I01 缺意圖、I02 缺理由、I03 佔位／過短、I04 同段意圖重複、I05 理由抄技術值或同段三鏡同一句、I06 跨段同一句 ≥5 鏡。邏輯在 `scripts/storyboard/shot_intent.py`。提示詞端另有 E40（抹背景）、W40（無線索氣氛詞）。
 
+**骨架與構圖的 ID／比例**：
+- `handoff_to_skeleton.py handoff-epXX.json --out-dir layer2 [--bible adapt/bible.json]`：用聖經的 `canonical_name`／`name`／`aliases`（及 ID 本身）把 handoff 的中文名對到聖經 ID（`C-`／`S-`／`P-`）；沒給 `--bible` 時自動找 `<handoff 所在目錄>/adapt/bible.json`，`--bible none` 關閉。查不到的名稱退回雜湊 ID 並逐一警告——不補 `aliases` 的話 `h3d bind` 會判成「未在 bible.json 登記」。
+- `h3d sketch`（`svg_storyboard_grid.py`）畫布依每段 Layer 2 `metadata.aspect_ratio` 設定（長邊固定 768；16:9 仍是 768×432，9:16＝432×768），`--aspect 9:16` 可整批覆寫；看不懂的比例警告後退回 16:9。構圖必須和成片同比例，否則審核者會誤判景別與走位。
+
 ## 2.3 階段 5 英文層（stage5 binding 的 en_overlay）
 
 階段 4 的 Layer 2 常用中文寫運鏡、走位、錨點物件、連戲錨與收尾狀態；Layer 2 綁著階段 4 核准 hash，不能為了英文去改。
@@ -162,9 +166,13 @@ python scripts/h3d.py bind --root .
   - `face` → 單視角正面裁切（計畫表 `face_crop`；原圖本身不是整板時直接用原圖）。
   - `back`／`profile` → 整板查表 `reference_view: "panel"`＋`panel_role`＋`panel_label_en`（預設格位依技能標準四視圖板：側面＝三個全身像的中間、背面＝最右）；原圖不是整板時當單視角錨點。
   - 生物 → 整板時一律 `panel_role: "creature"`；群眾（`is_group`／`EXTRAS-`）→ 直接掛群眾參考圖。
-- 計畫表 `assets/character-reference-plans.json`（選填）：`{"characters": {"C-x": {"default": {"face_crop": "...", "sheet": "...", "panel_labels_en": {"back": "...", "profile": "..."}}, "costumes": {"W-x": {...}}}}, "creatures": {"CREATURE-x": {"sheet": "...", "panel_label_en": "..."}}}`。
-- **缺圖不猜**：任何缺口（看得到正臉卻沒有裁切、未登記角色、設定圖不存在）全部列出並附 `h3d crop --box 0,0,0.25,1 --out-dir assets/crops` 指令，**不寫任何檔案**。裁切放 `assets/crops/`，不放 `images/`（會讓階段 2 快照失效）。
-- 重產時保留既有 bindings 的手寫欄位（`en_overlay`、`shot_overrides`、`audio_references`、`crop_note_en`…），只覆蓋產生器擁有的欄位（來源 hash、場景圖、逐鏡 `reference_paths`／`visual_subject_ids`／`face_subject_ids`／`identity_anchor_ids`）。
+- 計畫表 `assets/character-reference-plans.json`（選填）：`{"face_crop_box": "x0,y0,x1,y1", "characters": {"C-x": {"default": {"face_crop": "...", "face_crop_box": "...", "sheet": "...", "panel_labels_en": {"back": "...", "profile": "..."}}, "costumes": {"W-x": {...}}}}, "creatures": {"CREATURE-x": {"sheet": "...", "panel_label_en": "..."}}}`。
+- 逐鏡判讀的鍵依序查 `segment_id/global_shot_id`、`segment_id/shot_id`、`global_shot_id`、`shot_id`（`EP01-S01-a/SH01` 這種寫法也認得）。
+- **缺圖不猜**：任何缺口（看得到正臉卻沒有裁切、未登記角色、設定圖不存在）全部列出並附裁切指令（絕對路徑 `python "<skill>/scripts/h3d.py" crop --root . --image "<設定圖>" --box … --out-dir assets/crops --prefix C-x-face`），**不寫任何檔案**。裁切放 `assets/crops/`，不放 `images/`（會讓階段 2 快照失效）。
+  - **`--box` 預設 `0,0,0.3711,0.6319`**＝標準四視圖板（2560×1440）左側頭部特寫格像素 `0,0,950,910` 換算的比例，同版面任何尺寸都適用（舊預設 `0,0,0.25,1` 會裁到半身＋邊欄，已棄用）。版面不同時寫 `face_crop_box`：計畫表頂層＝全專案、`characters.<id>.default`／`costumes.<W>`＝單一角色（角色層優先）；值可寫字串或四元素陣列。
+  - `h3d crop` 三選一：`--grid`、`--box`（比例）、`--px x0,y0,x1,y1`（像素，超出圖片範圍直接報錯）。相對的 `--image`／`--out-dir` 以 `--root` 解析，不看目前工作目錄；輸出落在 `images/` 底下會被拒。裁完務必目視確認只剩一張臉。
+- 重產時保留既有 bindings 的手寫欄位（`en_overlay`、`shot_overrides`、`audio_references`、`crop_note_en`…），只覆蓋產生器擁有的欄位（來源 hash、場景圖、逐鏡 `reference_paths`／`visual_subject_ids`／`face_subject_ids`／`identity_anchor_ids`）。從 remix 切回 ref2va 重綁時會拿掉 remix 專屬欄位（頂層 `video_backend`／`packs`、段層 `refmods`／`pack_waivers`、逐鏡 `pack_ids`；`positions` 保留），否則編譯器會把它當 remix 綁定拒編。
+- **輸入指紋 `inputs_sha256`**：bindings 頂層記錄 `adapt/bible.json`、`assets.md`、計畫表、`face-visibility.json`（remix：bible、assets.md、`character-packs.json`）的 sha256（不存在記 null）。任一輸入在綁定後新增／修改／刪除，`h3d next` 視同綁定落後、先帶 `h3d bind`。舊版綁定沒有這個欄位就不追溯。
 - `h3d next` 在階段 5 發現沒有 bindings、或任一 layer2 在綁定後被改（`source_sha256` 不符）時，會先帶出 `h3d bind`，之後才給 compile 指令。
 - 尚未處理：道具、身體細節與音色母帶 `audio_references` 不自動綁，需要時手寫進 bindings（重產會保留）。
 
@@ -213,7 +221,7 @@ python scripts/h3d.py decide style_anchor "<英文錨句>" --quote "<原話>" --
 
 - 產出 `video-bindings.json`：頂層 `video_backend: "remix"`＋`packs`；段層 `refmods`（順序＝標籤順序：**場景第一**、演員、最後生物／道具／群眾，每項帶 `pack`／`tag`／`kind`／`label`／`costume_id`／`variant_of`…）、`pack_waivers`（必附使用者原話）、`positions`（`[{id, order_lr, axis_side, facing}]`，手寫保留，給 R6 站位閘門）；逐鏡只有 `visual_subject_ids`／`no_visual_reference_ids`／`pack_ids`。
 - **不產生** `face_subject_ids`／`identity_anchor_ids`／`reference_view`／`panel_label_en`；舊綁定或計畫表寫了只警告「remix 不使用」，重產時拿掉。
-- 在場角色／生物／群眾、場景、`asset_refs.props` 沒有包也沒有豁免 → 列出缺口（換服裝＝換包，沒登記變體不退回預設包）、**不寫任何檔案**。`h3d pack build` 尚未提供（PR-R8），先在家機建包、回讀確認後寫進計畫表。沒寫 `tag` 時依 kind 推定並警告。
+- 在場角色／生物／群眾、場景、`asset_refs.props` 沒有包也沒有豁免 → 列出缺口（換服裝＝換包，沒登記變體不退回預設包；**預設包本身穿的就是這套服裝**時在 `packs.<id>` 寫 `"default_costume": "W-x-01"`（或陣列 `default_costumes`），該服裝直接用預設包、不算缺口）、**不寫任何檔案**。`h3d pack build` 尚未提供（PR-R8），先在家機建包、回讀確認後寫進計畫表。沒寫 `tag` 時依 kind 推定並警告。
 - `--backend ref2va|remix` 可覆蓋定案。
 
 **編譯**：`compile_layer2_to_h3.py` 只產 Ref2VA 六段式；看到 remix 綁定會**明確拒絕**（REMIX 三欄輸出是 PR-R5），單臉模式因此只在 ref2va 執行。
@@ -288,6 +296,14 @@ python scripts/h3d.py compile --layer2 layer2/ --bible video-bible.json --bindin
 ```
 
 **單一來源規則**：`segments-all.json` 存在時，階段 6 送件（`h3d next`）、`motion_qa`、QA／交付的預設全集、失敗目錄 ack 都以它為準；不存在才用 `segments-ep*.json`。所以它不能落後：strict 階段 5（`h3d next`、新核准、自動核准）會把它的段落 id 與每段內容 hash 和逐集檔聯集對帳，缺段、多段或內容不同都擋關，並印出上面的重產指令（不需要全集時也可直接刪掉它）。改了任何一集重編後，記得跟著重產全集。
+
+**階段 5 strict 其他檢查**（`h3d next`、新核准、自動核准才跑；已核准段的重新驗證不追加）：
+- **漏編**：每個 `layer2/layer2-*.json` 的 `segment_id` 都要出現在某個 `segments-ep*.json`，多集專案漏編一集不能進審核（不要的段請刪 layer2 檔並重審階段 4）。
+- **提示詞落後**：段落 `metadata.source_layer2_sha256`（新版編譯器寫入）≠ 目前 Layer 2 → 分鏡改過沒重編；舊版編譯的段沒有此欄位不追溯。
+- **綁定新鮮度**：有 `video-bindings.json` 時，每段 `source_sha256` 要等於目前 Layer 2，且 `inputs_sha256` 記錄的輸入沒變；否則先 `h3d bind` 再重編。
+- **失敗目錄未處置**：權威提示詞命中 `enforce=error` 條目一律擋；命中警告而沒有涵蓋現稿（段＋提示詞 hash＋目錄版本）的 ack 也擋。首選改稿重編；使用者看過並接受才 `h3d ack <ID> --root . --note "<使用者原話>"`——要在**核准前**處置，因為 ack 檔在階段 5 快照內，核准後再 ack 會讓該段變成待重審。目錄或 ack 檔壞掉時 fail closed。
+- **backend 一致**：定案 `video_backend=remix` 但段落是 Ref2VA 六段式（沒有 `refmods`）→ 擋，`h3d next` 不給指令、要求停下回報使用者（REMIX 三欄輸出尚未實作，PR-R5）；此判斷排在綁定新鮮度之前。
+- `h3d next` 的優先序：backend 不符 → 綁定落後（`h3d bind`）→ 只剩失敗目錄命中時給 `h3d catalog --list` → 補編。核准已失效時先查產物本身，產物不齊就先給修正指令，不重建審核頁。
 
 逐集 `segments-epXX.json` 則用 `--episode EPxx` 另編；`--bindings` 含其他集的段會自動略過。`--check` 的「17 條」是 `audit_refs_and_segments.py --lint-h3` 的 E1–E9、W10–W13、E14–E16、E18；E19 起是參考圖對帳與逐鏡撰寫審查。
 

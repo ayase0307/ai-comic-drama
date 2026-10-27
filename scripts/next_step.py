@@ -88,12 +88,24 @@ def stage4_producer(root: Path, errors: List[str]) -> tuple:
 
 def stage5_producer(root: Path, errors: List[str]) -> tuple:
     """階段 5 下一步：印完整 compile 參數，照抄就會寫出 prompts／segments（#56）。"""
+    # REMIX 三欄輸出尚未實作（PR-R5）：bind／compile 都解不了，先停下回報，別讓人先跑一輪 bind 再撞牆。
+    remix_gap = next((e for e in errors if "video_backend=remix" in e), None)
+    if remix_gap:
+        return (None, remix_gap)
     import generate_bindings
     stale = generate_bindings.bindings_stale(root)
     if stale:
         # 沒有 bindings 時編譯器會拿四視圖整板、只錨定一個角色 → E19／E20 必擋。
         return (f"{H3D} bind --root .",
                 f"先產生參考圖綁定（{stale}）：正臉用單視角裁切、側背／生物用整板查表；有缺圖會列出 crop 指令。")
+    catalog = [e for e in errors if "失敗目錄" in e]
+    if catalog and len(catalog) == len([e for e in errors if not e.startswith("提示詞包缺少")]):
+        import re
+        ids = sorted({m.group(0) for e in catalog for m in [re.search(r"F-[A-Z0-9-]+", e)] if m})
+        return (f"{H3D} catalog --list --root .",
+                f"失敗目錄命中 {len(catalog)} 處（{'、'.join(ids)}）。首選：回 Layer 2 five_part_en 或 bindings en_overlay 改稿再重編"
+                f"（改完命中自動消失）。只有使用者看過並接受某條警告時，才用 {H3D} ack <ID> --root . --note \"<使用者原話>\" 記錄；"
+                f"enforce=error 的條目不能 ack。")
     episodes = _episodes(root)
     missing = [e for e in episodes if not (root / f"segments-{e.lower()}.json").is_file()]
     episode = (missing[0] if missing else None) or next(
@@ -433,6 +445,18 @@ def plan(root: Path) -> Dict[str, Any]:
         review = ps.stage5_segment_review(root)
         if review["mode"] == "partial":
             return _stage5_partial_step(res, root, review)
+    if status == "approved" and stage in (4, 5):
+        # 核准失效時先看產物本身齊不齊（缺構圖、漏編一集、綁定／提示詞落後、失敗目錄未處置、backend 不符），
+        # 不齊就先修；直接重建審核頁只會讓使用者審一份核准時必擋的稿。
+        current = ps.stage_validation_errors(root, stage, strict=True)
+        if current:
+            res["status"] = "approval_invalid"
+            res["blocked_on"].append(f"核准已失效：{first_failure}")
+            res["blocked_on"].append(current[0])
+            command, action = (stage4_producer if stage == 4 else stage5_producer)(root, current)
+            res["action"] = action
+            res["next_command"] = command
+            return res
     if status == "approved":
         res["status"] = "approval_invalid"
         res["blocked_on"].append(f"核准已失效：{first_failure}")

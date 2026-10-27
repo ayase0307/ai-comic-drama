@@ -742,8 +742,120 @@ def segments_all_consistency_errors(root: Path, episode_files: list[Path]) -> li
     bible = " --bible video-bible.json" if (root / "video-bible.json").is_file() else ""
     bindings = " --bindings video-bindings.json" if (root / "video-bindings.json").is_file() else ""
     return [f"{SEGMENTS_ALL} 與 segments-ep*.json 聯集不一致（{detail}）。階段 6 以 {SEGMENTS_ALL} 為準，"
-            f"請在逐集檔重編後重產全集：python scripts/h3d.py compile --layer2 layer2/{bible}{bindings} "
+            f"請在逐集檔重編後重產全集：python \"{(Path(__file__).resolve().parent / 'h3d.py').as_posix()}\" compile --layer2 layer2/{bible}{bindings} "
             f"--project-root . --output-segments {SEGMENTS_ALL} --check（或刪除 {SEGMENTS_ALL} 改用逐集檔）"]
+
+
+def _stage5_freshness_errors(root: Path, segments: list[Path]) -> list[str]:
+    """strict 才跑：提示詞包要涵蓋全部 Layer 2、且不落後於 Layer 2／參考圖綁定。
+
+    - 每個 layer2/layer2-*.json 的 segment_id 都要出現在某個 segments-ep*.json（多集專案漏編一集不能進審核）。
+    - 段落 metadata.source_layer2_sha256（新版編譯器寫入）≠ 目前 Layer 2 檔 → 分鏡改了沒重編。
+    - video-bindings.json 存在時，每段 source_sha256 要等於目前 Layer 2（改了分鏡要先 h3d bind 再編）。
+    舊版編譯的段沒有 source_layer2_sha256 就略過該項，不追溯。
+    """
+    layer_dir = root / "layer2"
+    layer_files = sorted(layer_dir.glob("layer2-*.json")) if layer_dir.is_dir() else []
+    if not layer_files:
+        return []
+    h3d = f'python "{(Path(__file__).resolve().parent / "h3d.py").as_posix()}"'
+    current: dict[str, tuple[str, str]] = {}  # segment_id -> (相對路徑, sha256)
+    for path in layer_files:
+        try:
+            raw = path.read_bytes()
+            data = json.loads(raw.decode("utf-8-sig"))
+        except (OSError, ValueError):
+            continue
+        sid = str((data.get("segment_id") or data.get("scene_id") or path.stem.removeprefix("layer2-"))
+                  if isinstance(data, dict) else path.stem.removeprefix("layer2-"))
+        current[sid] = (path.relative_to(root).as_posix(), hashlib.sha256(raw).hexdigest())
+    compiled: dict[str, dict[str, Any]] = {}
+    for path in segments:
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8-sig"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        for seg in (raw if isinstance(raw, list) else raw.get("segments", [raw])):
+            if isinstance(seg, dict) and seg.get("segment_id"):
+                compiled[str(seg["segment_id"])] = seg
+    errors: list[str] = []
+    try:
+        import decisions as _decisions
+        backend = _decisions.video_backend(root)
+    except Exception:  # decisions 壞檔由階段 0 門禁負責；這裡不重複報
+        backend = "ref2va"
+    if backend == "remix":
+        wrong = [sid for sid, seg in compiled.items()
+                 if not seg.get("refmods") and (seg.get("metadata") or {}).get("video_backend") != "remix"]
+        if wrong:
+            errors.append(f"定案 video_backend=remix，但提示詞包這些段是 Ref2VA 六段式（沒有 refmods）：{'、'.join(wrong[:10])}；"
+                          f"REMIX 三欄提示詞輸出尚未實作（PR-R5），compile 只產 Ref2VA。請停下回報使用者："
+                          f"手寫／外部產生 remix 段落後用 audit_refs_and_segments.py --backend remix 檢查，或改回 "
+                          f"{h3d} decide video_backend ref2va")
+    missing = [sid for sid in current if sid not in compiled]
+    if missing:
+        errors.append(f"提示詞包缺少 {len(missing)} 段 Layer 2：{'、'.join(missing[:10])}"
+                      f"（逐集用 {h3d} compile --episode EPxx … 補編；不需要的段請刪除其 layer2 檔再重審階段 4）")
+    stale = [sid for sid, seg in compiled.items() if sid in current
+             and (seg.get("metadata") or {}).get("source_layer2_sha256")
+             and (seg.get("metadata") or {})["source_layer2_sha256"] != current[sid][1]]
+    if stale:
+        errors.append(f"提示詞落後於分鏡（Layer 2 在編譯後改過）：{'、'.join(stale[:10])}；請先 {h3d} bind --root . 再重編")
+    bindings = root / "video-bindings.json"
+    if bindings.is_file():
+        try:
+            bsegs = json.loads(bindings.read_text(encoding="utf-8-sig")).get("segments", [])
+            known = {str(b.get("source_layer2_path")): str(b.get("source_sha256")) for b in bsegs if isinstance(b, dict)}
+        except (OSError, json.JSONDecodeError, AttributeError):
+            known = None
+        if known is None:
+            errors.append(f"video-bindings.json 無法解析；請重跑 {h3d} bind --root .")
+        else:
+            unbound = [rel for rel, sha in current.values() if known.get(rel) != sha]
+            if unbound:
+                errors.append(f"參考圖綁定落後於分鏡：{'、'.join(unbound[:10])} 沒有綁定或綁定後改過；請重跑 {h3d} bind --root . 再重編")
+            try:
+                recorded = json.loads(bindings.read_text(encoding="utf-8-sig")).get("inputs_sha256")
+            except (OSError, json.JSONDecodeError, AttributeError):
+                recorded = None
+            for key, sha in (recorded.items() if isinstance(recorded, dict) else []):
+                path = Path(key) if Path(key).is_absolute() else root / key
+                now = sha256_file(path) if path.is_file() else None
+                if now != sha:
+                    errors.append(f"參考圖綁定落後於輸入：{key} 在綁定後改過；請重跑 {h3d} bind --root . 再重編")
+                    break
+    return errors
+
+
+def _stage5_catalog_errors(root: Path) -> list[str]:
+    """strict 才跑：失敗目錄 enforce=error 命中、或警告沒有涵蓋現稿的 ack → 不能核准階段 5。
+
+    送件端本來就會擋；放到核准前是為了「先處置警告（改稿或 ack）再請使用者核准」，
+    不然 ack 會在核准後才寫，又讓該段變成待重審（catalog-acks.json 在階段 5 快照內）。
+    """
+    import sys as _sys
+    storyboard = str(Path(__file__).resolve().parent / "storyboard")
+    if storyboard not in _sys.path:
+        _sys.path.insert(0, storyboard)
+    try:
+        import failure_catalog as fc
+        catalog = fc.load_catalog(root)
+        acks = fc.load_acks(root)
+    except Exception as exc:  # fail closed：目錄或 ack 檔壞掉不能當成沒命中
+        return [f"失敗目錄無法檢查：{exc}"]
+    rev = fc.catalog_rev(catalog)
+    h3d = f'python "{(Path(__file__).resolve().parent / "h3d.py").as_posix()}"'
+    errors: list[str] = []
+    for sid, text in sorted(fc.authoritative_prompts(root).items()):
+        hits = fc.lint_text(text, catalog)
+        sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        for item in hits["errors"]:
+            errors.append(f"{sid}: 失敗目錄 {item['id']}（enforce=error）：{item.get('minimal_fix') or item.get('title') or ''}；請改稿重編")
+        for item in hits["warnings"]:
+            if not fc.ack_is_valid(acks.get(item["id"]), sid, sha, rev):
+                errors.append(f"{sid}: 失敗目錄警告 {item['id']} 未處置（首選改稿重編；使用者看過並接受才 "
+                              f"{h3d} ack {item['id']} --root . --note \"<使用者原話>\"）")
+    return errors
 
 
 def _stage5_end_state_errors(segments: list[Path]) -> list[str]:
@@ -790,6 +902,8 @@ def stage_validation_errors(root: Path, stage: int, allow_technical: bool = Fals
             errors.extend(_stage5_voice_errors(segments))
             errors.extend(_stage5_end_state_errors(segments))
             errors.extend(segments_all_consistency_errors(root, segments))
+            errors.extend(_stage5_freshness_errors(root, segments))
+            errors.extend(_stage5_catalog_errors(root))
         for path in segments:
             try:
                 raw = json.loads(path.read_text(encoding="utf-8-sig"))
