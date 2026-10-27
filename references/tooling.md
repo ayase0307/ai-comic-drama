@@ -310,9 +310,9 @@ python scripts/h3d.py compile --layer2 layer2/ --bible video-bible.json --bindin
 | 階段 | 擋什麼 |
 |---|---|
 | 0 | `project.md` 殘留 init 模板佔位符（`<…｜…>`、`<中文說明>`）、「畫風」空白、`aspect_ratio` 與 `decisions.json` 定案不一致 |
-| 1 | `validate_character_bible.py` 的 ERROR、`bible.json` 佔位符、`source.json` 仍是 init 骨架或 `must_keep` 對不到 `story_units`、缺 `adapt/series-outline.md` |
-| 2 | `assets.md` 卡片（標題、`- **欄位**：`、表格列）殘留佔位符、登記的設定圖／母版圖檔案不存在 |
-| 3 | 劇本佔位符、`validate_structure` 閘門與錯誤、handoff 的 `title`／`episode_goal` 還是 TODO、`check_continuity` 閘門、`compare_adaptation` 原著對帳硬錯誤（漏 MUST_KEEP、未記錄刪減、未回報缺口或矛盾） |
+| 1 | `validate_character_bible.py` 的 ERROR、`bible.json` 佔位符、`source.json` 仍是 init 骨架或 `must_keep` 對不到 `story_units`、缺 `adapt/series-outline.md` 或它還殘留模板佔位符（`{{…}}`） |
+| 2 | `assets.md` 卡片（標題、`- **欄位**：`、表格列）殘留佔位符、登記的設定圖／母版圖檔案不存在（反引號內的路徑可含空白與中文）；`delivery_scope.no_image` 時改檢文字設定卡，審核頁缺圖只畫紅框不阻斷 |
+| 3 | 劇本佔位符、`validate_structure` 閘門與錯誤、handoff 的 `title`／`episode_goal` 還是 TODO、handoff 的 `aspect_ratio` 與 `decisions.json` 定案不一致（`sync_script.py` 每次同步會自動對齊，並在集名還是 TODO 時用劇本集標題補上）、`check_continuity` 閘門、`compare_adaptation` 原著對帳硬錯誤（漏 MUST_KEEP、未記錄刪減、未回報缺口或矛盾） |
 
 已核准的階段不會因為之後新增的檢查失效：核准快照已綁定內容 hash，內容改了才需要重審。
 

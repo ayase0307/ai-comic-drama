@@ -186,9 +186,9 @@ def main() -> int:
         print("錯誤：找不到指定的 Bible 或 Handoff JSON 檔案", file=sys.stderr)
         return 1
 
-    bible_data = json.loads(bible_path.read_text(encoding="utf-8"))
-    handoff_data = json.loads(handoff_path.read_text(encoding="utf-8"))
-    script_text = Path(args.script).read_text(encoding="utf-8") if args.script else None
+    bible_data = json.loads(bible_path.read_text(encoding="utf-8-sig"))
+    handoff_data = json.loads(handoff_path.read_text(encoding="utf-8-sig"))
+    script_text = Path(args.script).read_text(encoding="utf-8-sig") if args.script else None
 
     res = audit_continuity(bible_data, handoff_data, script_text)
 

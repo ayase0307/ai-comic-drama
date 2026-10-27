@@ -30,7 +30,7 @@ import os
 import pathlib
 import re
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import style_rules  # noqa: E402
@@ -141,6 +141,60 @@ STYLE_PRESETS = {
 STYLE_CHOICES = (f"{style_rules.STYLE14_KEY} 或 14（古風寫實厚塗・電影感，預設）／master（母版3D厚塗）／"
                  "semi-real（UE5半寫實）／1–11（styles.md 編號）")
 NUMBERED_STYLE_NOTE = "背景以上述四格共用的浅灰纯色背景为准，忽略风格词里的场景背景、粒子与氛围元素。"
+NUMBERED_PRESET_ALIASES = {"12": "master", "13": "semi-real"}
+
+
+def style_token(value: Any) -> Optional[str]:
+    """把定案值或 style_index（「14 號 古風…」「master」「3」「12 號母版」）轉成 --style 認得的 token；看不懂回 None。"""
+    text = str(value or "").strip()
+    if not text or text.startswith("<"):
+        return None
+    if style_rules.is_style14(text):
+        return "14"
+    low = text.lower()
+    m = re.match(r"^#?\s*(\d+)", low)
+    if m:
+        return NUMBERED_PRESET_ALIASES.get(m.group(1), m.group(1))
+    if "semi-real" in low or "ue5" in low:
+        return "semi-real"
+    if "master" in low or "母版" in text:
+        return "master"
+    return None
+
+
+def pick_style_index(cli_style: Optional[str], project_dir: Optional[pathlib.Path],
+                     assets_md: Optional[pathlib.Path]) -> Tuple[Optional[str], str, List[str]]:
+    """風格來源優先序：--style > decisions.json 的 style 定案 > assets.md 的 style_index > None（呼叫端用預設 14）。
+
+    以前完全不讀 decisions.json：使用者 `h3d decide style master` 之後，assets.md 沒同步改 style_index
+    就照樣出 14 號的設定板。回傳 (token, 來源, 提醒)。"""
+    notes: List[str] = []
+    if cli_style:
+        return cli_style, "--style", notes
+    from_md = read_style_index(assets_md) if assets_md and assets_md.is_file() else None
+    decided_raw = None
+    if project_dir:
+        path = project_dir / "decisions.json"
+        if path.is_file():
+            try:
+                for item in json.loads(path.read_text(encoding="utf-8-sig")).get("decisions", []):
+                    if item.get("id") == "style":
+                        decided_raw = item.get("value")
+            except (OSError, ValueError, AttributeError):
+                decided_raw = None
+    decided = style_token(decided_raw)
+    if decided_raw and not decided:
+        notes.append(f"decisions.json 的 style 定案「{decided_raw}」對不到設定板風格（14／master／semi-real／1–11），"
+                     "改用 assets.md 的 style_index；要指定請加 --style")
+    if decided:
+        md_token = style_token(from_md)
+        if md_token and resolve_style(md_token)["key"] != resolve_style(decided)["key"]:
+            notes.append(f"assets.md 的 style_index（{from_md}）與 decisions.json 的 style 定案（{decided_raw}）不一致；"
+                         "以使用者定案為準，請同步改 assets.md")
+        return decided, "decisions.json", notes
+    if from_md:
+        return from_md, "assets.md", notes
+    return None, "default", notes
 
 
 def resolve_style(token: Optional[str]) -> Dict[str, str]:
@@ -148,6 +202,9 @@ def resolve_style(token: Optional[str]) -> Dict[str, str]:
     key = (str(token).strip().lower() if token else "") or style_rules.DEFAULT_STYLE_KEY
     if style_rules.is_style14(key):
         key = style_rules.STYLE14_KEY
+    # 總覽表的 12／13 號就是 master／semi-real 兩套預設（assets/styles/sheet-12、sheet-13），styles.md 沒有「## 12.」段落；
+    # 以前 `--style 12` 會報「styles.md 找不到第 12 套風格」。
+    key = NUMBERED_PRESET_ALIASES.get(key, key)
     if key in STYLE_PRESETS:
         return {**STYLE_PRESETS[key], "key": key}
     if key.isdigit():
@@ -193,9 +250,12 @@ CREATURE_TURNAROUND_TEMPLATE = (
 
 SCENE_PLATE_TEMPLATE = (
     "{style_line}, environment plate, realistic architectural and environmental rendering, "
-    "cinematic volumetric lighting, deep perspective view, 16:9 aspect ratio. "
+    "cinematic volumetric lighting, deep perspective view, {aspect} aspect ratio. "
     "{subject_desc}, completely empty of people, cinematic establishing plate."
 )
+# 場景母版是影片的場景／畫風參考，比例跟專案定案（decisions.json aspect_ratio）走；
+# 角色四視圖、生物三視圖、道具板是固定版式，維持 16:9 橫版。以前場景也寫死 16:9，豎屏專案的場景圖比例不對。
+DEFAULT_SCENE_ASPECT = "16:9"
 
 
 # ==============================================================================
@@ -294,6 +354,7 @@ def parse_assets_markdown(assets_path: pathlib.Path) -> List[Dict[str, Any]]:
     return assets
 
 
+_IMG_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp")
 CARD_LABEL = re.compile(r"^-\s*\*\*(.+?)\*\*[：:]\s*(.*)$")
 CARD_TYPES = (("C-", "character"), ("CREATURE-", "creature"), ("EXTRAS-", "extras"), ("S-", "scene"), ("P-", "prop"))
 TEMPLATE_VERSION = "master-4view-v1"
@@ -320,14 +381,14 @@ def parse_card_assets(text: str, style_lock: str = DEFAULT_STYLE_LOCK_3D) -> Lis
             desc += f"；背面特徵：{fields['背面特徵']}"
         atype = next(t for prefix, t in CARD_TYPES if aid.startswith(prefix))
         ref = next((v for k, v in fields.items() if k.startswith(("設定圖", "母版圖"))), "")
-        filename = pathlib.Path(ref).name if ref.endswith((".png", ".jpg")) else f"{atype}-{aid.split('-', 1)[1]}.png"
+        filename = pathlib.Path(ref).name if ref.lower().endswith(_IMG_SUFFIXES) else f"{atype}-{aid.split('-', 1)[1]}.png"
         assets.append({"name": f"{aid} {name}".strip(), "type": atype, "filename": filename,
                        "description": desc, "style_lock": style_lock})
         # #14：一個角色多套服裝——欄位標籤 W-<slug>-NN 各出一張服裝設定板
         for k, v in fields.items():
             if atype == "character" and re.fullmatch(r"W-[\w-]+-\d+", k) and v and not v.startswith("<"):
                 wref = fields.get(f"設定圖 {k}", "")
-                wfile = pathlib.Path(wref).name if wref.endswith((".png", ".jpg")) else f"wardrobe-{k[2:]}.png"
+                wfile = pathlib.Path(wref).name if wref.lower().endswith(_IMG_SUFFIXES) else f"wardrobe-{k[2:]}.png"
                 assets.append({"name": f"{k} {name}".strip(), "type": "character", "filename": wfile,
                                "description": f"{desc}；本套服裝：{v}", "style_lock": style_lock})
     return assets
@@ -335,7 +396,7 @@ def parse_card_assets(text: str, style_lock: str = DEFAULT_STYLE_LOCK_3D) -> Lis
 
 def read_style_index(assets_path: pathlib.Path) -> Optional[str]:
     """讀 assets.md「風格錨點」區的 `style_index`（master／semi-real／styles.md 編號）；沒寫回 None。"""
-    m = re.search(r"^-\s*\*\*style_index\*\*[：:]\s*`?([\w-]+)`?", assets_path.read_text(encoding="utf-8"), re.MULTILINE)
+    m = re.search(r"^-\s*\*\*style_index\*\*[：:]\s*`?([\w-]+)`?", assets_path.read_text(encoding="utf-8-sig"), re.MULTILINE)
     return m.group(1) if m else None
 
 
@@ -357,7 +418,8 @@ def _compile_base_prompt(asset: Dict[str, Any], style: Optional[Dict[str, str]] 
     elif atype == "creature":
         return CREATURE_TURNAROUND_TEMPLATE.format(style_line=env_style_line(style), subject_desc=desc)
     elif atype == "scene":
-        return SCENE_PLATE_TEMPLATE.format(style_line=env_style_line(style), subject_desc=desc)
+        return SCENE_PLATE_TEMPLATE.format(style_line=env_style_line(style), subject_desc=desc,
+                                           aspect=asset.get("aspect") or DEFAULT_SCENE_ASPECT)
     else:
         # 道具或其他
         return (
@@ -409,6 +471,21 @@ def resolve_engine(cli_value: Optional[str], project_dir: Optional[pathlib.Path]
     return {"engine": DEFAULT_ENGINE, "source": "default"}
 
 
+def project_aspect(project_dir: Optional[pathlib.Path]) -> str:
+    """decisions.json 的 aspect_ratio 定案（寬:高）；沒有或看不懂用 16:9（舊行為）。"""
+    if project_dir:
+        try:
+            data = json.loads((project_dir / "decisions.json").read_text(encoding="utf-8-sig"))
+            for d in data.get("decisions", []):
+                if d.get("id") == "aspect_ratio":
+                    m = re.fullmatch(r"\s*(\d+)\s*[:：xX×]\s*(\d+)\s*", str(d.get("value") or ""))
+                    if m:
+                        return f"{m.group(1)}:{m.group(2)}"
+        except (OSError, ValueError, AttributeError):
+            pass
+    return DEFAULT_SCENE_ASPECT
+
+
 ASPECT_BY_TYPE = {"character": "16:9", "creature": "16:9", "scene": "16:9", "prop": "16:9", "extras": "16:9"}
 
 
@@ -431,7 +508,7 @@ def build_manifest(compiled: List[Dict[str, Any]], style: Dict[str, str], projec
             "type": c["type"],
             "output_path": f"{images_dir}/{c['filename']}",
             "prompt": c["full_prompt"],
-            "aspect_ratio": aspect or ASPECT_BY_TYPE.get(c["type"], "16:9"),
+            "aspect_ratio": aspect or c.get("aspect_ratio") or ASPECT_BY_TYPE.get(c["type"], "16:9"),
             "reference_images": refs,
             "status": "pending",
         })
@@ -497,9 +574,9 @@ def main():
     else:
         # 自動尋找「當前目錄」或專案常見位置的 assets.md。
         # 這裡刻意不列任何使用者本機的絕對路徑：skill 要能換機器、換專案直接跑。
+        # 以前另外寫死 ch02/assets.md（某個實戰專案的資料夾名），換專案沒有意義，已移除；要指定請用 --assets-md。
         defaults = [
             pathlib.Path("assets.md"),
-            pathlib.Path("ch02/assets.md"),
         ]
         for d in defaults:
             if d.exists():
@@ -523,8 +600,14 @@ def main():
         ]
 
     # 3. 組裝標準提示詞
+    project_dir = pathlib.Path(args.project_dir).resolve() if args.project_dir else (
+        used_assets_md.parent if used_assets_md else pathlib.Path.cwd())
     try:
-        style_index = args.style or (read_style_index(used_assets_md) if used_assets_md else None)
+        style_index, style_source, style_notes = pick_style_index(args.style, project_dir, used_assets_md)
+        for note in style_notes:
+            print(f"[提醒] {note}", file=sys.stderr)
+        if style_index and style_source != "--style":
+            print(f"[風格] 設定板風格：{style_index}（來源：{style_source}）", file=sys.stderr)
         if not style_index and any(a["type"] == "character" for a in assets):
             # 預設 14 號「古風寫實厚塗・電影感」；仍提醒與使用者確認（可改選）。
             style_index = style_rules.DEFAULT_STYLE_KEY
@@ -535,8 +618,11 @@ def main():
     except (OSError, ValueError) as exc:
         print(f"[錯誤] --style {style_index}：{exc}", file=sys.stderr)
         sys.exit(1)
+    scene_aspect = project_aspect(project_dir)
     compiled_results = []
     for item in assets:
+        if item["type"] == "scene":
+            item = {**item, "aspect": scene_aspect}
         full_prompt = compile_full_prompt(item, style)
         compiled_results.append({
             "name": item["name"],
@@ -545,11 +631,10 @@ def main():
             "raw_description": item["description"],
             "full_prompt": full_prompt,
             "template": TEMPLATE_VERSION if item["type"] == "character" else None,
+            **({"aspect_ratio": scene_aspect} if item["type"] == "scene" else {}),
             "style": style["key"] if item["type"] == "character" else None,
         })
 
-    project_dir = pathlib.Path(args.project_dir).resolve() if args.project_dir else (
-        used_assets_md.parent if used_assets_md else pathlib.Path.cwd())
     engine = resolve_engine(args.engine, project_dir)
     print(f"[引擎] 設定圖引擎：{engine['engine']}（來源：{engine['source']}）")
     if engine["engine"] == "grok":

@@ -82,7 +82,7 @@ def render(episode: str, findings: List[Finding], table: List[str]) -> str:
 def run(project_dir: Path, episode: str, handoff: Optional[Path] = None, out: Optional[Path] = None) -> Path:
     hp = handoff or project_dir / f"handoff-{episode.lower()}.json"
     if hp.exists():
-        findings, table = review(json.loads(hp.read_text(encoding="utf-8")), episode)
+        findings, table = review(json.loads(hp.read_text(encoding="utf-8-sig")), episode)
     else:
         findings, table = [("⚠️", "輸入", f"找不到 {hp.name}，略過")], []
     target = out or project_dir / "review" / "craft" / f"stage-3-{LENS}-script-review-{episode.lower()}.md"
@@ -101,7 +101,7 @@ def self_test() -> bool:
                  {"scene_id": "S2", "value_open": "+", "value_close": "-", "dialogue": [{"text": "你也知道我們認識二十年了"}]},
                  {"scene_id": "S3", "value_open": "+", "value_close": "-"}]}]}
         (p / "handoff-ep01.json").write_text(json.dumps(h, ensure_ascii=False), encoding="utf-8")
-        t = run(p, "EP01").read_text(encoding="utf-8")
+        t = run(p, "EP01").read_text(encoding="utf-8-sig")
         ok = all(k in t for k in ["S1：價值「自由」", "S1：90s", "On-the-nose 候選", "Exposition 候選",
                                    "最多連續 3 場相同", "d1", "| S2 |"])
     print("mckee_review self-test:", "PASS" if ok else "FAIL")

@@ -59,7 +59,10 @@ class GeneratedFlowHintTests(unittest.TestCase):
         }
         self.assertTrue(set(range(4)).issubset(review_stages))
         self.assertTrue(set(range(4)).issubset(approved_stages))
-        self.assertIn("Set-Location -LiteralPath", hint)
+        # 切目錄指令依平台：Windows 用 PowerShell，其他用 POSIX cd（以前寫死 PowerShell）
+        self.assertIn(init_project.cd_command(ROOT / "project"), hint)
+        self.assertIn("Set-Location -LiteralPath", init_project.cd_command(ROOT / "project", "win32"))
+        self.assertTrue(init_project.cd_command(ROOT / "project", "linux").startswith("cd '"))
         self.assertNotIn("cd /d", hint)
         self.assertIn("不得代替使用者記錄核准", hint)
 

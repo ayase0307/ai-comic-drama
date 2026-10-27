@@ -309,7 +309,7 @@ def main() -> int:
     if not source_path.exists():
         print(f"[錯誤] 找不到原著 source 檔案：{source_path}", file=sys.stderr)
         return 1
-    source_data = json.loads(source_path.read_text(encoding="utf-8"))
+    source_data = json.loads(source_path.read_text(encoding="utf-8-sig"))
 
     # 讀取並合併多集 handoff
     base_handoff: Dict[str, Any] = {}
@@ -318,7 +318,7 @@ def main() -> int:
         if not hp.exists():
             print(f"[錯誤] 找不到 Handoff 檔案：{hp}", file=sys.stderr)
             return 1
-        hdata = json.loads(hp.read_text(encoding="utf-8"))
+        hdata = json.loads(hp.read_text(encoding="utf-8-sig"))
         if not base_handoff:
             base_handoff = dict(hdata)
             base_handoff["episodes"] = []
@@ -334,10 +334,10 @@ def main() -> int:
         if not sp.exists():
             print(f"[錯誤] 找不到劇本檔案：{sp}", file=sys.stderr)
             return 1
-        script_text_parts.append(sp.read_text(encoding="utf-8"))
+        script_text_parts.append(sp.read_text(encoding="utf-8-sig"))
     script_text = "\n\n".join(script_text_parts)
 
-    bible_data = json.loads(Path(args.bible).read_text(encoding="utf-8")) if args.bible else None
+    bible_data = json.loads(Path(args.bible).read_text(encoding="utf-8-sig")) if args.bible else None
 
     res = evaluate_adaptation(
         source_data,

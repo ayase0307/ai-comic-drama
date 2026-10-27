@@ -371,8 +371,47 @@ def acceptance_policy(root: Path) -> Tuple[Dict[str, Any], bool]:
     return dict(RECOMMENDED_ACCEPTANCE_POLICY), False
 
 
+_CIRCLED = {"1": "①", "2": "②", "3": "③", "4": "④"}
+
+
+def _normalize_known_text(decision_id: str, raw: str) -> str:
+    """把常見的寫法差異收斂成下游腳本認得的形狀（只動明確無歧義的寫法）。
+
+    - aspect_ratio：`16：9`、`16x9`、`16X9`、`16*9` → `16:9`（project.md 門禁與編譯器都比對半形冒號）。
+    - dialogue_policy：單獨的 `1`–`4`（或 `2 只留重點句`）→ `②…`；`narration_policy_of` 只認 ①–④ 開頭，
+      以前寫 `2` 要到階段 5 編譯才報「無法辨識」。"""
+    text = raw.strip()
+    if decision_id == "aspect_ratio":
+        m = re.fullmatch(r"(\d+)\s*[:：xX×*]\s*(\d+)", text)
+        if m:
+            return f"{m.group(1)}:{m.group(2)}"
+    if decision_id == "dialogue_policy":
+        m = re.fullmatch(r"([1-4])(?:[\s.、．)）]+(.*))?", text)
+        if m:
+            rest = (m.group(2) or "").strip()
+            return _CIRCLED[m.group(1)] + (f" {rest}" if rest else "")
+    return raw
+
+
+def value_warnings(decision_id: str, value: Any) -> List[str]:
+    """不擋寫入、但下游會出事的值：在 decide 當下就提醒（以前要到階段 5／門禁才發現）。"""
+    out: List[str] = []
+    if decision_id == "aspect_ratio" and isinstance(value, str) and not re.fullmatch(r"\d+:\d+", value.strip()):
+        out.append(f"aspect_ratio 值 {value!r} 不是「寬:高」格式（例如 16:9）；project.md 的 aspect_ratio 要與它逐字一致")
+    if decision_id == "dialogue_policy":
+        try:
+            narration_policy_of({"decisions": [{"id": "dialogue_policy", "value": value}]})
+        except ValueError:
+            out.append(f"dialogue_policy 值 {value!r} 不是 ①–④ 開頭或編譯器政策名；階段 5 編譯會報「無法辨識」，"
+                       "建議改寫成例如「② 只留重點句」")
+    return out
+
+
 def parse_value(decision_id: str, raw: str) -> Any:
     """值先試 JSON（物件、陣列、數字），失敗就當字串。acceptance_policy 支援 `recommended`。"""
+    if raw is None or not str(raw).strip():
+        raise DecisionError(f"{decision_id} 的值不可為空；要撤回定案請重新定一個值，不要寫空字串")
+    raw = _normalize_known_text(decision_id, raw)
     if decision_id == "acceptance_policy" and raw.strip().lower() in ("recommended", "建議", "照建議"):
         return dict(RECOMMENDED_ACCEPTANCE_POLICY)
     if decision_id == "style" and raw.strip().lower() in ("recommended", "建議", "照建議", "預設", "default"):
@@ -544,6 +583,12 @@ def main(argv: Optional[List[str]] = None) -> int:
                 print(json.dumps(data, ensure_ascii=False, indent=2))
             elif not data["decisions"]:
                 print("（尚無定案）")
+                # 空專案時 h3d next 會叫人跑 --list：順便列出有哪些定案、各在哪個階段前要，免得只看到一行空白。
+                print("可定案的 id（required_by＝h3d next 在哪個階段前要求；99＝選填）：")
+                for did, meta in KNOWN_DECISIONS.items():
+                    need = "選填" if meta["required_by"] >= 99 else f"階段 {meta['required_by']} 前"
+                    print(f"  - {did}（{need}）：{meta['label']}")
+                print("例：h3d decide aspect_ratio 16:9 --quote \"<使用者原話>\" --root <專案>")
             else:
                 for item in data["decisions"]:
                     src = item["source"]
@@ -557,6 +602,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"❌ {exc}", file=sys.stderr)
         return 2
     print(f"✅ 已記錄定案 {entry['id']}：{entry['rule']}")
+    for warning in value_warnings(entry["id"], entry["value"]):
+        print(f"⚠️ {warning}", file=sys.stderr)
     if entry.get("history"):
         print(f"   （取代舊值，歷史保留 {len(entry['history'])} 筆）")
     return 0

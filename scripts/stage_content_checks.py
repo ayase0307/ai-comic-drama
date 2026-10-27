@@ -158,8 +158,12 @@ def stage1_errors(root: Path) -> List[str]:
         if missing:
             errors.append(f"adapt/source.json 的 must_keep 對不到 story_units：{'、'.join(missing[:_MAX_LISTED])}")
 
-    if not (root / "adapt" / "series-outline.md").is_file():
-        errors.append("缺少 adapt/series-outline.md（分集架構，模板見 references/adapt/templates/series-outline.md）")
+    outline = root / "adapt" / "series-outline.md"
+    if not outline.is_file():
+        errors.append("缺少 adapt/series-outline.md（改編方案與段落／分集架構，模板見 references/adapt/templates/series-outline.md）")
+    else:
+        # 以前只看檔案在不在：直接複製模板（滿是 {{…}}）也能過階段 1 門禁。
+        errors.extend(_placeholder_error("adapt/series-outline.md", _read(outline)))
     return errors
 
 
@@ -196,8 +200,9 @@ def stage2_errors(root: Path) -> List[str]:
     missing: List[str] = []
     declared = 0
     for label in _ASSET_IMAGE_FIELDS:
-        for match in re.finditer(rf"^\s*-\s*\*\*{label}\*\*\s*[：:]\s*`?([^`\s]+)`?", text, flags=re.M):
-            raw = match.group(1).strip()
+        # 反引號內的路徑可以含空白（`images/scene 燈塔-master.png`）；沒有反引號才以空白為界。
+        for match in re.finditer(rf"^\s*-\s*\*\*{label}\*\*\s*[：:]\s*(?:`([^`\n]+)`|([^`\s]+))", text, flags=re.M):
+            raw = (match.group(1) or match.group(2) or "").strip()
             if _PLACEHOLDER.search(raw):
                 continue  # 佔位符已在上面報過
             declared += 1
@@ -214,6 +219,15 @@ def stage2_errors(root: Path) -> List[str]:
 
 _ADAPT_HARD_TAGS = ("MISSING_MUST_KEEP_EVENT", "UNTRACKED_UNIT_OMISSION",
                     "UNREPORTED_SOURCE_GAP", "UNREPORTED_SOURCE_CONTRADICTION")
+
+
+def _handoff_aspect(value: Any) -> Optional[str]:
+    """定案比例 → handoff.schema.json 的 enum（9:16／16:9／other）；看不懂回 None（不擋）。"""
+    m = re.fullmatch(r"\s*(\d+)\s*[:：xX×]\s*(\d+)\s*", str(value or ""))
+    if not m:
+        return None
+    ratio = f"{m.group(1)}:{m.group(2)}"
+    return ratio if ratio in ("9:16", "16:9") else "other"
 
 
 def _episode_tag(path: Path) -> str:
@@ -248,6 +262,13 @@ def stage3_errors(root: Path) -> List[str]:
         if not isinstance(handoff, dict):
             errors.append(f"缺少或無法解析 {handoff_path.name}（跑 sync_script.py 產生）")
             continue
+        decided = _decision_value(root, "aspect_ratio")
+        want = _handoff_aspect(decided)
+        if want and handoff.get("aspect_ratio") != want:
+            errors.append(
+                f"{handoff_path.name} 的 aspect_ratio（{handoff.get('aspect_ratio')}）與 decisions.json 定案（{decided}）不一致；"
+                "跑 sync_script.py 會自動對齊（階段 4 的 Layer 2 比例照 handoff 產生）"
+            )
         episodes = handoff.get("episodes") or []
         for ep in episodes if isinstance(episodes, list) else []:
             if not isinstance(ep, dict):
