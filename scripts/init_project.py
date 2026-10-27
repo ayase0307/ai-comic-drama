@@ -32,6 +32,7 @@ from pathlib import Path
 
 from decisions import empty_decisions
 from project_state import initial_state, save_state
+import skill_version
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "adapt"))
 from series_format import LONGFORM, SHORT, SHORT_EPISODE_DEFAULT_SECONDS  # noqa: E402
@@ -370,6 +371,8 @@ REVIEW_FILES = {
 def initial_project_state(title: str, project_id: str) -> dict:
     """初始化 8 個階段之狀態檔，供 build_stage_review.py 驅動斷點審核。"""
     state = initial_state(title, project_id)
+    # 版本章：記下建立專案時的技能版本與資料格式版本（h3d next 會比對）
+    state["skill_version"] = skill_version.stamp()
     for i in range(8):
         state["stages"][f"stage-{i}"].update({
             "review_html": f"review/{REVIEW_FILES[i]}",

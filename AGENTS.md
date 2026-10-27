@@ -19,4 +19,5 @@
 
 - 測試：`python -m unittest discover -s tests -q` 必須全過；新功能要附單元測試。
 - `h3d` 只做路由，規則留在原本的模組（`project_state.py`、`decisions.py`、`verdicts.py`…），不要在 `h3d.py` 寫第二套邏輯。
+- 版本：PR 標題用 Conventional Commits 前綴（`feat:`／`fix:`／`docs:`…，不相容加 `!`），每個 PR 在 `CHANGELOG.md`「未發布」加一行；資料格式改動同步改 `scripts/skill_version.py:SCHEMA_VERSIONS`。升版與發版照 `docs/RELEASING.md`。
 - 檔案格式改動要同步更新 `references/schemas/` 裡的 JSON Schema 與 `references/tooling.md`。

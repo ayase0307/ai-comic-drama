@@ -35,6 +35,7 @@ python scripts/h3d.py status --root . # 全局狀態（階段／依賴／送件�
 | `deps` | segment 級依賴帳本（`--record`／`--status`） | 改動後查「哪幾段要重跑」 |
 | `catalog` | 失敗目錄（`--list`／`--check`／`--acks`／`--prune-acks`） | 想知道「這句為什麼會被擋」 |
 | `ack` | 記錄「我接受這條警告」的憑證 | 確認是誤報、但不想改稿時 |
+| `version` | 技能版本與資料格式版本；`--root` 比對專案版本章，`--accept` 看過 CHANGELOG 後更新版本章（docs/RELEASING.md） | `h3d next` 出現「版本」提示時 |
 
 每個子命令都保留原本的 `--help`，`h3d` 只是路由，沒有第二套邏輯。
 
