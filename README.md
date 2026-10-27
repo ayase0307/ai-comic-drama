@@ -35,7 +35,7 @@
 - [環境變數](#-環境變數)
 - [Roadmap](#-roadmap)
 - [文件索引](#-文件索引)
-- [搭配專案與致謝](#-搭配專案與致謝)
+- [搭配專案](#-搭配專案)
 
 ## 💡 為什麼需要它
 
@@ -56,7 +56,7 @@
 | 🎞️ **雙影片後端** | 預設 **ref2va**（FreeVideo，獨立 Ref2VA、一段一張角色圖）；可選 **remix**（家機 REMIX 角色包）。remix 的綁定、refcheck、站位閘門已接上，**提示詞輸出（R5）與送件 adapter（R7）尚未完成**。 |
 | 🎬 **導演級分鏡** | 每鏡先寫 `shot_intent` 再定技術值，焦距與物距成對寫；站位／視線／運鏡 lint **D06–D14**；`h3d sketch` 用 2.5D 相機算出 **免生圖 SVG 構圖**，0 次生圖 API。 |
 | 🎨 **創作 lens（只建議、不擋關）** | AI 漫劇爆款方法論、荒木飛呂彥、Robert McKee、Scott McCloud，另有 Murch／Hamilton 剪輯 lens；報告寫進 `review/craft/`，不改任何門禁。 |
-| 🧪 **實測驅動** | 規則標 `measured`／`sourced`／`inferred`；外部方法（如 Foyege 導演法的 W41–W45）未經 H3 實測前**只警告不擋**。 |
+| 🧪 **實測驅動** | 規則標 `measured`／`sourced`／`inferred`；外部方法未經 H3 實測前**只警告不擋**。 |
 
 ## 🏗️ 架構
 
@@ -425,7 +425,7 @@ ai-comic-drama/
 - [x] 免生圖 SVG 構圖（`h3d sketch`）
 - [x] 站位／視線／運鏡閘門 D06–D14、參考包涵蓋 `h3d refcheck`
 - [x] 創作 lens：爆款方法論、荒木、McKee、McCloud、Murch、Hamilton
-- [x] Foyege 導演法撰寫警告 W41–W45（只警告，未經 H3 實測）
+- [x] 撰寫警告 W41–W45（只警告，未經 H3 實測）
 - [x] 換機器友善：寫死路徑改為環境變數
 - [x] remix 後端：角色包綁定、refcheck E50／E51、站位閘門
 - [ ] remix：REMIX 三欄提示詞輸出（R5）
@@ -457,15 +457,11 @@ ai-comic-drama/
 | [`references/freevideo.md`](references/freevideo.md) | 搭配 FreeVideo 出片 |
 | [`docs/cli-walkthrough.md`](docs/cli-walkthrough.md) | 逐階段命令列範例（原 README 內容） |
 
-## 🤝 搭配專案與致謝
+## 🤝 搭配專案
 
 - **[FreeVideo](https://github.com/FlashML-org/FreeVideo)**：在你自己電腦上跑的 AI 影片生成工具，內建 MiniMax H3，提供 Agent 接口與角色庫。本技能負責「想清楚」，FreeVideo 負責「做出來」；沒開時技能會退回「先問模型再生成」的流程。連線見 [`references/freevideo.md`](references/freevideo.md)。
 - **[ayase0307/h3-video-prompting](https://github.com/ayase0307/h3-video-prompting)**（MIT）：H3 提示詞的上游。`references/h3/` 是它的同步副本，逐檔紀錄在 [`references/h3/UPSTREAM.json`](references/h3/UPSTREAM.json)；跑 `python scripts/sync_h3_reference.py --check` 找漂移。
 - **ayase0307/h3-combat-impact**：打鬥／招式／特效段同時載入的外部技能（見 `SKILL.md`）。
-- 小說改編與導演分鏡兩個子體系整併自作者的 novel-to-manju、cinematic-director-storyboard。
-
-**方法來源**（蒸餾後改寫，原始出處見各文件的來源段）：Foyege 的好萊塢式 AI 影片導演法（撰寫警告 W41–W45）、Robert McKee 的場景理論、荒木飛呂彥的漫畫創作術、Scott McCloud 的漫畫格理論、Walter Murch 與 Eddie Hamilton 的剪輯觀；創作 lens 以[女媧 nuwa-skill](https://github.com/alchaincyf/nuwa-skill) 方法蒸餾。
-
 **貢獻**：歡迎 Issue 與 PR。改 repo 前請讀 [`AGENTS.md`](AGENTS.md)：`python -m unittest discover -s tests -q` 必須全過、新功能附測試、格式改動同步 `references/schemas/` 與 `references/tooling.md`。全程使用繁體中文。
 
 **授權**：[MIT](LICENSE)
