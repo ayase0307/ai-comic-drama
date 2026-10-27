@@ -37,13 +37,16 @@ class CraftPanelTest(unittest.TestCase):
         import build_stage_review as bsr
         with tempfile.TemporaryDirectory() as tmp:
             p = Path(tmp)
-            self.assertEqual(bsr.craft_lens_panel(p, 0), "")
+            hint = bsr.craft_lens_panel(p, 0)  # 沒報告時列出可跑的 lens 指令，不再整塊消失
+            self.assertIn("hit_review.py", hint)
+            self.assertIn("還沒有 lens 報告", hint)
+            self.assertEqual(bsr.craft_lens_panel(p, 5), "")  # 階段 5 沒有 lens
             (p / "review" / "craft").mkdir(parents=True)
             (p / "review" / "craft" / "stage-0-hit-ep01.md").write_text("# 測試報告\n\n內容ZZZ", encoding="utf-8")
             html_out = bsr.craft_lens_panel(p, 0)
             self.assertIn("不擋關", html_out)
             self.assertIn("ZZZ", html_out)
-            self.assertEqual(bsr.craft_lens_panel(p, 3), "")
+            self.assertIn("mckee_review.py", bsr.craft_lens_panel(p, 3))
 
 
 if __name__ == "__main__":

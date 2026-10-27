@@ -1,7 +1,7 @@
 {
   "upstream_repo": "https://github.com/ayase0307/h3-video-prompting",
   "description": "references/h3 的上游同步紀錄；測試只驗這份紀錄與本地檔案一致。",
-  "local_clone": "E:\\MinimaxH3\\h3-video-prompting",
+  "local_clone": "/tmp/up",
   "local_only": [
     "creature-motion.md",
     "lora-guide.md",
@@ -27,8 +27,9 @@
     "action-choreography.md": "b51d31a9f638fb206471e32312005cebdff86f9c0e750cee95cf8a1a855da6c5",
     "audio-and-dialogue.md": "846f5ea4dcb2c4f75c30009ac0d75bdc3cbd509d6667a5bb50bd0016f18b974e",
     "audio-pipeline.md": "4007e47ce6c75661efe0effea21070fc8cd679c53601c0d7b5f5e9591158c641",
-    "camera-and-transitions.md": "8d488f131b0c42cece64eb885d417bbab551468f28635a3121a2621b91c4e1a7",
-    "community-sources.md": "c8a29eb1b60b8f33ab8354653402ec540d6100a069e85a8cc0abd35345bf8ac8",
+    "camera-and-transitions.md": "c58298a009424dcdcf9de0e37ee2642d3ac537816ae9ddb186839a52d77abb2e",
+    "camera-moves-handbook.md": "bddcd183c51cde2e031c3d8810b229c8a62331155502a146679ee33ac6d5068e",
+    "community-sources.md": "619a7fb9dda343bd01bfd7627eb2b1b8860f822f8e4c8f3391dd32d095c99599",
     "example-basketball-crossover-10s.md": "990f1791cc6e64e1f088b62f5db4617374db7320bacba73fe07b4ec7df89fc5f",
     "example-fight-10s.md": "f1fbac777c47e9b297ac61f6dc0e5f1ccfad931b98afa756798ff4bb04e4f4fa",
     "example-seedance-to-h3.md": "2a8579326e1a63c97227ad90d4752191598837a1cd1d43e660556f372342349e",
@@ -47,6 +48,6 @@
     "shot-variety-and-staging.md": "8f8845c7c9f80dec86fc8ad6ec9a4a53c9ce37b9c62043adc71abbdce1637818",
     "skin-realism-block.md": "3bf57fdf883fc2fad37f0d126a135bf29f702138638eb5990d8653aed456740a"
   },
-  "upstream_synced_commit": "3ab59c8b579f1213170ec0c69f2cf91b7c15f4d2",
-  "upstream_synced_at": "2026-10-25T08:58:42+00:00"
+  "upstream_synced_commit": "b9700204a5ab2d9c05fd214afbabc2cff0920000",
+  "upstream_synced_at": "2026-10-27T09:37:05+00:00"
 }

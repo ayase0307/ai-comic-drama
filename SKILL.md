@@ -48,7 +48,7 @@ agent_created: true
 
 **正式階段核准以 `review/project-state.json` 為準**，只能走 `build_stage_review.py --approve-stage`（使用者原話）或 `h3d approve --auto`（使用者授權過的階段）。
 **影片生成路線**：預設 Ref2VA（FreeVideo，單人裁切）；使用者改用家機 REMIX 角色包時定案 `h3d decide video_backend remix`，`h3d bind` 改綁角色包、audit 依 backend 分支（REMIX 提示詞輸出與送件尚未接上，見 `references/tooling.md` §2.3.1c）。
-階段 5 寫完提示詞跑 `h3d refcheck`（提示詞寫到的角色／生物／道具／群眾都要有包；remix 擋、ref2va 只提示）與 `h3d staging`（站位左到右、視線、不面向鏡頭；預設警告，`staging_gate strict` 才擋），見 `references/tooling.md` §2.3.1d。
+階段 5 審核頁會自動對 ref2va 段補跑 refcheck／staging 並列成提醒（remix 段在 audit 內跑）；手動時跑 `h3d refcheck`（提示詞寫到的角色／生物／道具／群眾都要有包；remix 擋、ref2va 只提示）與 `h3d staging`（站位左到右、視線、不面向鏡頭；預設警告，`staging_gate strict` 才擋），見 `references/tooling.md` §2.3.1d。
 
 **階段 5 段級核准**：階段 5 核准會記每段指紋。核准後只改了部分段 → 只有改過的段（含新增／刪除的段）待重審，沒改的段保持核准、照樣可送件（`h3d submit`／`h3d run` 自動跳過或拒送待重審段）；改過的段一律人工重審：`build_stage_review.py --project-dir . --stage 5 --segments X,Y` 產重審頁 → 使用者通過後 `h3d approve --stage 5 --segments X,Y --user-note "<使用者原話>"`，**不得用 `--auto`**。已有影片的段被改會出現在 `h3d deps --status` 的 stale（`prompt_stale`）。舊快照或共用部分（分段檔外殼、未綁段的 ack、前置階段）變了仍要整份重審。詳見 `references/tooling.md` §2.6。
 純文字草稿可按指定範圍交付，不必推進到媒體生成：用 `h3d decide delivery_scope script-only|storyboard-only|prompts-only|full --quote "<使用者原話>"` 定案交付終點（沒定案＝全流程），`h3d next` 到終點就回報 done；`no_image` 時階段 2 只要求文字設定卡。注意：`no_image` 只解除階段 2，階段 4 以後仍要求構圖圖，終點要在階段 3 以前或另行決定。八階段的產出與 HTML 審核頁對照見 `references/skill-guide.md`「八階段流程與 HTML 斷點」，
