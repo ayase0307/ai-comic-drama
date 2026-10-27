@@ -35,6 +35,7 @@ from project_state import initial_state, save_state
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "adapt"))
 from series_format import LONGFORM, SHORT, SHORT_EPISODE_DEFAULT_SECONDS  # noqa: E402
+from project_ids import is_valid_project_id, slugify_project as _slugify_project  # noqa: E402
 
 PROJECT_TEMPLATE = """# {title}
 
@@ -165,6 +166,16 @@ ADAPT_README = "改編 stage 的產物（handoff JSON 與改編紀錄）放這�
 SCRIPTS_DIR = Path(__file__).resolve().parent  # 技能的 scripts 目錄（絕對路徑，指令可在任何位置執行）
 
 
+def cd_command(root: Path, platform: str | None = None) -> str:
+    """切到專案目錄的指令：Windows 給 PowerShell（Set-Location -LiteralPath），其他系統給 POSIX cd。
+
+    以前一律印 PowerShell 語法，在 macOS／Linux 照抄會失敗。"""
+    plat = platform if platform is not None else sys.platform
+    if plat.startswith("win"):
+        return f'Set-Location -LiteralPath "{root}"'
+    return 'cd ' + "'" + str(root).replace("'", "'\\''") + "'"
+
+
 def flow_hint(root: Path) -> str:
     """Generate a stage-targeted workflow using parser-verified CLI options."""
     storyboard = SCRIPTS_DIR / "storyboard"
@@ -174,19 +185,19 @@ def flow_hint(root: Path) -> str:
     layer2 = root / "layer2"
 
     return f"""使用方式（從指定交付目標開始，不要求跑完整出片流程）：
-  專案目錄：Set-Location -LiteralPath "{root}"
+  專案目錄：{cd_command(root)}
   開工規則：每次開工先跑 python "{SCRIPTS_DIR / 'h3d.py'}" next --root "{root}"，照它印的唯一一條指令做；使用者定案一律用 h3d decide 寫進 decisions.json；不准手改 review/project-state.json。
   先依使用者要求選擇要交付的階段。若使用者只要文字劇本或分鏡，可交付 draft，不必生成圖片/影片；已提供的 brief、模型、參數沿用，不重問。文字規劃、圖片生成、影片生成是不同能力層，只有目前 Agent/本機後端確實提供相應工具時才執行媒體生成。
 
   完整生成路徑前置（stage 0–3；逐階段審核，不可跳過未完成的前置核准）：
     - Stage 0 定調：完成 project.md；產生 review 頁：python "{build_review}" --project-dir "{root}" --stage 0
-    - 使用者核准 stage 0 後記錄：python "{build_review}" --project-dir "{root}" --approve-stage 0
+    - 使用者核准 stage 0 後記錄：python "{build_review}" --project-dir "{root}" --approve-stage 0 --user-note "<使用者原話>"
     - Stage 1 改編：準備 adapt/source.json、adapt/bible.json、角色設定與故事大綱（適用時）；產生 review 頁：python "{build_review}" --project-dir "{root}" --stage 1
-    - 使用者核准 stage 1 後記錄：python "{build_review}" --project-dir "{root}" --approve-stage 1
+    - 使用者核准 stage 1 後記錄：python "{build_review}" --project-dir "{root}" --approve-stage 1 --user-note "<使用者原話>"
     - Stage 2 資產：準備 assets.md 與所需角色/場景設定圖；產生 review 頁：python "{build_review}" --project-dir "{root}" --stage 2
-    - 使用者核准 stage 2 後記錄：python "{build_review}" --project-dir "{root}" --approve-stage 2
+    - 使用者核准 stage 2 後記錄：python "{build_review}" --project-dir "{root}" --approve-stage 2 --user-note "<使用者原話>"
     - Stage 3 劇本：準備 script-ep01.md、handoff-ep01.json 與 adaptation-diff.md；產生 review 頁：python "{build_review}" --project-dir "{root}" --stage 3
-    - 使用者核准 stage 3 後記錄：python "{build_review}" --project-dir "{root}" --approve-stage 3
+    - 使用者核准 stage 3 後記錄：python "{build_review}" --project-dir "{root}" --approve-stage 3 --user-note "<使用者原話>"
     - 只要求文字 draft 時，可在指定交付階段停止；不得代替使用者記錄核准，也不必為了完整流程生成圖片/影片。
 
   分鏡（stage 4）：
@@ -194,7 +205,7 @@ def flow_hint(root: Path) -> str:
     - 結構檢查與企劃時間表：python "{storyboard / 'layer2_to_table.py'}" "{layer2}" --check --md storyboard-ep01.md --timeline timeline-plan-ep01.csv
     - 構圖圖可用已連線的 Qwen 工具、手繪或其他可用圖像工具；每張圖需對應 shot_id，放在該鏡 sketch_file 或 panels/panel-NN-SHOT.png，再由 review 頁檢查。Qwen 3x3 可選：python "{storyboard / 'qwen_storyboard_grid.py'}" --layer2-dir "{layer2}" --generate-all --assemble-grid
     - 產生審核頁：python "{build_review}" --project-dir "{root}" --stage 4
-    - 只有使用者明確核准該 review 後才記錄：python "{build_review}" --project-dir "{root}" --approve-stage 4
+    - 只有使用者明確核准該 review 後才記錄：python "{build_review}" --project-dir "{root}" --approve-stage 4 --user-note "<使用者原話>"
     - 分鏡文字 draft 可在此交付，不需為了取得分鏡而送生成任務。
 
   H3 提示詞（stage 5）：
@@ -221,8 +232,8 @@ DEFAULT_GENRE = "healing_literary"  # 沒指定 --genre 時的相容預設；請
 
 
 def slugify_project(name: str) -> str:
-    """把資料夾名轉成 handoff 的 project_id（kebab-case）。"""
-    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "project"
+    """把資料夾名轉成 handoff 的 project_id（kebab-case）；中文名改用 project-<雜湊>，不再全部撞成 project。"""
+    return _slugify_project(name)
 
 
 def source_stub(title: str, genre: str = DEFAULT_GENRE) -> dict:
@@ -283,9 +294,18 @@ def bible_stub(project_id: str, genre: str = DEFAULT_GENRE) -> dict:
     }
 
 
+HANDOFF_ASPECTS = ("9:16", "16:9")  # handoff.schema.json 的 enum；其餘比例寫 other
+DEFAULT_ASPECT = "9:16"  # 舊版寫死的值；沒給 --aspect-ratio 時沿用（相容）
+
+
+def handoff_aspect(aspect: str) -> str:
+    aspect = str(aspect or "").strip().replace("：", ":")
+    return aspect if aspect in HANDOFF_ASPECTS else "other"
+
+
 def handoff_stub(project_id: str, episode: int, series_format: str = LONGFORM,
                  episode_seconds: float = SHORT_EPISODE_DEFAULT_SECONDS,
-                 genre: str = DEFAULT_GENRE) -> dict:
+                 genre: str = DEFAULT_GENRE, aspect_ratio: str = DEFAULT_ASPECT) -> dict:
     """最小結構 stub：必要欄位齊全、enum 取合法值，但內容皆為待填。
     長篇漫劇（預設）不寫 target_duration_seconds（沒有單集秒數）；短劇短集才寫單集目標秒數。"""
     tag = f"EP{episode:02d}"
@@ -333,7 +353,7 @@ def handoff_stub(project_id: str, episode: int, series_format: str = LONGFORM,
         "rights_status": "unconfirmed",
         "adaptation_mode": "balanced",
         "genre_mode": genre,
-        "aspect_ratio": "9:16",
+        "aspect_ratio": handoff_aspect(aspect_ratio),
         "target_medium": "ai_animation",
         "episodes": [episode_entry],
     }
@@ -385,13 +405,24 @@ def plan_section(series_format: str, episodes: int) -> str:
     return LONGFORM_PLAN
 
 
+def fill_project_md(text: str, genre: str | None = None, aspect_ratio: str | None = None) -> str:
+    """使用者在 init 時明確給了 --genre／--aspect-ratio：直接填進 project.md，不留模板選項讓人重填。"""
+    if genre:
+        text = re.sub(r"^- genre_mode：<[^\n]*>$", f"- genre_mode：{genre}", text, flags=re.M)
+    if aspect_ratio:
+        text = re.sub(r"^- aspect_ratio：<[^\n]*>$", f"- aspect_ratio：{aspect_ratio}", text, flags=re.M)
+    return text
+
+
 def build_files(title: str, episodes: int, project_id: str, series_format: str = LONGFORM,
                 episode_seconds: float = SHORT_EPISODE_DEFAULT_SECONDS,
-                genre: str = DEFAULT_GENRE) -> dict[str, str]:
+                genre: str = DEFAULT_GENRE, aspect_ratio: str | None = None,
+                genre_explicit: bool = False) -> dict[str, str]:
     files: dict[str, str] = {
-        "project.md": PROJECT_TEMPLATE.format(
+        "project.md": fill_project_md(PROJECT_TEMPLATE.format(
             title=title, format_line=format_line(series_format, episodes, episode_seconds),
             plan_section=plan_section(series_format, episodes)),
+            genre if genre_explicit else None, aspect_ratio),
         "assets.md": ASSETS_TEMPLATE,
         "adapt/README.md": ADAPT_README,
         "adapt/source.json": json.dumps(source_stub(title, genre), ensure_ascii=False, indent=2) + "\n",
@@ -404,7 +435,8 @@ def build_files(title: str, episodes: int, project_id: str, series_format: str =
         tag = f"ep{ep:02d}"
         files[f"script-{tag}.md"] = SCRIPT_TEMPLATE.format(episode=ep)
         files[f"handoff-{tag}.json"] = json.dumps(
-            handoff_stub(project_id, ep, series_format, episode_seconds, genre), ensure_ascii=False, indent=2
+            handoff_stub(project_id, ep, series_format, episode_seconds, genre,
+                         aspect_ratio or DEFAULT_ASPECT), ensure_ascii=False, indent=2
         ) + "\n"
         files[f"narration-{tag}.md"] = NARRATION_TEMPLATE.format(episode=ep)
     return files
@@ -423,17 +455,36 @@ def main() -> None:
                     help="成片形式：longform 長篇漫劇（預設）｜short 短劇短集（使用者明確選擇才用）")
     ap.add_argument("--episode-seconds", type=float, default=SHORT_EPISODE_DEFAULT_SECONDS,
                     help="短劇短集模式的單集目標秒數（預設 90；長篇模式忽略）")
-    ap.add_argument("--genre", choices=GENRES, default=DEFAULT_GENRE,
-                    help="題材（寫入 source/bible/handoff 的 genre_mode／style_mode；未指定時為 healing_literary 佔位，請依題材改）")
+    ap.add_argument("--genre", choices=GENRES, default=None,
+                    help="題材（寫入 source/bible/handoff 的 genre_mode／style_mode，並填進 project.md；"
+                         "未指定時為 healing_literary 佔位、project.md 保留選項待定調）")
+    ap.add_argument("--aspect-ratio", default=None,
+                    help="畫面比例（例：16:9）；給了就寫進 project.md 與 handoff（非 9:16／16:9 時 handoff 寫 other）。"
+                         "未指定時 handoff 沿用舊預設 9:16，定調後由 sync_script.py 依 decisions.json 對齊")
+    ap.add_argument("--project-id", default=None,
+                    help="handoff 的 project_id（小寫英數與連字號）；未指定時由資料夾名產生，中文名改用 project-<雜湊>")
     args = ap.parse_args()
+    if args.episodes < 1:
+        ap.error("--episodes 必須 ≥ 1")
+    if args.episode_seconds <= 0:
+        ap.error("--episode-seconds 必須 > 0")
+    if args.aspect_ratio is not None:
+        m = re.fullmatch(r"\s*(\d+)\s*[:：xX×]\s*(\d+)\s*", args.aspect_ratio)
+        if not m:
+            ap.error(f"--aspect-ratio 要寫成 寬:高（例如 16:9），收到 {args.aspect_ratio!r}")
+        args.aspect_ratio = f"{m.group(1)}:{m.group(2)}"
+    if args.project_id is not None and not is_valid_project_id(args.project_id):
+        ap.error(f"--project-id 只能用小寫英數與連字號（handoff.schema.json），收到 {args.project_id!r}")
 
     root = Path(args.project_dir).expanduser().resolve()
     root.mkdir(parents=True, exist_ok=True)
     for d in DIRS:
         (root / d).mkdir(exist_ok=True)
 
-    files = build_files(args.title, args.episodes, slugify_project(root.name),
-                        args.series_format, args.episode_seconds, args.genre)
+    project_id = args.project_id or slugify_project(root.name)
+    files = build_files(args.title, args.episodes, project_id,
+                        args.series_format, args.episode_seconds, args.genre or DEFAULT_GENRE,
+                        aspect_ratio=args.aspect_ratio, genre_explicit=args.genre is not None)
     created, skipped = [], []
     for name, content in files.items():
         p = root / name
