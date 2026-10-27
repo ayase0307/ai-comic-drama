@@ -511,7 +511,10 @@ def audit_segment_prompts(todo_segs: List[Dict[str, Any]], root_dir: Optional[Pa
 
         # 模式 A: 參考圖序對
         if "reference_images" in seg:
-            r_res = audit_refs_and_subjects(seg, project_root=root_dir)
+            # FreeVideo 送件端只送 Ref2VA；段落自己宣告 remix 才走 remix 審查（R7 前 remix 不由這裡送）。
+            seg_backend = ("remix" if "refmods" in seg or (seg.get("metadata") or {}).get("video_backend") == "remix"
+                           else "ref2va")
+            r_res = audit_refs_and_subjects(seg, project_root=root_dir, backend=seg_backend)
             if not r_res.get("passed", True):
                 for e in r_res.get("errors", []):
                     errors.append(f"[{sid}] 模式 A 參考圖錯誤: {e}")

@@ -1,0 +1,54 @@
+{
+  "provider": "remix",
+  "label": "REMIX Studio（家機 RefMod 角色包，Singularity ref2va V1.3 int8＋4step turbo）",
+  "updated": "2026-10-27",
+  "notes": "source=measured 是《噩盡島》ch02 在 8GB RTX 4060 Ti、H3 Singularity ref2va Pruned V1.3 int8＋4step turbo 上真的量過，違反即硬擋；docs=家機 REMIX 指南或 GET /capabilities 回報，inferred=從量測推出、未直接觀察，兩者只警告。其他顯存、其他底模（含 v0.8）都沒量過。frames 的權威常數在 h3_spec.PROVIDER_FRAME_SPECS，本檔只鏡像。",
+  "measured_on": {"gpu": "RTX 4060 Ti 8GB", "model": "Singularity ref2va Pruned V1.3 int8 + 4step turbo", "project": "噩盡島 ch02 EP04"},
+  "fps": {"value": 24, "source": "measured", "note": "175 幀＝7.29s"},
+  "seconds": {"min": 2, "max": 10.125, "source": "docs"},
+  "frames": {
+    "min": 56,
+    "max": 243,
+    "quantum": "17n+5",
+    "rounding": "floor",
+    "source": "docs",
+    "rounding_source": "measured",
+    "note": "伺服器往下取 17n+5（measured：5.5s → 124 幀，job 1026155645-b9e8），與 FreeVideo 往上取相反。56–243 由秒數 2–10.125（docs）換算：56 是 ≥2s 的最小量子（推定；2s 往下取會得 39 幀，是否被接受未驗證）。"
+  },
+  "aspects": {
+    "value": ["1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9", "21:9"],
+    "source": "docs",
+    "note": "本專案只量過 16:9"
+  },
+  "max_refmods": {"value": 8, "source": "docs", "note": "GET /capabilities 的 refmods_max"},
+  "practical_pack_cap_by_vram": {
+    "8GB": {
+      "ok": 4,
+      "slow": 5,
+      "fail": 6,
+      "source": "measured",
+      "ok_source": "measured",
+      "slow_source": "measured",
+      "fail_source": "inferred",
+      "slow_evidence": "draft 實測 726／1658／1924 s，另 1 抽 57 分逾時；建議先用 single480 抽卡（273／294 s）",
+      "fail_evidence": "6 包 draft 一抽（job 1027005738-caab）63 分逾時、沒有產出；逾時是 measured，「爆顯存」是推定",
+      "modes_tested": {"4": ["draft", "fast", "single480"], "5": ["draft", "fast", "single480"], "6": ["draft"]},
+      "note": "含場景包。4 包：draft 14 抽、fast 2 抽、single480 5 抽全部完成。5 包：draft 3 成功＋1 抽 57 分逾時（726／1658／1924 s），fast 460／482 s，single480 273／294 s。6 包只試過 1 抽 draft（job 1027005738-caab），63 分逾時、沒有產出；逾時是 measured，「爆顯存（OOM）」是推定，fast／single480 的 6 包沒試過，所以 fail 等級標 inferred。"
+    }
+  },
+  "modes": {
+    "value": ["draft", "refine", "detail", "fast", "standard", "high", "ultra", "single480", "single720"],
+    "measured": ["draft", "fast", "standard", "single480", "single720"],
+    "single": ["single480", "single720"],
+    "source": "docs",
+    "note": "refine／detail／high／ultra 本專案沒跑過；detail 構圖會變（docs）"
+  },
+  "steps": {"min": 2, "max": 10, "default": 4, "only_modes": ["single480", "single720"], "source": "docs"},
+  "continue_from": {"value": true, "unsupported_modes": ["single480", "single720"], "source": "docs"},
+  "requires_project": {"value": true, "source": "measured", "note": "POST /packs、/jobs 不帶 project 回 400 project_required"},
+  "negative_field": {"value": false, "source": "docs", "note": "/jobs 沒有 negative 欄位；風格只能靠提示詞開頭錨句＋Style lock＋場景包（audit E55）"},
+  "first_frame": {"value": false, "source": "docs", "note": "v0.8 時期 generate.first_frame:false；換 V1.3 後沒查"},
+  "loras": {"fixed_ids": ["weapon", "melee", "motion_repair", "realism", "cinematic", "speed"], "max_total_weight": 1.8, "weight_excludes": ["speed"], "source": "docs"},
+  "ref_dedup": {"value": true, "source": "measured", "note": "同一個 ref 會直接回舊 job；每抽要重新產生 ref"},
+  "tags": {"value": {"Picture": "單圖包（場景）", "Video": "多圖包（演員 4 張、生物、2 張以上的道具）"}, "source": "docs", "note": "tag 看圖片張數不看 kind（measured：2 張圖的 prop 包 tag=Video）；兩種標籤各自從 1 編號"}
+}

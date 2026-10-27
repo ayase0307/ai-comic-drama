@@ -78,7 +78,7 @@
         "id": {
           "type": "string",
           "minLength": 1,
-          "description": "已知：style、series_format（longform 預設／short 需使用者明確選擇）、aspect_ratio、dialogue_policy、design_engine、acceptance_policy、edit_method、auto_approve；角色音色用 voice:<角色id>（只能 by=user）；也可自訂"
+          "description": "已知：style、series_format（longform 預設／short 需使用者明確選擇）、aspect_ratio、dialogue_policy、design_engine、acceptance_policy、edit_method、auto_approve、delivery_scope、video_backend（ref2va 預設／remix）、remix_pack_cap（1–8，只能加嚴）、style_anchor；角色音色用 voice:<角色id>（只能 by=user）；也可自訂"
         },
         "rule": {
           "type": "string",
@@ -186,6 +186,63 @@
             },
             "description": "每個角色的音色定案永遠要使用者本人決定"
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "id": {
+                "const": "video_backend"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "enum": [
+                  "ref2va",
+                  "remix"
+                ]
+              }
+            }
+          },
+          "description": "影片生成路線；沒定案＝ref2va"
+        },
+        {
+          "if": {
+            "properties": {
+              "id": {
+                "const": "remix_pack_cap"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 8
+              }
+            }
+          },
+          "description": "REMIX 每段包數上限（含場景）；只能比能力表嚴，8＝伺服器 refmods_max"
+        },
+        {
+          "if": {
+            "properties": {
+              "id": {
+                "const": "style_anchor"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "description": "英文影片風格錨句；remix 提示詞開頭必須一致（audit E55）"
         }
       ]
     },

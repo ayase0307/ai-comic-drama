@@ -165,6 +165,71 @@ python scripts/h3d.py bind --root .
 - `h3d next` 在階段 5 發現沒有 bindings、或任一 layer2 在綁定後被改（`source_sha256` 不符）時，會先帶出 `h3d bind`，之後才給 compile 指令。
 - 尚未處理：道具、身體細節與音色母帶 `audio_references` 不自動綁，需要時手寫進 bindings（重產會保留）。
 
+### 2.3.1c REMIX 角色包 backend（`video_backend: remix`，PR-R1～R3）
+
+> **量測範圍**：以下 measured 全部只在 **8 GB RTX 4060 Ti、H3 Singularity ref2va Pruned V1.3 int8＋4step turbo**（家機 REMIX Studio，《噩盡島》ch02 EP04）上量過；其他顯存、其他底模（含早期 v0.8）都沒量。證據等級：**measured**＝本專案實跑、**docs**＝家機指南或 `GET /capabilities`、**inferred**＝從量測推出。
+
+**不刪、不改 Ref2VA。** 新增定案 `video_backend`（`ref2va`＝預設、現行門禁全部照舊；`remix`＝家機 REMIX Studio＋RefMod 角色包）：
+
+```
+python scripts/h3d.py decide video_backend remix --quote "<使用者原話>" --root .
+python scripts/h3d.py decide remix_pack_cap 4 --quote "<原話>" --root .        # 選填：每段包數上限，只能加嚴（1–8）
+python scripts/h3d.py decide style_anchor "<英文錨句>" --quote "<原話>" --root .  # remix 必要（E55）
+```
+
+**能力表 `scripts/storyboard/providers/remix.json`**（`provider_caps.py` 讀；與 `h3_spec.PROVIDER_FRAME_SPECS` 對帳）：
+
+| 欄位 | 值 | 等級 |
+|---|---|---|
+| fps | 24（175 幀＝7.29 s） | measured |
+| 秒數 → 幀 | 17n+5 **往下取**（5.5 s → 124 幀）；FreeVideo 是往上取 | measured |
+| seconds／frames | 2–10.125 s；56–243 幀（56＝≥2 s 的最小量子，推定） | docs |
+| aspects | 1:1、2:3、3:2、3:4、4:3、9:16、16:9、21:9（只量過 16:9） | docs |
+| max_refmods | 8（`refmods_max`） | docs |
+| 每段包數（含場景，8GB） | ok 4（measured）／slow 5（measured：draft 726–1924 s、1 抽 57 分逾時）／fail 6（**inferred**：只有 1 抽 draft 63 分逾時沒產出；逾時是 measured、OOM 是推定，fast／single480 沒試） | 分級各自標 |
+| modes | draft／refine／detail／fast／standard／high／ultra／single480／single720；本專案只跑過 draft、fast、standard、single480、single720 | docs |
+| steps | 2–10（預設 4），只限 single480／single720 | docs |
+| continue_from | single 模式不支援 | docs |
+| requires_project | 必帶 `project`（不帶回 400 `project_required`） | measured |
+| negative_field | 沒有 negative 欄位 → 風格只能靠提示詞開頭錨句（E55） | docs |
+| first_frame | 沒有首幀輸入（v0.8 時期紀錄，V1.3 沒查） | docs |
+| ref_dedup | 同一個 `ref` 直接回舊 job | measured |
+| tag | 單圖包 `<Picture N>`、多圖包 `<Video N>`，各自從 1 編號；tag 看圖片張數不看 kind（2 張圖的道具包是 Video） | docs＋measured |
+
+`--check`／送件前：measured 違反就擋，其餘只警告。**6 包**刻意只給強烈警告（fail 證據只有一抽 draft 逾時、OOM 推定），要擋就定 `remix_pack_cap`；專案上限只會多擋、不會放行任何預設會擋的東西。`h3_spec.server_frames(seconds, provider)` 依 provider 往上／往下取；編譯器送 `frames/24` 精確值，兩邊都落在同一個量子。
+
+**綁定（`h3d bind`，remix 分支）**：讀 `assets/character-packs.json`（必填）：
+
+```json
+{"packs": {"S-alley": {"default": "ejin3_scene_alley", "tag": "Picture", "kind": "scene"},
+           "C-lai": {"default": "ejin3_laiyixin", "tag": "Video", "kind": "actor",
+                     "costumes": {"W02dirty": {"pack": "ejin3_lai_w02dirty"}}},
+           "P-spear": "ejin3_prop_spear"},
+ "waivers": {"EP04-S01-a": [{"id": "P-spear", "reason": "6 包逾時，改文字", "quote": "<使用者原話>"}]}}
+```
+
+- 產出 `video-bindings.json`：頂層 `video_backend: "remix"`＋`packs`；段層 `refmods`（順序＝標籤順序：**場景第一**、演員、最後生物／道具／群眾，每項帶 `pack`／`tag`／`kind`／`label`／`costume_id`／`variant_of`…）、`pack_waivers`（必附使用者原話）、`positions`（`[{id, order_lr, axis_side, facing}]`，手寫保留，給 R6 站位閘門）；逐鏡只有 `visual_subject_ids`／`no_visual_reference_ids`／`pack_ids`。
+- **不產生** `face_subject_ids`／`identity_anchor_ids`／`reference_view`／`panel_label_en`；舊綁定或計畫表寫了只警告「remix 不使用」，重產時拿掉。
+- 在場角色／生物／群眾、場景、`asset_refs.props` 沒有包也沒有豁免 → 列出缺口（換服裝＝換包，沒登記變體不退回預設包）、**不寫任何檔案**。`h3d pack build` 尚未提供（PR-R8），先在家機建包、回讀確認後寫進計畫表。沒寫 `tag` 時依 kind 推定並警告。
+- `--backend ref2va|remix` 可覆蓋定案。
+
+**編譯**：`compile_layer2_to_h3.py` 只產 Ref2VA 六段式；看到 remix 綁定會**明確拒絕**（REMIX 三欄輸出是 PR-R5），單臉模式因此只在 ref2va 執行。
+
+**審查（`audit_refs_and_segments.py`，依 backend 分支）**：backend 判定順序＝`--backend` > 段落 `metadata.video_backend` > 段落帶 `refmods` > `--project-root` 的 decisions > ref2va。
+
+| 門禁 | ref2va（不動） | remix |
+|---|---|---|
+| E19 未錨定在場人物 | 擋 | 改 **E50 具名角色沒有包**（最小版：看段落的在場名單；提示詞文字比對＝R4 refcheck） |
+| E20 多視圖板、E26 non_face 缺圖、E27 panel 缺格位 | 擋 | 跳過 |
+| E21 無參考群眾 | 擋 | 保留，cue 另加 students／people／classmates／others（`as tall as the others` 這類比例錨不算）；有 `kind: extras` 包才放行 |
+| 混臉／單段多張角色圖警告 | 警告 | 關閉，改 **E54 包數**（能力表分級；`remix_pack_cap` 超過才擋） |
+| `<Subject k>`↔`<Picture k+1>`、圖 ≤9／總 ≤12、主角前 5 名 | 擋 | 改 **E52**：`<Picture N>`／`<Video N>` 各自編號對 refmods tag；每個標籤都要有包、每個包都要被引用、`label` 要和順序一致；**E53** 場景包第一 |
+| E22–E25、E43／E44 | 擋 | 照用（讀 `integrated_multimodal_description`） |
+| E28 14 號風格 | 擋 | 照用（參考看 refmods） |
+| — | — | **E55** `integrated_multimodal_description` 開頭≠風格錨（段落 `metadata.style_anchor_en` > 定案 `style_anchor` > 14 號固定錨；都沒有也擋） |
+
+`lint_h3_prompt(..., backend="remix")` 的必填區塊改成三欄 `integrated_multimodal_description`／`overall_soundscape`／`non_diegetic_music`，其餘規則照用。尚未做：refcheck（R4）、REMIX 提示詞輸出（R5）、站位閘門（R6）、送件 adapter（R7）、`h3d pack`（R8）、single480 抽卡流程（R9）、verdict／失敗目錄（R10）。
+
 ### 2.3.2 全集 `segments-all.json` 怎麼產
 
 多集專案要一份 `segments-all.json`（階段 5 快照納入，階段 6 門禁用它確認每集的片段都在）。產法：把**全部** layer2 一次編譯，輸出檔名指定為 `segments-all.json`：
@@ -330,6 +395,10 @@ python scripts/sync_h3_reference.py --sync --write-manifest   # 同步並更新�
 - `measured`：本機真的量過 → 違反是**硬錯誤**
 - `docs`：官方文件或考證 → 只警告
 - `assumed`：未驗證 → 只警告
+
+另有 `providers/remix.json`（REMIX 角色包，見 §2.3.1c）：多了 `seconds`、`frames.rounding`（floor）、`max_refmods`、
+`practical_pack_cap_by_vram`（ok／slow／fail 各自標等級）、`modes`、`steps`、`continue_from`、`requires_project`、
+`negative_field`、`first_frame`、`loras`、`ref_dedup`、`tags`；`consistency_warnings` 依 `provider` 對照 `h3_spec.PROVIDER_FRAME_SPECS`。
 
 送件前會印出能力摘要；與 `h3_spec.py` 常數不一致時會提醒更新。**專案覆寫只能加嚴、不能降級**
 （把 `enforce=error` 改成 warning 會直接報錯）。

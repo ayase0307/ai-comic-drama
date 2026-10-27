@@ -114,12 +114,19 @@ def forbidden_hits(text: str) -> List[str]:
     return sorted({m.group(0) for m in _FORBIDDEN_RE.finditer(text or "")})
 
 
-def segment_errors(seg: Dict[str, Any], prompt_text: str = "") -> List[str]:
-    """style=14 下的段落檢查（audit E28）。"""
+def segment_errors(seg: Dict[str, Any], prompt_text: str = "", backend: str = "ref2va") -> List[str]:
+    """style=14 下的段落檢查（audit E28）。
+
+    backend=remix（PR-R3）：參考看 refmods（角色包），提示詞引用 <Picture N> 或 <Video N> 都算。
+    """
     errors: List[str] = []
-    refs = [r for r in seg.get("reference_images") or []
-            if (isinstance(r, dict) and str(r.get("path") or "").strip()) or (isinstance(r, str) and r.strip())]
-    has_picture = bool(refs) and ("<Picture" in prompt_text if prompt_text else True)
+    if backend == "remix":
+        refs = [r for r in seg.get("refmods") or [] if isinstance(r, dict) and str(r.get("pack") or "").strip()]
+        has_picture = bool(refs) and (("<Picture" in prompt_text or "<Video" in prompt_text) if prompt_text else True)
+    else:
+        refs = [r for r in seg.get("reference_images") or []
+                if (isinstance(r, dict) and str(r.get("path") or "").strip()) or (isinstance(r, str) and r.strip())]
+        has_picture = bool(refs) and ("<Picture" in prompt_text if prompt_text else True)
     if not has_picture:
         errors.append(
             "[E28: 14 號風格段落沒有參考圖] 「古風寫實厚塗・電影感」下每段至少要綁一張設定圖或場景圖（<Picture N>）；"

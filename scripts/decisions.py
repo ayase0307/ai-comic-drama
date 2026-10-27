@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -78,7 +79,24 @@ KNOWN_DECISIONS: Dict[str, Dict[str, Any]] = {
     # 選填：沒定案就是全流程。required_by=99：不擋路，`h3d next` 依 end_stage 回報 done。
     "delivery_scope": {"label": "交付範圍（script-only／storyboard-only／prompts-only／full，或不生圖／影片）",
                        "stages": [0, 2, 6, 7], "required_by": 99, "reference": "references/pipeline.md"},
+    # 選填：影片生成路線（PR-R1）。ref2va＝FreeVideo／H3 Ref2VA 單人裁切（預設，現行門禁全部照舊）；
+    # remix＝家機 REMIX Studio＋RefMod 角色包（bindings 綁包名、audit 依 backend 分支）。
+    # required_by=99：沒定案就是 ref2va，不擋路。
+    "video_backend": {"label": "影片生成路線（ref2va 預設／remix 角色包）", "stages": [5, 6],
+                      "required_by": 99, "reference": "references/tooling.md"},
+    # 選填：remix 每段包數（含場景）的專案上限，只能比能力表更嚴（1–8，8＝伺服器 refmods_max）。
+    "remix_pack_cap": {"label": "REMIX 每段包數上限（含場景，只能加嚴）", "stages": [5, 6],
+                       "required_by": 99, "reference": "references/tooling.md"},
+    # 選填：英文影片風格錨句。remix 沒有 negative 欄位，提示詞開頭必須是這句（audit E55）。
+    "style_anchor": {"label": "影片風格錨句（英文；remix 提示詞開頭必須一致）", "stages": [5, 6],
+                     "required_by": 99, "reference": "references/styles.md"},
 }
+
+VIDEO_BACKENDS = ("ref2va", "remix")
+DEFAULT_VIDEO_BACKEND = "ref2va"
+# 與 scripts/storyboard/providers/remix.json 的 max_refmods（GET /capabilities refmods_max）一致；
+# tests/test_remix_backend.py 會對帳。
+REMIX_MAX_REFMODS = 8
 
 # 交付範圍：只寫需要的 key；沒定案＝全流程（end_stage 7、要圖要影片）。
 # 文字草稿可交付：script-only（終點 3）、storyboard-only（終點 4）、prompts-only（終點 5）。
@@ -206,6 +224,14 @@ def validate(data: Any) -> List[str]:
             errors.extend(validate_auto_approve(item["value"]))
         if did == "delivery_scope" and "value" in item:
             errors.extend(validate_delivery_scope(item["value"]))
+        if did == "video_backend" and "value" in item and item["value"] not in VIDEO_BACKENDS:
+            errors.append(f"video_backend 只能是 {'／'.join(VIDEO_BACKENDS)}（收到 {item['value']!r}）")
+        if did == "remix_pack_cap" and "value" in item:
+            cap = item["value"]
+            if not isinstance(cap, int) or isinstance(cap, bool) or not 1 <= cap <= REMIX_MAX_REFMODS:
+                errors.append(f"remix_pack_cap 必須是 1–{REMIX_MAX_REFMODS} 的整數（只能加嚴，不可超過伺服器上限；收到 {cap!r}）")
+        if did == "style_anchor" and "value" in item and (not isinstance(item["value"], str) or not item["value"].strip()):
+            errors.append("style_anchor 必須是非空的英文錨句")
         if isinstance(did, str) and did.startswith(VOICE_PREFIX) and isinstance(source, dict) \
                 and source.get("by", "user") != "user":
             errors.append(f"{where}: 音色定案 {did} 只能由使用者本人決定（source.by 必須是 user）")
@@ -253,6 +279,42 @@ def delivery_scope(root: Path) -> Dict[str, Any]:
     return dict(val) if isinstance(val, dict) else {}
 
 
+def video_backend(root: Optional[Path]) -> str:
+    """專案的影片生成路線；沒定案（或讀不到 decisions.json）回 ref2va，維持現行行為。"""
+    if root is None:
+        return DEFAULT_VIDEO_BACKEND
+    try:
+        item = get(load(Path(root)), "video_backend")
+    except DecisionError:
+        return DEFAULT_VIDEO_BACKEND
+    value = (item or {}).get("value")
+    return value if value in VIDEO_BACKENDS else DEFAULT_VIDEO_BACKEND
+
+
+def remix_pack_cap(root: Optional[Path]) -> Optional[int]:
+    """專案定的 remix 每段包數上限；沒定案回 None。"""
+    if root is None:
+        return None
+    try:
+        item = get(load(Path(root)), "remix_pack_cap")
+    except DecisionError:
+        return None
+    value = (item or {}).get("value")
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def style_anchor(root: Optional[Path]) -> Optional[str]:
+    """使用者定案的英文影片風格錨句；沒定案回 None。"""
+    if root is None:
+        return None
+    try:
+        item = get(load(Path(root)), "style_anchor")
+    except DecisionError:
+        return None
+    value = (item or {}).get("value")
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
 def auto_approve_stages(data: Dict[str, Any]) -> Tuple[List[int], Optional[Dict[str, Any]]]:
     """回傳 (使用者授權自動核准的階段, 該條定案)。沒有定案回傳 ([], None)。"""
     item = get(data, "auto_approve")
@@ -296,6 +358,11 @@ def parse_value(decision_id: str, raw: str) -> Any:
         return dict(RECOMMENDED_ACCEPTANCE_POLICY)
     if decision_id == "style" and raw.strip().lower() in ("recommended", "建議", "照建議", "預設", "default"):
         return RECOMMENDED_STYLE
+    if decision_id == "video_backend":
+        text = raw.strip().lower()
+        return {"角色卡": "remix", "ref2va": "ref2va", "remix": "remix"}.get(text, raw.strip())
+    if decision_id == "remix_pack_cap" and re.fullmatch(r"-?\d+", raw.strip()):
+        return int(raw.strip())
     if decision_id == "delivery_scope" and raw.strip() in DELIVERY_PRESETS:
         return dict(DELIVERY_PRESETS[raw.strip()])
     if decision_id == "auto_approve":
