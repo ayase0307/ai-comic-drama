@@ -69,6 +69,7 @@ python scripts/h3d.py deps --root . --status --strict
 - `prompt_stale`：分鏡改了但提示詞沒重編
 - `video_older_than_prompt`：影片比提示詞舊（改了稿沒重跑）
 - `video_missing`：記過影片、現在不見了
+- `prompt_stale`＋`stage5_pending_review`：階段 5 段級核准後被改、已有影片的段（不需先 `--record`，見 §2.6 段級核准）
 
 只報「哪幾段要重跑」，**不會自動重簽核准**。
 
@@ -240,6 +241,18 @@ python scripts/h3d.py compile --layer2 layer2/ --bible video-bible.json --bindin
   階段 7 另需：每個有畫外台詞的角色都有使用者本人定的 `voice:<角色>`（`--by user_delegated` 會被拒）。
 - 核准走 `project_state.approve_stage_detailed`（正門），依據（政策 id、原話、verdicts 分類）寫進該階段的 `auto_approval`／`auto_approval_history`。
 - `h3d next` 在符合條件時會直接指示 `h3d approve --auto --stage N`。
+
+**階段 5 段級核准（PR-19a）**
+
+- 階段 5 核准（人工或自動）時，`project-state.json` 的 stage-5 另記 `approval_segments`：每段指紋＝段 JSON＋它掛的參考圖檔 hash＋涵蓋本段的 catalog ack；`shared`＝分段檔外殼（去掉段清單後的欄位）、檔案清單、未綁段的 ack、其他快照產物。
+- 核准後只改了部分段，`h3d next`／`h3d status` 會列「stage-5 有 N 段核准後變了、待人工重審：…（其餘 M 段仍核准、可送件）」：
+  - **送件閘門**：`h3d submit` 只送已核准且未變的段（批次自動跳過待重審段並列出；`--segment-id` 指到待重審段直接拒送）；`h3d run` 計畫含待重審段就停下（結束碼 1），用 `--only` 只跑已核准段。
+  - **重審**：`build_stage_review.py --project-dir . --stage 5 --segments X,Y`（或 `all`）產 `review/stage-5-prompts-rereview.html`，只列這些段、綁當下段指紋，不改階段狀態；使用者明確通過後 `h3d approve --stage 5 --segments X,Y --user-note "<使用者原話>"`（也可寫 `h3d approve 5 --segments ...`）。重審頁產出後段又改了就要重產。新核准走 strict 檢查，但只看這些段自己的錯誤；全部待重審段都核准後，整個階段 5 回到有效核准（快照換成現況，下游階段 6 核准隨之需重審）。
+  - **改過的段一律人工**：`h3d approve --auto` 遇到待重審段一律擋下；`--segments` 不能搭配 `--auto`。
+  - **刪除的段**也列待重審（重審＝確認刪除）；把改動改回原樣就自動恢復核准。
+  - **deps**：待重審段若已有 `videos/<段>.mp4`，`h3d deps --status` 一律列入 stale（`prompt_stale`、`stage5_pending_review`），不需先 `--record`。
+- 退回整份重審的情況：舊快照沒有 `approval_segments`（行為照舊）、`shared` 變了、前置階段（0–4）核准失效或版本變了、不屬於任何待重審段的產物檢查錯誤。
+- 已核准段的重新驗證不加新檢查（strict 只在 `h3d next`／新核准／自動核准）。
 
 **舊結論轉換**：`h3d verdict import <conclusions-*.json…> --root . [--dry-run] [--keep-unknown] [--overwrite] [--no-issues]`
 把「segment_id → 一句中文結論」轉成 verdicts.json：✅→pass、✅（附註）／⚠️→warn、❌→fail；`_老大裁示_*` 物件裡的段落記成 `decided_by=user`；

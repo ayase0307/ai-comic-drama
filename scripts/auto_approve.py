@@ -121,6 +121,13 @@ def evaluate(root: Path, stage: Optional[int] = None) -> Dict[str, Any]:
         basis["voices"] = {c: _policy_ref(voiced[c]) for c in speakers if c in voiced}
         policies.extend(_policy_ref(voiced[c]) for c in speakers if c in voiced)
 
+    if stage == 5:
+        # PR-19a：段級核准後改過的段一律人工重審，自動核准不碰。
+        review = ps.stage5_segment_review(root)
+        if review["mode"] == "partial":
+            blockers.append("階段 5 有核准後改過的段，一律人工重審（不自動核准）："
+                            + "、".join(review["pending"][:12])
+                            + f"；h3d approve --stage 5 --segments {','.join(review['pending'][:12])} --user-note \"<使用者原話>\"")
     entry = state["stages"][ps.stage_key(stage)]
     if not blockers:
         errors = (ps.stage_validation_errors(root, stage, allow_technical=True) if stage == 6
@@ -167,14 +174,36 @@ def main(argv: Optional[List[str]] = None) -> int:
         description="自動核准：沒有未決卡且符合 decisions.json 政策時核准並記錄依據（只支援 --auto）",
         epilog="人工核准請照 h3d next 指示用 build_stage_review.py --approve-stage N --user-note \"<使用者原話>\"",
     )
-    parser.add_argument("--auto", action="store_true", help="自動核准（必填；人工核准不走這裡）")
+    parser.add_argument("stage_pos", nargs="?", type=int, choices=range(8), metavar="STAGE",
+                        help="（選填）階段編號，等同 --stage")
+    parser.add_argument("--auto", action="store_true", help="自動核准（人工段級重審用 --segments）")
     parser.add_argument("--stage", type=int, choices=range(8), help="指定階段；預設為第一個未有效核准的階段")
+    parser.add_argument("--segments", default=None,
+                        help="僅階段 5：人工重審核准後改過的段（逗號分隔，或 all＝全部待重審段）；必附 --user-note")
+    parser.add_argument("--user-note", default=None, help="搭配 --segments：使用者原話（不得代填）")
     parser.add_argument("--dry-run", action="store_true", help="只判斷能不能自動核准，不寫檔")
     parser.add_argument("--root", type=Path, default=Path("."), help="專案根目錄")
     parser.add_argument("--json", action="store_true", help="以 JSON 輸出")
     args = parser.parse_args(argv)
+    if args.stage is None and args.stage_pos is not None:
+        args.stage = args.stage_pos
+    if args.segments is not None:
+        if args.auto:
+            print("❌ 改過的段一律人工重審：--segments 不能搭配 --auto。", file=sys.stderr)
+            return 2
+        if args.stage not in (None, 5):
+            print("❌ --segments 只適用於階段 5（段級重審）。", file=sys.stderr)
+            return 2
+        ids = "all" if args.segments.strip().lower() == "all" else [x for x in args.segments.replace("，", ",").split(",") if x.strip()]
+        ok, detail = ps.approve_stage5_segments(Path(args.root).expanduser().resolve(), ids, args.user_note or "")
+        if args.json:
+            print(json.dumps({"stage": 5, "segments": ids, "approved": ok, "detail": detail}, ensure_ascii=False, indent=2))
+        else:
+            print(("✅ " if ok else "⛔ ") + detail)
+        return 0 if ok else 1
     if not args.auto:
-        print("❌ h3d approve 只做自動核准（--auto）。人工核准：照 h3d next 用 build_stage_review.py --approve-stage。",
+        print("❌ h3d approve 只做自動核准（--auto）與階段 5 段級人工重審（--segments）。"
+              "整階段人工核准：照 h3d next 用 build_stage_review.py --approve-stage。",
               file=sys.stderr)
         return 2
     result = run(args.root, args.stage, dry_run=args.dry_run)

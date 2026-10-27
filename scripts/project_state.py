@@ -858,17 +858,28 @@ def first_unapproved(root: Path, upto: int = 7) -> tuple[int | None, str]:
     return None, "OK"
 
 
-def _stage_failure(root: Path, state: dict[str, Any], i: int) -> str | None:
-    """回傳 stage-i 不算有效核准的原因；有效則回傳 None。"""
+def _stage_failure(root: Path, state: dict[str, Any], i: int, segment_detail: bool = True) -> str | None:
+    """回傳 stage-i 不算有效核准的原因；有效則回傳 None。
+
+    stage-5 有段級快照且只有部分段變了時，原因改成列出待重審段（segment_detail=False 時不展開，
+    供 stage5_segment_review 自己呼叫，避免遞迴）。
+    """
     entry = state["stages"][stage_key(i)]
     if entry.get("status") != "approved":
         return f"stage-{i} 尚未人工核准（目前狀態: {entry.get('status', 'draft')}）"
     if not entry.get("approval_snapshot"):
         return f"stage-{i} 是舊狀態或缺少核准快照，必須重新審核"
     errors = stage_validation_errors(root, i, allow_technical=_has_override(entry))
-    if errors:
+    if errors and not (i == 5 and segment_detail and entry.get("approval_segments")):
         return f"stage-{i} 產物檢查失敗: {errors[0]}"
+    if errors:
+        review = stage5_segment_review(root)
+        return review["reason"] if review["mode"] in ("partial", "invalid") and review["reason"] else f"stage-{i} 產物檢查失敗: {errors[0]}"
     if entry["approval_snapshot"] != stage_snapshot(root, i):
+        if i == 5 and segment_detail and entry.get("approval_segments"):
+            review = stage5_segment_review(root)
+            if review["mode"] in ("partial", "invalid") and review["reason"]:
+                return review["reason"]
         return f"stage-{i} 核准後輸入或產物已變更，請重新審核"
     if i > 0:
         dependencies = entry.get("approval_dependencies", {})
@@ -940,6 +951,10 @@ def approve_stage_detailed(root: Path, stage: int, note: str = "使用者確認�
     }
     if stage > 0:
         entry["approval_stage0_scoped"] = scoped_stage0_fingerprint(root, stage)
+    if stage == 5:
+        # PR-19a：段級快照；之後只改部分段時，沒改的段保持核准。
+        entry["approval_segments"] = build_segment_approval(root, entry["approval_snapshot"])
+        entry.pop("segment_review", None)
     if override_reason is not None and technical:
         entry["override"] = {
             "reason": override_reason,
@@ -974,3 +989,311 @@ def approve_stage_detailed(root: Path, stage: int, note: str = "使用者確認�
 def approve_stage(root: Path, stage: int, note: str = "使用者確認通過",
                   override_reason: str | None = None) -> bool:
     return approve_stage_detailed(root, stage, note, override_reason)[0]
+
+
+# ---------------------------------------------------------------------------
+# PR-19a：階段 5 段級核准
+#
+# 舊快照只綁整份檔案 hash：核准後改任何一段，整個階段 5 失效、所有段都不能送件。
+# 新核准另外寫 `approval_segments`：
+#   * segments：{segment_id: 段指紋}，段指紋＝段 JSON＋它掛的參考圖檔 hash＋涵蓋這段的 ack；
+#   * shared：不屬於任何單一段的部分（分段檔外殼、檔案清單、未綁段的 ack、其他快照產物）。
+# 核准後只有部分段變了（shared 沒變、前置階段沒變）：沒變的段保持核准、可送件，
+# 變了的段（含新段、刪掉的段）列「待重審」，只能人工 `h3d approve --stage 5 --segments ...` 重審。
+# 舊快照沒有 approval_segments：行為照舊（整份比對，改了就整個重審）。
+# ---------------------------------------------------------------------------
+
+SEGMENT_APPROVAL_SCHEMA = 1
+_SEGMENT_FILE_RE = __import__("re").compile(r"^segments-(ep\d+|all)\.json$")
+
+
+def _canonical_segment_files(root: Path) -> list[Path]:
+    return sorted((p for p in root.glob("segments-*.json") if _SEGMENT_FILE_RE.match(p.name) and p.is_file()),
+                  key=lambda p: p.name)
+
+
+def _segment_items(raw: Any) -> tuple[list[dict[str, Any]], Any]:
+    """回傳 (段清單, 外殼)；外殼是檔案去掉段清單後剩下的部分。"""
+    if isinstance(raw, list):
+        return [s for s in raw if isinstance(s, dict)], "list"
+    if isinstance(raw, dict) and isinstance(raw.get("segments"), list):
+        return [s for s in raw["segments"] if isinstance(s, dict)], {k: v for k, v in raw.items() if k != "segments"}
+    if isinstance(raw, dict):
+        return [raw], "single"
+    return [], "invalid"
+
+
+def _ref_paths(seg: dict[str, Any]) -> list[str]:
+    out = []
+    for ref in seg.get("reference_images", []) or []:
+        raw = (ref.get("path") or ref.get("file")) if isinstance(ref, dict) else str(ref)
+        if raw:
+            out.append(str(raw))
+    return out
+
+
+def _load_ack_entries(root: Path) -> list[dict[str, Any]]:
+    path = root / "review" / "catalog-acks.json"
+    if not path.is_file():
+        return []
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError):
+        return [{"_unreadable": sha256_file(path)}]
+    return [a for a in (raw.get("acks", []) if isinstance(raw, dict) else []) or [] if isinstance(a, dict)]
+
+
+def segment_fingerprint(root: Path, seg: dict[str, Any], acks: list[dict[str, Any]] | None = None) -> str:
+    """一段的核准指紋：段內容＋參考圖檔內容＋涵蓋本段的 ack（id／目錄版本／綁定的提示詞 hash）。"""
+    root = Path(root)
+    sid = str(seg.get("segment_id") or "")
+    refs = {}
+    for raw in _ref_paths(seg):
+        path = _resolve(root, raw)
+        refs[raw] = sha256_file(path) if path.is_file() else None
+    acks = _load_ack_entries(root) if acks is None else acks
+    ack_part = sorted(
+        (str(a.get("id")), str(a.get("catalog_rev") or ""), str((a.get("covers") or {}).get(sid)))
+        for a in acks if isinstance(a.get("covers"), dict) and sid in a["covers"]
+    )
+    body = {"segment": seg, "refs": refs, "acks": ack_part}
+    return hashlib.sha256(json.dumps(body, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def _segment_index(root: Path) -> tuple[dict[str, dict[str, str]], dict[str, Any], set[str]]:
+    """掃描現況：({sid: {檔名: 段指紋}}, shared 指紋材料, 參考圖相對路徑集合)。"""
+    root = Path(root)
+    acks = _load_ack_entries(root)
+    per_segment: dict[str, dict[str, str]] = {}
+    shells: dict[str, Any] = {}
+    ref_rel: set[str] = set()
+    for path in _canonical_segment_files(root):
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8-sig"))
+        except (OSError, json.JSONDecodeError):
+            shells[path.name] = "unreadable:" + sha256_file(path)
+            continue
+        items, shell = _segment_items(raw)
+        shells[path.name] = hashlib.sha256(json.dumps(shell, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+        for seg in items:
+            sid = seg.get("segment_id")
+            if not sid:
+                continue
+            per_segment.setdefault(str(sid), {})[path.name] = segment_fingerprint(root, seg, acks)
+            for raw_ref in _ref_paths(seg):
+                ref = _resolve(root, raw_ref)
+                try:
+                    ref_rel.add(ref.relative_to(root.resolve()).as_posix())
+                except ValueError:
+                    ref_rel.add("external:" + str(ref))
+    loose_acks = sorted((str(a.get("id")), str(a.get("catalog_rev") or ""))
+                        for a in acks if not isinstance(a.get("covers"), dict) or not a.get("covers"))
+    shared = {"files": shells, "loose_acks": [list(x) for x in loose_acks]}
+    return per_segment, shared, ref_rel
+
+
+def build_segment_approval(root: Path, snapshot: dict[str, Any] | None = None) -> dict[str, Any]:
+    """核准當下的段級快照（寫進 stage-5 的 approval_segments）。"""
+    root = Path(root)
+    snapshot = snapshot or stage_snapshot(root, 5)
+    per_segment, shared, ref_rel = _segment_index(root)
+    segment_files = {p.name for p in _canonical_segment_files(root)}
+    others = {
+        item["path"]: item["sha256"] for item in snapshot.get("artifacts", [])
+        if item["path"] not in segment_files and item["path"] not in ref_rel
+        and item["path"] != "review/catalog-acks.json"
+    }
+    segments = {}
+    for sid, by_file in per_segment.items():
+        values = set(by_file.values())
+        # 同一段在多個檔內容不同（例如 segments-all 落後）：記成無法對帳的指紋，任何比對都會判變動。
+        segments[sid] = values.pop() if len(values) == 1 else "inconsistent:" + ",".join(sorted(values))
+    return {"schema": SEGMENT_APPROVAL_SCHEMA, "segments": dict(sorted(segments.items())),
+            "shared": {**shared, "other_artifacts": dict(sorted(others.items()))}}
+
+
+def _current_shared(root: Path) -> dict[str, Any]:
+    snapshot = stage_snapshot(root, 5)
+    return build_segment_approval(root, snapshot)
+
+
+def _segment_error_owner(error: str, sids: set[str]) -> str | None:
+    head = error.split(":", 1)[0].split("：", 1)[0].strip().strip("[]")
+    return head if head in sids else None
+
+
+def stage5_segment_review(root: Path) -> dict[str, Any]:
+    """階段 5 段級核准狀態。
+
+    回傳 {"mode", "approved", "pending", "changed", "new", "removed", "reason"}：
+      * mode="unapproved"：沒有核准（或狀態不是 approved）。
+      * mode="legacy"：舊快照沒有段級資料，只能整份比對（行為照舊）。
+      * mode="full"：整個階段 5 有效核准，所有段都可送件。
+      * mode="partial"：只有部分段變了；approved 可送件，pending（changed＋new＋removed）待人工重審。
+      * mode="invalid"：共用產物或前置階段變了，必須整份重審；reason 說明。
+    """
+    root = Path(root)
+    result: dict[str, Any] = {"mode": "unapproved", "approved": [], "pending": [], "changed": [],
+                              "new": [], "removed": [], "reason": ""}
+    state = load_state(root)
+    entry = state["stages"][stage_key(5)]
+    if entry.get("status") != "approved" or not entry.get("approval_snapshot"):
+        result["reason"] = f"stage-5 尚未核准（目前狀態: {entry.get('status', 'draft')}）"
+        return result
+    approval = entry.get("approval_segments")
+    full_failure = _stage_failure(root, state, 5, segment_detail=False)
+    if not isinstance(approval, dict) or approval.get("schema") != SEGMENT_APPROVAL_SCHEMA:
+        result["mode"] = "full" if full_failure is None else "legacy"
+        result["reason"] = full_failure or ""
+        if full_failure is None:
+            result["approved"] = sorted(_segment_index(root)[0])
+        return result
+    if full_failure is None:
+        result["mode"] = "full"
+        result["approved"] = sorted(_segment_index(root)[0])
+        return result
+    # 前置階段（0–4）必須仍有效，且 stage-5 依賴的版本沒變。
+    prior, detail = first_unapproved(root, 4)
+    if prior is not None:
+        result.update(mode="invalid", reason=detail)
+        return result
+    dependencies = entry.get("approval_dependencies", {})
+    for prev in range(5):
+        if dependencies.get(stage_key(prev)) != _entry_fingerprint(state["stages"][stage_key(prev)]):
+            if prev == 0 and _stage0_scoped_ok(root, entry, 5):
+                continue
+            result.update(mode="invalid", reason=f"stage-5 依賴的 stage-{prev} 核准版本已更新，必須整份重審")
+            return result
+    current = _current_shared(root)
+    approved_shared = approval.get("shared") or {}
+    for key, label in (("files", "分段檔外殼／檔案清單"), ("loose_acks", "未綁段的 ack"),
+                       ("other_artifacts", "其他快照產物")):
+        if (approved_shared.get(key) or ({} if key != "loose_acks" else [])) != (current["shared"].get(key) or ({} if key != "loose_acks" else [])):
+            result.update(mode="invalid", reason=f"stage-5 共用部分（{label}）核准後變了，必須整份重審")
+            return result
+    approved_segments = approval.get("segments") or {}
+    now_segments = current["segments"]
+    changed = sorted(s for s in now_segments if s in approved_segments and now_segments[s] != approved_segments[s])
+    new = sorted(s for s in now_segments if s not in approved_segments)
+    removed = sorted(s for s in approved_segments if s not in now_segments)
+    pending = sorted(set(changed) | set(new) | set(removed))
+    errors = stage_validation_errors(root, 5)
+    blocking = [e for e in errors if _segment_error_owner(e, set(pending)) is None]
+    if blocking:
+        result.update(mode="invalid", reason=f"stage-5 產物檢查失敗: {blocking[0]}")
+        return result
+    result.update(mode="partial", changed=changed, new=new, removed=removed, pending=pending,
+                  approved=sorted(s for s in now_segments if s not in set(pending)),
+                  reason=(f"stage-5 有 {len(pending)} 段核准後變了、待人工重審：{'、'.join(pending[:12])}"
+                          + (" …" if len(pending) > 12 else "")
+                          + f"（其餘 {len([s for s in now_segments if s not in set(pending)])} 段仍核准、可送件）"))
+    return result
+
+
+def stage5_submittable_ids(root: Path, segments_path: Path) -> tuple[set[str] | None, list[str], str]:
+    """送件閘門用：回傳 (可送的段 id；None＝整份有效不限, 這個檔裡待重審的段, 說明)。
+
+    partial 時，只有「段指紋等於核准時」的段可送；檔內其餘段一律列待重審。
+    非 partial（unapproved／legacy／invalid）回 (set(), [], 原因)，由呼叫端擋下。
+    """
+    root = Path(root)
+    review = stage5_segment_review(root)
+    if review["mode"] == "full":
+        return None, [], "OK"
+    if review["mode"] != "partial":
+        return set(), [], review["reason"] or "stage-5 未有效核准"
+    entry = load_state(root)["stages"][stage_key(5)]
+    approved_segments = (entry.get("approval_segments") or {}).get("segments") or {}
+    try:
+        raw = json.loads(Path(segments_path).read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return set(), [], f"分段檔無法讀取：{exc}"
+    items, _ = _segment_items(raw)
+    acks = _load_ack_entries(root)
+    allowed: set[str] = set()
+    pending: list[str] = []
+    for seg in items:
+        sid = seg.get("segment_id")
+        if not sid:
+            continue
+        if approved_segments.get(str(sid)) == segment_fingerprint(root, seg, acks):
+            allowed.add(str(sid))
+        else:
+            pending.append(str(sid))
+    return allowed, sorted(pending), review["reason"]
+
+
+def record_segment_review(root: Path, segment_ids: list[str]) -> dict[str, str]:
+    """重審頁產出時綁定待重審段的當下指紋（類似 review_snapshot，但不改階段狀態）。"""
+    root = Path(root)
+    state = load_state(root)
+    entry = state["stages"][stage_key(5)]
+    current = _current_shared(root)["segments"]
+    bound = {sid: current.get(sid, "removed") for sid in segment_ids}
+    entry["segment_review"] = {"at": datetime.now().astimezone().isoformat(timespec="seconds"), "segments": bound}
+    save_state(root, state)
+    return bound
+
+
+def approve_stage5_segments(root: Path, segment_ids: list[str] | str, note: str) -> tuple[bool, str]:
+    """人工重審只核准指定的待重審段；沒變的段不動。全部待重審段都核准後，整個階段 5 回到有效核准。
+
+    改過的段一律要人工：本函式只供 `h3d approve --stage 5 --segments`（必附使用者原話），
+    自動核准（--auto）永遠不會呼叫它。
+    """
+    root = Path(root)
+    note = (note or "").strip()
+    if not note:
+        return False, "段級重審必須附 --user-note \"<使用者原話>\""
+    review = stage5_segment_review(root)
+    if review["mode"] == "full":
+        return False, "stage-5 已整份有效核准，沒有待重審的段"
+    if review["mode"] != "partial":
+        return False, f"無法段級重審（{review['mode']}）：{review['reason'] or '請整份重審'}；整份重審用 build_stage_review.py --stage 5"
+    pending = set(review["pending"])
+    wanted = sorted(pending) if segment_ids in ("all", ["all"]) else sorted({str(s).strip() for s in segment_ids if str(s).strip()})
+    if not wanted and pending:
+        return False, "沒有指定要重審的段"
+    outside = [s for s in wanted if s not in pending]
+    if outside:
+        return False, f"這些段不在待重審清單：{'、'.join(outside)}（待重審：{'、'.join(sorted(pending)) or '無'}）"
+    state = load_state(root)
+    entry = state["stages"][stage_key(5)]
+    bound = (entry.get("segment_review") or {}).get("segments") or {}
+    current = _current_shared(root)
+    now_segments = current["segments"]
+    stale = [s for s in wanted if bound.get(s) != now_segments.get(s, "removed")]
+    if stale:
+        return False, (f"這些段沒有重審頁、或重審頁產出後又改了：{'、'.join(stale)}；"
+                       f"先跑 build_stage_review.py --project-dir . --stage 5 --segments {','.join(wanted)} 交使用者看")
+    # 新核准走 strict：只看屬於這些段的錯誤（其他段的錯誤不在這次核准範圍）。
+    strict_errors = stage_validation_errors(root, 5, strict=True)
+    own = [e for e in strict_errors if _segment_error_owner(e, set(wanted)) is not None]
+    foreign_global = [e for e in strict_errors if _segment_error_owner(e, set(now_segments) | set(wanted)) is None]
+    if own or foreign_global:
+        return False, f"產物檢查失敗：{(own or foreign_global)[0]}"
+    approval = dict(entry.get("approval_segments") or {})
+    segments = dict(approval.get("segments") or {})
+    for sid in wanted:
+        if sid in now_segments:
+            segments[sid] = now_segments[sid]
+        else:
+            segments.pop(sid, None)
+    approval["segments"] = dict(sorted(segments.items()))
+    now = datetime.now().astimezone().isoformat(timespec="seconds")
+    history = list(entry.get("segment_approval_history") or [])
+    history.append({"at": now, "segments": wanted, "note": note})
+    entry["segment_approval_history"] = history
+    entry["approval_segments"] = approval
+    entry.pop("segment_review", None)
+    remaining = sorted(pending - set(wanted))
+    if not remaining:
+        # 每一段現在的內容都經人工核准過、共用部分沒變 → 整份快照可以換成現況。
+        entry["approval_snapshot"] = stage_snapshot(root, 5)
+        entry["approval_segments"] = build_segment_approval(root, entry["approval_snapshot"])
+        entry["approved_at"] = now
+        entry["user_note"] = note
+    save_state(root, state)
+    if remaining:
+        return True, f"已重審 {len(wanted)} 段；仍待重審 {len(remaining)} 段：{'、'.join(remaining)}"
+    return True, f"已重審 {len(wanted)} 段；stage-5 全部段恢復有效核准"

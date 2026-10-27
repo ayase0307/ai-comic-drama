@@ -54,7 +54,7 @@ if str(CURRENT_DIR) not in sys.path:
 SCRIPTS_DIR = CURRENT_DIR.parent
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
-from project_state import record_gate_bypass, require_approved, sha256_file, stage_snapshot
+from project_state import record_gate_bypass, require_approved, sha256_file, stage5_submittable_ids, stage_snapshot
 
 try:
     from audit_refs_and_segments import audit_refs_and_subjects, lint_h3_prompt
@@ -433,8 +433,14 @@ def cancel_stale_jobs(api_url: str, token: str, ledger_path: Optional[Path] = No
     print("✅ 孤兒任務清理完畢。")
 
 
-def verify_stage5_gate(root_dir: Path, segments_path: Path, skip_gate: bool = False, dry_run: bool = False) -> bool:
-    """要求當前批次 segments 與其參考圖均在有效 stage-5 核准快照內。"""
+def verify_stage5_gate(root_dir: Path, segments_path: Path, skip_gate: bool = False, dry_run: bool = False,
+                       scope: Optional[Dict[str, Any]] = None) -> bool:
+    """要求當前批次 segments 與其參考圖均在有效 stage-5 核准快照內。
+
+    PR-19a 段級核准：stage-5 核准後只改了部分段時，沒改的段仍可送件。
+    這時回 True，並在 `scope` 寫入 {"allowed": 可送段 id 集合, "pending": 待重審段}；
+    呼叫端必須只送 allowed 內的段（main() 會照做並列出待重審段）。
+    """
     if skip_gate:
         if dry_run:
             print("⚠️ [debug] --skip-stage-gate 僅於 --dry-run 可用。")
@@ -443,14 +449,24 @@ def verify_stage5_gate(root_dir: Path, segments_path: Path, skip_gate: bool = Fa
             return True
         print("❌ --skip-stage-gate 僅允許 dry-run；實際送件必須有 stage-5 核准。", file=sys.stderr)
         return False
-    ok, detail = require_approved(root_dir, 5)
-    if not ok:
-        print(f"❌ [Stage 5 Gate] {detail}", file=sys.stderr)
-        return False
     try:
         rel = segments_path.resolve().relative_to(root_dir.resolve()).as_posix()
     except ValueError:
         print("❌ segments 檔必須位於專案中，並列入 stage-5 核准快照。", file=sys.stderr)
+        return False
+    ok, detail = require_approved(root_dir, 5)
+    if not ok:
+        allowed, pending, why = stage5_submittable_ids(root_dir, segments_path)
+        if allowed:
+            print(f"⚠️ [Stage 5 Gate] {why}", file=sys.stderr)
+            print(f"   只放行已核准且未變的 {len(allowed)} 段；待重審（不送）：{'、'.join(pending) or '無'}", file=sys.stderr)
+            print("   重審：build_stage_review.py --project-dir . --stage 5 --segments <段> → 使用者通過後 "
+                  "h3d approve --stage 5 --segments <段> --user-note \"<使用者原話>\"", file=sys.stderr)
+            if scope is not None:
+                scope["allowed"] = set(allowed)
+                scope["pending"] = list(pending)
+            return True
+        print(f"❌ [Stage 5 Gate] {detail}", file=sys.stderr)
         return False
     approved = {item["path"]: item["sha256"] for item in stage_snapshot(root_dir, 5)["artifacts"]}
     if rel not in approved or approved[rel] != sha256_file(segments_path):
@@ -774,7 +790,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     # 讀取分段列表
     with args.segments.open("r", encoding="utf-8") as f:
         data = json.load(f)
-    if not verify_stage5_gate(args.root_dir, args.segments, skip_gate=args.skip_stage_gate, dry_run=args.dry_run):
+    gate_scope: Dict[str, Any] = {}
+    if not verify_stage5_gate(args.root_dir, args.segments, skip_gate=args.skip_stage_gate, dry_run=args.dry_run,
+                              scope=gate_scope):
         return 1
 
     if isinstance(data, list):
@@ -798,6 +816,21 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if not todo_segs:
         sys.exit(f"❌ 錯誤: 在 {args.segments} 中未找到符合條件的分段！")
+
+    # PR-19a：stage-5 部分段核准後被改 → 只送已核准且未變的段。
+    if "allowed" in gate_scope:
+        allowed_ids = gate_scope["allowed"]
+        blocked = [str(s.get("group") or s.get("segment_id") or s.get("id")) for s in todo_segs
+                   if str(s.get("group") or s.get("segment_id") or s.get("id")) not in allowed_ids]
+        if blocked and args.segment_id:
+            print(f"❌ [Stage 5 Gate] 指定的段待重審、不能送件：{'、'.join(blocked)}", file=sys.stderr)
+            return 1
+        if blocked:
+            print(f"⚠️ 跳過待重審段：{'、'.join(blocked)}")
+        todo_segs = [s for s in todo_segs if str(s.get("group") or s.get("segment_id") or s.get("id")) in allowed_ids]
+        if not todo_segs:
+            print("❌ [Stage 5 Gate] 這個分段檔沒有已核准且未變的段可送。", file=sys.stderr)
+            return 1
 
     # 執行提示詞確定性事前自檢
     # ack 只能由人透過 `h3d ack`（或 failure_catalog --ack）留下紀錄，
