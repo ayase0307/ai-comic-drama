@@ -156,6 +156,8 @@ python scripts/run_offline_checks.py      # CI 用的離線回歸
 
 ## 🧭 八階段流水線
 
+> 想看每一關的動作、產出文件與決策點如何串起來，用瀏覽器開 [`docs/skill-roadmap.html`](docs/skill-roadmap.html)（可播放的動態路線圖）。
+
 <div align="center">
 <img src="docs/assets/pipeline-illustration.webp" alt="八階段流水線插畫：定調、改編、設定圖、劇本、分鏡、提示詞、生成、組裝" width="100%">
 </div>
@@ -458,6 +460,7 @@ ai-comic-drama/
 | [`references/freevideo.md`](references/freevideo.md) | 搭配 FreeVideo 出片 |
 | [`docs/cli-walkthrough.md`](docs/cli-walkthrough.md) | 逐階段命令列範例（原 README 內容） |
 | [`references/document-standard.md`](references/document-standard.md) | 階段文件標準格式：狀態卡、閱讀規則、修訂紀錄與 `h3d doc` 指令 |
+| [`docs/skill-roadmap.html`](docs/skill-roadmap.html) | 動態路線圖：八階段每個動作做什麼、寫出哪個檔、誰決定、何時停下（瀏覽器開啟） |
 
 ## 🤝 搭配專案
 
