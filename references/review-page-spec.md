@@ -36,7 +36,8 @@
 | `question` | 一句話問題，**≤ 46 字** | `title`（超過自動截斷，`question` 同值） |
 | `why_you` | 為什麼要你決定、會影響什麼 | `impact`（`why_you` 同值） |
 | `options` | **2–3 個**，每個都附 `reply`（點了就複製回覆文字） | `options[].label`／`options[].reply` |
-| `recommendation` | 建議，必須對應其中一個選項 | `recommendation`；對應的選項固定是 `options[0]`（頁面標「建議」），`recommended_option` 記其 label |
+| `recommendation` | 建議，必須對應其中一個選項 | `recommendation`；對應的選項固定是 `options[0]`（頁面標「建議」），`recommended_option` 記其 label。例外：`no_recommendation: true`（例如生圖工具卡偵測到多個可用、交給使用者選不替他預設）時不標建議，`recommended_option` 為 null |
+| `unavailable_options`（選填） | 灰掉、不能點的選項，每個附原因 | `[{label, reason}]`；不佔 2–3 個選項名額，例如偵測不到的生圖工具（`D2-／D4-imagegen-backend` 卡） |
 | `if_ignored` | 不回覆會怎樣 | `if_ignored`（每個產卡處都要寫實際後果，不只靠預設文字） |
 | `blocking` | **只能是 0／1／2／5**：0 擋全部、1 擋下一步、2 擋本階段核准、5 不擋 | `blocking` |
 | `source` | 資料出處（檔名＋欄位） | `source` |

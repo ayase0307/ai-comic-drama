@@ -66,8 +66,12 @@ KNOWN_DECISIONS: Dict[str, Dict[str, Any]] = {
                      "reference": "references/model-profiles.md"},
     "dialogue_policy": {"label": "台詞政策（哪些台詞上畫、哪些走旁白／TTS）", "stages": [3, 5, 7],
                         "required_by": 3, "reference": "references/adapt/dialogue-and-audio.md"},
-    "design_engine": {"label": "設定圖引擎（一經定案全集鎖定）", "stages": [2], "required_by": 2,
+    # 生圖後端由使用者選，不自行預設：`h3d imagegen --detect` 列出偵測到的工具，`h3d imagegen --set` 寫入（scripts/image_backends.py）。
+    "design_engine": {"label": "設定圖生圖工具（一經定案全集鎖定）", "stages": [2], "required_by": 2,
                       "reference": "references/consistency.md"},
+    # 階段 4 構圖的生圖工具。required_by=99：只有階段 4 缺構圖時 `h3d next` 才會請使用者選（構圖已齊的專案不擋路）。
+    "storyboard_engine": {"label": "階段 4 構圖生圖工具", "stages": [4], "required_by": 99,
+                          "reference": "references/tooling.md"},
     "acceptance_policy": {"label": "階段 6 驗收政策（哪些問題才重跑）", "stages": [6], "required_by": 6,
                           "reference": "references/tooling.md"},
     "edit_method": {"label": "剪輯方式（例如全集單一剪輯專案）", "stages": [7], "required_by": 7,
@@ -398,6 +402,13 @@ def value_warnings(decision_id: str, value: Any) -> List[str]:
     out: List[str] = []
     if decision_id == "aspect_ratio" and isinstance(value, str) and not re.fullmatch(r"\d+:\d+", value.strip()):
         out.append(f"aspect_ratio 值 {value!r} 不是「寬:高」格式（例如 16:9）；project.md 的 aspect_ratio 要與它逐字一致")
+    if decision_id in ("design_engine", "storyboard_engine"):
+        import image_backends
+        stage = 2 if decision_id == "design_engine" else 4
+        bid = image_backends.normalize(value)
+        if bid is None or stage not in image_backends.BACKENDS.get(bid, {}).get("stages", ()):
+            out.append(f"{decision_id} 值 {value!r} 不是階段 {stage} 認得的生圖後端；h3d next 會請使用者重選。"
+                       "建議改用 h3d imagegen --set <後端> --quote \"<使用者原話>\"")
     if decision_id == "dialogue_policy":
         try:
             narration_policy_of({"decisions": [{"id": "dialogue_policy", "value": value}]})

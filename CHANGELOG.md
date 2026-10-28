@@ -10,8 +10,10 @@
 
 ### 新增
 - 構圖板自動建議 W46（只建議）：`h3d staging` 判斷室內固定場景＋已驗收母片＋≥2 角色固定座位＋近景＋文戲的段，建議改用「以場景母片為底重畫的四格構圖板」（武戲、單人、戶外與判不了的不建議）；`--layer2` 可在階段 4 跑，階段 4／5 審核頁列「💡 自動建議」；不擋送件、不改預設編譯（`scripts/storyboard/board_advisor.py`，證據為方向性，見 `spatial-consistency.md` §3.1）。
+- 生圖工具自動偵測、由使用者選擇後端（`h3d imagegen`，`scripts/image_backends.py`）：`--detect` 偵測 Codex CLI（PATH＋CODEX_HOME 登入）、Qwen-Image（經本機 FreeVideo，短 timeout 狀態探測）、Grok（Agent 宣告）、手繪上傳（ComfyUI 只回報），不生圖、不花錢、不讀 token 值；`--set <後端> --quote` 寫進 `decisions.json` 的 `design_engine`（階段 2）／新定案 `storyboard_engine`（階段 4）。`h3d next`／`h3d inbox` 在缺設定圖、缺構圖時：沒選→列出可用與不可用（含原因）請使用者選（只有一個可用也要問），已選→給該後端指令，選了但不可用→警告並重問；`check_environment.py` 生圖能力列改用同一偵測；收件匣卡支援灰掉的選項（`unavailable_options`）與不標建議（`no_recommendation`）。
 
 ### 變更
+- 不再寫死預設生圖工具：`h3d next` 缺構圖時不再直接給 Codex 分鏡指令，改由使用者選的 `storyboard_engine` 決定；`h3d sketch` 殼改指 `h3d imagegen --detect`；`qwen_storyboard_grid.py` 改讀 `FREEVIDEO_API_URL`（預設仍是 127.0.0.1:8189）。
 - 階段 4 預設構圖來源改為 Codex 分鏡（`scripts/storyboard/codex_storyboard_panels.py`）：`h3d next` 缺構圖時建議 `codex_storyboard_panels.py --root . [--episode EPxx] --model <使用者指定模型>`（`--model` 必填）；skill-guide、tooling、pipeline、SKILL.md、README、`docs/cli-walkthrough.md`、`docs/skill-roadmap.html` 同步。
 - `codex_storyboard_panels.py` 註解改寫為自己的輸出契約；總覽圖字型環境變數新增 `STORYBOARD_FONT`，舊名 `SVG_GRID_FONT` 仍相容。
 - 「白模分工與精度三檔」（Foyege，H3 未實測）搬到 `references/storyboard/spatial-consistency.md` §6；`continuity-ledger.md` 世界層改指 `spatial-consistency.md` §2 牆面分配表＋REMIX `positions`。

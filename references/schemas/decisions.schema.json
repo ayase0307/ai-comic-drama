@@ -78,7 +78,7 @@
         "id": {
           "type": "string",
           "minLength": 1,
-          "description": "已知：style、series_format（longform 預設／short 需使用者明確選擇）、aspect_ratio、dialogue_policy、design_engine、acceptance_policy、edit_method、auto_approve、delivery_scope、video_backend（ref2va 預設／remix）、remix_pack_cap（1–8，只能加嚴）、style_anchor、staging_gate（warn 預設／strict）；角色音色用 voice:<角色id>（只能 by=user）；也可自訂"
+          "description": "已知：style、series_format（longform 預設／short 需使用者明確選擇）、aspect_ratio、dialogue_policy、design_engine（階段 2 設定圖生圖工具：codex／grok／manual，用 h3d imagegen --set 寫）、storyboard_engine（階段 4 構圖生圖工具：codex／qwen／manual）、acceptance_policy、edit_method、auto_approve、delivery_scope、video_backend（ref2va 預設／remix）、remix_pack_cap（1–8，只能加嚴）、style_anchor、staging_gate（warn 預設／strict）；角色音色用 voice:<角色id>（只能 by=user）；也可自訂"
         },
         "rule": {
           "type": "string",

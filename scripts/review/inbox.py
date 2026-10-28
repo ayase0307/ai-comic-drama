@@ -50,6 +50,7 @@ for candidate in (str(SCRIPTS_DIR), str(SCRIPTS_DIR / "storyboard")):
 
 import decisions as decisions_mod  # noqa: E402
 import doc_card  # noqa: E402
+import image_backends  # noqa: E402
 import project_state as ps  # noqa: E402
 import inbox_page  # noqa: E402
 import stage_views  # noqa: E402
@@ -440,6 +441,24 @@ def stage4_cards(root: Path) -> List[Dict[str, Any]]:
         "source": "layer2/layer2-*.json＋panels/"}]
 
 
+def imagegen_card_if_needed(root: Path, stage: int) -> Optional[Dict[str, Any]]:
+    """缺設定圖（階段 2）／缺構圖（階段 4）時，生圖工具還沒選、選了但不可用或值認不得 → 請使用者選的卡。"""
+    if stage == 2:
+        import stage_content_checks
+        gaps = [e for e in stage_content_checks.stage2_errors(Path(root)) if "設定圖有" in e and "不存在" in e]
+        segment = "缺設定圖"
+    else:
+        _, errors = ps.stage4_artifacts(root)
+        gaps = [e for e in errors if "layer2-*.json" not in e]
+        segment = f"缺 {len(gaps)} 鏡構圖"
+    if not gaps:
+        return None
+    card = image_backends.needs_card(root, stage)
+    if card:
+        card["segment"] = segment
+    return card
+
+
 def _segment_items(path: Path) -> List[Dict[str, Any]]:
     raw = _read_json(path)
     items = raw if isinstance(raw, list) else (raw.get("segments", [raw]) if isinstance(raw, dict) else [])
@@ -555,8 +574,15 @@ def build_cards(root: Path, *, state: Optional[Dict[str, Any]] = None,
         notes.append(f"review/verdicts.json 無法使用：{verdict_error}")
 
     # 1) 目前階段還沒定案的規則
+    scope_value = (decisions_mod.get(decisions_data, "delivery_scope") or {}).get("value")
+    no_image = bool(scope_value.get("no_image")) if isinstance(scope_value, dict) else False
     for did in decisions_mod.missing_for_stage(root, cur):
         meta = decisions_mod.KNOWN_DECISIONS[did]
+        if did == "design_engine":
+            # 設定圖生圖工具：列出偵測到的工具請使用者選（不可用的灰掉寫原因），不自行預設。
+            if not no_image:
+                open_cards.append(image_backends.choice_card(root, 2))
+            continue
         if did == "style":
             rec = f"{decisions_mod.RECOMMENDED_STYLE}：真人骨相＋厚塗質地，10 集 115 段實證；仍可改選其他風格。"
             options = [{"label": "照建議（14 號）", "reply": f"{meta['label']}：照建議，用 {decisions_mod.RECOMMENDED_STYLE}"},
@@ -674,8 +700,15 @@ def build_cards(root: Path, *, state: Optional[Dict[str, Any]] = None,
         open_cards.extend(stage1_cards(root))
     elif cur == 2:
         open_cards.extend(stage2_cards(root))
+        if decisions_mod.get(decisions_data, "design_engine") is not None and not no_image:
+            card = imagegen_card_if_needed(root, 2)
+            if card:
+                open_cards.append(card)
     elif cur == 4:
         open_cards.extend(stage4_cards(root))
+        card = imagegen_card_if_needed(root, 4)
+        if card:
+            open_cards.append(card)
     elif cur == 5:
         s5_cards, s5_auto = stage5_cards(root, accept)
         open_cards.extend(s5_cards)
@@ -985,7 +1018,8 @@ def _normalize_card(card: Dict[str, Any], problems: List[str]) -> Dict[str, Any]
     # 規格欄位名對照：question＝title、why_you＝impact、recommendation 對應 options[0]（頁面標「建議」）
     out["question"] = out["title"]
     out["why_you"] = out["impact"]
-    out["recommended_option"] = options[0]["label"]
+    # 生圖工具卡等「交給使用者選、不替他預設」的卡：no_recommendation=True 時不標建議（頁面也不畫「建議」徽章）
+    out["recommended_option"] = None if out.get("no_recommendation") else options[0]["label"]
     return out
 
 

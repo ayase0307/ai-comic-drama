@@ -38,7 +38,7 @@
 8. **先規劃再執行生成**：要生成媒體時，先確認素材、規格與工具可用，再依使用者要求送件；使用者只要求文字交付時，停在該交付階段。
 9. **依範圍使用審核頁與狀態門禁**：需要正式跨階段或 H3 編譯／提交時使用 `review/project-state.json`。核准綁定輸入 hash；內容變更後須重審。每階段是否停下等待核准，依使用者要求與該交付的審核流程決定，不把完整製作流程強加給文字 draft。停下時交給使用者的是 `h3d inbox` 決策收件匣；下表的 `review/stage-N-*.html` 只作除錯（階段 0、2 當附錄），規格見 `references/review-page-spec.md`。
 10. **角色設定與改編檢查依來源選用**：改編小說且需保持原著依據時，記錄角色來源與改編差異；既有劇本、原創故事或純分鏡任務不需建立不適用的 v4 角色檔。
-11. **階段 4 構圖審核**：要進入 H3 編譯，Layer 2 的每鏡須有可對應的有效構圖 PNG（分鏡總覽圖或 `sketch_file`/panel），並由 `review/stage-4-storyboard.html` 審核。圖預設由 Codex 分鏡（`scripts/storyboard/codex_storyboard_panels.py`，`--model` 必填，填使用者指定的模型）製作，也可用 Qwen、手繪或其他工具；所有來源使用相同 shot 對應、review 與 hash gate。純文字分鏡 draft 不受媒體生成限制。編譯需有效 stage 4 核准；實際送件需有效 stage 5 核准。
+11. **階段 4 構圖審核**：要進入 H3 編譯，Layer 2 的每鏡須有可對應的有效構圖 PNG（分鏡總覽圖或 `sketch_file`/panel），並由 `review/stage-4-storyboard.html` 審核。圖用使用者選的生圖工具製作（`h3d imagegen --detect` 偵測可用的 Codex 分鏡 `codex_storyboard_panels.py`〔`--model` 必填〕、Qwen、手繪上傳，由使用者選、Agent 不自行預設，寫進 `storyboard_engine`）；所有來源使用相同 shot 對應、review 與 hash gate。純文字分鏡 draft 不受媒體生成限制。編譯需有效 stage 4 核准；實際送件需有效 stage 5 核准。
 12. **防偷懶物理穿模與罐頭詞禁令**：
     - **每鏡提示詞必須親手寫（強制，`references/prompt-authoring.md`）**：每個 `[Shot N]` 寫齊 Camera／Motion／Performance／Light／Sound，Motion 與 Performance 必須寫詳細；agent 要逐鏡讀分鏡、構圖圖與前一鏡狀態後自己寫進 Layer 2 的 `five_part_en`。**不准寫程式產生五小節內容、不准編譯後覆寫 segments、不准用後設詞（authored／approved）或一串禁止句交差。** `prompt_authoring.py` 對最終送件文字檢查 E30–E38，`compile --check`、階段 5 審核頁與送件都會擋。
     - **禁止同段/跨段複製貼上罐頭詞**（如「微風掠過衣擺，光影保持自然抖動」、「Then the motion transitions smoothly.」等，由 `validate_storyboard.py` 與 `audit_refs_and_segments.py` 確定性攔截）。
@@ -64,7 +64,7 @@
 | 1 改編 | 小說目錄清洗（`extract_chapter.py`）、**角色設定 v4 十一大章節**（`validate_character_bible.py`）、保留分級、**事件交代完整性**（`event_coverage.py`）、段落架構（預設長篇不分集） | `adapt/character-bible.md`、故事地圖、`series-outline` | `review/stage-1-adaptation.html` |
 | 2 資產與設定圖 | 故事聖經→`assets.md`、**生圖工具詢問推薦（Codex CLI）與跨章節鎖定**、**生物純底設定圖**、**演員表主角優先排序** | `assets.md`、`images/` 設定板、**缺圖紅框攔截** | `review/stage-2-assets.html`（表格與圖片左右並排對照） |
 | 3 漫劇劇本 | 場景化改寫、時長與台詞預算審計（`estimate_duration.py --h3`）、HTML 註解元數據注入、交接 JSON、人工審核鎖（`sync_script.py`） | `script-ep01.md`、`handoff-ep01.json`、`adaptation-diff.md` | `review/stage-3-script.html` |
-| 4 導演分鏡 | 依內容編排分段、焦距物距與動作；需要構圖審核時預設用 Codex 分鏡（`codex_storyboard_panels.py`），也可用 Qwen 分鏡總覽圖、手繪或其他圖像工具 | `layer2/*.json`、`storyboard-ep01.md`、選用的對應 PNG | `review/stage-4-storyboard.html`（進 H3 編譯前需對應圖與人工核准） |
+| 4 導演分鏡 | 依內容編排分段、焦距物距與動作；需要構圖審核時用使用者選的生圖工具（`h3d imagegen`：Codex 分鏡、Qwen 分鏡總覽圖、手繪或其他圖像工具） | `layer2/*.json`、`storyboard-ep01.md`、選用的對應 PNG | `review/stage-4-storyboard.html`（進 H3 編譯前需對應圖與人工核准） |
 | 5 提示詞包 | **逐鏡親手寫五小節（Layer 2 `five_part_en`，規範見 `references/prompt-authoring.md`）**→ **H3 官方六段式批次編譯（`compile_layer2_to_h3.py`，含分鏡總覽圖門禁檢查）**、服裝狀態機解析、LoRA 精確適配、`--check` 雙重對帳＋逐鏡撰寫審查（E30–E38） | `prompts-ep01.md`、`segments-ep01.json` | `review/stage-5-prompts.html` |
 | 6 生成（選用） | 僅在使用者要求且相容的影片工具／adapter 可用時生成；**審核頁為「影片 × 分鏡總覽圖 × 設定圖 × QA」四欄對照**（缺圖紅框不阻擋核准），QA 技術結果與人工核准分開；**收件後跑動態 QA（`h3d motion`）自動提案變速清單**（`references/speed-ramp.md`） | `videos/`、`qa-report.json`、`videos/speed-ramps.json` | `review/stage-6-videos.html` |
 | 7 組裝（選用） | **短畫外句與短旁白由 H3 直接生成、長旁白走外部 TTS**（`--narration-policy short-offscreen-h3` 預設；`external` 全部外部化），**畫內對白保留 H3 口型**；**TTS 引擎由 `tts_doctor.py` 盤點後選擇**（`--tts-engine`／`--tts-config`）；整片 `loudnorm` 對齊 EBU R128；**已核准的變速段用 `videos/ramped/`，字幕／旁白／配音依 `time_map` 換算** | `final/`、`narration-ep01.md`、compiled segments 匯出的有效時間線 | `review/stage-7-final.html` |
@@ -170,7 +170,7 @@
 ### 6.1 生成操作流
 
 1. **分鏡 Layer 2 鎖定與分段表審核**：每段 7–10 秒，確定四大連戲錨點與收尾交接格。
-2. **構圖分鏡總覽圖（✅ 構圖審核工具）**：預設跑 `python scripts/storyboard/codex_storyboard_panels.py --root <專案> --episode EPxx --model <使用者指定模型>`（Codex 分鏡，每鏡一張＋每段總覽圖，自動綁定已核准參考圖；先加 `--dry-run` 看提示詞與參考圖計畫）；要黑白鉛筆走位稿時可改用 Qwen 鉛筆草圖：執行 `qwen_storyboard_grid.py` 輸出 分鏡總覽圖黑白構圖，審核走位與滅點，單格有問題以 `patch_shot.py` 搭配 `--redraw-shot` 重抽，通過者鎖定保護。
+2. **構圖分鏡總覽圖（✅ 構圖審核工具）**：先 `h3d imagegen --detect --stage 4` 請使用者選工具（只有一個可用也要問）；選 Codex 時跑 `python scripts/storyboard/codex_storyboard_panels.py --root <專案> --episode EPxx --model <使用者指定模型>`（Codex 分鏡，每鏡一張＋每段總覽圖，自動綁定已核准參考圖；先加 `--dry-run` 看提示詞與參考圖計畫）；要黑白鉛筆走位稿時可改用 Qwen 鉛筆草圖：執行 `qwen_storyboard_grid.py` 輸出 分鏡總覽圖黑白構圖，審核走位與滅點，單格有問題以 `patch_shot.py` 搭配 `--redraw-shot` 重抽，通過者鎖定保護。
 3. **出資產設定圖**：角色設定板、場景主圖、**生物/怪獸純色三視圖（Creature Sheet，嚴禁帶背景劇照）**，過驗收門。
 4. **【主力定案】獨立 Ref2VA 影片生成**：每段獨立給予對應的場景與角色圖，嚴禁尾幀續接；以 `audit_refs_and_segments.py` 跑通 P0 程式對帳。
 5. **【⚠️ 選用實驗功能】Qwen 轉繪全彩首幀 + I2VA**：若要採用首幀流程，**必須整部片統一使用同一圖片模型生成首幀**，並先與已生成的 H3 片段**並排對照畫風無割裂感**後，方可送 I2VA。
@@ -241,7 +241,7 @@ H3 的聲音與畫面在同一次 forward 生成，輸出是**單一 32 kHz 立�
 - `scripts/storyboard/compile_layer2_to_h3.py` — Layer 2 批次編譯為 H3 官方六段式提示詞（`prompts-epXX.md`）與 FreeVideo 批次分段檔（`segments-epXX.json`），支援防混臉參考圖排序（Ref2VA 預設一段一張角色圖，`--max-char-refs`；新流程改用 remix 角色卡，見 `references/consistency.md` §7.1）、切點時間軸保護（$D - \text{末切點} \ge 2.05s$）、光源名詞映射、官方運鏡詞微交替、LoRA 自動適配、`--narration-policy`（預設 `short-offscreen-h3`：約 ≤15 字的畫外句與旁白留在 `<d>` 由 H3 念，長句才移出；`external`：畫外音／旁白全部移出 `<d>`、寫入 `external_narration` 與 `speaker_ids`，供階段 7 外部 TTS）與 `--check` 雙重對帳。stage5 綁定檔支援 `identity_anchor_ids`（不露臉身份錨點）、`reference_view: "panel"` ＋ `panel_label_en`（**整板查表模式**，缺格位說明即丟 `ValueError`）、`audio_references`（**音色參考 `<Audio N>`** ＋ 固定描述詞 `voice_4d_spec_en`）。
 - `scripts/storyboard/audit_refs_and_segments.py` — 分段參考圖、主體定義、說話者與字數預算多維程式對帳工具（支援雙重審查：模式 A 序對 + 模式 B 17 條自檢）。
 - `scripts/storyboard/patch_shot.py` — 單鏡局部修改與審核鎖定工具（支援秒數吸收、自動重算時間軸）。
-- `scripts/storyboard/codex_storyboard_panels.py` — Codex CLI 內建生圖的彩色分鏡圖（每鏡一張、每段總覽圖），自動綁定已核准參考圖（角色正面裁切、異獸設定圖、場景母版，依序為 <Picture N>），`--model` 必填；角色關鍵字／逐鏡覆寫放 `staging/codex-panel-refs.json`；回寫 `sketch_file`／`sketch_sha256`／`sketch_generation`（backend=codex）、鎖定鏡不覆蓋。階段 4 預設構圖來源（`h3d next` 缺構圖時建議這條）；`h3d sketch` 已移除。
+- `scripts/storyboard/codex_storyboard_panels.py` — Codex CLI 內建生圖的彩色分鏡圖（每鏡一張、每段總覽圖），自動綁定已核准參考圖（角色正面裁切、異獸設定圖、場景母版，依序為 <Picture N>），`--model` 必填；角色關鍵字／逐鏡覆寫放 `staging/codex-panel-refs.json`；回寫 `sketch_file`／`sketch_sha256`／`sketch_generation`（backend=codex）、鎖定鏡不覆蓋。使用者選 `storyboard_engine=codex` 時 `h3d next` 缺構圖給這條；`h3d sketch` 已移除。
 - `scripts/storyboard/qwen_storyboard_grid.py` — Qwen-Image 2.1 電影分鏡鉛筆草圖、單格局部重繪、分鏡總覽圖拼版與去黑箭頭轉全彩首幀工具。
 - `scripts/storyboard/submit_h3_segments.py` — 階段 6 FreeVideo H3 批次提交與顯存保護工具（4.20 GiB 顯存臨界點安全保護、不足時差額診斷、--dry-run 乾跑檢查、參考圖 SHA256 快取、音色母帶（音訊參考）上傳與副檔名檢查、LoRA 自動適配與任務輪詢下載）。
 - `scripts/storyboard/verify_video_shot.py` — AI 影片自動審查與分鏡規格差異檢驗門禁工具（分段總時長精確對齊、彩度防黑白污染、分屏殘留、串聯 `color_qa.py` 輸出 `qa-report.json`）。

@@ -30,6 +30,7 @@ for candidate in (str(SCRIPTS_DIR), str(SCRIPTS_DIR / "storyboard"), str(SCRIPTS
         sys.path.insert(0, candidate)
 
 import decisions as decisions_mod  # noqa: E402
+import image_backends  # noqa: E402
 import project_state as ps  # noqa: E402
 import verdicts as verdicts_mod  # noqa: E402
 import skill_version  # noqa: E402
@@ -71,8 +72,12 @@ def _episodes(root: Path) -> List[str]:
     return sorted(eps, key=lambda e: int(e[2:]))
 
 
-def stage4_producer(root: Path, errors: List[str]) -> tuple:
-    """階段 4 下一步：還沒有 layer2 就先跑 handoff_to_skeleton（#36）；有了才補構圖（Codex 分鏡），集號代換成真值（#44）。"""
+def stage4_producer(root: Path, errors: List[str], *, extra: Optional[Dict[str, Any]] = None) -> tuple:
+    """階段 4 下一步：還沒有 layer2 就先跑 handoff_to_skeleton（#36）；有了才補構圖，集號代換成真值（#44）。
+
+    構圖用哪個生圖工具由使用者選（storyboard_engine，h3d imagegen），不自行預設：
+    沒選／選了但現在不可用 → 指令是 `h3d imagegen --set ...`，action 列出偵測結果請使用者選；
+    已選 → 給該後端的指令。`extra` 會收到 image_backends.next_step() 的結果（給 --json／notes 用）。"""
     if not list((root / "layer2").glob("layer2-*.json")):
         handoffs = sorted(root.glob("handoff-ep*.json"))
         if not handoffs:
@@ -82,12 +87,31 @@ def stage4_producer(root: Path, errors: List[str]) -> tuple:
                 f"先把 handoff 轉成 layer2 分鏡骨架（共 {len(handoffs)} 集，逐集執行），填實鏡頭內容後再補構圖。")
     rejected = [e for e in errors if "自檢退回" in e]
     episode = next((_episode_of(e) for e in errors if _episode_of(e)), None)
-    ep_flag = f" --episode {episode}" if episode else ""
-    action = f"補齊每一鏡對應的構圖 PNG（缺 {len(errors) - len(rejected)} 鏡"
-    action += f"、自檢退回 {len(rejected)} 鏡要重畫）。" if rejected else "）。"
-    # 預設構圖來源：Codex 分鏡（每鏡一張＋每段總覽圖，回寫 sketch_file）。--model 必填，不替使用者選模型。
-    action += "預設用 Codex 分鏡；--model 填使用者指定的 Codex 生圖模型（必填）。手繪或其他工具的 PNG 也可，回寫 sketch_file 即可。"
-    return (f"{CODEX_PANELS} --root .{ep_flag} --model <使用者指定模型>", action)
+    gap = f"缺 {len(errors) - len(rejected)} 鏡" + (f"、自檢退回 {len(rejected)} 鏡要重畫" if rejected else "")
+    step = image_backends.next_step(root, 4, episode)
+    if extra is not None:
+        extra.update(step)
+    if step["ask_user"]:
+        return (step["command"], f"補齊每一鏡對應的構圖 PNG 之前（{gap}），{step['action']}")
+    action = f"補齊每一鏡對應的構圖 PNG（{gap}）。{step['action']}"
+    return (step["command"], action)
+
+
+def stage2_image_step(res: Dict[str, Any], root: Path, errors: List[str]) -> Optional[Dict[str, Any]]:
+    """階段 2 設定圖缺圖時：依使用者選的生圖工具（design_engine）給指令；沒選／不可用就請使用者選。
+    只處理「登記的設定圖不存在」；assets.md 沒填實等其他錯誤照舊。回 None＝不是缺圖問題。"""
+    if not any("設定圖有" in e and "不存在" in e for e in errors):
+        return None
+    step = image_backends.next_step(root, 2)
+    res["imagegen"] = step["imagegen"]
+    res["notes"].extend(step["notes"])
+    if step["ask_user"]:
+        res["blocked_on"].append(step["blocked"])
+        res["action"] = step["action"]
+    else:
+        res["action"] = step["action"]
+    res["next_command"] = step["command"]
+    return res
 
 
 def stage5_producer(root: Path, errors: List[str]) -> tuple:
@@ -226,6 +250,14 @@ def _decision_step(res: Dict[str, Any], root: Path, missing: List[str]) -> Dict[
     did = missing[0]
     meta = decisions_mod.KNOWN_DECISIONS[did]
     res["blocked_on"].append("尚未定案：" + "、".join(decisions_mod.KNOWN_DECISIONS[m]["label"] for m in missing))
+    if did == "design_engine":
+        # 設定圖生圖工具：偵測環境裡可用的工具，請使用者選（只有一個可用也要問），不自行預設。
+        step = image_backends.next_step(root, 2)
+        res["action"] = step["action"]
+        res["next_command"] = step["command"]
+        res["imagegen"] = step["imagegen"]
+        res["read"] = [meta["reference"], "references/tooling.md（h3d imagegen）"]
+        return res
     hint = "recommended" if did in ("acceptance_policy", "style") else "<值>"
     res["action"] = (f"向使用者問「{meta['label']}」（附推薦值），拿到回覆後用使用者原話寫入。"
                      "不要自己替使用者決定。")
@@ -235,6 +267,16 @@ def _decision_step(res: Dict[str, Any], root: Path, missing: List[str]) -> Dict[
     res["next_command"] = f'{H3D} decide {did} "{hint}" --quote "<使用者原話>" --root .'
     res["read"] = [meta["reference"]]
     return res
+
+
+def _apply_imagegen(res: Dict[str, Any], step: Dict[str, Any]) -> None:
+    """把 image_backends.next_step() 的結果併進 h3d next 的回傳（--json 的 imagegen 欄、警告、詢問）。"""
+    if not step:
+        return
+    res["imagegen"] = step.get("imagegen")
+    res["notes"].extend(step.get("notes") or [])
+    if step.get("ask_user") and step.get("blocked"):
+        res["blocked_on"].append(step["blocked"])
 
 
 def _approve_command(stage: int, technical: List[str]) -> str:
@@ -451,6 +493,9 @@ def _plan(root: Path) -> Dict[str, Any]:
         return res
 
     missing = decisions_mod.missing_for_stage(root, stage)
+    if _delivery_scope(root).get("no_image"):
+        # 使用者定了不生圖：階段 2 只要文字設定卡，不必選設定圖生圖工具。
+        missing = [m for m in missing if m != "design_engine"]
     if missing:
         return _decision_step(res, root, missing)
 
@@ -476,7 +521,12 @@ def _plan(root: Path) -> Dict[str, Any]:
             res["status"] = "approval_invalid"
             res["blocked_on"].append(f"核准已失效：{first_failure}")
             res["blocked_on"].append(current[0])
-            command, action = (stage4_producer if stage == 4 else stage5_producer)(root, current)
+            if stage == 4:
+                extra: Dict[str, Any] = {}
+                command, action = stage4_producer(root, current, extra=extra)
+                _apply_imagegen(res, extra)
+            else:
+                command, action = stage5_producer(root, current)
             res["action"] = action
             res["next_command"] = command
             return res
@@ -517,6 +567,9 @@ def _plan(root: Path) -> Dict[str, Any]:
         errors = ps.stage_validation_errors(root, stage, strict=True)
         if errors:
             res["blocked_on"].append(errors[0])
+            if stage == 2 and stage2_image_step(res, root, errors) is not None:
+                return res
+            stage4_extra: Dict[str, Any] = {}
             producers = {
                 0: (f"{H3D} decide --list --root .",
                     "和使用者定調（h3d decide style／aspect_ratio／dialogue_policy），把 project.md 的模板欄位全部填實。"),
@@ -529,13 +582,14 @@ def _plan(root: Path) -> Dict[str, Any]:
                     "把 assets.md 的模板卡片填實，並生成每張登記的設定圖。"),
                 3: (f"{CHECK} --root . --stage 3",
                     "寫完 script-ep*.md，跑 sync_script.py 產 handoff，修到 validate_structure／check_continuity／compare_adaptation 沒有 FAIL。"),
-                4: stage4_producer(root, errors) if stage == 4 else None,
+                4: stage4_producer(root, errors, extra=stage4_extra) if stage == 4 else None,
                 5: stage5_producer(root, errors) if stage == 5 else None,
                 7: (f"{H3D} voice align --root .",
                     "先跑階段 7 固定流程（ASR 對位、畫外句壓原聲、響度），再 h3d concat plan／build 建全集剪輯專案，"
                     "或 h3d assemble 組裝成片並產出 delivery manifest。"),
             }
             command, action = producers.get(stage) or (f"{H3D} status --root .", "先修正上面的錯誤。")
+            _apply_imagegen(res, stage4_extra)
             res["action"] = action
             res["next_command"] = command
             return res

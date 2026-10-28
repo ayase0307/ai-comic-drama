@@ -190,7 +190,9 @@ class ReviewPageSpecTests(TwoEpisodeProject):
             self.assertTrue(all(o.get("reply") for o in card["options"]), card["id"])
             self.assertIn(card["blocking"], inbox.VALID_BLOCKING, card["id"])
             self.assertLessEqual(len(card["question"]), inbox.MAX_QUESTION, card["id"])
-            self.assertEqual(card["recommended_option"], card["options"][0]["label"])
+            # 生圖工具卡在多個工具可用時刻意不標建議（no_recommendation），其餘卡建議＝options[0]
+            expected = None if card.get("no_recommendation") else card["options"][0]["label"]
+            self.assertEqual(card["recommended_option"], expected)
         self.assertEqual(model["problems"], [], "內建產卡處都寫了 if_ignored／合法 blocking／2–3 選項")
         page = inbox.render_html(model)
         self.assertIn("<dt>不回覆</dt>", page)

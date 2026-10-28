@@ -14,7 +14,7 @@ import base64
 import html
 import json
 from pathlib import Path
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 import stage_views
 
@@ -138,6 +138,7 @@ dd{margin:0;color:var(--tx);word-break:break-word;opacity:.92}dd.recd{opacity:1;
 .opt.rec{border-color:color-mix(in srgb,var(--ds) 55%,transparent);background:linear-gradient(135deg,var(--accbg),var(--glass2))}.opt.rec kbd{background:var(--ds);color:#fff;border-color:var(--ds)}
 .ol{font-weight:800;font-size:16.5px}.opt.rec .ol::after{content:"建議";display:inline-block;white-space:nowrap;margin-left:8px;font-size:11.5px;font-weight:800;color:var(--ds);border:1px solid color-mix(in srgb,var(--ds) 55%,transparent);border-radius:99px;padding:0 8px;vertical-align:2px}
 .ot{font-size:13.5px;color:var(--mut);line-height:1.55;word-break:break-word}
+.opt.off{cursor:not-allowed;opacity:.45;filter:grayscale(1)}.opt.off:hover{transform:none;box-shadow:none;border-color:var(--rule)}
 .opt.picked{border-color:var(--ok);background:var(--okbg)}.opt.picked kbd{background:var(--ok);color:#fff;border-color:var(--ok)}
 .opt.picked .ol::before{content:"✓ ";color:var(--ok)}
 .deck-on .seal{display:grid;position:absolute;right:20px;top:44px;width:84px;height:84px;place-items:center;border-radius:50%;border:3px double var(--coral);color:var(--coral);
@@ -249,7 +250,7 @@ function go(i){if(!stack.length)return;const back=i<cur;cur=Math.max(0,Math.min(
  const h=$('h3',stack[cur]);if(h&&document.activeElement&&document.activeElement.closest('.deckzone')){h.setAttribute('tabindex','-1');h.focus({preventScroll:true})}
  if(live)live.textContent=onFin?'全部看完，最後一步：複製全部回覆':`第 ${cur+1} 張：${h?h.textContent:''}`;void back}
 const TOTAL=+(document.body.dataset.total||0);
-document.addEventListener('click',async e=>{const o=e.target.closest('.opt');if(!o)return;
+document.addEventListener('click',async e=>{const o=e.target.closest('button.opt');if(!o)return;
  const u=o.closest('[data-sign]');if(!u)return;const title=u.dataset.title||'';
  ans[u.id]={reply:o.dataset.reply,label:$('.ol',o).textContent,title};save();refresh();
  const r=o.getBoundingClientRect();burst(r.left+30,r.top+r.height/2,14,false);
@@ -268,7 +269,7 @@ if(stack.length){document.body.classList.add('deck-on');
  const back=$('#fin-left button');if(back)back.addEventListener('click',()=>go(cards.findIndex(c=>!ans[c.id])));
  document.addEventListener('keydown',e=>{if(e.target.closest('input,textarea')||e.metaKey||e.ctrlKey||e.altKey)return;
   if(e.key==='ArrowRight')go(cur+1);else if(e.key==='ArrowLeft')go(cur-1);
-  else if(/^[1-3]$/.test(e.key)&&stack[cur]&&cards.includes(stack[cur])){const o=$$(':scope > .opts .opt',stack[cur])[+e.key-1];if(o)o.click()}});
+  else if(/^[1-3]$/.test(e.key)&&stack[cur]&&cards.includes(stack[cur])){const o=$$(':scope > .opts button.opt',stack[cur])[+e.key-1];if(o)o.click()}});
  const first=cards.findIndex(c=>!ans[c.id]);refresh();go(first<0?cards.length:first)}else refresh();
 if(matchMedia('(min-width:900px)').matches)$$('.duo details.fold').forEach(d=>d.open=true);
 $$('.vid').forEach(b=>b.addEventListener('click',()=>{const box=$('.vimg',b);if($('video',box))return;
@@ -276,11 +277,18 @@ $$('.vid').forEach(b=>b.addEventListener('click',()=>{const box=$('.vimg',b);if(
 """
 
 
-def _opts(options: List[Dict[str, Any]], limit: int = 3) -> str:
-    return "".join(
-        f'<button class="opt{" rec" if i == 0 else ""}" data-reply="{E(o["reply"])}"><kbd>{i + 1}</kbd>'
+def _opts(options: List[Dict[str, Any]], limit: int = 3, *, rec: bool = True,
+          unavailable: Optional[List[Dict[str, Any]]] = None) -> str:
+    """選項按鈕；rec=False 時不標「建議」。unavailable：灰掉、不能點的選項（附原因），例如偵測不到的生圖工具。"""
+    buttons = "".join(
+        f'<button class="opt{" rec" if i == 0 and rec else ""}" data-reply="{E(o["reply"])}"><kbd>{i + 1}</kbd>'
         f'<span class="ol">{E(o["label"])}</span><span class="ot">{E(o["reply"])}</span></button>'
         for i, o in enumerate(options[:limit]))
+    off = "".join(
+        f'<div class="opt off" aria-disabled="true"><kbd>—</kbd><span class="ol">{E(o["label"])}（不可用）</span>'
+        f'<span class="ot">{E(o.get("reason", ""))}</span></div>'
+        for o in (unavailable or []))
+    return buttons + off
 
 
 def card_html(c: Dict[str, Any], *, n: int = 0, of: int = 0, deck: bool = False) -> str:
@@ -299,7 +307,7 @@ def card_html(c: Dict[str, Any], *, n: int = 0, of: int = 0, deck: bool = False)
   <h3>{E(c["title"])}</h3>
   {fig}
   <dl>{finding}<dt>影響</dt><dd>{E(c["impact"])}</dd><dt>建議</dt><dd class="recd">{E(c["recommendation"])}</dd><dt>不回覆</dt><dd>{E(c.get("if_ignored", ""))}</dd></dl>
-  <div class="opts">{_opts(c["options"], 9)}</div>
+  <div class="opts">{_opts(c["options"], 9, rec=not c.get("no_recommendation"), unavailable=c.get("unavailable_options"))}</div>
   {f'<div class="links">{links}</div>' if links else ""}
   {children_html(c.get("children") or [])}
   <p class="src">卡片 {E(c["id"])}・來源 {E(c.get("source", ""))}</p>
