@@ -279,6 +279,12 @@ python scripts/h3d.py refcheck --root . --takes videos/remix-queue.jsonl   # 已
 - **audit 整合**：`audit_refs_and_segments.py --audit-refs … --project-root .` 在 remix 分支會把 refcheck 的文字比對併進 E50（專案詞表有英文名時才有作用；沒寫 `name_en`／`aliases_en` 時行為同 R3）。
 - **還沒接**：送件前自動呼叫（R7 送件 adapter 才有 remix 送件）。
 
+**牆面分配層（可選工具）**（`scripts/storyboard/wall_map.py`，不接進 `h3d`、不改預設編譯）：把場景牆面分配表 JSON（範例 `references/storyboard/templates/wall-map.example.json`）展開成每鏡前置句，檢查「同上」、缺／重複的不新增門窗句、字數。規則與證據等級見 `references/storyboard/spatial-consistency.md` §2（measured，方向性，未達實驗原定門檻）。
+
+```
+python scripts/storyboard/wall_map.py --map <牆面分配表>.json [--shot S01-c#1] [--json]   # 有錯 exit 1
+```
+
 **`h3d staging`**（`scripts/storyboard/staging_lint.py`，兩個 backend 都適用；碼延續 `director_lint.py` 的 D 系列，D01–D05 是階段 4 分鏡層）：
 
 ```

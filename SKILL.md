@@ -89,4 +89,5 @@ agent_created: true
 - 打鬥／招式／特效／衝擊幀：外部技能 `h3-combat-impact`（ayase0307/h3-combat-impact），見上方「打鬥／招式／特效段」。
 - `references/revision-and-retry.md` — 改稿必附改動清單＋聯動結論、同鏡重抽最多 2 次後回層診斷、驗收比較原則。
 - `references/storyboard/continuity-ledger.md` — 人物賬、分鏡審查清單、三種方位、站位附表、正反打、段縫末態、參考圖用途。
+- `references/storyboard/spatial-consistency.md` — 空間一致性：場景母片照平面圖畫、牆面分配層（可選 `scripts/storyboard/wall_map.py`）、構圖板以母片為底、只拍生物的鏡頭綁店內參考（老易實驗 2026-10，方向性證據）。
 - 格式：`references/schemas/`（decisions、verdicts）。給 agent 的硬規則另見 `AGENTS.md`。

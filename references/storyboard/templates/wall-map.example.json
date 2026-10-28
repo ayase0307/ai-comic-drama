@@ -1,0 +1,39 @@
+{
+  "_comment": "牆面分配表範例（老易空間實驗 2026-10 自助餐店 EP90 S01-c；見 references/storyboard/spatial-consistency.md §2）。用 scripts/storyboard/wall_map.py 展開。",
+  "scene": "S-buffet-restaurant",
+  "char_budget": 800,
+  "elements": [
+    {"id": "counter", "text": "the counter", "wall": "west"},
+    {"id": "doorway", "text": "the one open, glassless kitchen doorway", "wall": "north"},
+    {"id": "glass", "text": "the glass door and all glass", "verb": "are", "wall": "east"},
+    {"id": "south", "text": "a plain cream wall with light-wood wainscot", "wall": "south"}
+  ],
+  "furniture": "seven pale-stone tables with steel stools",
+  "key_light": {"text": "Warm orange streetlight", "from": "east"},
+  "shots": {
+    "S01-c#1": {
+      "camera_facing": "north",
+      "place": {
+        "counter": "its north end at the left edge",
+        "doorway": "west of centre, at the frame-right edge here",
+        "glass": "far off-screen right and unseen",
+        "south": "behind the camera"
+      },
+      "no_new_openings": "No glass or street appears in that doorway.",
+      "directions": "The camera is south, facing north; Shen Luonian faces south-west, the partition behind him; the cook stands on the table's west side, Shen Luonian's own right and frame left."
+    },
+    "S01-c#2": {
+      "camera_facing": "north",
+      "place": {
+        "counter": "off-screen left",
+        "doorway": "just off the right edge",
+        "glass": "off-screen right",
+        "south": "behind the camera"
+      },
+      "furniture_here": "the bowl on the corner table",
+      "no_new_openings": "No door or glass sits behind his head.",
+      "directions": "Only the soft light-wood partition is behind him; the cook, on his own right, stays at frame left.",
+      "pair": "This close-up is the matching view of the same moment, tightened along Shot 1's direction from the same south side, not a new camera position."
+    }
+  }
+}
