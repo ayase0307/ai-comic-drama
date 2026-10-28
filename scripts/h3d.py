@@ -44,7 +44,8 @@ COMMANDS: Dict[str, str] = {
     "inbox": "決策收件匣 review/inbox.html：只列需要使用者決定的事（手機優先、內嵌縮圖）",
     "approve": "--auto：沒有未決卡且符合 decisions 政策時自動核准並記錄依據；--stage 5 --segments X,Y：人工重審改過的段",
     "doctor": "本機環境自檢（GPU／ffmpeg／服務 port／-vsync）",
-    "sketch": "已移除：只印替代指令後 exit 2；階段 4 構圖改用 Codex 分鏡 codex_storyboard_panels.py",
+    "imagegen": "生圖工具：--detect 偵測可用後端（不生圖、不花錢）；--set <後端> --quote 寫入使用者選擇（design_engine／storyboard_engine）",
+    "sketch": "已移除：只印替代指令後 exit 2；階段 4 構圖改用 h3d imagegen 選定的生圖工具",
     "crop": "依比例／格位裁設定板頭像（輸出 tmp/crops，不進 images/）",
     "bind": "產生階段 5 video-bible.json／video-bindings.json（正臉單視角裁切、側背／生物整板查表）",
     "compile": "Layer 2 → H3 六段式提示詞與 segments（remix 綁定＝REMIX 三欄；--check 可同時審查）",
@@ -78,6 +79,7 @@ MODULE_FOR = {
     "inbox": "inbox",
     "approve": "auto_approve",
     "doctor": "doctor",
+    "imagegen": "image_backends",
     "crop": "crop_sheet",
     "bind": "generate_bindings",
     "compile": "compile_layer2_to_h3",
@@ -120,9 +122,10 @@ def removed_sketch(argv: List[str], root: Optional[Path]) -> int:
     if known.segment:
         command += " --segment " + " ".join(known.segment)
     command += " --model <使用者指定模型>"
-    print(f"SVG 構圖已移除，改用 Codex 分鏡：{command}", file=sys.stderr)
-    print("（--model 必填，填使用者指定的 Codex 生圖模型；既有專案已回寫的 sketch_file 仍有效，不必重畫。）",
-          file=sys.stderr)
+    print("SVG 構圖已移除。階段 4 構圖改用使用者選的生圖工具："
+          f"先 h3d imagegen --detect 列出可用工具、請使用者選；選 Codex 分鏡時：{command}", file=sys.stderr)
+    print("（生圖後端由使用者選，不自行預設；--model 填使用者指定的 Codex 生圖模型。"
+          "既有專案已回寫的 sketch_file 仍有效，不必重畫。）", file=sys.stderr)
     return 2
 
 
@@ -318,7 +321,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         return _invoke(importlib.import_module("continuity_qa"), passthrough)
     module = _load(command)
     passthrough = IMPLIED_FLAGS.get(command, []) + passthrough
-    if command in ("next", "decide", "verdict", "inbox", "approve", "run", "refcheck", "staging", "version"):
+    if command in ("next", "decide", "verdict", "inbox", "approve", "run", "refcheck", "staging", "version", "imagegen"):
         # 允許 `h3d --root X next` 與 `h3d next --root X` 兩種寫法
         if args.root is not None and "--root" not in passthrough:
             passthrough += ["--root", str(args.root)]

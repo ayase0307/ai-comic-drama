@@ -14,6 +14,7 @@ for extra in (SCRIPTS, SCRIPTS / "review", SCRIPTS / "storyboard"):
     sys.path.insert(0, str(extra))
 
 import build_stage_review as review  # noqa: E402
+import decisions  # noqa: E402
 import inbox  # noqa: E402
 import next_step  # noqa: E402
 import project_state as ps  # noqa: E402
@@ -182,7 +183,12 @@ class NextStepCommandTests(_Project):
 
     def test_stage4_with_layer2_substitutes_episode(self):
         self.layer("EP02-S01-a", [{"shot_id": "SH01"}])
-        command, _ = next_step.stage4_producer(self.root, ["EP02-S01-a/SH01: 缺少有效且對應的構圖 PNG"])
+        # 構圖工具由使用者選（storyboard_engine）；選 Codex 且偵測可用時才給 Codex 分鏡指令。
+        decisions.decide(self.root, "storyboard_engine", "codex", "分鏡用 Codex")
+        rows = [{"id": "codex", "label": "Codex", "stages": [2, 4], "selectable": True, "available": True,
+                 "status": "available", "reason": "ok"}]
+        with mock.patch.object(next_step.image_backends, "detect", return_value=rows):
+            command, _ = next_step.stage4_producer(self.root, ["EP02-S01-a/SH01: 缺少有效且對應的構圖 PNG"])
         self.assertIn("codex_storyboard_panels.py", command)
         self.assertIn("--root . --episode EP02", command)
         self.assertIn("--model ", command, "Codex 分鏡 --model 必填，指令要帶出來")

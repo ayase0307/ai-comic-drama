@@ -23,6 +23,7 @@ python scripts/h3d.py status --root . # 全局狀態（階段／依賴／送件�
 | `voice` | `voice align`：ASR 對位、畫外句區間壓原聲（−22 dB）、響度標準化（−16 LUFS） | 階段 7 配音完成後 |
 | `concat` | `concat plan`／`concat build`：全集單一 Concat 剪輯專案（T1 影片、T2 字幕、T3 畫外音） | 剪輯方式定案為 Concat 時 |
 | `doctor` | GPU 顯存、ffmpeg（含 `-vsync` 回歸）、服務 port、磁碟 | 開工前、換機器後 |
+| `imagegen` | 生圖工具：`--detect` 偵測可用後端（Codex／Qwen-Image 經 FreeVideo／Grok／手繪上傳，ComfyUI 只回報），`--set <後端> --quote` 寫入使用者選擇（§2.4.1） | 階段 2 缺設定圖、階段 4 缺構圖且 `h3d next` 要你問使用者時 |
 | `compile` | Layer 2 → H3 六段式提示詞＋`segments-*.json`（remix 綁定＝REMIX 三欄，§2.3.1c）；`--check` 同時跑 17 條自檢與失敗目錄 | 每次改完分鏡 |
 | `audit` | 參考圖／主體定義／台詞預算對帳 | 編譯後單獨重驗 |
 | `refcheck` | 參考包涵蓋檢查：提示詞寫到的具名角色／生物／道具／場景／群眾是否都有綁包（remix E50／E51 擋；ref2va 只提示），`--takes` 查已送出抽次的快照（§2.3.1d） | remix 每次改提示詞、送件前 |
@@ -122,7 +123,7 @@ Layer 2 每鏡新增必填欄位 `shot_intent`（audience、story_beat、pov、e
 
 **骨架與構圖的 ID／比例**：
 - `handoff_to_skeleton.py handoff-epXX.json --out-dir layer2 [--bible adapt/bible.json]`：用聖經的 `canonical_name`／`name`／`aliases`（及 ID 本身）把 handoff 的中文名對到聖經 ID（`C-`／`S-`／`P-`）；沒給 `--bible` 時自動找 `<handoff 所在目錄>/adapt/bible.json`，`--bible none` 關閉。查不到的名稱退回雜湊 ID 並逐一警告——不補 `aliases` 的話 `h3d bind` 會判成「未在 bible.json 登記」。
-- 階段 4 構圖（預設 Codex 分鏡 `codex_storyboard_panels.py`，`--model` 必填）依每段 Layer 2 `metadata.aspect_ratio` 出圖（未填退回 16:9）。構圖必須和成片同比例，否則審核者會誤判景別與走位；手繪或其他工具補圖時同樣照該段比例。`h3d sketch` 已移除，執行只會印替代指令並 exit 2；既有專案已回寫的 `sketch_file` 仍有效。
+- 階段 4 構圖（用使用者選的生圖工具：`storyboard_engine`，見 §2.4.1；Codex 分鏡 `codex_storyboard_panels.py` 的 `--model` 必填）依每段 Layer 2 `metadata.aspect_ratio` 出圖（未填退回 16:9）。構圖必須和成片同比例，否則審核者會誤判景別與走位；手繪或其他工具補圖時同樣照該段比例。`h3d sketch` 已移除，執行只會印替代指令並 exit 2；既有專案已回寫的 `sketch_file` 仍有效。
 
 ## 2.3 階段 5 英文層（stage5 binding 的 en_overlay）
 
@@ -361,10 +362,31 @@ python scripts/h3d.py compile --layer2 layer2/ --bible video-bible.json --bindin
 
 已核准的階段不會因為之後新增的檢查失效：核准快照已綁定內容 hash，內容改了才需要重審。
 
+## 2.4.1 生圖工具：偵測後由使用者選（h3d imagegen）
+
+**生圖後端由使用者選，Agent 不自行預設**（也不因為只偵測到一個就直接用）。共用偵測模組 `scripts/image_backends.py`，`h3d imagegen`、`h3d next`、`h3d inbox`、`check_environment.py` 都用它。
+
+| 後端 | 階段 | 怎麼偵測（不生圖、不花錢、不連外部付費 API、不讀 token 值） | 選定後 `h3d next` 給的指令 |
+|---|---|---|---|
+| `codex` | 2、4 | `codex` 在 PATH（生圖腳本只從 PATH 找）；登入只看 `CODEX_HOME`（預設 `~/.codex`）`/auth.json` 有沒有憑證欄位，不跑 `codex login status` | 2：`export_asset_prompts.py … --out-json tmp/asset-prompts.json && run_codex_asset_gen.py … --model <使用者指定模型>`；4：`codex_storyboard_panels.py --root . [--episode] --model <使用者指定模型>` |
+| `qwen` | 4 | Qwen-Image 經本機 FreeVideo：`FREEVIDEO_API_URL`（預設 127.0.0.1:8189）短 timeout TCP＋不帶 token 的 `GET /freevideo/agent`（看 `enabled`，不走 proxy） | `qwen_storyboard_grid.py --layer2-dir layer2 [--episode] --generate-all --assemble-grid` |
+| `grok` | 2 | Agent 內建 GenerateImage，腳本偵測不到 → 「未知」；Agent 設 `AICD_AGENT_IMAGE_TOOL=grok` 宣告時才算可用 | `export_asset_prompts.py`（產 `images/grok-manifest.json`，再逐張用 GenerateImage） |
+| `manual` | 2、4 | 永遠可用（使用者手繪／其他工具出圖後上傳） | 停下，請使用者把 PNG 放到登記路徑（階段 4 回寫 `sketch_file`） |
+| `comfyui` | — | 只回報 `COMFYUI_URL`（預設 127.0.0.1:8188）端點狀態；repo 沒有直連生圖 adapter，不能選 | — |
+
+- 選擇存在 `decisions.json`（repo 慣例：使用者定案必附原話）：階段 2＝`design_engine`（`export_asset_prompts.py` 已讀它；舊值 `codex_cli` 等別名照認），階段 4＝`storyboard_engine`。
+  `h3d imagegen --set codex --quote "<原話>" --root .` 不給 `--stage`＝寫入該後端支援的所有階段（共用）；`--stage 2|4` 只寫一個階段。後端現在不可用會拒寫，使用者明確要先定下來（例如要回家機跑）才加 `--allow-unavailable`。
+- `h3d next`：階段 2 缺 `design_engine`、或登記的設定圖不存在，以及階段 4 有 layer2 但缺構圖時——
+  **沒選** → 下一步是 `h3d imagegen --set <可選清單> --stage N --quote "<使用者原話>"`，action 列出可用與不可用（含原因）；**只偵測到一個可用也要問**（可標建議）；兩個以上可用不建議。
+  **已選且可用** → 給該後端的指令（狀態未知時附註提醒確認）。**選了但現在不可用**或值認不得 → ⚠️ 警告並重新詢問。`--json` 多一個 `imagegen` 欄（偵測結果、狀態、建議）。
+  `delivery_scope` 有 `no_image` 時不問設定圖工具。
+- `h3d inbox`：同樣情況出 `D2-imagegen-backend`／`D4-imagegen-backend` 卡；可用的工具是選項，不可用的灰掉並寫原因（`unavailable_options`），多個可用時 `no_recommendation=true`（不標「建議」）。
+- `check_environment.py` 的生圖能力列用同一個偵測（`generation.image_backends`）；影片生成服務仍由 `h3d doctor`／`h3d probe` 判斷。
+
 ## 2.5 使用者定案與逐段結論（decisions.json／verdicts.json）
 
 - `decisions.json`（專案根目錄，格式 `references/schemas/decisions.schema.json`）：每條定案含 `id`、一句話 `rule`、`value`、`source`（使用者原話＋日期）、適用 `stages`。重新定案時舊值進 `history`。
-  `h3d next` 會在需要的階段前要求定案存在（畫風／比例／設定圖引擎→階段 2、台詞政策→3、驗收政策→6、剪輯方式→7）。
+  `h3d next` 會在需要的階段前要求定案存在（畫風／比例／設定圖生圖工具→階段 2、台詞政策→3、驗收政策→6、剪輯方式→7；階段 4 構圖工具 `storyboard_engine` 只在缺構圖時才問，見 §2.4.1）。
 - `acceptance_policy` 的值是 `{rerun_on: [...], accept: [...]}`，只能用固定問題代碼：
   `extra_person` 多出人、`burned_subtitle` 燒字幕、`face_mix` 混臉／同框露臉、`wardrobe_wrong` 服裝錯、`style_shift` 畫風突變、`composition_broken` 構圖嚴重問題、`grid_leak` 分鏡總覽圖殘留、`paper_text` 紙面出字、`aged_face` 人物稍老、`low_chroma` 低彩度、`color_jump` 色調跳躍、`no_audio` 缺音軌、`other`。
   `h3d decide acceptance_policy recommended --quote "照建議"` 會寫入建議值（前七項重跑；紙面出字、人物稍老、低彩度、色調跳躍可接受）。
@@ -435,10 +457,11 @@ python scripts/h3d.py compile --layer2 layer2/ --bible video-bible.json --bindin
 
 | 變數 | 作用 | 預設 |
 |---|---|---|
-| `FREEVIDEO_API_URL` | submit／collect／resume／run／probe 的 API 位址，`h3d doctor` 也用它探測 port | `http://127.0.0.1:8189/freevideo/agent/v1` |
+| `FREEVIDEO_API_URL` | submit／collect／resume／run／probe 的 API 位址，`h3d doctor`、`h3d imagegen --detect` 與 `qwen_storyboard_grid.py` 也用它 | `http://127.0.0.1:8189/freevideo/agent/v1` |
 | `FREEVIDEO_TOKEN`／`FREEVIDEO_TOKEN_FILE` | 令牌本身／令牌檔路徑 | 依序找 `E:\FreeVideo\agent\token`、`~/.freevideo/agent/token`、`C:\FreeVideo\agent\token`（非 Windows 只看家目錄） |
 | `AICD_FFMPEG`／`AICD_FFPROBE` | ffmpeg／ffprobe 完整路徑（只設 ffmpeg 時 ffprobe 取同目錄） | PATH |
-| `COMFYUI_URL`／`VOICESTUDIO_URL` | `h3d doctor` 探測的 ComfyUI／VoiceStudio 位址 | `127.0.0.1:8188`／`127.0.0.1:8001`（TTS 位址另由 `config/tts.json` 的 `engines.voicestudio.base_url` 決定） |
+| `COMFYUI_URL`／`VOICESTUDIO_URL` | `h3d doctor`（ComfyUI 也給 `h3d imagegen --detect`）探測的 ComfyUI／VoiceStudio 位址 | `127.0.0.1:8188`／`127.0.0.1:8001`（TTS 位址另由 `config/tts.json` 的 `engines.voicestudio.base_url` 決定） |
+| `AICD_AGENT_IMAGE_TOOL` | Agent 宣告自己有的內建生圖工具（目前認 `grok`），`h3d imagegen --detect` 才會把 Grok 標可用 | 不設＝Grok 標「未知」 |
 | `AICD_OMNIVOICE_LAUNCHER` | tts_doctor 提示的 OmniVoice 啟動檔 | `E:\OmniVoice\啟動-OmniVoice.bat` |
 | `AICD_H3_UPSTREAM` | `sync_h3_reference.py` 的上游 clone | 依序 `E:\MinimaxH3\h3-video-prompting`、本 repo 同層 `../h3-video-prompting` |
 

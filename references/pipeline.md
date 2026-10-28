@@ -140,14 +140,15 @@ python scripts/init_project.py my-drama --title "我的漫劇"
    - 填寫每段分鏡與提示詞的演員表時，**嚴格按「這一場誰是主角/核心」排序**，而非按誰先想到或人類先於生物。
    - 生物（巨蟒、白獸等）在誕生、威脅或主戰場次往往是核心，必須排在第一位（`subject 1`），避免被 H3 參考圖上限或注意力機制稀釋擠掉。
 5. **核心資產生圖工具詢問與跨章節鎖定鐵律**：
-   - **詢問指定工具（推薦 Codex CLI）**：在出核心資產圖前，必須詢問使用者指定生圖工具（推薦本機 Codex CLI 或使用者授權之工具）。
+   - **偵測後詢問，不自行預設**：出核心資產圖前先跑 `h3d imagegen --detect --stage 2 --root .`（`h3d next` 缺 `design_engine` 時也會帶出偵測結果），把偵測到可用的工具（Codex CLI／Grok GenerateImage／手繪上傳；不可用的附原因）交給使用者選，**只偵測到一個可用也要問**；使用者回覆後 `h3d imagegen --set <後端> --stage 2 --quote "<使用者原話>" --root .` 寫進 `design_engine`。選了但之後不可用時 `h3d next` 會警告並重新詢問（`references/tooling.md` §2.4.1）。
    - **跨章節工具選擇**：若使用者要求跨章節風格一致，記錄已選工具及可重用的風格參考；依每個工具實際能力安排工作，不強制使用特定引擎。
    - Qwen、手繪或其他可用圖像工具可依任務製作設定圖或分鏡構圖圖；同一張圖是否可用於後續生成依目標模型能力判斷。
 6. **組裝角色設定板提示詞再生圖**：角色卡填好 `設定板描述`、`背面特徵`（`init_project.py` 範本已含），**問風格的方式（P0）**：依題材從 `references/styles.md`「角色設定板預設風格」的推薦挑 2–3 個，附上樣圖（`assets/styles/sheet-*.jpg`）與一句話差別，一次問一個問題；**全片風格鎖與設定板風格合併成同一個選擇**，不要分開問。預設推 14 號「古風寫實厚塗・電影感」；沒有選定時 `export_asset_prompts.py` 會用 14 號並在 stderr 提醒，開工前仍要讓使用者確認。
    **風格要在階段 0 與使用者確認後**寫進「風格錨點」區的 `style_index`：`14`／`xianxia-cinematic-semireal`（**預設**，古風寫實厚塗・電影感）／`master`（母版 3D 漫劇寫實厚塗，偏插畫感）／`semi-real`（UE5 半寫實東亞，更接近真人質感）／`1`–`11`（`styles.md` 編號）。沒寫時匯出用預設 14 號並提醒，開工前仍先問。選 14 號時每段都要綁設定圖或場景圖（audit E28）。然後：
    ```bash
    python scripts/storyboard/export_asset_prompts.py --assets-md assets.md --out-json images/asset_prompts.json --out-md images/asset_prompts.md
-   python scripts/storyboard/run_codex_asset_gen.py --prompts images/asset_prompts.json --output-dir images
+   # 使用者選 codex 時（design_engine=codex）；選 grok 時匯出會另產 images/grok-manifest.json，選手繪則請使用者上傳到登記路徑
+   python scripts/storyboard/run_codex_asset_gen.py --prompts images/asset_prompts.json --output-dir images --model <使用者指定模型>
    ```
    角色提示詞用 ai-image-prompt 四視圖母版（構圖不改、含防呆句）；`--style <選項>` 可臨時覆蓋 `style_index`。舊版匯出檔（缺 `template` 標記）runner 會警告，需重跑匯出。
 7. **綁定階段 2 審核快照、交收件匣與附錄並停下（P0 鐵律）**：
@@ -276,13 +277,15 @@ python scripts/storyboard/handoff_to_skeleton.py handoff-ep01.json --out-dir lay
 python scripts/storyboard/validate_storyboard.py --file layer2/layer2-EP01-*.json --handoff handoff-ep01.json
 python scripts/storyboard/layer2_to_table.py layer2/layer2-EP01-*.json --check --md storyboard-ep01.md --timeline timeline-plan-ep01.csv
 
-# 3. 構圖（預設 Codex 分鏡：每鏡綁定已核准參考圖，--model 必填，填使用者指定的模型）
+# 3. 構圖：生圖工具由使用者選，不自行預設。先偵測、把可用的（不可用的附原因）交給使用者選，只有一個可用也要問
+python scripts/h3d.py imagegen --detect --stage 4 --root .
+python scripts/h3d.py imagegen --set <codex|qwen|manual> --stage 4 --quote "<使用者原話>" --root .   # 寫進 storyboard_engine
+#   codex：Codex 分鏡，每鏡綁定已核准參考圖，--model 必填（使用者指定的模型）；單鏡重畫 --shots EP01-S03-a-SH02
 python scripts/storyboard/codex_storyboard_panels.py --root . --episode EP01 --model <使用者指定模型> --parallel 3
-# 單鏡重畫：--shots EP01-S03-a-SH02
-# 可選：若 Qwen 圖像工具已可用，也可生成黑白鉛筆分鏡總覽圖構圖
+#   qwen：經本機 FreeVideo 的 Qwen-Image 黑白鉛筆分鏡總覽圖
 python scripts/storyboard/qwen_storyboard_grid.py --layer2 layer2/layer2-EP01-S01-a.json --generate-all --assemble-grid
-
-# Codex／Qwen 都不可用時，可用手繪或其他已授權的圖像工具提供對應 shot 的 PNG，並在 Layer 2 設定 sketch_file
+#   manual：使用者手繪或其他已授權工具提供對應 shot 的 PNG，並在 Layer 2 設定 sketch_file
+# 已選的工具之後不可用時，h3d next 會警告並重新詢問
 
 # 4. 單鏡修改與重抽（若構圖不佳，微調秒數或重新繪製）
 python scripts/storyboard/patch_shot.py --file layer2/layer2-EP01-S01-a.json --shot SH03 --shot-size CU --duration 3.5 --absorb-from SH04

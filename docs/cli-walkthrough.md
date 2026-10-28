@@ -120,7 +120,7 @@ python "$skillRoot/scripts/storyboard/assemble_episode.py" --segments segments-e
 
 ## 階段 4 構圖：Codex 分鏡
 
-進 H3 編譯前，每鏡都要有對應的構圖 PNG 並通過 stage-4 審核。預設構圖來源是 Codex 分鏡：讀 Layer 2，每鏡出一張彩色分鏡圖、每段拼一張總覽圖，並自動綁定已核准的參考圖（角色正面裁切、異獸設定圖、段落場景母版，依序為 `<Picture N>`）。
+進 H3 編譯前，每鏡都要有對應的構圖 PNG 並通過 stage-4 審核。用哪個生圖工具由使用者選（`h3d imagegen --detect --stage 4` 列出可用的，`h3d imagegen --set <後端> --stage 4 --quote "<原話>"` 寫入；只偵測到一個也要問）。以下以 Codex 分鏡為例：讀 Layer 2，每鏡出一張彩色分鏡圖、每段拼一張總覽圖，並自動綁定已核准的參考圖（角色正面裁切、異獸設定圖、段落場景母版，依序為 `<Picture N>`）。
 
 ```bash
 # 先看提示詞與參考圖計畫（不生圖）

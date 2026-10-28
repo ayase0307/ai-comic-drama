@@ -51,10 +51,10 @@
 |---|---|
 | 🧠 **純 Agent 技能** | `SKILL.md` 與 `references/` 是 Agent 的工作規則；`scripts/` 只做確定性檢查與檔案轉換，不替 Agent 寫創作內容（例如階段 5 的五小節提示詞必須逐鏡親手寫，`h3d author` 會擋套句與偷懶）。 |
 | 🧭 **八階段＋審核鎖** | 階段 0–7 每段都有審核頁、人工核准與輸入 hash 鎖；**上游一改，下游核准自動失效**。不知道下一步就跑 `h3d next`，它只給你一條指令。 |
-| 🎛️ **`h3d` 單一入口** | 30 個子命令一個入口：`next` 指路、`decide` 記定案、`bind` 綁參考圖、`compile` 編譯、`qa` 驗收、`status` 看全局。只做路由，規則留在各自模組。 |
+| 🎛️ **`h3d` 單一入口** | 30 多個子命令一個入口：`next` 指路、`decide` 記定案、`bind` 綁參考圖、`compile` 編譯、`qa` 驗收、`status` 看全局。只做路由，規則留在各自模組。 |
 | 🔒 **四道確定性檢查** | **時長量子** 17n+5 影格、**證據分級** `VERIFIED／PARTIAL／UNVERIFIED`、segment 級**依賴帳本**、**失敗目錄**＋ack 憑證（綁定提示詞 hash，改稿即失效）。 |
 | 🎞️ **雙影片後端** | 預設 **ref2va**（FreeVideo，獨立 Ref2VA、程式預設單人裁切）；可選 **remix**（家機 REMIX 角色包）。remix 的綁定、refcheck、站位閘門、**REMIX 三欄提示詞輸出（R5）**已接上，**送件 adapter（R7）尚未完成**。 |
-| 🎬 **導演級分鏡** | 每鏡先寫 `shot_intent` 再定技術值，焦距與物距成對寫；站位／視線／運鏡 lint **D06–D14**；階段 4 構圖預設用 **Codex 分鏡**（每鏡一張、自動綁定已核准參考圖），手繪或其他工具也可，一律走同一個 hash 門禁。 |
+| 🎬 **導演級分鏡** | 每鏡先寫 `shot_intent` 再定技術值，焦距與物距成對寫；站位／視線／運鏡 lint **D06–D14**；階段 4 構圖用**你選的生圖工具**（`h3d imagegen` 偵測環境裡可用的 Codex 分鏡／Qwen 鉛筆九宮格／手繪上傳，由你選、不替你預設），一律走同一個 hash 門禁。 |
 | 🎨 **創作 lens（只建議、不擋關）** | AI 漫劇爆款方法論、荒木飛呂彥、Robert McKee、Scott McCloud，另有 Murch／Hamilton 剪輯 lens；報告寫進 `review/craft/`，不改任何門禁。 |
 | 🧪 **實測驅動** | 規則標 `measured`／`sourced`／`inferred`；外部方法未經 H3 實測前**只警告不擋**。 |
 
@@ -114,7 +114,8 @@ npx skills add ayase0307/ai-comic-drama
 **2. 自檢這台機器能做什麼**
 
 ```bash
-python scripts/check_environment.py   # 本機依賴（不探測 provider、帳戶或模型）
+python scripts/check_environment.py   # 本機依賴＋可用生圖工具（不生圖、不讀 token、不連付費 API）
+python scripts/h3d.py imagegen --detect  # 偵測可用的生圖工具（Codex／Qwen-Image 經 FreeVideo／Grok／手繪上傳）
 python scripts/h3d.py doctor          # GPU 顯存、ffmpeg（含 -vsync 回歸）、服務 port
 ```
 
@@ -189,9 +190,9 @@ flowchart TB
 |---|---|---|---|
 | **0 定調** | 一次問完題材、畫風、比例、台詞政策；成片形式預設長篇漫劇 | `init_project.py`、`h3d decide` | `project.md`、`decisions.json` |
 | **1 改編** | 保留分級、事件交代完整性（起因→經過→結果）、A/B/C 方案、依事件估總長 | `event_coverage.py`、`estimate_duration.py --events` | 故事地圖、`adapt/source.json` |
-| **2 資產設定圖** | 主角優先出圖、自檢重生；引擎定案後全集鎖定 | `h3d decide design_engine` | `assets.md`、角色設定板 |
+| **2 資產設定圖** | 生圖工具偵測後由你選；主角優先出圖、自檢重生；工具定案後全集鎖定 | `h3d imagegen --detect`／`--set`（寫 `design_engine`） | `assets.md`、角色設定板 |
 | **3 漫劇劇本** | 場景化改寫、台詞預算（4 字/秒、說話 ≤ 60%）、交接 JSON | `estimate_duration.py --h3`、`sync_script.py` | `script-ep01.md`、`handoff-ep01.json` |
-| **4 導演分鏡** | `shot_intent`＋`choice_why`、焦距物距、運鏡預設、人物賬與段縫末態 | `codex_storyboard_panels.py`、`validate_storyboard.py` | `layer2/*.json`、構圖圖 |
+| **4 導演分鏡** | `shot_intent`＋`choice_why`、焦距物距、運鏡預設、人物賬與段縫末態 | `h3d imagegen --set --stage 4`（選構圖工具）→ 該工具的出圖腳本、`validate_storyboard.py` | `layer2/*.json`、構圖圖 |
 | **5 提示詞包** | 逐鏡親手寫五小節，編譯成 H3 官方六段式；段級核准 | `h3d bind／author／compile --check／refcheck／staging` | `prompts-ep01.md`、`segments-ep01.json` |
 | **6 影片生成** | 送件→收件→QA→動態 QA→交界連續性 QA→逐段結論 | `h3d run --plan／qa／motion／verdict／inbox` | `videos/`、`qa-report.json` |
 | **7 成片組裝** | 動作段後製變速、ASR 對位、響度、全集單一剪輯專案 | `h3d ramp／voice align／concat／assemble` | `final/*.mp4`、時間線 |
@@ -249,7 +250,8 @@ python scripts/h3d.py status --root .  # 階段門禁＋依賴帳本＋送件帳
 | 類別 | 子命令 | 做什麼 |
 |---|---|---|
 | **流程** | `next`・`status`・`decide`・`inbox`・`approve` | 下一步唯一指令、綜合狀態、寫入使用者定案、決策收件匣、自動／段級核准 |
-| **分鏡與綁定** | `crop`・`bind` | 裁設定板頭像、產生階段 5 參考圖綁定（階段 4 構圖用 `codex_storyboard_panels.py`，見下節） |
+| **生圖工具** | `imagegen` | `--detect` 偵測可用的生圖工具、`--set <後端> --quote` 寫入你的選擇（階段 2 `design_engine`／階段 4 `storyboard_engine`）；生圖後端由你選，Agent 不自行預設 |
+| **分鏡與綁定** | `crop`・`bind` | 裁設定板頭像、產生階段 5 參考圖綁定（階段 4 構圖用你選的工具，見下節） |
 | **提示詞檢查** | `compile`・`author`・`audit`・`refcheck`・`staging` | Layer 2 → 六段式、逐鏡撰寫審查（E30–E38、W41–W45）、對帳、參考包涵蓋、站位視線閘門 |
 | **送件** | `probe`・`submit`・`run`・`collect`・`resume` | 查 API 與 LoRA、送件、單例 runner（暫停／續跑）、只收件、續送 |
 | **驗收** | `qa`・`motion`・`verdict` | 時長／色彩／證據分級、光流量凍結偵測、逐段目視結論 |
@@ -336,9 +338,16 @@ python scripts/h3d.py status --root .  # 階段門禁＋依賴帳本＋送件帳
 
 </details>
 
-### 階段 4 構圖：Codex 分鏡
+### 階段 4 構圖：你選的生圖工具
 
-進 H3 編譯前，每鏡都要有對應的構圖 PNG 並通過 stage-4 審核。預設用 Codex 分鏡：讀 Layer 2，每鏡出一張彩色分鏡圖、每段拼一張總覽圖，自動綁定已核准的角色正面裁切、異獸設定圖與場景母版，回寫 `sketch_file`／`sketch_sha256` 供門禁使用。
+進 H3 編譯前，每鏡都要有對應的構圖 PNG 並通過 stage-4 審核。用哪個工具由你選：缺構圖時 `h3d next` 會先跑偵測，列出可用的（Codex 分鏡、經本機 FreeVideo 的 Qwen-Image 鉛筆九宮格、手繪上傳；不可用的附原因）請你選，只偵測到一個也會問；選了之後才給那個工具的指令，之後工具不可用會警告並重問。
+
+```bash
+python scripts/h3d.py imagegen --detect --stage 4 --root <專案>
+python scripts/h3d.py imagegen --set codex --stage 4 --quote "分鏡用 Codex" --root <專案>
+```
+
+選 Codex 分鏡時：讀 Layer 2，每鏡出一張彩色分鏡圖、每段拼一張總覽圖，自動綁定已核准的角色正面裁切、異獸設定圖與場景母版，回寫 `sketch_file`／`sketch_sha256` 供門禁使用。
 
 ```bash
 python scripts/storyboard/codex_storyboard_panels.py --root <專案> --episode EP04 --model <使用者指定模型> --dry-run   # 先看計畫
@@ -404,13 +413,13 @@ ai-comic-drama/
 
 | 變數 | 作用 | 預設 |
 |---|---|---|
-| `FREEVIDEO_API_URL` | submit／collect／resume／run／probe 的 API 位址；`h3d doctor` 也用它探測 | `http://127.0.0.1:8189/freevideo/agent/v1` |
+| `FREEVIDEO_API_URL` | submit／collect／resume／run／probe 的 API 位址；`h3d doctor`、`h3d imagegen --detect`、`qwen_storyboard_grid.py` 也用它 | `http://127.0.0.1:8189/freevideo/agent/v1` |
 | `FREEVIDEO_TOKEN`／`FREEVIDEO_TOKEN_FILE` | FreeVideo 令牌本身／令牌檔路徑 | 依序找 `E:\FreeVideo\agent\token`、`~/.freevideo/agent/token`、`C:\FreeVideo\agent\token` |
 | `AICD_FFMPEG`／`AICD_FFPROBE` | ffmpeg／ffprobe 完整路徑（只設 ffmpeg 時 ffprobe 取同目錄） | PATH |
 | `AICD_H3_UPSTREAM` | `sync_h3_reference.py` 的上游 clone | `E:\MinimaxH3\h3-video-prompting`，再找同層 `../h3-video-prompting` |
 | `AICD_RUNNER_LOCK` | 影片 runner 單例鎖檔位置 | `~/.ai-comic-drama/video-runner.lock` |
 | `AICD_OMNIVOICE_LAUNCHER` | tts_doctor 提示的 OmniVoice 啟動檔 | `E:\OmniVoice\啟動-OmniVoice.bat` |
-| `COMFYUI_URL`／`VOICESTUDIO_URL` | `h3d doctor` 探測的服務位址 | `127.0.0.1:8188`／`127.0.0.1:8001` |
+| `COMFYUI_URL`／`VOICESTUDIO_URL` | `h3d doctor`（ComfyUI 也給 `h3d imagegen --detect`）探測的服務位址 | `127.0.0.1:8188`／`127.0.0.1:8001` |
 
 本機服務（127.x／localhost）的 HTTP 請求一律不走系統代理。詳見 [`references/tooling.md`](references/tooling.md) §2.7。
 
@@ -420,7 +429,8 @@ ai-comic-drama/
 - [x] `h3d` 單一入口與 `h3d next` 導航
 - [x] 四道確定性檢查（時長量子、證據分級、依賴帳本、失敗目錄＋ack）
 - [x] 階段 5 段級核准（只重審改過的段）
-- [x] 階段 4 預設構圖改用 Codex 分鏡（`h3d sketch` 已移除）
+- [x] 階段 4 構圖改用 Codex 分鏡等可選工具（`h3d sketch` 已移除）
+- [x] 生圖工具自動偵測、由使用者選擇後端（`h3d imagegen`）
 - [x] 站位／視線／運鏡閘門 D06–D14、參考包涵蓋 `h3d refcheck`
 - [x] 創作 lens：爆款方法論、荒木、McKee、McCloud、Murch、Hamilton
 - [x] 撰寫警告 W41–W45（只警告，未經 H3 實測）
