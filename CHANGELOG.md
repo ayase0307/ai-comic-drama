@@ -8,6 +8,10 @@
 
 ## [未發布]
 
+## [0.10.0] - 2026-10-28
+
+移除免生圖 SVG 構圖（破壞性）；生圖後端改由使用者選擇；新增構圖板自動建議 W46。
+
 ### 新增
 - 構圖板自動建議 W46（只建議）：`h3d staging` 判斷室內固定場景＋已驗收母片＋≥2 角色固定座位＋近景＋文戲的段，建議改用「以場景母片為底重畫的四格構圖板」（武戲、單人、戶外與判不了的不建議）；`--layer2` 可在階段 4 跑，階段 4／5 審核頁列「💡 自動建議」；不擋送件、不改預設編譯（`scripts/storyboard/board_advisor.py`，證據為方向性，見 `spatial-consistency.md` §3.1）。
 - 生圖工具自動偵測、由使用者選擇後端（`h3d imagegen`，`scripts/image_backends.py`）：`--detect` 偵測 Codex CLI（PATH＋CODEX_HOME 登入）、Qwen-Image（經本機 FreeVideo，短 timeout 狀態探測）、Grok（Agent 宣告）、手繪上傳（ComfyUI 只回報），不生圖、不花錢、不讀 token 值；`--set <後端> --quote` 寫進 `decisions.json` 的 `design_engine`（階段 2）／新定案 `storyboard_engine`（階段 4）。`h3d next`／`h3d inbox` 在缺設定圖、缺構圖時：沒選→列出可用與不可用（含原因）請使用者選（只有一個可用也要問），已選→給該後端指令，選了但不可用→警告並重問；`check_environment.py` 生圖能力列改用同一偵測；收件匣卡支援灰掉的選項（`unavailable_options`）與不標建議（`no_recommendation`）。
