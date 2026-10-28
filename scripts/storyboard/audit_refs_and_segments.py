@@ -350,7 +350,8 @@ def audit_remix(seg_data: Dict[str, Any], project_root: Optional[Path] = None,
                 lex = None
         staging_errors, staging_warnings = staging_mod.split_findings(
             staging_mod.lint_segment(seg_data, "remix", lexicon=lex,
-                                     strict=staging_mod.project_strict(project_root)))
+                                     strict=staging_mod.project_strict(project_root),
+                                     root=Path(project_root) if project_root is not None else None))
         errors.extend(staging_errors)
         warnings.extend(staging_warnings)
 

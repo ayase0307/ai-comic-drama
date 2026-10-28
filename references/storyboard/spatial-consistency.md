@@ -52,6 +52,21 @@ Wall map: the {長檯} is only on the {west} wall{, 本鏡位置}; the one {開�
 - 板上的牆面分配要和 §2 同一份表一致；板與劇本 Camera 矛盾時（例如要求畫右是玻璃門，但依座標那一鏡畫右是門洞），回去問使用者改機位或改要求，不要只改板。
 - 這不改 `consistency.md` §7.4 定律三（整板當參考要宣告 `reference_view: "panel"`）；只規定板本身怎麼畫。
 
+### §3.1 自動建議：哪些段該改用母片底四格板（W46）
+
+`h3d staging` 會對符合下列**全部**條件的段印 💡 W46（階段 4 用 `--layer2`；階段 4／5 審核頁的「自動建議」區塊也會列）。只建議：不擋送件、不擋核准、不改預設編譯；判不了的條件一律當不符合（保守）。
+
+| 條件 | 用哪個欄位判斷 | 為什麼 |
+|---|---|---|
+| 不是武戲 | 無 `dramatic_beat_type: Combat_Impact`、無自動 `h3_loras`、動作欄無打鬥詞 | D′ 只測了文戲，武戲沒有證據 |
+| 同一已驗收場景母片 | 已編譯段：`reference_images` 有 `type: scene`（remix：`refmods` 有 `kind: scene`）；Layer 2：`asset_refs.scene_id` 找得到母片圖且階段 2 已核准 | 板要以母片為底重畫（本節第 1 條） |
+| 室內 | `metadata.interior`，否則 handoff 場景 `setting.interior`／`int_ext` | 實驗只有室內固定場景；戶外長直線性鏡頭不適用 |
+| ≥2 名角色有固定座位／站位 | 各鏡 `character_ids`／`visual_subject_ids`；`positions`、`anchor_objects`、blocking 的座位詞 | 要鎖的是「誰坐哪張桌」 |
+| 段內有近景／特寫 | `shot_size` ∈ MCU／CU／ECU／OTS_CU（代理判斷：景別看不到定位結構） | S01-c 這類近景只有 D′ 拉對（3/4，A′ 0/2） |
+| 文戲 | 至少一鏡有台詞 | 同上，證據來自對白段 |
+
+已在用板（場景參考已宣告 `reference_view: "panel"`）不再建議；不採用就寫 `staging_waivers`（code W46＋使用者原話）。規則表在 `scripts/storyboard/board_advisor.py` 的 `RULES`，九宮格等其他板型另案測試，有數據再加新規則與新代碼。
+
 ## §4 只拍生物或無人物的鏡頭：綁一張店內實景參考
 
 - 畫面裡只有生物（或沒有人物）時，生物設定圖的純色棚拍背景會蓋過場景，成片變灰色攝影棚。

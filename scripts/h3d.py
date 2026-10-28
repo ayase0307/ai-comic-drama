@@ -51,7 +51,7 @@ COMMANDS: Dict[str, str] = {
     "audit": "分段參考圖／主體定義／台詞預算的確定性對帳",
     "author": "逐鏡撰寫審查（防偷懶 E30–E38，references/prompt-authoring.md）",
     "refcheck": "參考包涵蓋檢查（PR-R4）：提示詞寫到的具名角色／生物／道具／群眾是否都有綁包（remix E50／E51 擋，ref2va 只提示）",
-    "staging": "站位／視線／運鏡閘門（PR-R6，兩個 backend）：D06–D14，預設警告，staging_gate=strict 時 D06–D08 擋",
+    "staging": "站位／視線／運鏡閘門（PR-R6，兩個 backend）：D06–D14，預設警告，staging_gate=strict 時 D06–D08 擋；W46 構圖板建議（只建議，--layer2 階段 4 可跑）",
     "qa": "影片自動審查（時長／色彩／分鏡總覽圖／證據分級）；--continuity：交界連續性 QA（實際切點＋交界拼貼＋一側靜止，只警告）",
     "motion": "階段 6 動態 QA（光流量凍結／定住／起手延遲）＋自動提案變速清單 videos/speed-ramps.json",
     "ramp": "依已核准的變速清單產 videos/ramped/<段>.mp4（原片不動，台詞區 1×＋音訊相關驗證）",

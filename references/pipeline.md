@@ -294,6 +294,8 @@ h3d inbox --root .
 python scripts/build_stage_review.py --project-dir . --approve-stage 4
 ```
 
+> **自動建議：母片底四格構圖板（W46，只建議）**：分鏡定稿後跑 `python scripts/h3d.py staging --root . --layer2`（階段 4 審核頁也會列在「💡 自動建議」）。室內固定場景、已驗收場景母片、≥2 名角色有固定座位／站位、段內有近景或特寫（景別看不到門洞／桌位這類定位結構）、有台詞的文戲段，會建議把該段構圖改成「以場景母片為底重畫的四格構圖板」；武戲、單人、戶外與判不了的段不建議。採用時照 `references/storyboard/spatial-consistency.md` §3：板一律以已驗收母片為底重畫＋店感鎖，整板當參考須 `reference_view: "panel"`＋`panel_label_en`。證據是方向性（老易實驗 D′ 15/16 vs 單用母片 6/8，未達 +25 門檻），所以不擋核准、不改預設編譯；逐鏡 panel＋grid 總覽仍是給人審的，不因建議而改送件流程。
+
 > **stage 4 審核門**：要進入 H3 編譯，每鏡須有對應的有效分鏡總覽圖／單格 PNG，並通過人工 review。圖可由 Qwen、手繪或其他工具製作，需遵循相同 shot 對應與 hash 審核。文字分鏡 draft 可以先交付，不必生成圖或影片。
 
 ---
