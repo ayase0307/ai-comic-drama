@@ -384,6 +384,7 @@ python scripts/h3d.py compile --layer2 layer2/ --bible video-bible.json --bindin
   6. 階段 4：缺構圖、`sketch_status: rejected` 的鏡 → 一張「還有 N 鏡缺構圖／M 鏡自檢退回」卡（退回圖放 `panels/_rejected/` 會當證據縮圖；退回的鏡不會被門禁認領，有 `sketch_file` 的鏡只認綁定檔）
   7. 階段 5：缺 `reference_images` 或檔案不存在、同段 >1 張可辨識人臉角色圖（混臉）→ 卡；使用者接受混臉就在 `acceptance_policy.accept` 加 `mixed_face_refs`，之後改列「自動處理」
   8. 階段等核准、且沒有其他卡也不在自動核准授權內 → 「階段 N 等你核准」
+  9. 階段文件狀態卡上的「要你決定」（`references/document-standard.md`）→ 每條一張卡（擋本階段核准；選項＝建議／或／先放著）；使用者回覆後 `h3d doc resolve` 移進修訂紀錄，卡就消失
 - 卡片的影響／建議／選項可以在寫結論時指定：`h3d verdict <段> warn --reason ... --evidence ... --impact "..." --recommend "..." --option "後製疊墨線=EP01-S04-d：後製疊九道墨線" --option "維持現狀=EP01-S04-d：不處理"`。
 - 單獨把舊版階段審核頁傳給使用者時加 `--self-contained`（`build_stage_review.py --project-dir . --stage N --self-contained`）：`../images/…` 會內嵌成 webp，單檔不破圖。
 - 使用者回覆卡片上的文字後：定案用 `h3d decide`、段落裁示用 `h3d verdict <段> <結論> --by user`、角色音色用 `h3d decide voice:<角色id> "<音色>" --quote "<原話>"`。

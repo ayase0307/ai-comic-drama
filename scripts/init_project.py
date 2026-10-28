@@ -442,7 +442,22 @@ def build_files(title: str, episodes: int, project_id: str, series_format: str =
                          aspect_ratio or DEFAULT_ASPECT), ensure_ascii=False, indent=2
         ) + "\n"
         files[f"narration-{tag}.md"] = NARRATION_TEMPLATE.format(episode=ep)
-    return files
+    return stamp_doc_cards(files, title)
+
+
+# 給人讀的階段文件一開始就有狀態卡（references/document-standard.md），之後用 h3d doc stamp 更新
+INIT_DOC_STAGES = {"project.md": 0, "adapt/character-bible.md": 1, "assets.md": 2, "script-ep": 3, "narration-ep": 7}
+
+
+def stamp_doc_cards(files: dict[str, str], title: str) -> dict[str, str]:
+    import doc_card
+    out = dict(files)
+    for name, text in files.items():
+        stage = next((v for k, v in INIT_DOC_STAGES.items() if name == k or (name.startswith(k) and name.endswith(".md"))), None)
+        if stage is not None:
+            out[name] = doc_card.stamp(text, title=doc_card.default_title(Path(name), stage, title), status="草稿",
+                                       summary="init 模板，尚未填寫", by="init_project.py")
+    return out
 
 
 DIRS = ["source", "adapt", "layer2", "images", "videos", "review", "panels"]

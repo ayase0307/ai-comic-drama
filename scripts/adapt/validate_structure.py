@@ -171,6 +171,10 @@ def parse_and_validate_script(script_text: str) -> Dict[str, Any]:
         if line.startswith("```"):
             continue
 
+        # `>` 引言行是文件框（狀態卡、修訂紀錄，見 references/document-standard.md），不是劇本正文
+        if line.startswith(">"):
+            continue
+
         # 支援 HTML 註解元數據 (例如 <!-- source: U01, U02 -->)
         comment_match = re.match(r"^<!--\s*(.*?)\s*-->$", line)
         if comment_match:

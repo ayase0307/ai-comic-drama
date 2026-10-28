@@ -457,6 +457,7 @@ ai-comic-drama/
 | [`references/edit/manju-editing-playbook.md`](references/edit/manju-editing-playbook.md) | 漫劇剪輯手冊 |
 | [`references/freevideo.md`](references/freevideo.md) | 搭配 FreeVideo 出片 |
 | [`docs/cli-walkthrough.md`](docs/cli-walkthrough.md) | 逐階段命令列範例（原 README 內容） |
+| [`references/document-standard.md`](references/document-standard.md) | 階段文件標準格式：狀態卡、閱讀規則、修訂紀錄與 `h3d doc` 指令 |
 
 ## 🤝 搭配專案
 

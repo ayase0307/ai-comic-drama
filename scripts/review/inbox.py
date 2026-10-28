@@ -48,6 +48,7 @@ for candidate in (str(SCRIPTS_DIR), str(SCRIPTS_DIR / "storyboard")):
         sys.path.insert(0, candidate)
 
 import decisions as decisions_mod  # noqa: E402
+import doc_card  # noqa: E402
 import project_state as ps  # noqa: E402
 import verdicts as verdicts_mod  # noqa: E402
 
@@ -492,6 +493,25 @@ def stage5_cards(root: Path, accept: set) -> Tuple[List[Dict[str, Any]], List[Di
     return cards, auto
 
 
+def doc_decision_cards(root: Path) -> List[Dict[str, Any]]:
+    """每條文件待決一張卡；使用者回覆後 Agent 用 h3d doc resolve 移進修訂紀錄，卡就消失。"""
+    cards = []
+    for item in doc_card.doc_decisions(root):
+        where = f"{item['path']} 第 {item['number']} 條"
+        choices = [c for c in [item.get("recommend"), *item.get("alternatives", [])] if c]
+        options = [{"label": c if i else f"{c}（建議）", "reply": f"{where}：{c}"} for i, c in enumerate(choices)]
+        cards.append({
+            "id": f"D{item['stage']}-doc-{item['path']}-{item['number']}", "kind": "doc", "stage": item["stage"],
+            "segment": item["path"], "title": item["question"],
+            "impact": f"{item['path']} 的狀態卡等你決定這一條，決定前這份文件不能核准。",
+            "recommendation": f"建議：{item['recommend']}" if item.get("recommend") else "Agent 沒有給建議，請直接回覆。",
+            "options": options + [{"label": "先放著", "reply": f"{where}：先放著"}],
+            "if_ignored": f"階段 {item['stage']} 不能核准。",
+            "blocking": 2, "blocking_label": "擋本階段核准", "evidence_paths": [], "links": [],
+            "source": f"{item['path']} 狀態卡「要你決定」"})
+    return cards
+
+
 def build_cards(root: Path, *, state: Optional[Dict[str, Any]] = None,
                 decisions_data: Optional[Dict[str, Any]] = None,
                 classified: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -657,6 +677,9 @@ def build_cards(root: Path, *, state: Optional[Dict[str, Any]] = None,
         s5_cards, s5_auto = stage5_cards(root, accept)
         open_cards.extend(s5_cards)
         auto.extend(s5_auto)
+
+    # 4c) 階段文件狀態卡上的「要你決定」（references/document-standard.md §2）
+    open_cards.extend(doc_decision_cards(root))
 
     # 5) 目前階段等使用者核准（只有在沒有其他同階段卡、也不符合自動核准時才出卡）
     cur_entry = stages[ps.stage_key(cur)]

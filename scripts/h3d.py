@@ -68,6 +68,7 @@ COMMANDS: Dict[str, str] = {
     "ack": "記錄失敗目錄的 ack 憑證（綁定提示詞 hash 與目錄版本）",
     "status": "綜合狀態：階段門禁＋依賴帳本＋送件帳本＋失敗目錄",
     "version": "技能版本／資料格式版本；--root 比對專案版本章，--accept 看過 CHANGELOG 後更新版本章",
+    "doc": "階段文件狀態卡與修訂紀錄：stamp 建立／更新、resolve 記下使用者決定、check 列缺卡（references/document-standard.md）",
 }
 
 MODULE_FOR = {
@@ -100,6 +101,7 @@ MODULE_FOR = {
     "catalog": "failure_catalog",
     "ack": "failure_catalog",
     "version": "skill_version",
+    "doc": "doc_card",
 }
 
 # 專案根旗標叫 --root-dir 的子命令（h3d 會把 --root 轉過去）

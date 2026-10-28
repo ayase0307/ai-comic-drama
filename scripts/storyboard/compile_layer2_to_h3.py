@@ -3273,7 +3273,10 @@ def main() -> int:
     if args.output_md:
         args.output_md.parent.mkdir(parents=True, exist_ok=True)
         md_text = render_markdown_package(compiled_results, episode=args.episode)
-        args.output_md.write_text(md_text, encoding="utf-8")
+        sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+        import doc_card  # 保留狀態卡與修訂紀錄（references/document-standard.md）
+        doc_card.write_generated(args.output_md, md_text, stage=5,
+                                 summary=f"{len(compiled_results)} 段 H3 提示詞（產生器輸出）", by="compile_layer2_to_h3.py")
         print(f"\n📄 已輸出 Markdown 提示詞包: {args.output_md}")
 
     # 輸出分段對帳 JSON
