@@ -72,6 +72,19 @@ class StageViewTests(TwoEpisodeProject):
         self.assertIn("有 <em>8</em> 件事等你決定", page)
         self.assertIn(f'id="{merged["children"][0]["id"]}"', page)
 
+    def test_signing_deck_markup_and_mascot_follow_images_flag(self):
+        model = self._model(8)
+        page = inbox.render_html(model)
+        hard = [c for c in model["cards"] if c["blocking"] <= 2]
+        self.assertEqual(page.count('class="pip '), len(hard), "每張擋關卡一顆進度點")
+        self.assertIn('id="finale"', page)
+        self.assertIn("data-copyall", page)
+        for c in hard:
+            self.assertIn(f'id="{c["id"]}" data-sign', page)
+        self.assertNotIn("data:image/webp", page, "--no-images 時用內嵌 SVG 鯨魚")
+        page = inbox.render_html({**model, "images": True})
+        self.assertIn("data:image/webp;base64,", page, "有圖時鯨魚娘內嵌")
+
     def test_doc_decision_becomes_blocking_card(self):
         import doc_card
         path = self.root / "project.md"
