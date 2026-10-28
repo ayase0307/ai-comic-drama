@@ -12,9 +12,20 @@
 - 抖音蒸餾 A 批（2026-10，外部，未經 H3 實測）：同場配樂不跟生成段走（剪輯手冊 §8.1）、三人以上按當下那一對畫軸線（continuity-ledger §4／§5）、音色母帶挑平穩句且固定聲音描述只寫身份（consistency §6）、場景多角度分步生成（consistency §4）、動作中段反覆失敗改用省略（revision-and-retry §2）。
 - 空間一致性規則（老易空間實驗 2026-10，第二批 86 支實測、方向性證據、未達原定 +25 門檻）：場景母片照平面圖畫且含所有座位、牆面分配層、構圖板以母片為底重畫、只拍生物的鏡頭綁店內參考（`references/storyboard/spatial-consistency.md`）；可選工具 `scripts/storyboard/wall_map.py`（不改預設編譯）；實驗數據 `docs/experiments/laoyi-spatial-2026-10/`。
 - 連戲警告 C4「同場配樂跟著生成段走」：同一場相鄰段的 `non_diegetic_music` 不同或非 N/A 就警告，不擋（`continuity_lint.lint_scene_music`，`compile --check` 會印）。
+- 動態技能路線圖 `docs/skill-roadmap.html`：八階段可播放片盤、每個動作的意義／指令／產出／決策者、交付範圍切換、三條回頭路、停車訊號、h3d 指令速查；`tests/test_skill_roadmap.py` 與真實 CLI 對帳。
+- 收件匣八階段閱讀視圖（`scripts/review/stage_views.py`）：每關固定六區塊（問題、待決、摘要、文件、問題與處理、紀錄），文字產物可頁內展開全文，狀態分開顯示「尚未產出／製作中／等你核准／已核准／內容已變更待重審／局部重審」。
+- 收件匣階段 5 段級重審卡（`D5-rereview`）。
+- 階段文件標準格式（`references/document-standard.md`）：每份給人讀的文件最上面一張狀態卡（狀態｜版本｜更新、一句話、先看、要你決定、本次改動），最後修訂紀錄；外框用 `>` 行，不影響劇本解析與門禁。
+- `h3d doc`（`scripts/doc_card.py`）：`stamp`／`resolve`／`check`／`show` 寫狀態卡與修訂紀錄；`init_project.py` 建案的模板、`layer2_to_table.py` 與 `compile_layer2_to_h3.py` 產出的 Markdown 自動帶狀態卡（重產時本體有變才升版，已核准的改成「已變更待重審」）。
+- 狀態卡的「要你決定」每條自動變成收件匣卡（`blocking=2`，選項＝建議／或／先放著）。
+- 收件匣閱讀視圖排版（`scripts/review/doc_render.py`）：狀態卡排成卡片、Markdown 排成閱讀頁（標題、表格、條列、引言）、劇本用劇本版型（場次列、△動作、角色｜台詞）、CSV 排成表格；手機寬度不溢出。
+- 決策收件匣改版成「簽核牌組」（`scripts/review/inbox_page.py`）：一次一張決策卡、點選項＝簽下（蓋章＋卡片游走）、進度點可回頭改答、結尾頁「複製全部回覆」成功才放鯨魚娘慶祝動畫，底部常駐已簽數與複製鈕；視覺沿用鯨工坊海洋主題（亮／暗）與鯨魚娘吉祥物；閱讀視圖的寫死深色改用色彩變數。
 
 ### 變更
 - `consistency.md` §7.1 改寫：「一段一張角色參考圖／一段一張臉」已撤銷（D3），新流程用 remix 角色卡維持人物一致；如實記 ref2va 程式預設（單人裁切、`--max-char-refs` 1、混臉只警告）與 remix 送件 adapter 尚未完成。skill-guide、pipeline、minimax-h3、anime-drama-grid、README 同步。
+
+### 修正
+- 收件匣合併卡保留每張子卡（頁內逐件展開問題與選項），待決數改計原始件數。
 
 ## [0.9.0] - 2026-10-27
 

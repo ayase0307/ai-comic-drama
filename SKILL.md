@@ -81,7 +81,9 @@ agent_created: true
 - `references/tooling.md` — **h3d 全部指令與檢查**（跑任何指令前先讀）；§2.5 定案／逐段結論、§2.6 收件匣與自動核准、§2.7 runner／probe／配音／剪輯。
 - `references/skill-guide.md` — 原 SKILL.md 全文：核心原則 0–14、專案結構、階段 6 實戰定案、階段 7 配音分層、完整腳本清單。
 - `references/pipeline.md` — 八階段詳細流程、提問清單、模板；聲音三層決策與響度標準。
-- `references/review-page-spec.md` — 審查頁規格：交給使用者的是決策收件匣（版面順序、卡片必備欄位、禁止事項），舊階段頁只作除錯。
+- `references/review-page-spec.md` — 審查頁規格：交給使用者的是決策收件匣（版面順序、卡片必備欄位、禁止事項、八階段閱讀視圖六區塊），舊階段頁只作除錯。
+- `references/document-standard.md` — 階段文件標準格式：狀態卡＋本體＋修訂紀錄，用 `h3d doc` 寫，不要手改；「要你決定」會自動進收件匣。
+- `docs/skill-roadmap.html` — 給人看的動態路線圖（八階段動作、產出、誰決定、停車訊號）；流程改了要同步它內嵌的 `roadmap-data`（`tests/test_skill_roadmap.py` 對帳）。
 - `references/adapt/`（改編）、`references/storyboard/`（導演分鏡）、`references/consistency.md`（資產一致性）、
   `references/styles.md`（風格鎖定錨）、`references/freevideo.md`、`references/model-profiles.md`、
   `references/minimax-h3.md` 與 `references/h3/`（H3 細部參考，同步自上游 h3-video-prompting）、`references/prompt-playbook.md`、

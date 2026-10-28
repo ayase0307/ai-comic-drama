@@ -11,7 +11,8 @@
      版面與欄位規格見 references/review-page-spec.md（validate_model 檢查）。
   2. 你已經決定的（收合）：decisions.json 的定案、使用者裁示過的段落、人工核准紀錄。
   3. 我自動處理了 N 件事（收合）：依驗收政策自動通過的段、政策可接受的技術 QA、自動核准。
-  4. 原始資料（只放連結，不內嵌）。
+  4. 各階段成果：八個閱讀視圖，每關同一個六區塊格式（scripts/review/stage_views.py）。
+  5. 原始資料（只放連結，不內嵌）。
 
 資料來源只有：
   * decisions.json（政策與定案）
@@ -48,7 +49,10 @@ for candidate in (str(SCRIPTS_DIR), str(SCRIPTS_DIR / "storyboard")):
         sys.path.insert(0, candidate)
 
 import decisions as decisions_mod  # noqa: E402
+import doc_card  # noqa: E402
 import project_state as ps  # noqa: E402
+import inbox_page  # noqa: E402
+import stage_views  # noqa: E402
 import verdicts as verdicts_mod  # noqa: E402
 
 STAGE_SHORT = ["定調", "改編", "設定圖", "劇本", "分鏡", "提示詞", "影片", "配音剪輯"]
@@ -492,6 +496,25 @@ def stage5_cards(root: Path, accept: set) -> Tuple[List[Dict[str, Any]], List[Di
     return cards, auto
 
 
+def doc_decision_cards(root: Path) -> List[Dict[str, Any]]:
+    """每條文件待決一張卡；使用者回覆後 Agent 用 h3d doc resolve 移進修訂紀錄，卡就消失。"""
+    cards = []
+    for item in doc_card.doc_decisions(root):
+        where = f"{item['path']} 第 {item['number']} 條"
+        choices = [c for c in [item.get("recommend"), *item.get("alternatives", [])] if c]
+        options = [{"label": c if i else f"{c}（建議）", "reply": f"{where}：{c}"} for i, c in enumerate(choices)]
+        cards.append({
+            "id": f"D{item['stage']}-doc-{item['path']}-{item['number']}", "kind": "doc", "stage": item["stage"],
+            "segment": item["path"], "title": item["question"],
+            "impact": f"{item['path']} 的狀態卡等你決定這一條，決定前這份文件不能核准。",
+            "recommendation": f"建議：{item['recommend']}" if item.get("recommend") else "Agent 沒有給建議，請直接回覆。",
+            "options": options + [{"label": "先放著", "reply": f"{where}：先放著"}],
+            "if_ignored": f"階段 {item['stage']} 不能核准。",
+            "blocking": 2, "blocking_label": "擋本階段核准", "evidence_paths": [], "links": [],
+            "source": f"{item['path']} 狀態卡「要你決定」"})
+    return cards
+
+
 def build_cards(root: Path, *, state: Optional[Dict[str, Any]] = None,
                 decisions_data: Optional[Dict[str, Any]] = None,
                 classified: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -658,6 +681,9 @@ def build_cards(root: Path, *, state: Optional[Dict[str, Any]] = None,
         open_cards.extend(s5_cards)
         auto.extend(s5_auto)
 
+    # 4c) 階段文件狀態卡上的「要你決定」（references/document-standard.md §2）
+    open_cards.extend(doc_decision_cards(root))
+
     # 5) 目前階段等使用者核准（只有在沒有其他同階段卡、也不符合自動核准時才出卡）
     cur_entry = stages[ps.stage_key(cur)]
     auto_stages, auto_item = decisions_mod.auto_approve_stages(decisions_data)
@@ -751,10 +777,46 @@ def build_cards(root: Path, *, state: Optional[Dict[str, Any]] = None,
                                    f"你親自裁示的段落列在「你已經決定的」。"),
                         "source": "review/verdicts.json＋decisions.json acceptance_policy"})
 
+    rereview = _stage5_rereview_card(root)
+    if rereview:
+        open_cards.append(rereview)
+
     open_cards.sort(key=lambda c: (c["blocking"], c["stage"], c["id"]))
     decided.sort(key=lambda d: d.get("sort") or "", reverse=True)
     return {"open": open_cards, "decided": decided, "auto": auto, "notes": notes,
             "classified": classified}
+
+
+def _stage5_rereview_card(root: Path) -> Optional[Dict[str, Any]]:
+    """階段 5 核准後只改了部分段：只有改過的段要人工重審，其餘段照樣可送件（tooling.md §2.6）。"""
+    try:
+        review = ps.stage5_segment_review(root)
+    except Exception:  # 段級核准讀不到時由 h3d next 回報，不讓收件匣整頁失敗
+        return None
+    if review["mode"] != "partial" or not review["pending"]:
+        return None
+    pending = review["pending"]
+    ids = ",".join(pending)
+    shown = "、".join(pending[:4]) + ("…" if len(pending) > 4 else "")
+    removed = f"；其中 {len(review['removed'])} 段是刪除，通過＝確認刪除" if review["removed"] else ""
+    # 「通過」只在有效重審頁存在時提供：沒有綁定的重審紀錄，approve_stage5_segments 一定會拒絕
+    bound = ((ps.load_state(root)["stages"][ps.stage_key(5)].get("segment_review") or {}).get("segments") or {})
+    now = ps._current_shared(root)["segments"]
+    page_fresh = all(bound.get(s) == now.get(s, "removed") for s in pending)
+    options = [{"label": "產重審頁給我看", "reply": f"階段 5 重審：產重審頁（{ids}）"},
+               {"label": "先放著", "reply": "階段 5 重審：先放著，只送已核准的段"}]
+    if page_fresh:
+        options.insert(1, {"label": "這幾段通過", "reply": f"階段 5 重審：{ids} 通過"})
+    return {
+        "id": "D5-rereview", "kind": "rereview", "stage": 5, "segment": shown,
+        "title": f"階段 5 有 {len(pending)} 段改過，要你重審",
+        "finding": f"改動 {len(review['changed'])}、新增 {len(review['new'])}、刪除 {len(review['removed'])}{removed}",
+        "impact": f"這 {len(pending)} 段不能送件；另外 {len(review['approved'])} 段仍核准、照樣可送件。",
+        "recommendation": "先看重審頁裡這幾段的提示詞再決定；改過的段一律人工重審，不能自動核准。",
+        "options": options,
+        "if_ignored": "這幾段一直不能送件；其他已核准段不受影響。",
+        "blocking": 1, "blocking_label": "擋下一步", "evidence_paths": [], "links": [],
+        "segments": pending, "source": "review/project-state.json approval_segments（project_state.stage5_segment_review）"}
 
 
 def open_cards_for_stage(root: Path, stage: int) -> List[Dict[str, Any]]:
@@ -839,6 +901,8 @@ def collect(root: Path, *, images: bool = True, strips: str = "all", out_dir: Op
         entry = state["stages"][ps.stage_key(i)]
         stage_list.append({"n": i, "name": STAGE_SHORT[i], "status": entry.get("status"),
                            "current": i == cur, "auto": bool(entry.get("auto_approval"))})
+    views = stage_views.collect(root, state, cards, built["decided"],
+                                built["classified"].get("counts", {}), rel_link)
     blockers = [c for c in built["open"] if c["blocking"] <= 2]
     blocker = blockers[0]["title"] if blockers else ("沒有擋住下一步的事" if built["open"] else "")
     return validate_model({
@@ -851,6 +915,8 @@ def collect(root: Path, *, images: bool = True, strips: str = "all", out_dir: Op
         "videos": [{k: v for k, v in item.items() if k != "mtime"} for item in videos],
         "recent": [v["segment"] for v in recent],
         "raw_links": raw_links,
+        "stage_views": views,
+        "images": images,
     })
 
 
@@ -889,6 +955,8 @@ def _merged_card(tail: List[Dict[str, Any]]) -> Dict[str, Any]:
         "evidence_caption": "／".join(ids[:3]), "links": [],
         "source": "、".join(dict.fromkeys(str(c.get("source", "")) for c in tail)),
         "segments": segments, "merged": ids,
+        # 合併只是首屏版面限制：每件的完整問題、選項與證據都留著，頁內可逐件展開
+        "children": [{k: v for k, v in c.items() if k != "evidence_b64"} for c in tail],
     }
 
 
@@ -931,237 +999,12 @@ def validate_model(model: Dict[str, Any]) -> Dict[str, Any]:
     if len(cards) > MAX_OPEN_CARDS and others[slots:]:
         merged = _normalize_card(_merged_card(others[slots:]), problems)
         cards = sorted(pinned + others[:slots] + [merged], key=_sort_key)
-    return {**model, "cards": cards, "problems": problems}
+    return {**model, "cards": cards, "problems": problems, "pending_total": len(model["cards"])}
 
 
-# ------------------------------------------------------------------ HTML
-E = html.escape
-
-CSS = """
-:root{--bg:#0e1013;--panel:#161a1f;--panel2:#1c2128;--line:#2a3039;--tx:#ecebe7;--mut:#a3a9b2;--dim:#7d848e;
---hot:#ef7a5a;--hotbg:rgba(239,122,90,.13);--ok:#7cc8a8;--okbg:rgba(124,200,168,.12);--acc:#e8c27a;--accbg:rgba(232,194,122,.12)}
-*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}
-body{margin:0;background:var(--bg);color:var(--tx);font:17px/1.75 "PingFang TC","Noto Sans CJK TC","Noto Sans TC","Microsoft JhengHei",system-ui,sans-serif;letter-spacing:.02em;-webkit-font-smoothing:antialiased}
-.wrap{max-width:760px;margin:0 auto;padding:20px 16px 64px}
-header h1{font-size:15px;font-weight:500;color:var(--mut);margin:0 0 2px;letter-spacing:.08em}
-header .big{font-size:28px;font-weight:700;line-height:1.35;margin:0}header .big em{font-style:normal;color:var(--hot)}
-header .sub{color:var(--mut);margin:6px 0 0;font-size:15px}
-.stages{list-style:none;padding:0;margin:20px 0 6px;display:grid;grid-template-columns:repeat(8,1fr);gap:4px}
-.st{display:flex;flex-direction:column;align-items:center;gap:6px;position:relative}
-.st::before{content:"";position:absolute;top:15px;left:-50%;width:100%;height:2px;background:var(--line);z-index:0}
-.st:first-child::before{display:none}.st.done::before,.st.cur::before{background:var(--ok)}
-.dot{position:relative;z-index:1;width:32px;height:32px;border-radius:50%;display:grid;place-items:center;font-size:14px;font-weight:700;background:var(--panel2);color:var(--dim);border:2px solid var(--line)}
-.done .dot{background:#172723;color:var(--ok);border-color:var(--ok)}
-.cur .dot{background:var(--hot);color:#1a0d08;border-color:var(--hot);box-shadow:0 0 0 5px var(--hotbg)}
-.nm{font-size:12.5px;color:var(--mut);white-space:nowrap;letter-spacing:0}.cur .nm{color:var(--tx);font-weight:700}
-.block{margin:12px 0 0;background:var(--hotbg);border:1px solid rgba(239,122,90,.35);border-radius:12px;padding:10px 14px;font-size:15px;color:#f6d6cb;word-break:break-word}
-.block b{color:var(--hot)}.block.calm{background:var(--okbg);border-color:rgba(124,200,168,.35);color:#cfeee0}.block.calm b{color:var(--ok)}
-.notes{margin:10px 0 0;padding:0;list-style:none;font-size:14px;color:var(--mut)}
-h2{font-size:21px;margin:36px 0 12px;line-height:1.4}h2 .n{display:block;font-size:14px;font-weight:500;color:var(--mut);margin-top:2px}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:18px 16px 16px;margin:0 0 16px}
-.card.hot{border-color:rgba(239,122,90,.45)}
-.meta{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:13.5px}
-.tag{padding:2px 10px;border-radius:99px;background:var(--panel2);color:var(--mut);border:1px solid var(--line);font-weight:600}
-.tag.hot{background:var(--hotbg);color:var(--hot);border-color:rgba(239,122,90,.4)}.seg{color:var(--dim);word-break:break-all}
-.card h3{font-size:20px;line-height:1.5;margin:10px 0 8px;font-weight:700;word-break:break-word}
-figure{margin:4px 0 12px}figure img{display:block;width:100%;height:auto;border-radius:10px;background:#000}
-figure img+img{margin-top:6px}figcaption{font-size:13px;color:var(--dim);margin-top:6px}
-dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:6px 12px}dt{font-size:14px;color:var(--dim);padding-top:2px;white-space:nowrap}
-dd{margin:0;color:#d9dadb;word-break:break-word}dd.recd{color:var(--tx);font-weight:600}
-.opts{display:grid;gap:8px;margin-top:14px}
-.opt{all:unset;cursor:pointer;display:flex;flex-direction:column;gap:2px;padding:12px 14px;border-radius:12px;background:var(--panel2);border:1px solid var(--line);transition:background .15s,border-color .15s;-webkit-tap-highlight-color:transparent}
-.opt:hover{border-color:#3d4652}.opt:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
-.opt.rec{border-color:rgba(124,200,168,.5);background:var(--okbg)}.ol{font-weight:700;font-size:16.5px}
-.opt.rec .ol::after{content:"建議";display:inline-block;white-space:nowrap;margin-left:8px;font-size:12px;font-weight:600;color:var(--ok);border:1px solid rgba(124,200,168,.5);border-radius:99px;padding:0 7px;vertical-align:2px}
-.ot{font-size:13.5px;color:var(--mut);line-height:1.55;word-break:break-word}
-.opt.copied{border-color:var(--acc);background:var(--accbg)}.opt.copied .ot::before{content:"已複製：";color:var(--acc);font-weight:700}
-.links{margin-top:12px;display:flex;flex-wrap:wrap;gap:14px}.lnk{color:var(--acc);text-decoration:none;font-size:15px}.lnk:hover{text-decoration:underline}
-.src{color:var(--dim);font-size:13px;margin:10px 0 0;word-break:break-word}
-.fold{background:var(--panel);border:1px solid var(--line);border-radius:16px;margin:0 0 14px;overflow:hidden}
-.fold>summary{list-style:none;cursor:pointer;padding:14px 16px;font-size:18px;font-weight:700;display:flex;justify-content:space-between;align-items:center;gap:10px}
-.fold>summary::-webkit-details-marker,.kd>summary::-webkit-details-marker,.ep>summary::-webkit-details-marker{display:none}
-.fold>summary::after{content:"展開";font-size:14px;font-weight:500;color:var(--mut);flex:0 0 auto}.fold[open]>summary::after{content:"收合"}
-.ft{display:flex;flex-direction:column;gap:2px}.fold>summary small{font-size:14px;color:var(--mut);font-weight:500;line-height:1.5}
-.kd{border-top:1px solid var(--line)}.kd>summary{list-style:none;cursor:pointer;display:flex;gap:12px;padding:11px 16px;align-items:flex-start}
-.kt{flex:0 0 auto;font-size:13.5px;color:var(--dim);font-variant-numeric:tabular-nums;padding-top:2px;min-width:86px}
-.ck{flex:0 0 auto;color:var(--ok);font-weight:700}.kx{display:flex;flex-direction:column;min-width:0}.kx b{font-size:16px}
-.kv{color:var(--mut);font-size:15px;line-height:1.6;word-break:break-word}.kv.strong{color:var(--tx);font-size:16px}
-.kd p{margin:0 16px 10px 114px;font-size:14.5px;color:#cfd2d6;line-height:1.7;word-break:break-word}
-.kd p.src{color:var(--dim);font-size:13px}#auto .kd p{margin-left:42px}
-.empty{color:var(--mut);padding:14px 16px;margin:0}
-.vrow{display:flex;gap:10px;overflow-x:auto;padding:2px 0 10px;scroll-snap-type:x mandatory}
-.vrow .vid{flex:0 0 78%;max-width:340px;scroll-snap-align:start}
-.vid{all:unset;cursor:pointer;display:flex;flex-direction:column;gap:6px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:8px}
-.vid:focus-visible{outline:2px solid var(--acc)}.vimg img,.vimg video{display:block;width:100%;height:auto;border-radius:6px;background:#000}
-.noimg{display:grid;place-items:center;aspect-ratio:16/6;border-radius:6px;background:var(--panel2);color:var(--dim);font-size:13px}
-.vn{font-size:14px;color:var(--mut);display:flex;gap:8px;align-items:center;font-variant-numeric:tabular-nums}
-.vt{font-size:11.5px;padding:0 7px;border-radius:99px;border:1px solid var(--line)}
-.v-open,.v-fail{color:var(--hot);border-color:rgba(239,122,90,.5)}.v-user{color:var(--acc);border-color:rgba(232,194,122,.5)}
-.v-warn{color:var(--acc);border-color:rgba(232,194,122,.35)}.v-unreviewed{color:var(--dim)}
-.ep{border-top:1px solid var(--line)}.ep>summary{list-style:none;cursor:pointer;padding:12px 16px;font-weight:700;display:flex;justify-content:space-between}
-.cnt{color:var(--dim);font-weight:500;font-size:14px}.vgrid{display:grid;grid-template-columns:1fr;gap:10px;padding:0 12px 14px}
-.raw{font-size:14px;color:var(--mut);margin-top:30px;border-top:1px solid var(--line);padding-top:14px}.raw a{color:var(--mut)}.raw ul{margin:6px 0 0;padding-left:18px}
-.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);opacity:0;background:var(--acc);color:#1d1606;font-weight:700;padding:10px 18px;border-radius:99px;transition:.2s;pointer-events:none;font-size:15px;max-width:90vw;text-align:center}
-.toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
-@media (min-width:900px){.wrap{max-width:1120px;padding:36px 32px 80px}header .big{font-size:34px}
-.layout{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);gap:28px;align-items:start}
-.side h2:first-child{margin-top:36px}.card{padding:22px 22px 18px}body{font-size:18px}.nm{font-size:14px}.vrow .vid{flex-basis:46%}
-.vgrid{grid-template-columns:1fr 1fr}}
-@media (max-width:380px){.nm{font-size:11px}.dot{width:28px;height:28px}.st::before{top:13px}}
-@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
-"""
-
-JS = """
-const toast=document.getElementById('toast');let tt;
-function show(m){toast.textContent=m;toast.classList.add('on');clearTimeout(tt);tt=setTimeout(()=>toast.classList.remove('on'),1800)}
-async function copy(t){try{await navigator.clipboard.writeText(t);return true}catch(e){
- const a=document.createElement('textarea');a.value=t;a.style.position='fixed';a.style.opacity='0';document.body.appendChild(a);a.select();
- let ok=false;try{ok=document.execCommand('copy')}catch(_){};a.remove();return ok}}
-document.querySelectorAll('.opt').forEach(b=>b.addEventListener('click',async()=>{
- const ok=await copy(b.dataset.reply);
- b.closest('.opts').querySelectorAll('.opt').forEach(x=>x.classList.remove('copied'));
- if(ok){b.classList.add('copied');show('已複製，貼回對話即可')}else show('複製失敗，請長按文字複製');
-}));
-if(matchMedia('(min-width:900px)').matches)document.querySelectorAll('.side details.fold').forEach(d=>d.open=true);
-document.querySelectorAll('.vid').forEach(b=>b.addEventListener('click',()=>{
- const box=b.querySelector('.vimg');if(box.querySelector('video'))return;
- const v=document.createElement('video');v.src=b.dataset.src;v.controls=true;v.autoplay=true;v.playsInline=true;v.preload='metadata';
- box.innerHTML='';box.appendChild(v);
-}));
-"""
-
-TAG_ZH = {"open": "待決", "user": "你裁示", "fail": "重跑", "warn": "附註", "unreviewed": "未驗收"}
-
-
-def _card_html(c: Dict[str, Any]) -> str:
-    opts = "".join(
-        f'<button class="opt{" rec" if i == 0 else ""}" data-reply="{E(o["reply"])}">'
-        f'<span class="ol">{E(o["label"])}</span><span class="ot">{E(o["reply"])}</span></button>'
-        for i, o in enumerate(c["options"]))
-    links = "".join(f'<a class="lnk" href="{E(l["href"])}" target="_blank" rel="noopener">{E(l["label"])} ↗</a>'
-                    for l in c.get("links", []))
-    hot = " hot" if c["blocking"] <= 2 else ""
-    fig = ""
-    if c.get("evidence_b64"):
-        imgs = "".join(f'<img src="{src}" alt="{E(c.get("evidence_caption", "證據"))}">' for src in c["evidence_b64"])
-        fig = f'<figure>{imgs}<figcaption>{E(c.get("evidence_caption", ""))}</figcaption></figure>'
-    return f'''
-<article class="card{hot}" id="{E(c["id"])}">
-  <div class="meta"><span class="tag{hot}">{E(c["blocking_label"])}</span><span class="seg">階段 {c["stage"]}・{E(str(c["segment"]))}</span></div>
-  <h3>{E(c["title"])}</h3>
-  {fig}
-  <dl>{f'<dt>判定</dt><dd>{E(c["finding"])}</dd>' if c.get("finding") else ""}<dt>影響</dt><dd>{E(c["impact"])}</dd><dt>建議</dt><dd class="recd">{E(c["recommendation"])}</dd><dt>不回覆</dt><dd>{E(c.get("if_ignored", ""))}</dd></dl>
-  <div class="opts">{opts}</div>
-  {f'<div class="links">{links}</div>' if links else ""}
-  <p class="src">卡片 {E(c["id"])}・來源 {E(c.get("source", ""))}</p>
-</article>'''
-
-
-def _decided_html(d: Dict[str, Any]) -> str:
-    return (f'<details class="kd"><summary><span class="kt">{E(d["time"])}</span><span class="kx"><b>{E(d["title"])}</b>'
-            f'<span class="kv">{E(d["decision"])}</span></span></summary><p>{E(d["detail"])}</p>'
-            f'<p class="src">階段 {d["stage"]}・出處 {E(d["source"])}</p></details>')
-
-
-def _auto_html(a: Dict[str, Any]) -> str:
-    return (f'<details class="kd"><summary><span class="ck">✓</span><span class="kx"><span class="kv strong">{E(a["text"])}</span>'
-            f'</span></summary><p>{E(a["detail"])}</p><p class="src">來源：{E(a["source"])}</p></details>')
-
-
-def _vid_html(v: Dict[str, Any]) -> str:
-    tag = TAG_ZH.get(v["tag"], "")
-    t = f'<span class="vt v-{E(v["tag"])}">{tag}</span>' if tag else ""
-    img = (f'<img src="{v["strip"]}" alt="{E(v["segment"])} 10 幀條">' if v.get("strip")
-           else '<div class="noimg">點一下載入影片</div>')
-    return (f'<button class="vid" data-src="{E(v["video"])}"><span class="vimg">{img}</span>'
-            f'<span class="vn">{E(v["segment"])}{t}</span></button>')
-
-
+# ------------------------------------------------------------------ HTML（版面與互動在 inbox_page.py）
 def render_html(model: Dict[str, Any]) -> str:
-    cards = model["cards"]
-    stages = model["stages"]
-    cur = model["current_stage"]
-    bar = "".join(
-        f'<li class="st {"done" if s["status"] == "approved" else ("cur" if s["current"] else "todo")}">'
-        f'<span class="dot">{s["n"]}</span><span class="nm">{E(s["name"])}</span></li>' for s in stages)
-    big = (f'有 <em>{len(cards)}</em> 件事等你決定' if cards else '目前沒有要你決定的事')
-    c = model.get("counts") or {}
-    hard = [x for x in cards if x["blocking"] <= 2]
-    soft = [x for x in cards if x["blocking"] > 2]
-    stuck = short_title(hard[0]["title"], 24) if hard else "沒有"
-    progress = f'階段{cur}/7・{len(cards)}件待決・卡在{E(stuck)}'
-    sub = f'目前在階段 {cur}「{E(STAGE_SHORT[cur])}」'
-    if c:
-        sub += f'・影片 通過 {c.get("pass", 0)}・附註 {c.get("warn", 0)}・重跑 {c.get("fail", 0)}'
-    if model["blocker"]:
-        calm = " calm" if not any(x["blocking"] <= 2 for x in cards) else ""
-        lead = "卡在這裡：" if not calm else "狀態："
-        block = f'<p class="block{calm}"><b>{lead}</b>{E(model["blocker"])}</p>'
-    else:
-        block = '<p class="block calm"><b>狀態：</b>沒有擋住的事，可以往下走</p>'
-    notes = "".join(f"<li>・{E(n)}</li>" for n in model.get("notes", []))
-    videos = model.get("videos", [])
-    vmap = {v["segment"]: v for v in videos}
-    recent = "".join(_vid_html(vmap[s]) for s in model.get("recent", []) if s in vmap)
-    eps = list(dict.fromkeys(v["ep"] for v in videos))
-    ep_rows = "".join(
-        f'<details class="ep"><summary>{E(ep)}<span class="cnt">{sum(1 for v in videos if v["ep"] == ep)} 段</span></summary>'
-        f'<div class="vgrid">{"".join(_vid_html(v) for v in videos if v["ep"] == ep)}</div></details>' for ep in eps)
-    decided = "".join(_decided_html(d) for d in model["decided"]) or '<p class="empty">還沒有定案紀錄</p>'
-    auto = "".join(_auto_html(a) for a in model["auto"]) or '<p class="empty">還沒有自動處理的事</p>'
-    cards_html = "".join(_card_html(x) for x in hard) or (
-        '<article class="card"><h3>沒有擋關的待決事項</h3><dl><dt>下一步</dt>'
-        '<dd class="recd">照 h3d next 繼續；符合授權的階段可用 h3d approve --auto 自動核准。</dd></dl></article>')
-    gate_items = "".join(f'<li><a class="lnk" href="#{E(x["id"])}">{E(x["title"])}</a></li>' for x in hard[:3])
-    gate_html = (f'<h2>真正擋關<span class="n">{len(hard)} 條</span></h2><ol class="notes">{gate_items}</ol>'
-                 if hard else "")
-    soft_html = (f'<details class="fold"><summary><span class="ft">可略過警告 {len(soft)} 件<small>不擋核准・點開才看</small>'
-                 f'</span></summary>{"".join(_card_html(x) for x in soft)}</details>' if soft else "")
-    video_block = ""
-    if videos:
-        video_block = (f'<h2>最近完成的影片<span class="n">每張是 10 幀條・點了才載入影片</span></h2>'
-                       f'<div class="vrow">{recent}</div>'
-                       f'<details class="fold"><summary><span class="ft">全部 {len(videos)} 段<small>依集數・標籤＝待決／你裁示／附註／重跑</small>'
-                       f'</span></summary>{ep_rows}</details>')
-    raw = "".join(f'<li><a href="{E(l["href"])}" target="_blank" rel="noopener">{E(l["label"])}</a></li>'
-                  for l in model.get("raw_links", []))
-    return f'''<!doctype html>
-<html lang="zh-Hant"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>決策收件匣｜{E(model["project"])}</title>
-<style>{CSS}</style></head>
-<body><div class="wrap">
-<header>
-  <h1>{E(model["project"])}・決策收件匣</h1>
-  <p class="big">{big}</p>
-  <p class="sub progress">{progress}</p>
-  <p class="sub">{sub}</p>
-  <ol class="stages" aria-label="階段進度">{bar}</ol>
-  {block}
-  {f'<ul class="notes">{notes}</ul>' if notes else ""}
-</header>
-<div class="layout">
-<main>
-  <h2>需要你決定<span class="n">依會不會擋下一步排序・點選項＝複製回覆</span></h2>
-  {cards_html}
-  {gate_html}
-  {soft_html}
-</main>
-<aside class="side">
-  <h2>你已經決定的<span class="n">{len(model["decided"])} 件</span></h2>
-  <details class="fold"><summary><span class="ft">定案與核准紀錄<small>新的在上・點一行看原話</small></span></summary>{decided}</details>
-  <h2>我自動處理了 {len(model["auto"])} 件事</h2>
-  <details class="fold" id="auto"><summary><span class="ft">自動處理紀錄<small>一行一項・點開看來源</small></span></summary>{auto}</details>
-</aside>
-</div>
-{video_block}
-<div class="raw">原始資料（不內嵌，需在專案資料夾內開啟）
-<ul>{raw}</ul>
-<p>產生時間 {E(model["generated_at"])}・h3d inbox</p></div>
-</div>
-<div class="toast" id="toast" role="status" aria-live="polite"></div>
-<script>{JS}</script>
-</body></html>'''
+    return inbox_page.render(model, short_title, STAGE_SHORT)
 
 
 def build(root: Path, *, out_dir: Optional[Path] = None, images: bool = True, strips: str = "all") -> Dict[str, Any]:

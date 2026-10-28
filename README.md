@@ -156,6 +156,8 @@ python scripts/run_offline_checks.py      # CI 用的離線回歸
 
 ## 🧭 八階段流水線
 
+> 想看每一關的動作、產出文件與決策點如何串起來，用瀏覽器開 [`docs/skill-roadmap.html`](docs/skill-roadmap.html)（可播放的動態路線圖）。
+
 <div align="center">
 <img src="docs/assets/pipeline-illustration.webp" alt="八階段流水線插畫：定調、改編、設定圖、劇本、分鏡、提示詞、生成、組裝" width="100%">
 </div>
@@ -442,7 +444,7 @@ ai-comic-drama/
 | [`references/tooling.md`](references/tooling.md) | **h3d 全部指令**、四道檢查、能力表、環境變數、錯誤訊息處置 |
 | [`references/skill-guide.md`](references/skill-guide.md) | 核心原則、八階段與審核頁對照、完整腳本清單 |
 | [`references/pipeline.md`](references/pipeline.md) | 各階段詳細流程、台詞政策門禁、體量反推公式、聲音三層決策 |
-| [`references/review-page-spec.md`](references/review-page-spec.md) | 決策收件匣規格 |
+| [`references/review-page-spec.md`](references/review-page-spec.md) | 決策收件匣規格（含八階段閱讀視圖的六區塊格式） |
 | [`references/prompt-authoring.md`](references/prompt-authoring.md) | 逐鏡撰寫規範（E30–E38、W41–W45） |
 | [`references/adapt/novel-to-manju.md`](references/adapt/novel-to-manju.md) | 小說改編總規範 |
 | [`references/storyboard/cinematic-director.md`](references/storyboard/cinematic-director.md) | 導演分鏡總規範與 Layer 2 |
@@ -457,6 +459,8 @@ ai-comic-drama/
 | [`references/edit/manju-editing-playbook.md`](references/edit/manju-editing-playbook.md) | 漫劇剪輯手冊 |
 | [`references/freevideo.md`](references/freevideo.md) | 搭配 FreeVideo 出片 |
 | [`docs/cli-walkthrough.md`](docs/cli-walkthrough.md) | 逐階段命令列範例（原 README 內容） |
+| [`references/document-standard.md`](references/document-standard.md) | 階段文件標準格式：狀態卡、閱讀規則、修訂紀錄與 `h3d doc` 指令 |
+| [`docs/skill-roadmap.html`](docs/skill-roadmap.html) | 動態路線圖：八階段每個動作做什麼、寫出哪個檔、誰決定、何時停下（瀏覽器開啟） |
 
 ## 🤝 搭配專案
 

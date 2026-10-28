@@ -321,7 +321,10 @@ def main() -> int:
 
     md_text = "\n---\n\n".join(render_md(d) for d in renderable) if args.md or not args.timeline else ""
     if args.md and renderable:
-        args.md.write_text(md_text, encoding="utf-8")
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        import doc_card  # 保留狀態卡與修訂紀錄（references/document-standard.md）
+        doc_card.write_generated(args.md, md_text, stage=4, summary=f"{len(renderable)} 段分鏡表（產生器輸出）",
+                                 by="layer2_to_table.py")
         print(f"已寫入 {args.md}")
     if args.timeline and renderable:
         rows = [row for d in renderable for row in timeline_rows(d)]
