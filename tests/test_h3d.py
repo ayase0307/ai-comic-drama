@@ -29,6 +29,19 @@ class H3dTests(unittest.TestCase):
         with mock.patch("sys.stderr"):
             self.assertEqual(h3d.main(["nope"]), 2)
 
+    def test_sketch_removed_prints_codex_replacement_and_exits_2(self):
+        import contextlib, io
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), mock.patch("sys.stdout"):
+            code = h3d.main(["sketch", "--root", "proj", "--episode", "EP04"])
+        self.assertEqual(code, 2)
+        text = err.getvalue()
+        self.assertIn("SVG 構圖已移除，改用 Codex 分鏡：", text)
+        self.assertIn("codex_storyboard_panels.py", text)
+        self.assertIn("--root proj --episode EP04", text)
+        self.assertIn("--model ", text)
+        self.assertNotIn("sketch", h3d.MODULE_FOR, "sketch 不再路由到任何模組")
+
     def test_catalog_routes_to_failure_catalog(self):
         with mock.patch("sys.stdout"):
             self.assertEqual(h3d.main(["catalog", "--list"]), 0)

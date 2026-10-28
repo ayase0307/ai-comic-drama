@@ -1,6 +1,6 @@
 # 命令列逐步範例
 
-> 這份文件保留重新設計前 README 的完整命令列內容（各階段腳本的直接呼叫方式、Windows PowerShell 寫法、依賴能力表、SVG 構圖完整對照與 FreeVideo 說明）。日常操作請優先用單一入口 `h3d`，見 [`../references/tooling.md`](../references/tooling.md)。
+> 這份文件保留重新設計前 README 的完整命令列內容（各階段腳本的直接呼叫方式、Windows PowerShell 寫法、依賴能力表、階段 4 構圖（Codex 分鏡）與 FreeVideo 說明）。日常操作請優先用單一入口 `h3d`，見 [`../references/tooling.md`](../references/tooling.md)。
 
 ## 安裝與第一步
 
@@ -102,7 +102,6 @@ python "$skillRoot/scripts/storyboard/assemble_episode.py" --segments segments-e
 |---|---|
 | 文字規劃、JSON/提示詞檢查 | Python 標準庫 |
 | review 頁與分鏡總覽圖 | Python；圖片操作需 Pillow |
-| 免生圖 SVG 構圖（選用） | Pillow、numpy、resvg-py；不需 GPU、不呼叫生圖 API |
 | 影片 QA 與組裝 | FFmpeg、ffprobe；部分輸入檢查使用 Python/Pillow |
 | 圖片/影片生成 | Agent 當前可用的相容工具或連線後端；FreeVideo 是可選 adapter |
 
@@ -119,57 +118,23 @@ python "$skillRoot/scripts/storyboard/assemble_episode.py" --segments segments-e
 分鏡走[導演分鏡體系](../references/storyboard/cinematic-director.md)：台詞一字不改、焦距與物距成對寫、同場連續與時空跳躍二選一握手、武戲接觸瞬間 90° 無遮擋。逐鏡生成、逐鏡檢查，不要一次丟十幾鏡。
 
 
-## 免生圖構圖分鏡總覽圖（完整對照）
+## 階段 4 構圖：Codex 分鏡
 
-階段 4 審走位不必燒圖片額度。`svg_storyboard_grid.py` 讀 Layer 2，用程式算出每一鏡的機位、景別與站位，畫成鉛筆風構圖：**只要有 Layer 2 就能跑，不呼叫任何生圖 API**。下圖左邊是同一段實際生成的影片（每鏡取中段影格），右邊是只靠 Layer 2 算出來的構圖。
-
-<div align="center">
-<img src="../assets/svg-grid/hero-EP04-S03.jpg" alt="成片與 SVG 構圖分鏡總覽圖對照" width="100%">
-<br><sub>同一段 9 鏡：左為成片中段影格，右為 SVG 構圖分鏡總覽圖。景別、人物在畫面哪一側、朝哪邊看、過肩前景位置都由 Layer 2 推算。</sub>
-</div>
-
-<br>
-
-<div align="center">
-<img src="../assets/svg-grid/pair-ots.jpg" alt="過肩鏡頭對照" width="100%">
-<br><sub><b>過肩鏡頭</b>：相機貼在前景肩後，前景後腦佔畫面約三分之一，不遮主體的臉。</sub>
-</div>
-
-<div align="center">
-<img src="../assets/svg-grid/pair-facing.jpg" alt="3/4 側臉方向對照" width="100%">
-<br><sub><b>3/4 側臉方向</b>：「畫左、面向畫右」照 180 度線換算機位，不會左右顛倒。</sub>
-</div>
-
-<details>
-<summary><b>更多對照：背影、零設定場景、逆光剪影</b></summary>
-<br>
-
-<div align="center">
-<img src="../assets/svg-grid/pair-back-view.jpg" alt="側後背影對照" width="100%">
-<br><sub><b>側後背影</b>：窗前背影用約 145° 的側後機位，房間門窗位置來自 staging 設定。</sub>
-</div>
-
-<div align="center">
-<img src="../assets/svg-grid/pair-zero-config-ots.jpg" alt="零設定場景對照" width="100%">
-<br><sub><b>零設定場景</b>：沒寫任何場景檔，書架、矮案、兩人對坐與過肩都從 Layer 2 文字自動搭出。</sub>
-</div>
-
-<div align="center">
-<img src="../assets/svg-grid/pair-silhouettes.jpg" alt="逆光剪影對照" width="100%">
-<br><sub><b>逆光剪影</b>：「兩道守閣弟子的剪影」自動複製成兩個暗色人形，低角度取景。</sub>
-</div>
-
-</details>
+進 H3 編譯前，每鏡都要有對應的構圖 PNG 並通過 stage-4 審核。預設構圖來源是 Codex 分鏡：讀 Layer 2，每鏡出一張彩色分鏡圖、每段拼一張總覽圖，並自動綁定已核准的參考圖（角色正面裁切、異獸設定圖、段落場景母版，依序為 `<Picture N>`）。
 
 ```bash
-pip install numpy resvg-py Pillow              # 選用依賴，只有這個工具需要
-python scripts/h3d.py sketch --root <專案> --episode EP04
+# 先看提示詞與參考圖計畫（不生圖）
+python scripts/storyboard/codex_storyboard_panels.py --root <專案> --episode EP04 --model <使用者指定模型> --dry-run
+# 實際出圖（--model 必填，不會靜默改用預設模型）
+python scripts/storyboard/codex_storyboard_panels.py --root <專案> --episode EP04 --model <使用者指定模型> --parallel 3
+# 單鏡重畫
+python scripts/storyboard/codex_storyboard_panels.py --root <專案> --shots EP04-S03-a-SH02 --model <使用者指定模型> --force
 python scripts/build_stage_review.py --project-dir <專案> --stage 4
 ```
 
-每鏡輸出到 `panels/panel-NN-<shot_id>.png`、每段分鏡總覽圖到 `images/grid-<segment_id>.png`，並回寫 `sketch_file`／`sketch_sha256`／`sketch_generation`。鎖定或手繪替換過的格子不會被覆蓋。角色外觀、場景與站位都可以用 `staging/` 的 JSON 補強，程式內不含任何專案的角色或場景。完整說明見 [`references/storyboard/svg-rig-grid.md`](../references/storyboard/svg-rig-grid.md)；最小範例在 [`examples/svg-grid-minimal/`](../examples/svg-grid-minimal/)。
+每鏡輸出到 `panels/panel-NN-<shot_id>.png`、每段分鏡總覽圖到 `images/grid-<segment_id>.png`，並回寫 `sketch_file`／`sketch_sha256`／`sketch_generation`（`backend: codex`）。`sketch_status` 為 `locked`／`approved`／`manual` 的格子不會被覆蓋。總覽圖標籤字型可用環境變數 `STORYBOARD_FONT=<字型檔>` 指定（舊名 `SVG_GRID_FONT` 仍相容）。Qwen 鉛筆九宮格、手繪或其他工具的 PNG 也可以，照同一組欄位回寫即可。
 
-> 構圖圖只用來審走位，**不送 H3**。臉部是簡筆，要看光影、表情、服裝細節時仍用 Qwen 分鏡總覽圖或手繪。
+> 舊的 `h3d sketch` 子命令已移除，執行只會印替代指令並 exit 2；既有專案已回寫的 `sketch_file` 仍有效，不需重畫。
 
 
 ## 搭配 FreeVideo

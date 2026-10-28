@@ -276,13 +276,13 @@ python scripts/storyboard/handoff_to_skeleton.py handoff-ep01.json --out-dir lay
 python scripts/storyboard/validate_storyboard.py --file layer2/layer2-EP01-*.json --handoff handoff-ep01.json
 python scripts/storyboard/layer2_to_table.py layer2/layer2-EP01-*.json --check --md storyboard-ep01.md --timeline timeline-plan-ep01.csv
 
-# 3. 可選：若 Qwen 圖像工具已可用，生成黑白鉛筆分鏡總覽圖構圖
-python scripts/storyboard/qwen_storyboard_grid.py --layer2 layer2/layer2-EP01-S01-a.json --generate-all --assemble-grid
-# 使用者指定 Codex 生分鏡圖時（每鏡綁定已核准參考圖，模型必填）：
+# 3. 構圖（預設 Codex 分鏡：每鏡綁定已核准參考圖，--model 必填，填使用者指定的模型）
 python scripts/storyboard/codex_storyboard_panels.py --root . --episode EP01 --model <使用者指定模型> --parallel 3
 # 單鏡重畫：--shots EP01-S03-a-SH02
+# 可選：若 Qwen 圖像工具已可用，也可生成黑白鉛筆分鏡總覽圖構圖
+python scripts/storyboard/qwen_storyboard_grid.py --layer2 layer2/layer2-EP01-S01-a.json --generate-all --assemble-grid
 
-# 若 Qwen 不可用，可用手繪或其他已授權的圖像工具提供對應 shot 的 PNG，並在 Layer 2 設定 sketch_file
+# Codex／Qwen 都不可用時，可用手繪或其他已授權的圖像工具提供對應 shot 的 PNG，並在 Layer 2 設定 sketch_file
 
 # 4. 單鏡修改與重抽（若構圖不佳，微調秒數或重新繪製）
 python scripts/storyboard/patch_shot.py --file layer2/layer2-EP01-S01-a.json --shot SH03 --shot-size CU --duration 3.5 --absorb-from SH04

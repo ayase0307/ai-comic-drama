@@ -1,6 +1,6 @@
 """階段 4–5 體檢（fix/audit-stage4-5）的回歸測試。
 
-每個 class 對應一個修正：骨架 ID 對聖經、SVG 構圖跟畫面比例、裁切框可設定、bind 的 backend 切換與輸入指紋、
+每個 class 對應一個修正：骨架 ID 對聖經、裁切框可設定、bind 的 backend 切換與輸入指紋、
 階段 5 strict 門禁（漏編／落後／失敗目錄／backend 不符）、自動核准跑審核頁門禁、模板佔位不進提示詞、
 refcheck「other people」、validate_storyboard 多集 handoff 與段間接縫、6d 不再用寫死名單的子字串。
 路徑一律用含中文與空白的暫存目錄，順便驗證不依賴家機路徑。
@@ -8,7 +8,6 @@ refcheck「other people」、validate_storyboard 多集 handoff 與段間接縫�
 from __future__ import annotations
 
 import hashlib
-import importlib.util
 import json
 import os
 import subprocess
@@ -34,7 +33,6 @@ import validate_storyboard as vs  # noqa: E402
 from compile_layer2_to_h3 import AssetRegistry  # noqa: E402
 
 PY = sys.executable
-HAS_SVG = all(importlib.util.find_spec(m) for m in ("numpy", "resvg_py", "PIL"))
 
 
 def run(args, cwd):
@@ -135,36 +133,6 @@ class SkeletonBibleIdTests(TmpProject):
         ids = skel.load_bible_ids(path)
         self.assertNotIn(("C", "<角色名>"), ids)
         self.assertEqual(ids[("C", "C-protagonist")], "C-protagonist")
-
-
-# ---------------------------------------------------------------------------
-# 2. SVG 構圖跟 Layer 2 的畫面比例
-# ---------------------------------------------------------------------------
-@unittest.skipUnless(HAS_SVG, "需要 numpy、resvg-py、Pillow")
-class SvgAspectTests(TmpProject):
-    def test_parse_and_canvas(self):
-        import svg_storyboard_grid as svg
-        self.assertEqual(svg.parse_aspect("9:16"), (9.0, 16.0))
-        self.assertEqual(svg.parse_aspect("2.39:1"), (2.39, 1.0))
-        self.assertIsNone(svg.parse_aspect("wide"))
-        self.assertEqual(svg.set_canvas("16:9")[:2], (768, 432), "16:9 維持舊畫布")
-        self.assertEqual(svg.set_canvas("9:16")[:2], (432, 768))
-        self.assertEqual(svg.set_canvas("nonsense")[:2], (768, 432))
-        svg.set_canvas("16:9")
-
-    def test_portrait_layer2_renders_portrait_panels(self):
-        from PIL import Image
-        src = ROOT / "examples" / "svg-grid-minimal" / "layer2" / "layer2-EP01-S02-a.json"
-        data = json.loads(src.read_text(encoding="utf-8"))
-        data.setdefault("metadata", {})["aspect_ratio"] = "9:16"
-        self.write("layer2/layer2-EP01-S02-a.json", data)
-        result = run([STORYBOARD / "svg_storyboard_grid.py", "--root", self.root], ROOT)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        after = json.loads((self.root / "layer2" / "layer2-EP01-S02-a.json").read_text(encoding="utf-8"))
-        panel = self.root / after["shots"][0]["sketch_file"]
-        with Image.open(panel) as im:
-            self.assertGreater(im.size[1], im.size[0], "9:16 專案的構圖要是直式")
-        self.assertEqual(after["shots"][0]["sketch_generation"]["canvas"], list(Image.open(panel).size))
 
 
 # ---------------------------------------------------------------------------

@@ -44,7 +44,7 @@ COMMANDS: Dict[str, str] = {
     "inbox": "決策收件匣 review/inbox.html：只列需要使用者決定的事（手機優先、內嵌縮圖）",
     "approve": "--auto：沒有未決卡且符合 decisions 政策時自動核准並記錄依據；--stage 5 --segments X,Y：人工重審改過的段",
     "doctor": "本機環境自檢（GPU／ffmpeg／服務 port／-vsync）",
-    "sketch": "免生圖 SVG 構圖分鏡總覽圖（階段 4 構圖來源，回寫 sketch_file 供審核門禁）",
+    "sketch": "已移除：只印替代指令後 exit 2；階段 4 構圖改用 Codex 分鏡 codex_storyboard_panels.py",
     "crop": "依比例／格位裁設定板頭像（輸出 tmp/crops，不進 images/）",
     "bind": "產生階段 5 video-bible.json／video-bindings.json（正臉單視角裁切、側背／生物整板查表）",
     "compile": "Layer 2 → H3 六段式提示詞與 segments（remix 綁定＝REMIX 三欄；--check 可同時審查）",
@@ -78,7 +78,6 @@ MODULE_FOR = {
     "inbox": "inbox",
     "approve": "auto_approve",
     "doctor": "doctor",
-    "sketch": "svg_storyboard_grid",
     "crop": "crop_sheet",
     "bind": "generate_bindings",
     "compile": "compile_layer2_to_h3",
@@ -103,6 +102,29 @@ MODULE_FOR = {
     "version": "skill_version",
     "doc": "doc_card",
 }
+
+# 已移除的子命令：保留名稱只為了印替代指令（exit 2），不再路由到任何模組。
+CODEX_PANELS = STORYBOARD_DIR / "codex_storyboard_panels.py"
+
+
+def removed_sketch(argv: List[str], root: Optional[Path]) -> int:
+    """`h3d sketch` 已移除：印 Codex 分鏡的等價指令（沿用 --root／--episode／--segment），exit 2。"""
+    sub = argparse.ArgumentParser(add_help=False)
+    sub.add_argument("--root", default=None)
+    sub.add_argument("--episode", default=None)
+    sub.add_argument("--segment", nargs="*", default=None)
+    known, _ = sub.parse_known_args(argv)
+    command = f'python "{CODEX_PANELS.as_posix()}" --root {known.root or (str(root) if root else "<專案>")}'
+    if known.episode:
+        command += f" --episode {known.episode}"
+    if known.segment:
+        command += " --segment " + " ".join(known.segment)
+    command += " --model <使用者指定模型>"
+    print(f"SVG 構圖已移除，改用 Codex 分鏡：{command}", file=sys.stderr)
+    print("（--model 必填，填使用者指定的 Codex 生圖模型；既有專案已回寫的 sketch_file 仍有效，不必重畫。）",
+          file=sys.stderr)
+    return 2
+
 
 # 專案根旗標叫 --root-dir 的子命令（h3d 會把 --root 轉過去）
 ROOT_DIR_COMMANDS = ("submit", "collect", "resume")
@@ -284,6 +306,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     passthrough = list(args.args)
     if passthrough and passthrough[0] == "--":
         passthrough = passthrough[1:]
+    if command == "sketch":
+        return removed_sketch(passthrough, args.root)
     if command == "qa" and "--continuity" in passthrough:
         # R3-16：交界連續性 QA 是獨立工具（只警告、不寫 qa-report.json），不混進 verify_video_shot 的旗標。
         passthrough = [a for a in passthrough if a != "--continuity"]

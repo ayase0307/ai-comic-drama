@@ -51,10 +51,10 @@
 |---|---|
 | 🧠 **純 Agent 技能** | `SKILL.md` 與 `references/` 是 Agent 的工作規則；`scripts/` 只做確定性檢查與檔案轉換，不替 Agent 寫創作內容（例如階段 5 的五小節提示詞必須逐鏡親手寫，`h3d author` 會擋套句與偷懶）。 |
 | 🧭 **八階段＋審核鎖** | 階段 0–7 每段都有審核頁、人工核准與輸入 hash 鎖；**上游一改，下游核准自動失效**。不知道下一步就跑 `h3d next`，它只給你一條指令。 |
-| 🎛️ **`h3d` 單一入口** | 29 個子命令一個入口：`next` 指路、`decide` 記定案、`sketch` 出構圖、`compile` 編譯、`qa` 驗收、`status` 看全局。只做路由，規則留在各自模組。 |
+| 🎛️ **`h3d` 單一入口** | 30 個子命令一個入口：`next` 指路、`decide` 記定案、`bind` 綁參考圖、`compile` 編譯、`qa` 驗收、`status` 看全局。只做路由，規則留在各自模組。 |
 | 🔒 **四道確定性檢查** | **時長量子** 17n+5 影格、**證據分級** `VERIFIED／PARTIAL／UNVERIFIED`、segment 級**依賴帳本**、**失敗目錄**＋ack 憑證（綁定提示詞 hash，改稿即失效）。 |
 | 🎞️ **雙影片後端** | 預設 **ref2va**（FreeVideo，獨立 Ref2VA、程式預設單人裁切）；可選 **remix**（家機 REMIX 角色包）。remix 的綁定、refcheck、站位閘門、**REMIX 三欄提示詞輸出（R5）**已接上，**送件 adapter（R7）尚未完成**。 |
-| 🎬 **導演級分鏡** | 每鏡先寫 `shot_intent` 再定技術值，焦距與物距成對寫；站位／視線／運鏡 lint **D06–D14**；`h3d sketch` 用 2.5D 相機算出 **免生圖 SVG 構圖**，0 次生圖 API。 |
+| 🎬 **導演級分鏡** | 每鏡先寫 `shot_intent` 再定技術值，焦距與物距成對寫；站位／視線／運鏡 lint **D06–D14**；階段 4 構圖預設用 **Codex 分鏡**（每鏡一張、自動綁定已核准參考圖），手繪或其他工具也可，一律走同一個 hash 門禁。 |
 | 🎨 **創作 lens（只建議、不擋關）** | AI 漫劇爆款方法論、荒木飛呂彥、Robert McKee、Scott McCloud，另有 Murch／Hamilton 剪輯 lens；報告寫進 `review/craft/`，不改任何門禁。 |
 | 🧪 **實測驅動** | 規則標 `measured`／`sourced`／`inferred`；外部方法未經 H3 實測前**只警告不擋**。 |
 
@@ -140,12 +140,11 @@ Agent 會照 `h3d next` 一步步推進，在需要你拍板的地方用 `h3d in
 |---|---|
 | 文字規劃、JSON／提示詞檢查 | Python 標準庫 |
 | 審核頁與分鏡總覽圖 | Python；圖片操作需 Pillow |
-| 免生圖 SVG 構圖（選用） | Pillow、numpy、resvg-py；不需 GPU、不呼叫生圖 API |
 | 影片 QA 與組裝 | FFmpeg、ffprobe |
 | 圖片／影片生成 | Agent 當前可用的相容工具或連線後端；FreeVideo 是可選 adapter |
 
 ```bash
-pip install Pillow numpy resvg-py
+pip install Pillow numpy
 python -m unittest discover -s tests -q   # 全套離線測試
 python scripts/run_offline_checks.py      # CI 用的離線回歸
 ```
@@ -192,7 +191,7 @@ flowchart TB
 | **1 改編** | 保留分級、事件交代完整性（起因→經過→結果）、A/B/C 方案、依事件估總長 | `event_coverage.py`、`estimate_duration.py --events` | 故事地圖、`adapt/source.json` |
 | **2 資產設定圖** | 主角優先出圖、自檢重生；引擎定案後全集鎖定 | `h3d decide design_engine` | `assets.md`、角色設定板 |
 | **3 漫劇劇本** | 場景化改寫、台詞預算（4 字/秒、說話 ≤ 60%）、交接 JSON | `estimate_duration.py --h3`、`sync_script.py` | `script-ep01.md`、`handoff-ep01.json` |
-| **4 導演分鏡** | `shot_intent`＋`choice_why`、焦距物距、運鏡預設、人物賬與段縫末態 | `h3d sketch`、`validate_storyboard.py` | `layer2/*.json`、構圖圖 |
+| **4 導演分鏡** | `shot_intent`＋`choice_why`、焦距物距、運鏡預設、人物賬與段縫末態 | `codex_storyboard_panels.py`、`validate_storyboard.py` | `layer2/*.json`、構圖圖 |
 | **5 提示詞包** | 逐鏡親手寫五小節，編譯成 H3 官方六段式；段級核准 | `h3d bind／author／compile --check／refcheck／staging` | `prompts-ep01.md`、`segments-ep01.json` |
 | **6 影片生成** | 送件→收件→QA→動態 QA→交界連續性 QA→逐段結論 | `h3d run --plan／qa／motion／verdict／inbox` | `videos/`、`qa-report.json` |
 | **7 成片組裝** | 動作段後製變速、ASR 對位、響度、全集單一剪輯專案 | `h3d ramp／voice align／concat／assemble` | `final/*.mp4`、時間線 |
@@ -250,7 +249,7 @@ python scripts/h3d.py status --root .  # 階段門禁＋依賴帳本＋送件帳
 | 類別 | 子命令 | 做什麼 |
 |---|---|---|
 | **流程** | `next`・`status`・`decide`・`inbox`・`approve` | 下一步唯一指令、綜合狀態、寫入使用者定案、決策收件匣、自動／段級核准 |
-| **分鏡與綁定** | `sketch`・`crop`・`bind` | 免生圖 SVG 構圖、裁設定板頭像、產生階段 5 參考圖綁定 |
+| **分鏡與綁定** | `crop`・`bind` | 裁設定板頭像、產生階段 5 參考圖綁定（階段 4 構圖用 `codex_storyboard_panels.py`，見下節） |
 | **提示詞檢查** | `compile`・`author`・`audit`・`refcheck`・`staging` | Layer 2 → 六段式、逐鏡撰寫審查（E30–E38、W41–W45）、對帳、參考包涵蓋、站位視線閘門 |
 | **送件** | `probe`・`submit`・`run`・`collect`・`resume` | 查 API 與 LoRA、送件、單例 runner（暫停／續跑）、只收件、續送 |
 | **驗收** | `qa`・`motion`・`verdict` | 時長／色彩／證據分級、光流量凍結偵測、逐段目視結論 |
@@ -337,20 +336,16 @@ python scripts/h3d.py status --root .  # 階段門禁＋依賴帳本＋送件帳
 
 </details>
 
-### 免生圖構圖：審走位不燒額度
+### 階段 4 構圖：Codex 分鏡
 
-`h3d sketch` 讀 Layer 2，用程式算出每一鏡的機位、景別與站位，畫成鉛筆風構圖，**不呼叫任何生圖 API**。下圖左為同一段實際生成的影片（每鏡取中段影格），右為只靠 Layer 2 算出的構圖。
-
-<div align="center">
-<img src="assets/svg-grid/hero-EP04-S03.jpg" alt="成片與 SVG 構圖分鏡總覽圖對照" width="100%">
-</div>
+進 H3 編譯前，每鏡都要有對應的構圖 PNG 並通過 stage-4 審核。預設用 Codex 分鏡：讀 Layer 2，每鏡出一張彩色分鏡圖、每段拼一張總覽圖，自動綁定已核准的角色正面裁切、異獸設定圖與場景母版，回寫 `sketch_file`／`sketch_sha256` 供門禁使用。
 
 ```bash
-pip install numpy resvg-py Pillow
-python scripts/h3d.py sketch --root <專案> --episode EP04
+python scripts/storyboard/codex_storyboard_panels.py --root <專案> --episode EP04 --model <使用者指定模型> --dry-run   # 先看計畫
+python scripts/storyboard/codex_storyboard_panels.py --root <專案> --episode EP04 --model <使用者指定模型> --parallel 3
 ```
 
-構圖只用來審走位，**不送 H3**。用法、零設定搭景、cast／staging 格式見 [`references/storyboard/svg-rig-grid.md`](references/storyboard/svg-rig-grid.md)，最小範例在 [`examples/svg-grid-minimal/`](examples/svg-grid-minimal/)。
+`--model` 必填（不會靜默改用預設模型）。Qwen 鉛筆九宮格、手繪或其他工具的 PNG 照同一組欄位回寫也可以；構圖只用來審，**不送 H3**。完整範例見 [`docs/cli-walkthrough.md`](docs/cli-walkthrough.md)。
 
 ## 📁 專案結構
 
@@ -362,7 +357,7 @@ ai-comic-drama/
 │   ├── tooling.md            # h3d 全部指令、四道檢查、環境變數
 │   ├── pipeline.md           # 八階段詳細流程與模板
 │   ├── adapt/                # 小說改編
-│   ├── storyboard/           # 導演分鏡、SVG 構圖、連戲帳
+│   ├── storyboard/           # 導演分鏡、空間一致性、連戲帳
 │   ├── h3/                   # MiniMax H3 提示詞（同步自上游 h3-video-prompting）
 │   ├── craft/                # 創作 lens（只建議）
 │   ├── edit/                 # 階段 7 剪輯手冊
@@ -375,7 +370,7 @@ ai-comic-drama/
 │   ├── adapt/  storyboard/   # 改編與分鏡／編譯／QA／組裝工具
 │   ├── runner/  voice/       # 送件 runner、配音對位
 │   └── craft/  review/       # 創作 lens 與審核頁
-├── assets/  examples/        # 樣圖與最小範例
+├── assets/                 # 樣圖
 ├── docs/                     # 研究、回顧、命令列逐步範例
 └── tests/                    # 離線單元測試
 ```
@@ -425,7 +420,7 @@ ai-comic-drama/
 - [x] `h3d` 單一入口與 `h3d next` 導航
 - [x] 四道確定性檢查（時長量子、證據分級、依賴帳本、失敗目錄＋ack）
 - [x] 階段 5 段級核准（只重審改過的段）
-- [x] 免生圖 SVG 構圖（`h3d sketch`）
+- [x] 階段 4 預設構圖改用 Codex 分鏡（`h3d sketch` 已移除）
 - [x] 站位／視線／運鏡閘門 D06–D14、參考包涵蓋 `h3d refcheck`
 - [x] 創作 lens：爆款方法論、荒木、McKee、McCloud、Murch、Hamilton
 - [x] 撰寫警告 W41–W45（只警告，未經 H3 實測）
@@ -450,7 +445,7 @@ ai-comic-drama/
 | [`references/storyboard/cinematic-director.md`](references/storyboard/cinematic-director.md) | 導演分鏡總規範與 Layer 2 |
 | [`references/storyboard/shot-intent.md`](references/storyboard/shot-intent.md) | 鏡頭意圖 `shot_intent`／`choice_why` |
 | [`references/storyboard/continuity-ledger.md`](references/storyboard/continuity-ledger.md) | 人物賬、站位、正反打、段縫末態 |
-| [`references/storyboard/svg-rig-grid.md`](references/storyboard/svg-rig-grid.md) | 免生圖 SVG 構圖 |
+| [`references/storyboard/spatial-consistency.md`](references/storyboard/spatial-consistency.md) | 場景母片、牆面分配層、構圖板店感鎖、白模分工三檔 |
 | [`references/camera-moves-guide.md`](references/camera-moves-guide.md) | 依 beat 情緒選運鏡預設 |
 | [`references/consistency.md`](references/consistency.md) | 資產 ID、參考鏈、防角色平均化 |
 | [`references/styles.md`](references/styles.md) | 風格鎖定錨與樣圖 |
@@ -474,5 +469,5 @@ ai-comic-drama/
 ---
 
 <div align="center">
-<sub>頂部橫幅與八階段插畫由 Codex（imagegen）生成；風格設定板由 ChatGPT 網頁版生成；構圖對照圖由 <code>h3d sketch</code> 產生。</sub>
+<sub>頂部橫幅與八階段插畫由 Codex（imagegen）生成；風格設定板由 ChatGPT 網頁版生成。</sub>
 </div>

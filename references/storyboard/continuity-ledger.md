@@ -74,7 +74,7 @@
 
 | 層 | 只負責 | 本 repo 放在哪 | 不要寫 |
 |---|---|---|---|
-| 世界層 | 誰在房間哪裡、誰和誰相鄰、中間隔什麼；換機位也不變 | 本節站位附表、`staging/<場景>.json`（`svg-rig-grid.md`）、REMIX 段落 `positions`（D09／D10） | 畫面左右、景別 |
+| 世界層 | 誰在房間哪裡、誰和誰相鄰、中間隔什麼；換機位也不變 | 本節站位附表、`spatial-consistency.md` §2 牆面分配表（`templates/wall-map.example.json`）、REMIX 段落 `positions`（D09／D10） | 畫面左右、景別 |
 | 映射層 | 誰是哪張參考圖 | 六段式 `subject_definitions`（`<Subject N>`↔`<Picture N>`）、REMIX `refmods` 標籤順序 | 位置、姿態、此刻在做什麼（W42） |
 | 攝影機層 | 這一鏡拍到什麼、誰在前景誰在深處、誰朝誰看、誰在說話 | `[Shot N]` 頭句與五小節 | 從第 2 鏡起重列全場世界站位（W45）；畫面左右用 D08 的 `left to right` 一句交代 |
 

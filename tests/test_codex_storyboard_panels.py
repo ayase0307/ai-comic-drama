@@ -87,6 +87,19 @@ class CodexPanelTests(unittest.TestCase):
             cp.main(["--root", str(self.r)])
 
 
+
+class LabelFontEnvTests(unittest.TestCase):
+    def test_new_env_name_wins_and_old_name_still_works(self):
+        with tempfile.TemporaryDirectory() as d:
+            new, old = Path(d) / "new.ttf", Path(d) / "old.ttf"
+            new.write_bytes(b"x"); old.write_bytes(b"x")
+            with mock.patch.dict("os.environ", {"STORYBOARD_FONT": str(new), "SVG_GRID_FONT": str(old)}):
+                self.assertEqual(cp.label_font_path(), str(new))
+            with mock.patch.dict("os.environ", {"SVG_GRID_FONT": str(old)}):
+                import os
+                os.environ.pop("STORYBOARD_FONT", None)
+                self.assertEqual(cp.label_font_path(), str(old), "舊名 SVG_GRID_FONT 要相容")
+
 if __name__ == "__main__":
     unittest.main()
 
