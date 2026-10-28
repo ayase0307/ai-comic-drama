@@ -1,0 +1,1514 @@
+{
+ "generated_utc": "2026-10-27T23:30:10+00:00",
+ "jobs": {
+  "submitted": 86,
+  "done": 86,
+  "failures": 0
+ },
+ "wenxi": {
+  "A′": {
+   "n": 8,
+   "usable": 6,
+   "rate": 75,
+   "seat_swap": 2,
+   "teleport": 0,
+   "wall_swap": 0,
+   "extra_people": 0,
+   "grid_text_leak": 0,
+   "bg_leak": 0,
+   "costume_drift": 2,
+   "per_segment": {
+    "EP90-S01-a": "2/2",
+    "EP90-S01-b": "2/2",
+    "EP90-S01-c": "0/2",
+    "EP90-S01-d": "2/2"
+   }
+  },
+  "F": {
+   "n": 8,
+   "usable": 6,
+   "rate": 75,
+   "seat_swap": 2,
+   "teleport": 0,
+   "wall_swap": 0,
+   "extra_people": 0,
+   "grid_text_leak": 0,
+   "bg_leak": 0,
+   "costume_drift": 1,
+   "per_segment": {
+    "EP90-S01-a": "2/2",
+    "EP90-S01-b": "2/2",
+    "EP90-S01-c": "0/2",
+    "EP90-S01-d": "2/2"
+   }
+  },
+  "G": {
+   "n": 8,
+   "usable": 6,
+   "rate": 75,
+   "seat_swap": 2,
+   "teleport": 0,
+   "wall_swap": 0,
+   "extra_people": 0,
+   "grid_text_leak": 0,
+   "bg_leak": 0,
+   "costume_drift": 2,
+   "per_segment": {
+    "EP90-S01-a": "2/2",
+    "EP90-S01-b": "2/2",
+    "EP90-S01-c": "0/2",
+    "EP90-S01-d": "2/2"
+   }
+  },
+  "H": {
+   "n": 8,
+   "usable": 7,
+   "rate": 88,
+   "seat_swap": 1,
+   "teleport": 0,
+   "wall_swap": 0,
+   "extra_people": 0,
+   "grid_text_leak": 0,
+   "bg_leak": 0,
+   "costume_drift": 2,
+   "per_segment": {
+    "EP90-S01-a": "2/2",
+    "EP90-S01-b": "2/2",
+    "EP90-S01-c": "1/2",
+    "EP90-S01-d": "2/2"
+   }
+  },
+  "I": {
+   "n": 8,
+   "usable": 6,
+   "rate": 75,
+   "seat_swap": 2,
+   "teleport": 0,
+   "wall_swap": 0,
+   "extra_people": 0,
+   "grid_text_leak": 0,
+   "bg_leak": 0,
+   "costume_drift": 2,
+   "per_segment": {
+    "EP90-S01-a": "2/2",
+    "EP90-S01-b": "2/2",
+    "EP90-S01-c": "0/2",
+    "EP90-S01-d": "2/2"
+   }
+  },
+  "D′": {
+   "n": 16,
+   "usable": 15,
+   "rate": 94,
+   "seat_swap": 0,
+   "teleport": 1,
+   "wall_swap": 0,
+   "extra_people": 0,
+   "grid_text_leak": 0,
+   "bg_leak": 0,
+   "costume_drift": 0,
+   "per_segment": {
+    "EP90-S01-a": "4/4",
+    "EP90-S01-b": "4/4",
+    "EP90-S01-c": "3/4",
+    "EP90-S01-d": "4/4"
+   }
+  }
+ },
+ "combat": {
+  "A′": {
+   "n": 6,
+   "usable": 0,
+   "rate": 0,
+   "seat_swap": 0,
+   "teleport": 0,
+   "wall_swap": 0,
+   "extra_people": 0,
+   "grid_text_leak": 0,
+   "bg_leak": 1,
+   "costume_drift": 0,
+   "empty_hand": 2,
+   "no_knockback": 2,
+   "swap_no_process": 2,
+   "per_segment": {
+    "EP91-S02-b": "0/2",
+    "EP91-S02-c": "0/2",
+    "EP91-S02-d": "0/2"
+   }
+  },
+  "F": {
+   "n": 6,
+   "usable": 0,
+   "rate": 0,
+   "seat_swap": 0,
+   "teleport": 0,
+   "wall_swap": 0,
+   "extra_people": 0,
+   "grid_text_leak": 0,
+   "bg_leak": 0,
+   "costume_drift": 0,
+   "empty_hand": 2,
+   "no_knockback": 2,
+   "swap_no_process": 2,
+   "per_segment": {
+    "EP91-S02-b": "0/2",
+    "EP91-S02-c": "0/2",
+    "EP91-S02-d": "0/2"
+   }
+  },
+  "G": {
+   "n": 6,
+   "usable": 0,
+   "rate": 0,
+   "seat_swap": 0,
+   "teleport": 0,
+   "wall_swap": 0,
+   "extra_people": 0,
+   "grid_text_leak": 0,
+   "bg_leak": 0,
+   "costume_drift": 0,
+   "empty_hand": 2,
+   "no_knockback": 2,
+   "swap_no_process": 2,
+   "per_segment": {
+    "EP91-S02-b": "0/2",
+    "EP91-S02-c": "0/2",
+    "EP91-S02-d": "0/2"
+   }
+  },
+  "H": {
+   "n": 6,
+   "usable": 3,
+   "rate": 50,
+   "seat_swap": 0,
+   "teleport": 0,
+   "wall_swap": 0,
+   "extra_people": 0,
+   "grid_text_leak": 0,
+   "bg_leak": 2,
+   "costume_drift": 0,
+   "empty_hand": 2,
+   "no_knockback": 0,
+   "swap_no_process": 0,
+   "per_segment": {
+    "EP91-S02-b": "2/2",
+    "EP91-S02-c": "0/2",
+    "EP91-S02-d": "1/2"
+   }
+  },
+  "I": {
+   "n": 6,
+   "usable": 4,
+   "rate": 67,
+   "seat_swap": 0,
+   "teleport": 0,
+   "wall_swap": 0,
+   "extra_people": 0,
+   "grid_text_leak": 0,
+   "bg_leak": 0,
+   "costume_drift": 0,
+   "empty_hand": 2,
+   "no_knockback": 0,
+   "swap_no_process": 0,
+   "per_segment": {
+    "EP91-S02-b": "2/2",
+    "EP91-S02-c": "0/2",
+    "EP91-S02-d": "2/2"
+   }
+  }
+ },
+ "threshold": {
+  "wenxi": {
+   "F": {
+    "diff_pp": 0,
+    "pass_25pp": false,
+    "leak_le_10": true
+   },
+   "G": {
+    "diff_pp": 0,
+    "pass_25pp": false,
+    "leak_le_10": true
+   },
+   "H": {
+    "diff_pp": 13,
+    "pass_25pp": false,
+    "leak_le_10": true
+   },
+   "I": {
+    "diff_pp": 0,
+    "pass_25pp": false,
+    "leak_le_10": true
+   },
+   "D′": {
+    "diff_pp": 19,
+    "pass_25pp": false,
+    "leak_le_10": true
+   }
+  },
+  "combat": {
+   "F": {
+    "diff_pp": 0,
+    "pass_25pp": false,
+    "leak_le_10": true
+   },
+   "G": {
+    "diff_pp": 0,
+    "pass_25pp": false,
+    "leak_le_10": true
+   },
+   "H": {
+    "diff_pp": 50,
+    "pass_25pp": true,
+    "leak_le_10": true
+   },
+   "I": {
+    "diff_pp": 67,
+    "pass_25pp": true,
+    "leak_le_10": true
+   }
+  }
+ },
+ "decoded": {
+  "Y8LC": {
+   "key": "LY-CAp-s02b-t2",
+   "group": "Ap",
+   "segment": "EP91-S02-b",
+   "take": 2,
+   "usable": "0"
+  },
+  "PFRY": {
+   "key": "LY-CG-s02b-t1",
+   "group": "G",
+   "segment": "EP91-S02-b",
+   "take": 1,
+   "usable": "0"
+  },
+  "NHQF": {
+   "key": "LY-CH-s02b-t1",
+   "group": "H",
+   "segment": "EP91-S02-b",
+   "take": 1,
+   "usable": "1"
+  },
+  "9ELP": {
+   "key": "LY-CG-s02b-t2",
+   "group": "G",
+   "segment": "EP91-S02-b",
+   "take": 2,
+   "usable": "0"
+  },
+  "8RB5": {
+   "key": "LY-CI-s02b-t1",
+   "group": "I",
+   "segment": "EP91-S02-b",
+   "take": 1,
+   "usable": "1"
+  },
+  "KZVW": {
+   "key": "LY-CAp-s02b-t1",
+   "group": "Ap",
+   "segment": "EP91-S02-b",
+   "take": 1,
+   "usable": "0"
+  },
+  "PXF5": {
+   "key": "LY-CI-s02b-t2",
+   "group": "I",
+   "segment": "EP91-S02-b",
+   "take": 2,
+   "usable": "1"
+  },
+  "BJPP": {
+   "key": "LY-CF-s02b-t1",
+   "group": "F",
+   "segment": "EP91-S02-b",
+   "take": 1,
+   "usable": "0"
+  },
+  "AP3J": {
+   "key": "LY-CH-s02b-t2",
+   "group": "H",
+   "segment": "EP91-S02-b",
+   "take": 2,
+   "usable": "1"
+  },
+  "ASY2": {
+   "key": "LY-CF-s02b-t2",
+   "group": "F",
+   "segment": "EP91-S02-b",
+   "take": 2,
+   "usable": "0"
+  },
+  "DUBZ": {
+   "key": "LY-CAp-s02c-t2",
+   "group": "Ap",
+   "segment": "EP91-S02-c",
+   "take": 2,
+   "usable": "0"
+  },
+  "6ZGS": {
+   "key": "LY-CI-s02c-t2",
+   "group": "I",
+   "segment": "EP91-S02-c",
+   "take": 2,
+   "usable": "0"
+  },
+  "CMGF": {
+   "key": "LY-CG-s02c-t1",
+   "group": "G",
+   "segment": "EP91-S02-c",
+   "take": 1,
+   "usable": "0"
+  },
+  "Y2FJ": {
+   "key": "LY-CF-s02c-t2",
+   "group": "F",
+   "segment": "EP91-S02-c",
+   "take": 2,
+   "usable": "0"
+  },
+  "ZFPX": {
+   "key": "LY-CI-s02c-t1",
+   "group": "I",
+   "segment": "EP91-S02-c",
+   "take": 1,
+   "usable": "0"
+  },
+  "VXCQ": {
+   "key": "LY-CH-s02c-t1",
+   "group": "H",
+   "segment": "EP91-S02-c",
+   "take": 1,
+   "usable": "0"
+  },
+  "8EMB": {
+   "key": "LY-CAp-s02c-t1",
+   "group": "Ap",
+   "segment": "EP91-S02-c",
+   "take": 1,
+   "usable": "0"
+  },
+  "KQ99": {
+   "key": "LY-CF-s02c-t1",
+   "group": "F",
+   "segment": "EP91-S02-c",
+   "take": 1,
+   "usable": "0"
+  },
+  "C6AW": {
+   "key": "LY-CG-s02c-t2",
+   "group": "G",
+   "segment": "EP91-S02-c",
+   "take": 2,
+   "usable": "0"
+  },
+  "J59S": {
+   "key": "LY-CH-s02c-t2",
+   "group": "H",
+   "segment": "EP91-S02-c",
+   "take": 2,
+   "usable": "0"
+  },
+  "KSL5": {
+   "key": "LY-CAp-s02d-t2",
+   "group": "Ap",
+   "segment": "EP91-S02-d",
+   "take": 2,
+   "usable": "0"
+  },
+  "4MU8": {
+   "key": "LY-CG-s02d-t2",
+   "group": "G",
+   "segment": "EP91-S02-d",
+   "take": 2,
+   "usable": "0"
+  },
+  "PKXT": {
+   "key": "LY-CH-s02d-t2",
+   "group": "H",
+   "segment": "EP91-S02-d",
+   "take": 2,
+   "usable": "0"
+  },
+  "GT9B": {
+   "key": "LY-CI-s02d-t2",
+   "group": "I",
+   "segment": "EP91-S02-d",
+   "take": 2,
+   "usable": "1"
+  },
+  "ENAH": {
+   "key": "LY-CG-s02d-t1",
+   "group": "G",
+   "segment": "EP91-S02-d",
+   "take": 1,
+   "usable": "0"
+  },
+  "4SXP": {
+   "key": "LY-CI-s02d-t1",
+   "group": "I",
+   "segment": "EP91-S02-d",
+   "take": 1,
+   "usable": "1"
+  },
+  "XA4V": {
+   "key": "LY-CH-s02d-t1",
+   "group": "H",
+   "segment": "EP91-S02-d",
+   "take": 1,
+   "usable": "1"
+  },
+  "R4B7": {
+   "key": "LY-CAp-s02d-t1",
+   "group": "Ap",
+   "segment": "EP91-S02-d",
+   "take": 1,
+   "usable": "0"
+  },
+  "P792": {
+   "key": "LY-CF-s02d-t2",
+   "group": "F",
+   "segment": "EP91-S02-d",
+   "take": 2,
+   "usable": "0"
+  },
+  "ANT2": {
+   "key": "LY-CF-s02d-t1",
+   "group": "F",
+   "segment": "EP91-S02-d",
+   "take": 1,
+   "usable": "0"
+  },
+  "PQMV": {
+   "key": "LY-WG-s01a-t2",
+   "group": "G",
+   "segment": "EP90-S01-a",
+   "take": 2,
+   "usable": "1"
+  },
+  "G2K2": {
+   "key": "LY-WH-s01a-t2",
+   "group": "H",
+   "segment": "EP90-S01-a",
+   "take": 2,
+   "usable": "1"
+  },
+  "T4FC": {
+   "key": "LY-WF-s01a-t2",
+   "group": "F",
+   "segment": "EP90-S01-a",
+   "take": 2,
+   "usable": "1"
+  },
+  "4YZ7": {
+   "key": "LY-WG-s01a-t1",
+   "group": "G",
+   "segment": "EP90-S01-a",
+   "take": 1,
+   "usable": "1"
+  },
+  "R6WW": {
+   "key": "LY-WI-s01a-t1",
+   "group": "I",
+   "segment": "EP90-S01-a",
+   "take": 1,
+   "usable": "1"
+  },
+  "A3YY": {
+   "key": "LY-WDp-s01a-t2",
+   "group": "Dp",
+   "segment": "EP90-S01-a",
+   "take": 2,
+   "usable": "1"
+  },
+  "5H3L": {
+   "key": "LY-WAp-s01a-t1",
+   "group": "Ap",
+   "segment": "EP90-S01-a",
+   "take": 1,
+   "usable": "1"
+  },
+  "PARY": {
+   "key": "LY-WAp-s01a-t2",
+   "group": "Ap",
+   "segment": "EP90-S01-a",
+   "take": 2,
+   "usable": "1"
+  },
+  "HBQC": {
+   "key": "LY-WI-s01a-t2",
+   "group": "I",
+   "segment": "EP90-S01-a",
+   "take": 2,
+   "usable": "1"
+  },
+  "VL9M": {
+   "key": "LY-WH-s01a-t1",
+   "group": "H",
+   "segment": "EP90-S01-a",
+   "take": 1,
+   "usable": "1"
+  },
+  "5KZE": {
+   "key": "LY-WF-s01a-t1",
+   "group": "F",
+   "segment": "EP90-S01-a",
+   "take": 1,
+   "usable": "1"
+  },
+  "ML2R": {
+   "key": "LY-WDp-s01a-t4",
+   "group": "Dp",
+   "segment": "EP90-S01-a",
+   "take": 4,
+   "usable": "1"
+  },
+  "ELK6": {
+   "key": "LY-WDp-s01a-t1",
+   "group": "Dp",
+   "segment": "EP90-S01-a",
+   "take": 1,
+   "usable": "1"
+  },
+  "YU6T": {
+   "key": "LY-WDp-s01a-t3",
+   "group": "Dp",
+   "segment": "EP90-S01-a",
+   "take": 3,
+   "usable": "1"
+  },
+  "M3TW": {
+   "key": "LY-WDp-s01b-t4",
+   "group": "Dp",
+   "segment": "EP90-S01-b",
+   "take": 4,
+   "usable": "1"
+  },
+  "G74Z": {
+   "key": "LY-WG-s01b-t1",
+   "group": "G",
+   "segment": "EP90-S01-b",
+   "take": 1,
+   "usable": "1"
+  },
+  "P3NZ": {
+   "key": "LY-WG-s01b-t2",
+   "group": "G",
+   "segment": "EP90-S01-b",
+   "take": 2,
+   "usable": "1"
+  },
+  "JHBQ": {
+   "key": "LY-WH-s01b-t2",
+   "group": "H",
+   "segment": "EP90-S01-b",
+   "take": 2,
+   "usable": "1"
+  },
+  "TNXW": {
+   "key": "LY-WI-s01b-t2",
+   "group": "I",
+   "segment": "EP90-S01-b",
+   "take": 2,
+   "usable": "1"
+  },
+  "P7BT": {
+   "key": "LY-WF-s01b-t2",
+   "group": "F",
+   "segment": "EP90-S01-b",
+   "take": 2,
+   "usable": "1"
+  },
+  "J87V": {
+   "key": "LY-WAp-s01b-t1",
+   "group": "Ap",
+   "segment": "EP90-S01-b",
+   "take": 1,
+   "usable": "1"
+  },
+  "QZ4W": {
+   "key": "LY-WH-s01b-t1",
+   "group": "H",
+   "segment": "EP90-S01-b",
+   "take": 1,
+   "usable": "1"
+  },
+  "VSLE": {
+   "key": "LY-WDp-s01b-t2",
+   "group": "Dp",
+   "segment": "EP90-S01-b",
+   "take": 2,
+   "usable": "1"
+  },
+  "XKT6": {
+   "key": "LY-WF-s01b-t1",
+   "group": "F",
+   "segment": "EP90-S01-b",
+   "take": 1,
+   "usable": "1"
+  },
+  "E6LQ": {
+   "key": "LY-WDp-s01b-t1",
+   "group": "Dp",
+   "segment": "EP90-S01-b",
+   "take": 1,
+   "usable": "1"
+  },
+  "VM7M": {
+   "key": "LY-WAp-s01b-t2",
+   "group": "Ap",
+   "segment": "EP90-S01-b",
+   "take": 2,
+   "usable": "1"
+  },
+  "FZGH": {
+   "key": "LY-WI-s01b-t1",
+   "group": "I",
+   "segment": "EP90-S01-b",
+   "take": 1,
+   "usable": "1"
+  },
+  "4WLG": {
+   "key": "LY-WDp-s01b-t3",
+   "group": "Dp",
+   "segment": "EP90-S01-b",
+   "take": 3,
+   "usable": "1"
+  },
+  "YKD3": {
+   "key": "LY-WAp-s01c-t1",
+   "group": "Ap",
+   "segment": "EP90-S01-c",
+   "take": 1,
+   "usable": "0"
+  },
+  "3W9W": {
+   "key": "LY-WAp-s01c-t2",
+   "group": "Ap",
+   "segment": "EP90-S01-c",
+   "take": 2,
+   "usable": "0"
+  },
+  "FXBE": {
+   "key": "LY-WDp-s01c-t3",
+   "group": "Dp",
+   "segment": "EP90-S01-c",
+   "take": 3,
+   "usable": "1"
+  },
+  "CVMQ": {
+   "key": "LY-WF-s01c-t2",
+   "group": "F",
+   "segment": "EP90-S01-c",
+   "take": 2,
+   "usable": "0"
+  },
+  "TYEF": {
+   "key": "LY-WI-s01c-t1",
+   "group": "I",
+   "segment": "EP90-S01-c",
+   "take": 1,
+   "usable": "0"
+  },
+  "ZFKS": {
+   "key": "LY-WH-s01c-t1",
+   "group": "H",
+   "segment": "EP90-S01-c",
+   "take": 1,
+   "usable": "0"
+  },
+  "U5TS": {
+   "key": "LY-WDp-s01c-t4",
+   "group": "Dp",
+   "segment": "EP90-S01-c",
+   "take": 4,
+   "usable": "0"
+  },
+  "4QUY": {
+   "key": "LY-WDp-s01c-t1",
+   "group": "Dp",
+   "segment": "EP90-S01-c",
+   "take": 1,
+   "usable": "1"
+  },
+  "5LQ4": {
+   "key": "LY-WDp-s01c-t2",
+   "group": "Dp",
+   "segment": "EP90-S01-c",
+   "take": 2,
+   "usable": "1"
+  },
+  "WMY6": {
+   "key": "LY-WI-s01c-t2",
+   "group": "I",
+   "segment": "EP90-S01-c",
+   "take": 2,
+   "usable": "0"
+  },
+  "UR22": {
+   "key": "LY-WF-s01c-t1",
+   "group": "F",
+   "segment": "EP90-S01-c",
+   "take": 1,
+   "usable": "0"
+  },
+  "QAWB": {
+   "key": "LY-WH-s01c-t2",
+   "group": "H",
+   "segment": "EP90-S01-c",
+   "take": 2,
+   "usable": "1"
+  },
+  "4G33": {
+   "key": "LY-WG-s01c-t2",
+   "group": "G",
+   "segment": "EP90-S01-c",
+   "take": 2,
+   "usable": "0"
+  },
+  "SLHY": {
+   "key": "LY-WG-s01c-t1",
+   "group": "G",
+   "segment": "EP90-S01-c",
+   "take": 1,
+   "usable": "0"
+  },
+  "65QX": {
+   "key": "LY-WH-s01d-t1",
+   "group": "H",
+   "segment": "EP90-S01-d",
+   "take": 1,
+   "usable": "1"
+  },
+  "FE6B": {
+   "key": "LY-WI-s01d-t1",
+   "group": "I",
+   "segment": "EP90-S01-d",
+   "take": 1,
+   "usable": "1"
+  },
+  "7WNX": {
+   "key": "LY-WF-s01d-t2",
+   "group": "F",
+   "segment": "EP90-S01-d",
+   "take": 2,
+   "usable": "1"
+  },
+  "SBKS": {
+   "key": "LY-WDp-s01d-t3",
+   "group": "Dp",
+   "segment": "EP90-S01-d",
+   "take": 3,
+   "usable": "1"
+  },
+  "6CQQ": {
+   "key": "LY-WH-s01d-t2",
+   "group": "H",
+   "segment": "EP90-S01-d",
+   "take": 2,
+   "usable": "1"
+  },
+  "UC8Z": {
+   "key": "LY-WAp-s01d-t1",
+   "group": "Ap",
+   "segment": "EP90-S01-d",
+   "take": 1,
+   "usable": "1"
+  },
+  "SFEP": {
+   "key": "LY-WG-s01d-t1",
+   "group": "G",
+   "segment": "EP90-S01-d",
+   "take": 1,
+   "usable": "1"
+  },
+  "4D44": {
+   "key": "LY-WDp-s01d-t1",
+   "group": "Dp",
+   "segment": "EP90-S01-d",
+   "take": 1,
+   "usable": "1"
+  },
+  "CVWD": {
+   "key": "LY-WDp-s01d-t4",
+   "group": "Dp",
+   "segment": "EP90-S01-d",
+   "take": 4,
+   "usable": "1"
+  },
+  "PQAT": {
+   "key": "LY-WAp-s01d-t2",
+   "group": "Ap",
+   "segment": "EP90-S01-d",
+   "take": 2,
+   "usable": "1"
+  },
+  "YFW9": {
+   "key": "LY-WI-s01d-t2",
+   "group": "I",
+   "segment": "EP90-S01-d",
+   "take": 2,
+   "usable": "1"
+  },
+  "Q9KU": {
+   "key": "LY-WDp-s01d-t2",
+   "group": "Dp",
+   "segment": "EP90-S01-d",
+   "take": 2,
+   "usable": "1"
+  },
+  "BXM3": {
+   "key": "LY-WG-s01d-t2",
+   "group": "G",
+   "segment": "EP90-S01-d",
+   "take": 2,
+   "usable": "1"
+  },
+  "4MEV": {
+   "key": "LY-WF-s01d-t1",
+   "group": "F",
+   "segment": "EP90-S01-d",
+   "take": 1,
+   "usable": "1"
+  }
+ },
+ "blocks": [
+  {
+   "title": "文戲 S01-a 沈進門／廚師抬眼",
+   "videos": [
+    {
+     "code": "5H3L",
+     "key": "LY-WAp-s01a-t1",
+     "group": "A′ t1",
+     "usable": 1,
+     "summary": "玻璃門畫右、沈推門進來；後方隔間牆＋門洞在畫左緣（窄景，菜檯不入鏡）；沈停在畫右沒往左走；廚師擦檯抬眼往畫右；廚師服裝漂（短袖白襯衫＋棕圍裙，設定是廚師服＋深灰圍裙）costume_drift"
+    },
+    {
+     "code": "A3YY",
+     "key": "LY-WDp-s01a-t2",
+     "group": "D′ t2",
+     "usable": 1,
+     "summary": "玻璃門畫右、沈推門進來；後方隔間牆＋門洞在畫左緣（窄景，菜檯不入鏡）；沈往前走；3.92 s 切；廚師擦檯抬眼看畫右再低頭；廚師服＋深灰圍裙＝設定"
+    },
+    {
+     "code": "PARY",
+     "key": "LY-WAp-s01a-t2",
+     "group": "A′ t2",
+     "usable": 1,
+     "summary": "玻璃門畫右、沈推門進來；後方隔間牆＋門洞在畫左緣（窄景，菜檯不入鏡）；沈停在畫右沒往左走；廚師擦檯抬眼往畫右；廚師服裝漂（短袖白襯衫＋棕圍裙，設定是廚師服＋深灰圍裙）costume_drift"
+    },
+    {
+     "code": "T4FC",
+     "key": "LY-WF-s01a-t2",
+     "group": "F t2",
+     "usable": 1,
+     "summary": "廣角與母片一致：菜檯畫左、門洞後方偏左、玻璃門畫右、桌排法對；沈進門往前走向畫中（無切點偵測：第 2 鏡換景較柔）；廚師擦檯抬眼往畫右；廚師服＋深灰圍裙＝設定"
+    },
+    {
+     "code": "G2K2",
+     "key": "LY-WH-s01a-t2",
+     "group": "H t2",
+     "usable": 1,
+     "summary": "玻璃門畫右、沈推門進來；後方隔間牆＋門洞在畫左緣（窄景，菜檯不入鏡）；沈停在畫右沒往左走；廚師擦檯、抬眼往畫右；廚師服裝漂（短袖白襯衫＋棕圍裙，設定是廚師服＋深灰圍裙）costume_drift"
+    },
+    {
+     "code": "R6WW",
+     "key": "LY-WI-s01a-t1",
+     "group": "I t1",
+     "usable": 1,
+     "summary": "廣角與母片一致：菜檯畫左、門洞後方偏左、玻璃門畫右、桌排法對；沈進門往前走向畫中；廚師擦檯抬眼往畫右；廚師服裝漂（短袖白襯衫＋棕圍裙，設定是廚師服＋深灰圍裙）costume_drift"
+    },
+    {
+     "code": "ELK6",
+     "key": "LY-WDp-s01a-t1",
+     "group": "D′ t1",
+     "usable": 1,
+     "summary": "廣角與母片一致：菜檯畫左、門洞後方偏左、玻璃門畫右、桌排法對；沈進門往前走向畫中；3.92 s 切；廚師擦檯抬眼往畫右；廚師服＋深灰圍裙＝設定"
+    },
+    {
+     "code": "5KZE",
+     "key": "LY-WF-s01a-t1",
+     "group": "F t1",
+     "usable": 1,
+     "summary": "廣角與母片一致：菜檯畫左、門洞後方偏左、玻璃門畫右、桌排法對；沈進門往前走向畫中；廚師擦玻璃罩抬眼往畫右；廚師服裝漂（短袖白襯衫＋棕圍裙，設定是廚師服＋深灰圍裙）costume_drift"
+    },
+    {
+     "code": "4YZ7",
+     "key": "LY-WG-s01a-t1",
+     "group": "G t1",
+     "usable": 1,
+     "summary": "玻璃門畫右、沈推門進來；後方隔間牆＋門洞在畫左緣（窄景，菜檯不入鏡）；沈停在畫右沒往左走；廚師擦檯抬眼往畫右；廚師服裝漂（短袖白襯衫＋棕圍裙，設定是廚師服＋深灰圍裙）costume_drift"
+    },
+    {
+     "code": "PQMV",
+     "key": "LY-WG-s01a-t2",
+     "group": "G t2",
+     "usable": 1,
+     "summary": "玻璃門畫右、沈推門進來；後方隔間牆＋門洞在畫左緣（窄景，菜檯不入鏡）；沈停在畫右沒往左走；廚師擦菜檯、抬眼往畫右再低頭；廚師服裝漂（短袖白襯衫＋棕圍裙，設定是廚師服＋深灰圍裙）costume_drift"
+    },
+    {
+     "code": "YU6T",
+     "key": "LY-WDp-s01a-t3",
+     "group": "D′ t3",
+     "usable": 1,
+     "summary": "廣角與母片一致：菜檯畫左、門洞後方偏左、玻璃門畫右、桌排法對；沈進門往前走向畫中；3.83 s 切；廚師擦檯抬眼往畫右；廚師服＋深灰圍裙＝設定"
+    },
+    {
+     "code": "ML2R",
+     "key": "LY-WDp-s01a-t4",
+     "group": "D′ t4",
+     "usable": 1,
+     "summary": "廣角與母片一致：菜檯畫左、門洞後方偏左、玻璃門畫右、桌排法對；沈進門往前走向畫中；廚師擦檯抬眼往畫右再低頭；廚師服＋深灰圍裙＝設定"
+    },
+    {
+     "code": "HBQC",
+     "key": "LY-WI-s01a-t2",
+     "group": "I t2",
+     "usable": 1,
+     "summary": "廣角與母片一致：菜檯畫左、門洞後方偏左、玻璃門畫右、桌排法對；沈進門往前走向畫中；4.25 s 切（略晚）；廚師擦檯抬眼往畫右；廚師服裝漂（短袖白襯衫＋棕圍裙，設定是廚師服＋深灰圍裙）costume_drift"
+    },
+    {
+     "code": "VL9M",
+     "key": "LY-WH-s01a-t1",
+     "group": "H t1",
+     "usable": 1,
+     "summary": "玻璃門畫右、沈推門進來；後方隔間牆＋門洞在畫左緣（窄景，菜檯不入鏡）；沈停在畫右沒往左走；廚師擦檯抬眼往畫右；廚師服裝漂（短袖白襯衫＋棕圍裙，設定是廚師服＋深灰圍裙）costume_drift"
+    }
+   ]
+  },
+  {
+   "title": "文戲 S01-b 入座角落桌／廚師舀湯",
+   "videos": [
+    {
+     "code": "TNXW",
+     "key": "LY-WI-s01b-t2",
+     "group": "I t2",
+     "usable": 1,
+     "summary": "沈走到左後角桌坐下（菜檯北端與廚房門洞之間、貼隔間牆）＝座位對；菜檯畫左、門洞在他身後偏右、玻璃門畫右；4.38 s 切；廚師（廚師服＝設定）在菜檯後抬眼看畫左（沈的方向）→舀湯→端碗，觸發對"
+    },
+    {
+     "code": "P7BT",
+     "key": "LY-WF-s01b-t2",
+     "group": "F t2",
+     "usable": 1,
+     "summary": "沈走到左後角桌坐下（菜檯北端與廚房門洞之間、貼隔間牆）＝座位對；菜檯畫左、門洞在他身後偏右、玻璃門畫右；4.38 s 切；廚師（廚師服＝設定）在菜檯後抬眼看畫左（沈的方向）→舀湯→端碗，觸發對"
+    },
+    {
+     "code": "VSLE",
+     "key": "LY-WDp-s01b-t2",
+     "group": "D′ t2",
+     "usable": 1,
+     "summary": "沈走到左後角桌坐下（菜檯北端與廚房門洞之間、貼隔間牆）＝座位對；菜檯畫左、門洞在他身後偏右、玻璃門畫右；廚師（廚師服＝設定）在菜檯後抬眼看畫左（沈的方向）→舀湯→端碗，觸發對"
+    },
+    {
+     "code": "G74Z",
+     "key": "LY-WG-s01b-t1",
+     "group": "G t1",
+     "usable": 1,
+     "summary": "沈走到左後角桌坐下（菜檯北端與廚房門洞之間、貼隔間牆）＝座位對；菜檯畫左、門洞在他身後偏右、玻璃門畫右；廚師（廚師服＝設定）在菜檯後抬眼看畫左（沈的方向）→舀湯→端碗，觸發對"
+    },
+    {
+     "code": "P3NZ",
+     "key": "LY-WG-s01b-t2",
+     "group": "G t2",
+     "usable": 1,
+     "summary": "沈走到左後角桌坐下（菜檯北端與廚房門洞之間、貼隔間牆）＝座位對；菜檯畫左、門洞在他身後偏右、玻璃門畫右；4.38 s 切；廚師（廚師服＝設定）在菜檯後抬眼看畫左（沈的方向）→舀湯→端碗，觸發對"
+    },
+    {
+     "code": "J87V",
+     "key": "LY-WAp-s01b-t1",
+     "group": "A′ t1",
+     "usable": 1,
+     "summary": "沈走到左後角桌坐下（菜檯北端與廚房門洞之間、貼隔間牆）＝座位對；菜檯畫左、門洞在他身後偏右、玻璃門畫右；廚師（廚師服＝設定）在菜檯後抬眼看畫左（沈的方向）→舀湯→端碗，觸發對"
+    },
+    {
+     "code": "QZ4W",
+     "key": "LY-WH-s01b-t1",
+     "group": "H t1",
+     "usable": 1,
+     "summary": "沈走到左後角桌坐下（菜檯北端與廚房門洞之間、貼隔間牆）＝座位對；菜檯畫左、門洞在他身後偏右、玻璃門畫右；廚師（廚師服＝設定）在菜檯後抬眼看畫左（沈的方向）→舀湯→端碗，觸發對"
+    },
+    {
+     "code": "VM7M",
+     "key": "LY-WAp-s01b-t2",
+     "group": "A′ t2",
+     "usable": 1,
+     "summary": "沈走到左後角桌坐下（菜檯北端與廚房門洞之間、貼隔間牆）＝座位對；菜檯畫左、門洞在他身後偏右、玻璃門畫右；廚師（廚師服＝設定）在菜檯後抬眼看畫左（沈的方向）→舀湯→端碗，觸發對"
+    },
+    {
+     "code": "E6LQ",
+     "key": "LY-WDp-s01b-t1",
+     "group": "D′ t1",
+     "usable": 1,
+     "summary": "沈走到左後角桌坐下（菜檯北端與廚房門洞之間、貼隔間牆）＝座位對；菜檯畫左、門洞在他身後偏右、玻璃門畫右；廚師（廚師服＝設定）在菜檯後抬眼看畫左（沈的方向）→舀湯→端碗，觸發對"
+    },
+    {
+     "code": "M3TW",
+     "key": "LY-WDp-s01b-t4",
+     "group": "D′ t4",
+     "usable": 1,
+     "summary": "沈走到左後角桌坐下（菜檯北端與廚房門洞之間、貼隔間牆）＝座位對；菜檯畫左、門洞在他身後偏右、玻璃門畫右；廚師（廚師服＝設定）在菜檯後抬眼看畫左（沈的方向）→舀湯→端碗，觸發對"
+    },
+    {
+     "code": "FZGH",
+     "key": "LY-WI-s01b-t1",
+     "group": "I t1",
+     "usable": 1,
+     "summary": "沈走到左後角桌坐下（菜檯北端與廚房門洞之間、貼隔間牆）＝座位對；菜檯畫左、門洞在他身後偏右、玻璃門畫右；廚師（廚師服＝設定）在菜檯後抬眼看畫左（沈的方向）→舀湯→端碗，觸發對"
+    },
+    {
+     "code": "4WLG",
+     "key": "LY-WDp-s01b-t3",
+     "group": "D′ t3",
+     "usable": 1,
+     "summary": "沈走到左後角桌坐下（菜檯北端與廚房門洞之間、貼隔間牆）＝座位對；菜檯畫左、門洞在他身後偏右、玻璃門畫右；廚師（廚師服＝設定）在菜檯後抬眼看畫左（沈的方向）→舀湯→端碗，觸發對"
+    },
+    {
+     "code": "XKT6",
+     "key": "LY-WF-s01b-t1",
+     "group": "F t1",
+     "usable": 1,
+     "summary": "沈走到左後角桌坐下（菜檯北端與廚房門洞之間、貼隔間牆）＝座位對；菜檯畫左、門洞在他身後偏右、玻璃門畫右；廚師（廚師服＝設定）在菜檯後抬眼看畫左（沈的方向）→舀湯→端碗，觸發對"
+    },
+    {
+     "code": "JHBQ",
+     "key": "LY-WH-s01b-t2",
+     "group": "H t2",
+     "usable": 1,
+     "summary": "沈走到左後角桌坐下（菜檯北端與廚房門洞之間、貼隔間牆）＝座位對；菜檯畫左、門洞在他身後偏右、玻璃門畫右；廚師（廚師服＝設定）在菜檯後抬眼看畫左（沈的方向）→舀湯→端碗，觸發對"
+    }
+   ]
+  },
+  {
+   "title": "文戲 S01-c 送湯「同學，你的湯」／謝謝",
+   "videos": [
+    {
+     "code": "4G33",
+     "key": "LY-WG-s01c-t2",
+     "group": "G t2",
+     "usable": 0,
+     "summary": "沈坐的桌在廚房門洞「東側」（門洞在他畫左）＝座位錯（應在角落桌、門洞在畫右緣），與 S01-b 已坐好的角落桌不連戲；門洞後偏暗、像玻璃門（輕微）；特寫看畫左、謝謝"
+    },
+    {
+     "code": "5LQ4",
+     "key": "LY-WDp-s01c-t2",
+     "group": "D′ t2",
+     "usable": 1,
+     "summary": "菜檯畫左緣、沈坐角落桌、廚房門洞在他畫右（提示詞「doorway at the right edge」）＝座位對；廚師放碗→說話；特寫：廚師身側在畫左、碗在桌上，沈捧碗，連戲對"
+    },
+    {
+     "code": "U5TS",
+     "key": "LY-WDp-s01c-t4",
+     "group": "D′ t4",
+     "usable": 0,
+     "summary": "菜檯畫左緣、沈坐角落桌、廚房門洞在他畫右（提示詞「doorway at the right edge」）＝座位對；廚師放碗→說話；特寫開頭碗又從畫左被端在半空遞過來（第 1 鏡碗已放桌上）＝道具重複／瞬移"
+    },
+    {
+     "code": "FXBE",
+     "key": "LY-WDp-s01c-t3",
+     "group": "D′ t3",
+     "usable": 1,
+     "summary": "菜檯畫左緣、沈坐角落桌、廚房門洞在他畫右（提示詞「doorway at the right edge」）＝座位對；廚師放碗→說話，觸發對；特寫看畫左、謝謝；碗在桌上，捧起"
+    },
+    {
+     "code": "TYEF",
+     "key": "LY-WI-s01c-t1",
+     "group": "I t1",
+     "usable": 0,
+     "summary": "沈坐的桌在廚房門洞「東側」（門洞在他畫左）＝座位錯（應在角落桌、門洞在畫右緣），與 S01-b 已坐好的角落桌不連戲；特寫看畫左、謝謝"
+    },
+    {
+     "code": "ZFKS",
+     "key": "LY-WH-s01c-t1",
+     "group": "H t1",
+     "usable": 0,
+     "summary": "沈坐的桌在廚房門洞「東側」（門洞在他畫左）＝座位錯（應在角落桌、門洞在畫右緣），與 S01-b 已坐好的角落桌不連戲；特寫看畫左、謝謝"
+    },
+    {
+     "code": "UR22",
+     "key": "LY-WF-s01c-t1",
+     "group": "F t1",
+     "usable": 0,
+     "summary": "沈坐的桌在廚房門洞「東側」（門洞在他畫左）＝座位錯（應在角落桌、門洞在畫右緣），與 S01-b 已坐好的角落桌不連戲；特寫看畫左、謝謝"
+    },
+    {
+     "code": "4QUY",
+     "key": "LY-WDp-s01c-t1",
+     "group": "D′ t1",
+     "usable": 1,
+     "summary": "菜檯畫左緣、沈坐角落桌、廚房門洞在他畫右（提示詞「doorway at the right edge」）＝座位對；廚師放碗→說話；特寫：廚師手臂留在畫左、碗在桌上，沈伸手捧碗，連戲對；謝謝約 4.4–5.5 s"
+    },
+    {
+     "code": "QAWB",
+     "key": "LY-WH-s01c-t2",
+     "group": "H t2",
+     "usable": 1,
+     "summary": "菜檯畫左緣、沈坐角落桌、廚房門洞在他畫右（提示詞「doorway at the right edge」）＝座位對；廚師放碗→說話；特寫看畫左、謝謝；碗在前景桌上"
+    },
+    {
+     "code": "SLHY",
+     "key": "LY-WG-s01c-t1",
+     "group": "G t1",
+     "usable": 0,
+     "summary": "沈坐的桌在廚房門洞「東側」（門洞在他畫左）＝座位錯（應在角落桌、門洞在畫右緣），與 S01-b 已坐好的角落桌不連戲；特寫看畫左、謝謝"
+    },
+    {
+     "code": "YKD3",
+     "key": "LY-WAp-s01c-t1",
+     "group": "A′ t1",
+     "usable": 0,
+     "summary": "沈坐的桌在廚房門洞「東側」（門洞在他畫左）＝座位錯（應在角落桌、門洞在畫右緣），與 S01-b 已坐好的角落桌不連戲；廚師從畫左繞出放碗→說話（ASR 同學你的湯）；特寫看畫左、謝謝；碗在前景桌上，雙手捧碗"
+    },
+    {
+     "code": "CVMQ",
+     "key": "LY-WF-s01c-t2",
+     "group": "F t2",
+     "usable": 0,
+     "summary": "沈坐的桌在廚房門洞「東側」（門洞在他畫左）＝座位錯（應在角落桌、門洞在畫右緣），與 S01-b 已坐好的角落桌不連戲；廣角，桌在店中後方；特寫看畫左、謝謝"
+    },
+    {
+     "code": "WMY6",
+     "key": "LY-WI-s01c-t2",
+     "group": "I t2",
+     "usable": 0,
+     "summary": "沈坐的桌在廚房門洞「東側」（門洞在他畫左）＝座位錯（應在角落桌、門洞在畫右緣），與 S01-b 已坐好的角落桌不連戲；廣角，桌在店中後方；特寫看畫左、謝謝；校徽旁出現假繡字（small lettering）"
+    },
+    {
+     "code": "3W9W",
+     "key": "LY-WAp-s01c-t2",
+     "group": "A′ t2",
+     "usable": 0,
+     "summary": "沈坐的桌在廚房門洞「東側」（門洞在他畫左）＝座位錯（應在角落桌、門洞在畫右緣），與 S01-b 已坐好的角落桌不連戲；廣角可見玻璃窗在畫右；廚師放碗→說話；特寫看畫左、謝謝；背景右側深藍玻璃（東）合理"
+    }
+   ]
+  },
+  {
+   "title": "文戲 S01-d 婦人與孩子",
+   "videos": [
+    {
+     "code": "65QX",
+     "key": "LY-WH-s01d-t1",
+     "group": "H t1",
+     "usable": 1,
+     "summary": "母子桌在東北角靠玻璃、孩子在桌右側側臉朝畫左＝座位對；孩子轉頭後婦人說「看什麼？快吃」（ASR）；近景機位：背景是北牆東段素白牆（正確）＋右側玻璃；孩子近景往畫左偷看→低頭扒飯；背景玻璃＋暮色街道"
+    },
+    {
+     "code": "UC8Z",
+     "key": "LY-WAp-s01d-t1",
+     "group": "A′ t1",
+     "usable": 1,
+     "summary": "母子桌在東北角靠玻璃、孩子在桌右側側臉朝畫左＝座位對；孩子轉頭後婦人說「看什麼？快吃」（ASR）；孩子近景往畫左偷看→低頭扒飯；背景玻璃＋暮色街道"
+    },
+    {
+     "code": "6CQQ",
+     "key": "LY-WH-s01d-t2",
+     "group": "H t2",
+     "usable": 1,
+     "summary": "母子桌在東北角靠玻璃、孩子在桌右側側臉朝畫左＝座位對；孩子轉頭後婦人說「看什麼？快吃」（ASR）；孩子近景往畫左偷看→低頭扒飯；背景玻璃＋暮色街道"
+    },
+    {
+     "code": "CVWD",
+     "key": "LY-WDp-s01d-t4",
+     "group": "D′ t4",
+     "usable": 1,
+     "summary": "母子桌在東北角靠玻璃、孩子在桌右側側臉朝畫左＝座位對；孩子轉頭後婦人說「看什麼？快吃」（ASR）；孩子近景往畫左偷看→低頭扒飯；背景玻璃＋暮色街道"
+    },
+    {
+     "code": "PQAT",
+     "key": "LY-WAp-s01d-t2",
+     "group": "A′ t2",
+     "usable": 1,
+     "summary": "母子桌在東北角靠玻璃、孩子在桌右側側臉朝畫左＝座位對；孩子轉頭後婦人說「看什麼？快吃」（ASR）；前景桌與菜檯在畫左；孩子近景往畫左偷看→低頭扒飯；背景玻璃＋暮色街道"
+    },
+    {
+     "code": "YFW9",
+     "key": "LY-WI-s01d-t2",
+     "group": "I t2",
+     "usable": 1,
+     "summary": "母子桌在東北角靠玻璃、孩子在桌右側側臉朝畫左＝座位對；孩子轉頭後婦人說「看什麼？快吃」（ASR）；高廣角，同 7WNX；孩子近景往畫左偷看→低頭扒飯；背景玻璃＋暮色街道"
+    },
+    {
+     "code": "FE6B",
+     "key": "LY-WI-s01d-t1",
+     "group": "I t1",
+     "usable": 1,
+     "summary": "母子桌在東北角靠玻璃、孩子在桌右側側臉朝畫左＝座位對；孩子轉頭後婦人說「看什麼？快吃」（ASR）；隔間牆左側開口看起來像關著的灰門（輕微，不計）；孩子近景往畫左偷看→低頭扒飯；背景玻璃＋暮色街道"
+    },
+    {
+     "code": "4D44",
+     "key": "LY-WDp-s01d-t1",
+     "group": "D′ t1",
+     "usable": 1,
+     "summary": "母子桌在東北角靠玻璃、孩子在桌右側側臉朝畫左＝座位對；孩子轉頭後婦人說「看什麼？快吃」（ASR）；孩子近景往畫左偷看→低頭扒飯；背景玻璃＋暮色街道"
+    },
+    {
+     "code": "SBKS",
+     "key": "LY-WDp-s01d-t3",
+     "group": "D′ t3",
+     "usable": 1,
+     "summary": "母子桌在東北角靠玻璃、孩子在桌右側側臉朝畫左＝座位對；孩子轉頭後婦人說「看什麼？快吃」（ASR）；孩子近景往畫左偷看→低頭扒飯；背景玻璃＋暮色街道"
+    },
+    {
+     "code": "4MEV",
+     "key": "LY-WF-s01d-t1",
+     "group": "F t1",
+     "usable": 1,
+     "summary": "母子桌在東北角靠玻璃、孩子在桌右側側臉朝畫左＝座位對；孩子轉頭後婦人說「看什麼？快吃」（ASR）；孩子近景往畫左偷看→低頭扒飯；背景玻璃＋暮色街道"
+    },
+    {
+     "code": "SFEP",
+     "key": "LY-WG-s01d-t1",
+     "group": "G t1",
+     "usable": 1,
+     "summary": "母子桌在東北角靠玻璃、孩子在桌右側側臉朝畫左＝座位對；孩子轉頭後婦人說「看什麼？快吃」（ASR）；孩子近景往畫左偷看→低頭扒飯；背景玻璃＋暮色街道"
+    },
+    {
+     "code": "Q9KU",
+     "key": "LY-WDp-s01d-t2",
+     "group": "D′ t2",
+     "usable": 1,
+     "summary": "母子桌在東北角靠玻璃、孩子在桌右側側臉朝畫左＝座位對；孩子轉頭後婦人說「看什麼？快吃」（ASR）；孩子近景往畫左偷看→低頭扒飯；背景玻璃＋暮色街道"
+    },
+    {
+     "code": "7WNX",
+     "key": "LY-WF-s01d-t2",
+     "group": "F t2",
+     "usable": 1,
+     "summary": "母子桌在東北角靠玻璃、孩子在桌右側側臉朝畫左＝座位對；孩子轉頭後婦人說「看什麼？快吃」（ASR）；高廣角：菜檯畫左、門洞後方、母子桌在後右角靠玻璃，構圖比提示詞遠；孩子近景往畫左偷看→低頭扒飯；背景玻璃＋暮色街道"
+    },
+    {
+     "code": "BXM3",
+     "key": "LY-WG-s01d-t2",
+     "group": "G t2",
+     "usable": 1,
+     "summary": "母子桌在東北角靠玻璃、孩子在桌右側側臉朝畫左＝座位對；孩子轉頭後婦人說「看什麼？快吃」（ASR）；高廣角，同 7WNX；孩子近景往畫左偷看→低頭扒飯；背景玻璃＋暮色街道"
+    }
+   ]
+  },
+  {
+   "title": "武戲 S02-b 凳砸鼠",
+   "videos": [
+    {
+     "code": "ASY2",
+     "key": "LY-CF-s02b-t2",
+     "group": "F t2",
+     "usable": 0,
+     "summary": "地理對；店內乾淨；凳頂鼠臉，鼠只慢慢往下滑、沒退出畫面＝受擊反應弱；沈近景收凳"
+    },
+    {
+     "code": "9ELP",
+     "key": "LY-CG-s02b-t2",
+     "group": "G t2",
+     "usable": 0,
+     "summary": "地理對；店內乾淨；凳面頂住鼠臉不動，鼠沒被打退（無受擊反應）；沈近景收凳"
+    },
+    {
+     "code": "PXF5",
+     "key": "LY-CI-s02b-t2",
+     "group": "I t2",
+     "usable": 1,
+     "summary": "地理對＋破洞＋碎盤（後方門洞與破洞位置對）；凳砸中鼠臉，3.2–3.9 s 鼠往畫左下退出畫面＝有受擊後退；沈近景（4.1–5.0 s 手上沒凳、5.7 s 凳又出現＝輕微道具不連續）"
+    },
+    {
+     "code": "AP3J",
+     "key": "LY-CH-s02b-t2",
+     "group": "H t2",
+     "usable": 1,
+     "summary": "地理對＋破洞＋碎盤；只偵測到 1 個切點（第 2→3 鏡換景較柔）；凳砸中，3.2 s 鼠後仰、3.55 s 往畫左下跌出畫面＝有受擊後退；沈近景看畫左，背景破洞一致"
+    },
+    {
+     "code": "Y8LC",
+     "key": "LY-CAp-s02b-t2",
+     "group": "A′ t2",
+     "usable": 0,
+     "summary": "菜檯左、玻璃門右、後方隔間牆＋門洞；鼠從斜桌躍出撲向沈；店內乾淨無殘骸；凳面頂住鼠臉 2.3–3.6 s 黏著不動，鼠沒被打退（無受擊反應）；沈近景看畫左、收凳"
+    },
+    {
+     "code": "BJPP",
+     "key": "LY-CF-s02b-t1",
+     "group": "F t1",
+     "usable": 0,
+     "summary": "地理對；店內乾淨；凳面貼鼠臉 2.5–3.9 s 不動，鼠沒被打退（無受擊反應）；沈近景看畫左"
+    },
+    {
+     "code": "PFRY",
+     "key": "LY-CG-s02b-t1",
+     "group": "G t1",
+     "usable": 0,
+     "summary": "同上地理對；店內乾淨；凳面貼鼠臉，鼠持續前壓沒有後退（無受擊反應）；沈近景看畫左"
+    },
+    {
+     "code": "NHQF",
+     "key": "LY-CH-s02b-t1",
+     "group": "H t1",
+     "usable": 1,
+     "summary": "地理對＋隔間牆門洞東側破洞、地上碎盤、側倒桌（打鬥後狀態）；凳砸中鼠臉，3.2–3.6 s 鼠往畫左下縮退出畫面＝有受擊後退（無側倒滑行）；沈近景看畫左，背景破洞一致"
+    },
+    {
+     "code": "KZVW",
+     "key": "LY-CAp-s02b-t1",
+     "group": "A′ t1",
+     "usable": 0,
+     "summary": "地理對；店內乾淨；凳頂住鼠臉，鼠齜牙瞪眼仍前壓，沒被打退（無受擊反應）；沈近景收凳"
+    },
+    {
+     "code": "8RB5",
+     "key": "LY-CI-s02b-t1",
+     "group": "I t1",
+     "usable": 1,
+     "summary": "地理對＋破洞＋碎盤；凳砸鼠鼻，3.4–3.9 s 鼠往畫左退出＝有受擊後退；沈近景看畫左，背景破洞一致"
+    }
+   ]
+  },
+  {
+   "title": "武戲 S02-c 鼠起身／沈後退",
+   "videos": [
+    {
+     "code": "Y2FJ",
+     "key": "LY-CF-s02c-t2",
+     "group": "F t2",
+     "usable": 0,
+     "summary": "鼠側躺→起身面向畫右，背景菜檯＋桌凳＝店內保住；沈空手（凳子不見）、側身往畫右後退、低頭看畫左地上；背景只露隔間牆與玻璃（近景），地理不矛盾；鞋跟碰側倒桌，對"
+    },
+    {
+     "code": "VXCQ",
+     "key": "LY-CH-s02c-t1",
+     "group": "H t1",
+     "usable": 0,
+     "summary": "巨鼠在灰色攝影棚底（場景消失／包背景外洩）；沈空手（凳子不見）、側身往畫右後退、低頭看畫左地上；背景門洞＋破洞＋碎盤；鞋跟碰側倒桌，背景破洞一致"
+    },
+    {
+     "code": "DUBZ",
+     "key": "LY-CAp-s02c-t2",
+     "group": "A′ t2",
+     "usable": 0,
+     "summary": "巨鼠在灰色攝影棚底（場景消失／包背景外洩），趴→起身面向畫右；沈空手（凳子不見）、側身往畫右後退、低頭看畫左地上；背後玻璃門畫右、隔間牆對；店內乾淨；鞋從畫左進、鞋跟往後碰側倒桌緣，對；桌沒晃"
+    },
+    {
+     "code": "C6AW",
+     "key": "LY-CG-s02c-t2",
+     "group": "G t2",
+     "usable": 0,
+     "summary": "鼠在菜檯前蜷→起身面向畫右，店內保住；沈空手（凳子不見）、側身往畫右後退、低頭看畫左地上；背景門洞＋隔間牆，無破洞（本組文字沒寫，不計）；鞋跟往後碰側倒桌緣，對"
+    },
+    {
+     "code": "CMGF",
+     "key": "LY-CG-s02c-t1",
+     "group": "G t1",
+     "usable": 0,
+     "summary": "鼠在地上翻身起來、面向畫右，背景桌凳＝店內保住；沈空手（凳子不見）、側身往畫右後退、低頭看畫左地上；背景門洞＋隔間牆、玻璃畫右；無破洞（本組文字沒寫，不計）；鞋跟碰側倒桌，對"
+    },
+    {
+     "code": "8EMB",
+     "key": "LY-CAp-s02c-t1",
+     "group": "A′ t1",
+     "usable": 0,
+     "summary": "鼠起身面向畫右，背景桌凳＝店內保住；沈空手（凳子不見）、側身往畫右後退、低頭看畫左地上；半蹲往畫右退（後退動作有），但手上沒有凳；鞋跟碰側倒桌，對"
+    },
+    {
+     "code": "ZFPX",
+     "key": "LY-CI-s02c-t1",
+     "group": "I t1",
+     "usable": 0,
+     "summary": "鼠在菜檯前側躺→起身面向畫右，店內保住；沈空手（凳子不見）、側身往畫右後退、低頭看畫左地上；背景門洞＋破洞＋碎盤＋側倒凳＝打鬥後狀態對；鞋跟碰側倒桌，背景破洞一致"
+    },
+    {
+     "code": "KQ99",
+     "key": "LY-CF-s02c-t1",
+     "group": "F t1",
+     "usable": 0,
+     "summary": "鼠側躺→起身面向畫右，背景菜檯＋桌凳＝店內保住；沈空手（凳子不見）、側身往畫右後退、低頭看畫左地上；背景隔間牆＋玻璃畫右；鞋跟碰側倒桌，對"
+    },
+    {
+     "code": "J59S",
+     "key": "LY-CH-s02c-t2",
+     "group": "H t2",
+     "usable": 0,
+     "summary": "巨鼠在灰色攝影棚底（場景消失／包背景外洩）；沈空手（凳子不見）、側身往畫右後退、低頭看畫左地上；背景門洞＋破洞＋碎盤；雙腳站在側倒桌旁、鞋跟碰桌緣，對"
+    },
+    {
+     "code": "6ZGS",
+     "key": "LY-CI-s02c-t2",
+     "group": "I t2",
+     "usable": 0,
+     "summary": "鼠在菜檯不鏽鋼前地上側躺→起身面向畫右、尾巴在後，店內保住；沈空手（凳子不見）、側身往畫右後退、低頭看畫左地上；背景門洞（廚房）＋門洞東側破洞＋碎盤＋側倒桌＝打鬥後狀態對；鞋跟碰側倒桌緣，對；桌沒晃"
+    }
+   ]
+  },
+  {
+   "title": "武戲 S02-d 爪擊凳／尾掃",
+   "videos": [
+    {
+     "code": "GT9B",
+     "key": "LY-CI-s02d-t2",
+     "group": "I t2",
+     "usable": 1,
+     "summary": "地理對＋碎盤＋側倒桌＋破洞；鼠從畫左躍起；爪扣凳面、凳被頂回胸前、咬牙後仰，接觸與反震對；中景：尾巴從畫左掃過原本頭的位置、他壓低身體躲下去＝只有閃躲半段，沒看到拋飛；勉強可剪（同第一批 WJDW 標準）"
+    },
+    {
+     "code": "R4B7",
+     "key": "LY-CAp-s02d-t1",
+     "group": "A′ t1",
+     "usable": 0,
+     "summary": "地理對；店內乾淨；爪扣凳面、凳被頂回胸前、咬牙後仰，接觸與反震對；尾巴掃中頭，他往畫右下倒向玻璃門（背景玻璃門）＝拋飛方向反了"
+    },
+    {
+     "code": "XA4V",
+     "key": "LY-CH-s02d-t1",
+     "group": "H t1",
+     "usable": 1,
+     "summary": "地理對＋碎盤＋側倒桌＋破洞；爪扣凳面、凳被頂回胸前、咬牙後仰，接觸與反震對；尾巴掃中頭，他往畫左下倒向店內（背景門洞、破洞、碎盤），方向對、距離短"
+    },
+    {
+     "code": "ANT2",
+     "key": "LY-CF-s02d-t1",
+     "group": "F t1",
+     "usable": 0,
+     "summary": "地理對；店內乾淨；爪扣凳面、凳被頂回胸前、咬牙後仰，接觸與反震對；尾巴尖往下穿過他臉前／肩（穿模），人沒移動＝互換無過程"
+    },
+    {
+     "code": "KSL5",
+     "key": "LY-CAp-s02d-t2",
+     "group": "A′ t2",
+     "usable": 0,
+     "summary": "菜檯左、玻璃門右、沈在門邊舉凳、鼠從畫左躍起；店內乾淨；爪扣凳面、凳被頂回胸前、咬牙後仰，接觸與反震對；尾巴壓到他頭頂（略穿模），他只往畫右下低頭，沒被拋往店內深處＝互換無過程"
+    },
+    {
+     "code": "P792",
+     "key": "LY-CF-s02d-t2",
+     "group": "F t2",
+     "usable": 0,
+     "summary": "地理對；鼠從畫左躍起、沈在門邊；店內乾淨；爪扣凳面、凳被頂回胸前、咬牙後仰，接觸與反震對；尾巴從頭頂掠過（鼠爪也入鏡），他只低頭縮，沒有拋飛"
+    },
+    {
+     "code": "4MU8",
+     "key": "LY-CG-s02d-t2",
+     "group": "G t2",
+     "usable": 0,
+     "summary": "地理對；鼠從畫左躍起、沈舉凳；店內乾淨；爪扣凳面、凳被頂回胸前、咬牙後仰，接觸與反震對；尾巴壓在頭上、頭被按向畫右下，沒有拋飛＝互換無過程"
+    },
+    {
+     "code": "4SXP",
+     "key": "LY-CI-s02d-t1",
+     "group": "I t1",
+     "usable": 1,
+     "summary": "地理對＋碎盤＋側倒桌＋破洞；爪扣凳面、凳被頂回胸前、咬牙後仰，接觸與反震對；尾巴掃中頭，5.0–5.8 s 他往畫左後方倒飛（背景門洞與破洞＝往店內深處），拋飛方向對但距離短"
+    },
+    {
+     "code": "PKXT",
+     "key": "LY-CH-s02d-t2",
+     "group": "H t2",
+     "usable": 0,
+     "summary": "地理對＋碎盤＋側倒桌＋破洞（打鬥後狀態）；鼠從畫左躍起；爪扣凳面、凳被頂回胸前、咬牙後仰，接觸與反震對；中景：尾巴掃過時他壓低身體閃躲，但人往畫右（東、玻璃門方向）挪，沒往店內深處＝方向錯"
+    },
+    {
+     "code": "ENAH",
+     "key": "LY-CG-s02d-t1",
+     "group": "G t1",
+     "usable": 0,
+     "summary": "地理對；沈在門邊、鼠從畫左躍起；店內乾淨；爪扣凳面、凳被頂回胸前、咬牙後仰，接觸與反震對；尾巴搭在他頭肩上，他往後靠、還握著凳，沒有閃躲也沒有拋飛"
+    }
+   ]
+  }
+ ]
+}
