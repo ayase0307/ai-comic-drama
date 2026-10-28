@@ -11,7 +11,8 @@
      版面與欄位規格見 references/review-page-spec.md（validate_model 檢查）。
   2. 你已經決定的（收合）：decisions.json 的定案、使用者裁示過的段落、人工核准紀錄。
   3. 我自動處理了 N 件事（收合）：依驗收政策自動通過的段、政策可接受的技術 QA、自動核准。
-  4. 原始資料（只放連結，不內嵌）。
+  4. 各階段成果：八個閱讀視圖，每關同一個六區塊格式（scripts/review/stage_views.py）。
+  5. 原始資料（只放連結，不內嵌）。
 
 資料來源只有：
   * decisions.json（政策與定案）
@@ -50,6 +51,7 @@ for candidate in (str(SCRIPTS_DIR), str(SCRIPTS_DIR / "storyboard")):
 import decisions as decisions_mod  # noqa: E402
 import doc_card  # noqa: E402
 import project_state as ps  # noqa: E402
+import stage_views  # noqa: E402
 import verdicts as verdicts_mod  # noqa: E402
 
 STAGE_SHORT = ["定調", "改編", "設定圖", "劇本", "分鏡", "提示詞", "影片", "配音剪輯"]
@@ -774,10 +776,46 @@ def build_cards(root: Path, *, state: Optional[Dict[str, Any]] = None,
                                    f"你親自裁示的段落列在「你已經決定的」。"),
                         "source": "review/verdicts.json＋decisions.json acceptance_policy"})
 
+    rereview = _stage5_rereview_card(root)
+    if rereview:
+        open_cards.append(rereview)
+
     open_cards.sort(key=lambda c: (c["blocking"], c["stage"], c["id"]))
     decided.sort(key=lambda d: d.get("sort") or "", reverse=True)
     return {"open": open_cards, "decided": decided, "auto": auto, "notes": notes,
             "classified": classified}
+
+
+def _stage5_rereview_card(root: Path) -> Optional[Dict[str, Any]]:
+    """階段 5 核准後只改了部分段：只有改過的段要人工重審，其餘段照樣可送件（tooling.md §2.6）。"""
+    try:
+        review = ps.stage5_segment_review(root)
+    except Exception:  # 段級核准讀不到時由 h3d next 回報，不讓收件匣整頁失敗
+        return None
+    if review["mode"] != "partial" or not review["pending"]:
+        return None
+    pending = review["pending"]
+    ids = ",".join(pending)
+    shown = "、".join(pending[:4]) + ("…" if len(pending) > 4 else "")
+    removed = f"；其中 {len(review['removed'])} 段是刪除，通過＝確認刪除" if review["removed"] else ""
+    # 「通過」只在有效重審頁存在時提供：沒有綁定的重審紀錄，approve_stage5_segments 一定會拒絕
+    bound = ((ps.load_state(root)["stages"][ps.stage_key(5)].get("segment_review") or {}).get("segments") or {})
+    now = ps._current_shared(root)["segments"]
+    page_fresh = all(bound.get(s) == now.get(s, "removed") for s in pending)
+    options = [{"label": "產重審頁給我看", "reply": f"階段 5 重審：產重審頁（{ids}）"},
+               {"label": "先放著", "reply": "階段 5 重審：先放著，只送已核准的段"}]
+    if page_fresh:
+        options.insert(1, {"label": "這幾段通過", "reply": f"階段 5 重審：{ids} 通過"})
+    return {
+        "id": "D5-rereview", "kind": "rereview", "stage": 5, "segment": shown,
+        "title": f"階段 5 有 {len(pending)} 段改過，要你重審",
+        "finding": f"改動 {len(review['changed'])}、新增 {len(review['new'])}、刪除 {len(review['removed'])}{removed}",
+        "impact": f"這 {len(pending)} 段不能送件；另外 {len(review['approved'])} 段仍核准、照樣可送件。",
+        "recommendation": "先看重審頁裡這幾段的提示詞再決定；改過的段一律人工重審，不能自動核准。",
+        "options": options,
+        "if_ignored": "這幾段一直不能送件；其他已核准段不受影響。",
+        "blocking": 1, "blocking_label": "擋下一步", "evidence_paths": [], "links": [],
+        "segments": pending, "source": "review/project-state.json approval_segments（project_state.stage5_segment_review）"}
 
 
 def open_cards_for_stage(root: Path, stage: int) -> List[Dict[str, Any]]:
@@ -862,6 +900,8 @@ def collect(root: Path, *, images: bool = True, strips: str = "all", out_dir: Op
         entry = state["stages"][ps.stage_key(i)]
         stage_list.append({"n": i, "name": STAGE_SHORT[i], "status": entry.get("status"),
                            "current": i == cur, "auto": bool(entry.get("auto_approval"))})
+    views = stage_views.collect(root, state, cards, built["decided"],
+                                built["classified"].get("counts", {}), rel_link)
     blockers = [c for c in built["open"] if c["blocking"] <= 2]
     blocker = blockers[0]["title"] if blockers else ("沒有擋住下一步的事" if built["open"] else "")
     return validate_model({
@@ -874,6 +914,7 @@ def collect(root: Path, *, images: bool = True, strips: str = "all", out_dir: Op
         "videos": [{k: v for k, v in item.items() if k != "mtime"} for item in videos],
         "recent": [v["segment"] for v in recent],
         "raw_links": raw_links,
+        "stage_views": views,
     })
 
 
@@ -912,6 +953,8 @@ def _merged_card(tail: List[Dict[str, Any]]) -> Dict[str, Any]:
         "evidence_caption": "／".join(ids[:3]), "links": [],
         "source": "、".join(dict.fromkeys(str(c.get("source", "")) for c in tail)),
         "segments": segments, "merged": ids,
+        # 合併只是首屏版面限制：每件的完整問題、選項與證據都留著，頁內可逐件展開
+        "children": [{k: v for k, v in c.items() if k != "evidence_b64"} for c in tail],
     }
 
 
@@ -954,7 +997,7 @@ def validate_model(model: Dict[str, Any]) -> Dict[str, Any]:
     if len(cards) > MAX_OPEN_CARDS and others[slots:]:
         merged = _normalize_card(_merged_card(others[slots:]), problems)
         cards = sorted(pinned + others[:slots] + [merged], key=_sort_key)
-    return {**model, "cards": cards, "problems": problems}
+    return {**model, "cards": cards, "problems": problems, "pending_total": len(model["cards"])}
 
 
 # ------------------------------------------------------------------ HTML
@@ -971,6 +1014,7 @@ header .big{font-size:28px;font-weight:700;line-height:1.35;margin:0}header .big
 header .sub{color:var(--mut);margin:6px 0 0;font-size:15px}
 .stages{list-style:none;padding:0;margin:20px 0 6px;display:grid;grid-template-columns:repeat(8,1fr);gap:4px}
 .st{display:flex;flex-direction:column;align-items:center;gap:6px;position:relative}
+.stl{display:flex;flex-direction:column;align-items:center;gap:6px;text-decoration:none;color:inherit}.stl:focus-visible .dot{outline:2px solid var(--acc);outline-offset:2px}
 .st::before{content:"";position:absolute;top:15px;left:-50%;width:100%;height:2px;background:var(--line);z-index:0}
 .st:first-child::before{display:none}.st.done::before,.st.cur::before{background:var(--ok)}
 .dot{position:relative;z-index:1;width:32px;height:32px;border-radius:50%;display:grid;place-items:center;font-size:14px;font-weight:700;background:var(--panel2);color:var(--dim);border:2px solid var(--line)}
@@ -1076,8 +1120,25 @@ def _card_html(c: Dict[str, Any]) -> str:
   <dl>{f'<dt>判定</dt><dd>{E(c["finding"])}</dd>' if c.get("finding") else ""}<dt>影響</dt><dd>{E(c["impact"])}</dd><dt>建議</dt><dd class="recd">{E(c["recommendation"])}</dd><dt>不回覆</dt><dd>{E(c.get("if_ignored", ""))}</dd></dl>
   <div class="opts">{opts}</div>
   {f'<div class="links">{links}</div>' if links else ""}
+  {_children_html(c.get("children") or [])}
   <p class="src">卡片 {E(c["id"])}・來源 {E(c.get("source", ""))}</p>
 </article>'''
+
+
+def _children_html(children: List[Dict[str, Any]]) -> str:
+    """合併卡裡的每一件：頁內可逐件讀完問題、影響、建議與選項。"""
+    if not children:
+        return ""
+    rows = "".join(
+        f'<details class="kd" id="{E(ch["id"])}"><summary><span class="kx"><b>{E(ch["title"])}</b>'
+        f'<span class="kv">階段 {ch["stage"]}・{E(str(ch.get("segment", "")))}・{E(ch.get("blocking_label", ""))}</span></span></summary>'
+        f'<p>{E(ch.get("finding") or "")} 影響：{E(ch["impact"])} 建議：{E(ch["recommendation"])}</p>'
+        f'<div class="opts" style="margin:0 16px 12px">' + "".join(
+            f'<button class="opt{" rec" if i == 0 else ""}" data-reply="{E(o["reply"])}"><span class="ol">{E(o["label"])}</span>'
+            f'<span class="ot">{E(o["reply"])}</span></button>' for i, o in enumerate(ch["options"][:3]))
+        + f'</div><p class="src">卡片 {E(ch["id"])}・來源 {E(str(ch.get("source", "")))}</p></details>'
+        for ch in children)
+    return f'<details class="fold" style="margin-top:12px"><summary><span class="ft">逐件展開 {len(children)} 件<small>每件的問題、建議與回覆選項</small></span></summary>{rows}</details>'
 
 
 def _decided_html(d: Dict[str, Any]) -> str:
@@ -1106,13 +1167,14 @@ def render_html(model: Dict[str, Any]) -> str:
     cur = model["current_stage"]
     bar = "".join(
         f'<li class="st {"done" if s["status"] == "approved" else ("cur" if s["current"] else "todo")}">'
-        f'<span class="dot">{s["n"]}</span><span class="nm">{E(s["name"])}</span></li>' for s in stages)
-    big = (f'有 <em>{len(cards)}</em> 件事等你決定' if cards else '目前沒有要你決定的事')
+        f'<a class="stl" href="#stage-{s["n"]}"><span class="dot">{s["n"]}</span><span class="nm">{E(s["name"])}</span></a></li>' for s in stages)
+    total = model.get("pending_total", len(cards))
+    big = (f'有 <em>{total}</em> 件事等你決定' if cards else '目前沒有要你決定的事')
     c = model.get("counts") or {}
     hard = [x for x in cards if x["blocking"] <= 2]
     soft = [x for x in cards if x["blocking"] > 2]
     stuck = short_title(hard[0]["title"], 24) if hard else "沒有"
-    progress = f'階段{cur}/7・{len(cards)}件待決・卡在{E(stuck)}'
+    progress = f'階段{cur}/7・{total}件待決・卡在{E(stuck)}'
     sub = f'目前在階段 {cur}「{E(STAGE_SHORT[cur])}」'
     if c:
         sub += f'・影片 通過 {c.get("pass", 0)}・附註 {c.get("warn", 0)}・重跑 {c.get("fail", 0)}'
@@ -1152,7 +1214,7 @@ def render_html(model: Dict[str, Any]) -> str:
 <html lang="zh-Hant"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>決策收件匣｜{E(model["project"])}</title>
-<style>{CSS}</style></head>
+<style>{CSS}{stage_views.CSS}{stage_views.doc_render.CSS}</style></head>
 <body><div class="wrap">
 <header>
   <h1>{E(model["project"])}・決策收件匣</h1>
@@ -1178,12 +1240,13 @@ def render_html(model: Dict[str, Any]) -> str:
 </aside>
 </div>
 {video_block}
+{stage_views.render(model.get("stage_views") or [], cur)}
 <div class="raw">原始資料（不內嵌，需在專案資料夾內開啟）
 <ul>{raw}</ul>
 <p>產生時間 {E(model["generated_at"])}・h3d inbox</p></div>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
-<script>{JS}</script>
+<script>{JS}{stage_views.JS}</script>
 </body></html>'''
 
 

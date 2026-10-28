@@ -104,3 +104,5 @@ h3d doc check --root .
 
 `stamp` 沒給的欄位沿用舊卡（在綁審核快照之前用，見 §2 順序）；`--decide` 給了就整組取代舊的待決（`--decide 無` 清空）。
 作品名預設讀 `review/project-state.json` 的 title，範圍從檔名推（`script-ep01.md` → 第 01 集，其餘「全片」）。
+
+收件匣的階段閱讀視圖會把狀態卡排在每份文件最上方、把本體排版成好讀的頁面（劇本有劇本版型），見 `references/review-page-spec.md` §6。

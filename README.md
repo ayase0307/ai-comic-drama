@@ -442,7 +442,7 @@ ai-comic-drama/
 | [`references/tooling.md`](references/tooling.md) | **h3d 全部指令**、四道檢查、能力表、環境變數、錯誤訊息處置 |
 | [`references/skill-guide.md`](references/skill-guide.md) | 核心原則、八階段與審核頁對照、完整腳本清單 |
 | [`references/pipeline.md`](references/pipeline.md) | 各階段詳細流程、台詞政策門禁、體量反推公式、聲音三層決策 |
-| [`references/review-page-spec.md`](references/review-page-spec.md) | 決策收件匣規格 |
+| [`references/review-page-spec.md`](references/review-page-spec.md) | 決策收件匣規格（含八階段閱讀視圖的六區塊格式） |
 | [`references/prompt-authoring.md`](references/prompt-authoring.md) | 逐鏡撰寫規範（E30–E38、W41–W45） |
 | [`references/adapt/novel-to-manju.md`](references/adapt/novel-to-manju.md) | 小說改編總規範 |
 | [`references/storyboard/cinematic-director.md`](references/storyboard/cinematic-director.md) | 導演分鏡總規範與 Layer 2 |
