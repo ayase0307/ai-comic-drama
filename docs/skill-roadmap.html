@@ -270,7 +270,7 @@ footer{margin-top:44px;padding-top:14px;border-top:1px solid var(--line);font-si
      "steps": [
        {"who": "agent", "do": "產分鏡骨架", "means": "依節拍切成 7–10 秒的自足分段，預填連戲錨點。", "cmd": "scripts/storyboard/handoff_to_skeleton.py", "writes": "layer2/layer2-*.json"},
        {"who": "agent", "do": "逐鏡寫意圖與拍法", "means": "運鏡依情緒查手冊選 move_preset，理由寫進 choice_why。", "cmd": "", "writes": "layer2/layer2-*.json"},
-       {"who": "agent", "do": "畫構圖分鏡圖", "means": "免生圖 SVG 構圖，或 Qwen 鉛筆九宮格、手繪皆可。", "cmd": "h3d sketch", "writes": "panels/、images/grid-*.png"},
+       {"who": "agent", "do": "畫構圖分鏡圖", "means": "預設用 Codex 分鏡（每鏡綁定已核准參考圖，--model 填你指定的模型）；Qwen 鉛筆九宮格、手繪也可。", "cmd": "scripts/storyboard/codex_storyboard_panels.py", "writes": "panels/、images/grid-*.png"},
        {"who": "gate", "do": "分鏡驗證", "means": "缺構圖、同框過多人、越軸、遠景放人等都會提醒或擋下。", "cmd": "scripts/storyboard/validate_storyboard.py", "writes": ""},
        {"who": "agent", "do": "產人讀分鏡表", "means": "把 JSON 轉成你看得懂的表格。", "cmd": "scripts/storyboard/layer2_to_table.py", "writes": "storyboard-ep01.md"}
      ],
@@ -355,7 +355,7 @@ footer{margin-top:44px;padding-top:14px;border-top:1px solid var(--line);font-si
     ["version", -1, "技能版本；比對專案版本章"],
     ["doctor", -1, "本機環境自檢：GPU、ffmpeg、服務 port"],
     ["doc", -1, "階段文件狀態卡：寫狀態、一句話、要你決定、修訂紀錄"],
-    ["sketch", 4, "免生圖 SVG 構圖分鏡圖"],
+    ["sketch", 4, "已移除：只印 Codex 分鏡的替代指令"],
     ["crop", 5, "依比例裁設定板頭像"],
     ["bind", 5, "產生參考圖綁定"],
     ["author", 5, "逐鏡撰寫審查（E30–E38）"],

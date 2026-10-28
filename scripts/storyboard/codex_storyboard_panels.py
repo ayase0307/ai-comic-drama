@@ -2,8 +2,13 @@
 # -*- coding: utf-8 -*-
 """Layer 2 → Codex CLI 內建生圖的彩色分鏡圖（每鏡一張）＋每段分鏡總覽圖。
 
-與 svg_storyboard_grid.py 相同的輸出契約：panels/panel-NN-<shot>.png、images/grid-<segment>.png，
-並回寫 sketch_file／sketch_sha256／sketch_generation（backend=codex）供 stage-4 門禁與審核頁使用。
+階段 4 的預設構圖來源。輸出契約（stage-4 門禁與審核頁只認這些欄位，不在乎圖是誰畫的）：
+  - 逐鏡圖：panels/panel-NN-<shot_id>.png，回寫該鏡 sketch_file、sketch_sha256、sketch_status=generated、
+    sketch_prompt、sketch_generation{backend=codex, tool, model, refs, grid_file}；
+  - 每段總覽圖：images/grid-<segment_id>.png，回寫段層 grid_preview_file 與 storyboard_panels[]；
+  - sketch_status 為 locked／approved／manual 的鏡不覆蓋（--force 才重畫）；重畫後 hash 變了，stage-4 核准自動失效。
+手繪或其他工具的 PNG 照同一組欄位回寫即可，門禁一視同仁。
+總覽圖標籤字型：環境變數 STORYBOARD_FONT=<字型檔>（舊名 SVG_GRID_FONT 仍相容），否則找 Noto Sans CJK。
 每鏡自動綁定已核准的參考圖：角色正面裁切（images/ref/<id>_front.png，退回設定板）、
 異獸設定圖、段落場景母版，順序即 <Picture N>。
 
@@ -186,14 +191,23 @@ def plan(root: pathlib.Path, files: List[pathlib.Path], keywords_path: Optional[
     return jobs
 
 
+FONT_ENV = ("STORYBOARD_FONT", "SVG_GRID_FONT")  # 正式名稱在前；SVG_GRID_FONT 是 SVG 構圖時代的舊名，保留相容
+FONT_FALLBACKS = ("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+                  "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc")
+
+
+def label_font_path() -> Optional[str]:
+    """總覽圖標籤字型：先看環境變數（新名優先），再找 Noto Sans CJK；都沒有回 None（用 Pillow 預設字型）。"""
+    for fp in [os.environ.get(name) for name in FONT_ENV] + list(FONT_FALLBACKS):
+        if fp and os.path.isfile(fp):
+            return fp
+    return None
+
+
 def assemble_grids(root: pathlib.Path, files: List[pathlib.Path]) -> List[pathlib.Path]:
     from PIL import Image, ImageDraw, ImageFont
-    font = None
-    for fp in (os.environ.get("SVG_GRID_FONT"), "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-               "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc"):
-        if fp and os.path.isfile(fp):
-            font = ImageFont.truetype(fp, 22); break
-    font = font or ImageFont.load_default()
+    fp = label_font_path()
+    font = ImageFont.truetype(fp, 22) if fp else ImageFont.load_default()
     out = []
     for f in files:
         seg = json.loads(f.read_text(encoding="utf-8-sig"))

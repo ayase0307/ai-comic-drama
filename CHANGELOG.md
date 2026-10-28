@@ -11,6 +11,16 @@
 ### 新增
 - 構圖板自動建議 W46（只建議）：`h3d staging` 判斷室內固定場景＋已驗收母片＋≥2 角色固定座位＋近景＋文戲的段，建議改用「以場景母片為底重畫的四格構圖板」（武戲、單人、戶外與判不了的不建議）；`--layer2` 可在階段 4 跑，階段 4／5 審核頁列「💡 自動建議」；不擋送件、不改預設編譯（`scripts/storyboard/board_advisor.py`，證據為方向性，見 `spatial-consistency.md` §3.1）。
 
+### 變更
+- 階段 4 預設構圖來源改為 Codex 分鏡（`scripts/storyboard/codex_storyboard_panels.py`）：`h3d next` 缺構圖時建議 `codex_storyboard_panels.py --root . [--episode EPxx] --model <使用者指定模型>`（`--model` 必填）；skill-guide、tooling、pipeline、SKILL.md、README、`docs/cli-walkthrough.md`、`docs/skill-roadmap.html` 同步。
+- `codex_storyboard_panels.py` 註解改寫為自己的輸出契約；總覽圖字型環境變數新增 `STORYBOARD_FONT`，舊名 `SVG_GRID_FONT` 仍相容。
+- 「白模分工與精度三檔」（Foyege，H3 未實測）搬到 `references/storyboard/spatial-consistency.md` §6；`continuity-ledger.md` 世界層改指 `spatial-consistency.md` §2 牆面分配表＋REMIX `positions`。
+
+### 移除
+- **破壞性**：免生圖 SVG 構圖 `h3d sketch` 整套移除：`scripts/storyboard/svg_storyboard_grid.py`、`svg_rig_actions.json`、`references/storyboard/svg-rig-grid.md`、`examples/svg-grid-minimal/`、`assets/svg-grid/`、`tests/test_svg_storyboard_grid.py` 與 `test_audit_stage4_5.py` 的 SvgAspectTests。`h3d sketch` 只保留一個殼：印「SVG 構圖已移除，改用 Codex 分鏡：<指令>」後 exit 2。
+- `check_environment.py` 的「免生圖 SVG 構圖分鏡總覽圖（選用）」能力列與 `resvg-py` 依賴；CI 安裝清單拿掉 `resvg-py`。
+- 不受影響：Layer 2 `sketch_file`／`sketch_sha256` 與 stage-4 hash 門禁（任何構圖來源都用），既有專案用 SVG 產的 `sketch_file` 仍有效、不需重畫；`h3d staging`（D06–D14）、W46 不變。
+
 ## [0.9.1] - 2026-10-28
 
 ### 新增

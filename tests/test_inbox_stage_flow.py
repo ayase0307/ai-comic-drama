@@ -183,7 +183,10 @@ class NextStepCommandTests(_Project):
     def test_stage4_with_layer2_substitutes_episode(self):
         self.layer("EP02-S01-a", [{"shot_id": "SH01"}])
         command, _ = next_step.stage4_producer(self.root, ["EP02-S01-a/SH01: 缺少有效且對應的構圖 PNG"])
-        self.assertIn("sketch --root . --episode EP02", command)
+        self.assertIn("codex_storyboard_panels.py", command)
+        self.assertIn("--root . --episode EP02", command)
+        self.assertIn("--model ", command, "Codex 分鏡 --model 必填，指令要帶出來")
+        self.assertNotIn(" sketch ", command, "h3d sketch 已移除")
 
     def test_stage5_compile_command_is_complete(self):
         import hashlib

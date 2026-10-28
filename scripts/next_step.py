@@ -51,6 +51,7 @@ STAGE_REFERENCES: Dict[int, List[str]] = {
 }
 
 SKELETON = f'python "{(SCRIPTS_DIR / "storyboard" / "handoff_to_skeleton.py").as_posix()}"'
+CODEX_PANELS = f'python "{(SCRIPTS_DIR / "storyboard" / "codex_storyboard_panels.py").as_posix()}"'
 
 
 def _episode_of(text: str) -> Optional[str]:
@@ -71,7 +72,7 @@ def _episodes(root: Path) -> List[str]:
 
 
 def stage4_producer(root: Path, errors: List[str]) -> tuple:
-    """階段 4 下一步：還沒有 layer2 就先跑 handoff_to_skeleton（#36）；有了才補構圖，集號代換成真值（#44）。"""
+    """階段 4 下一步：還沒有 layer2 就先跑 handoff_to_skeleton（#36）；有了才補構圖（Codex 分鏡），集號代換成真值（#44）。"""
     if not list((root / "layer2").glob("layer2-*.json")):
         handoffs = sorted(root.glob("handoff-ep*.json"))
         if not handoffs:
@@ -84,7 +85,9 @@ def stage4_producer(root: Path, errors: List[str]) -> tuple:
     ep_flag = f" --episode {episode}" if episode else ""
     action = f"補齊每一鏡對應的構圖 PNG（缺 {len(errors) - len(rejected)} 鏡"
     action += f"、自檢退回 {len(rejected)} 鏡要重畫）。" if rejected else "）。"
-    return (f"{H3D} sketch --root .{ep_flag}", action)
+    # 預設構圖來源：Codex 分鏡（每鏡一張＋每段總覽圖，回寫 sketch_file）。--model 必填，不替使用者選模型。
+    action += "預設用 Codex 分鏡；--model 填使用者指定的 Codex 生圖模型（必填）。手繪或其他工具的 PNG 也可，回寫 sketch_file 即可。"
+    return (f"{CODEX_PANELS} --root .{ep_flag} --model <使用者指定模型>", action)
 
 
 def stage5_producer(root: Path, errors: List[str]) -> tuple:

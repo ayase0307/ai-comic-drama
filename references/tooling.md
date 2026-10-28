@@ -122,7 +122,7 @@ Layer 2 每鏡新增必填欄位 `shot_intent`（audience、story_beat、pov、e
 
 **骨架與構圖的 ID／比例**：
 - `handoff_to_skeleton.py handoff-epXX.json --out-dir layer2 [--bible adapt/bible.json]`：用聖經的 `canonical_name`／`name`／`aliases`（及 ID 本身）把 handoff 的中文名對到聖經 ID（`C-`／`S-`／`P-`）；沒給 `--bible` 時自動找 `<handoff 所在目錄>/adapt/bible.json`，`--bible none` 關閉。查不到的名稱退回雜湊 ID 並逐一警告——不補 `aliases` 的話 `h3d bind` 會判成「未在 bible.json 登記」。
-- `h3d sketch`（`svg_storyboard_grid.py`）畫布依每段 Layer 2 `metadata.aspect_ratio` 設定（長邊固定 768；16:9 仍是 768×432，9:16＝432×768），`--aspect 9:16` 可整批覆寫；看不懂的比例警告後退回 16:9。構圖必須和成片同比例，否則審核者會誤判景別與走位。
+- 階段 4 構圖（預設 Codex 分鏡 `codex_storyboard_panels.py`，`--model` 必填）依每段 Layer 2 `metadata.aspect_ratio` 出圖（未填退回 16:9）。構圖必須和成片同比例，否則審核者會誤判景別與走位；手繪或其他工具補圖時同樣照該段比例。`h3d sketch` 已移除，執行只會印替代指令並 exit 2；既有專案已回寫的 `sketch_file` 仍有效。
 
 ## 2.3 階段 5 英文層（stage5 binding 的 en_overlay）
 
