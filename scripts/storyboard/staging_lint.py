@@ -25,6 +25,9 @@
   D12 慢詞：slowly、gradually、near-freeze、hangs poised…（H3 會凍住；h3-video-prompting／h3-combat-impact 規範，inferred）
   D13 全段固定機位：每一鏡都是 static（建議至少一鏡有運鏡，inferred）
   D14 多人段沒有 positions：remix 多人段沒宣告 positions（order_lr／axis_side／facing），R6 只能看文字（只在 remix 提示）
+  W46 建議改用母片底四格構圖板（level＝suggestion，永遠不擋、strict 也不升級）：室內固定場景、已驗收母片、≥2 角色有固定
+      座位／站位、段內有近景、文戲時建議改用「以場景母片為底重畫的四格構圖板」；武戲、單人、戶外不建議。
+      條件與證據見 `board_advisor.py`、`references/storyboard/spatial-consistency.md` §3（方向性、未達 +25 門檻）。
 
 豁免：段落 `metadata.staging_waivers`（或段層 `staging_waivers`）：[{"code": "D06", "reason": "…", "quote": "<使用者原話>"}]，
 沒有 quote 不算豁免（例如刻意讓角色對鏡頭說話）。
@@ -44,13 +47,16 @@ for _p in (str(HERE), str(HERE.parent)):
         sys.path.insert(0, _p)
 
 import refcheck  # noqa: E402
+import board_advisor  # noqa: E402
 
 VIDEO_BACKENDS = ("ref2va", "remix")
 STRICTABLE = ("D06", "D07", "D08")
 TITLES = {
     "D06": "面向鏡頭", "D07": "對話段缺視線句", "D08": "多人鏡缺左到右站位句", "D09": "站位和 positions 不一致",
     "D10": "跨段站位翻轉", "D11": "多人同步動作", "D12": "慢詞", "D13": "全段固定機位", "D14": "多人段沒有 positions",
+    **board_advisor.TITLES,
 }
+SUGGESTION_CODES = board_advisor.CODES  # level＝suggestion：只建議，永遠不擋
 
 _CAM = r"(?:camera|lens|viewer|viewers|audience)"
 FACING_CAMERA = re.compile(
@@ -242,8 +248,10 @@ def iter_gaze(text: str) -> Iterable["re.Match[str]"]:
 # ---------------------------------------------------------------------------
 def lint_segment(seg: Dict[str, Any], backend: str = "ref2va", prev: Optional[Dict[str, Any]] = None,
                  lexicon: Optional[Dict[str, Dict[str, Any]]] = None, strict: bool = False,
-                 anchors: Iterable[str] = ()) -> List[Dict[str, Any]]:
-    """回傳 findings：[{code, level, shot, message}]；level＝warning，strict 時 D06–D08 為 error。"""
+                 anchors: Iterable[str] = (), root: Optional[Path] = None,
+                 board_ctx: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    """回傳 findings：[{code, level, shot, message}]；level＝warning，strict 時 D06–D08 為 error；
+    W46 構圖板建議為 suggestion（root／board_ctx 用來判斷母片驗收與內外景，沒給就保守不建議）。"""
     seg_id = str(seg.get("segment_id") or seg.get("id") or "segment")
     body = refcheck.strip_fixed(refcheck.detail_body(refcheck._prompt_of(seg)), (),
                                 [a for a in list(anchors) + [_meta(seg).get("style_anchor_en")] if a])
@@ -261,6 +269,11 @@ def lint_segment(seg: Dict[str, Any], backend: str = "ref2va", prev: Optional[Di
     for code in bad_waivers:
         findings.append({"code": code, "level": "warning", "shot": None,
                          "message": f"[{code}: 豁免缺原話] {seg_id} staging_waivers 的 {code} 沒有使用者原話 quote，不算豁免"})
+    # W46 構圖板建議：看 Layer 2 結構欄位，不靠提示詞文字，所以放在空提示詞判斷之前
+    for item in board_advisor.advise_segment(seg, board_ctx if board_ctx is not None else board_advisor.load_context(root)):
+        if item["code"] in waived:
+            continue
+        findings.append({"code": item["code"], "level": "suggestion", "shot": None, "message": item["message"]})
     if not body.strip():
         return findings
 
@@ -368,15 +381,17 @@ def lint_segment(seg: Dict[str, Any], backend: str = "ref2va", prev: Optional[Di
 
 
 def lint_segments(segments: List[Dict[str, Any]], backend_of, lexicon=None, strict: bool = False,
-                  anchors: Iterable[str] = ()) -> List[Dict[str, Any]]:
+                  anchors: Iterable[str] = (), root: Optional[Path] = None) -> List[Dict[str, Any]]:
     """依序跑；D10 只比相鄰且同 scene_id（沒有 scene_id 就視為同場）的兩段。"""
     rows = []
     prev = None
+    board_ctx = board_advisor.load_context(root)
     for seg in segments:
         same_scene = prev is not None and (not seg.get("scene_id") or not prev.get("scene_id")
                                            or seg.get("scene_id") == prev.get("scene_id"))
         backend = backend_of(seg)
-        findings = lint_segment(seg, backend, prev if same_scene else None, lexicon, strict, anchors)
+        findings = lint_segment(seg, backend, prev if same_scene else None, lexicon, strict, anchors,
+                                board_ctx=board_ctx)
         rows.append({"segment_id": seg.get("segment_id"), "backend": backend, "findings": findings,
                      "ok": not any(f["level"] == "error" for f in findings)})
         prev = seg
@@ -394,9 +409,14 @@ def project_strict(root: Optional[Path]) -> bool:
 
 
 def split_findings(findings: List[Dict[str, Any]]) -> Tuple[List[str], List[str]]:
+    """(errors, warnings)；suggestion（W46）併在 warnings 裡、訊息前綴已標代碼，永遠不進 errors。"""
     errors = [f["message"] for f in findings if f["level"] == "error"]
     warnings = [f["message"] for f in findings if f["level"] != "error"]
     return errors, warnings
+
+
+def suggestions_of(findings: List[Dict[str, Any]]) -> List[str]:
+    return [f["message"] for f in findings if f["level"] == "suggestion"]
 
 
 # ---------------------------------------------------------------------------
@@ -406,16 +426,33 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(
         prog="h3d staging",
         description="站位／視線／運鏡閘門（PR-R6，兩個 backend 都適用）：D06 面向鏡頭、D07 對話缺視線、D08 多人缺左到右、"
-                    "D09 與 positions 不一致、D10 跨段翻轉、D11 同步動作、D12 慢詞、D13 全段固定、D14 remix 多人缺 positions。"
+                    "D09 與 positions 不一致、D10 跨段翻轉、D11 同步動作、D12 慢詞、D13 全段固定、D14 remix 多人缺 positions；"
+                    "W46 建議改用母片底四格構圖板（只建議）。"
                     "預設全部警告；decisions staging_gate=strict（或 --strict）時 D06–D08 擋。")
     ap.add_argument("--root", type=Path, default=Path("."), help="專案根目錄（讀 decisions.json、adapt/bible.json、"
                                                                 "assets/character-packs.json、video-bindings.json）")
     ap.add_argument("--segments", type=Path, nargs="*", default=None, help="分段 JSON 檔或目錄（預設：根目錄下 segments*.json）")
     ap.add_argument("--backend", choices=list(VIDEO_BACKENDS), default=None, help="覆蓋 backend 判定")
     ap.add_argument("--strict", action="store_true", help="本次把 D06–D08 當錯誤（不寫定案；長期要擋請 h3d decide staging_gate strict）")
+    ap.add_argument("--layer2", type=Path, nargs="*", default=None,
+                    help="階段 4（未編譯）：只對 Layer 2 跑 W46 構圖板建議（不給路徑＝<root>/layer2/layer2-*.json）")
+    ap.add_argument("--explain", action="store_true", help="搭配 --layer2：連沒命中的段也列出不建議的原因")
     ap.add_argument("--json", action="store_true", help="以 JSON 輸出")
     args = ap.parse_args(argv)
     root = args.root.resolve()
+    if args.layer2 is not None:
+        files = refcheck._expand(args.layer2, root) if args.layer2 else None
+        advice = board_advisor.advise_layer2_files(root, files, explain=args.explain)
+        if args.json:
+            print(json.dumps(advice, ensure_ascii=False, indent=2))
+        else:
+            for item in advice:
+                if item["hit"]:
+                    print(f"  💡 {item['message']}")
+                else:
+                    print(f"  ·  {item['segment_id']}：不建議（{'；'.join(item.get('misses') or [])}）")
+            print(f"STAGING（Layer 2）：構圖板建議 {sum(1 for i in advice if i['hit'])} 段（只建議，不擋）")
+        return 0
     files = refcheck._expand(args.segments, root) if args.segments else sorted(root.glob("segments*.json"))
     if not files:
         print(f"❌ 找不到分段檔（--segments 或 {root}/segments*.json）", file=sys.stderr)
@@ -429,7 +466,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     for path in files:
         for seg in refcheck._load_segments(path):
             segments.append(refcheck._merge_binding(seg, bindings.get(str(seg.get("segment_id")))))
-    rows = lint_segments(segments, lambda s: refcheck._resolve_backend(s, root, args.backend), lexicon, strict, anchors)
+    rows = lint_segments(segments, lambda s: refcheck._resolve_backend(s, root, args.backend), lexicon, strict, anchors,
+                         root=root)
     bad = [r for r in rows if not r["ok"]]
     if args.json:
         print(json.dumps(rows, ensure_ascii=False, indent=2))
@@ -437,9 +475,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         for r in rows:
             print(f"{'OK  ' if r['ok'] else 'FAIL'} {r['segment_id']}（{r['backend']}）")
             for f in r["findings"]:
-                print(f"  {'❌' if f['level'] == 'error' else '⚠️'} {f['message']}")
-        n_warn = sum(1 for r in rows for f in r["findings"] if f["level"] != "error")
-        print(f"STAGING：{len(rows) - len(bad)}/{len(rows)} 段通過（警告 {n_warn}；"
+                icon = {"error": "❌", "suggestion": "💡"}.get(f["level"], "⚠️")
+                print(f"  {icon} {f['message']}")
+        n_warn = sum(1 for r in rows for f in r["findings"] if f["level"] == "warning")
+        n_sugg = sum(1 for r in rows for f in r["findings"] if f["level"] == "suggestion")
+        print(f"STAGING：{len(rows) - len(bad)}/{len(rows)} 段通過（警告 {n_warn}；建議 {n_sugg}；"
               f"{'strict：D06–D08 為錯誤' if strict else '預設：全部只警告'}）")
     return 1 if bad else 0
 

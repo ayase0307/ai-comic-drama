@@ -2251,7 +2251,8 @@ def build_stage_4(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
           "short": project_format(project_dir) == SHORT, "parts": parts} for eid, parts in sorted(by_ep.items())],
         "每個色塊是一個分段（寬度＝秒數），虛線＝目標（已接受則為接受秒數）。分鏡後變長是正常的；長篇漫劇以事件交代清楚為先，明顯超出時只刪冗餘或接受實際長度，不刪事件交代鏡頭（短劇短集模式才考慮拆集）。",
     )
-    body = budget + grid_gallery_html + f'<div class="side-by-side-list">{"".join(seg_cards)}</div>'
+    body = (budget + grid_gallery_html + f'<div class="side-by-side-list">{"".join(seg_cards)}</div>'
+            + board_suggestion_panel(stage4_board_suggestions(project_dir, l2_files)))
     checklist = [
         "已檢視黑白鉛筆分鏡總覽圖構圖（`images/grid-*.png`），確認每鏡人物站位、景別遠近與動作張力符合預期",
         "無任何單鏡同時塞入「主角＋路人＋道具＋巨獸」四方複雜碰撞（已拆分為慢動作感知特寫 ➔ 90度純粹打擊 ➔ 受擊翻滾）",
@@ -2263,6 +2264,28 @@ def build_stage_4(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
         kpis, body, checklist
     )
     return len(errors) == 0, errors, html_out
+
+
+def board_suggestion_panel(suggestions: List[str]) -> str:
+    """W46 構圖板自動建議區塊（階段 4、5 審核頁共用；只建議、不擋核准）。"""
+    if not suggestions:
+        return ""
+    items = "".join(f"<li>{html.escape(n)}</li>" for n in suggestions)
+    return ('<section class="section-panel"><h2>💡 自動建議：改用母片底四格構圖板（W46，只建議）</h2>'
+            '<p>來源：h3d staging W46（<code>scripts/storyboard/board_advisor.py</code>）；規則見 '
+            '<code>references/storyboard/spatial-consistency.md</code> §3。證據是方向性（老易實驗第二批 D′ 15/16 vs '
+            '單用母片 6/8，未達 +25 門檻；武戲沒有證據）。採用時板一律以已驗收母片為底重畫並寫店感鎖；整板當參考須 '
+            '<code>reference_view: "panel"</code>＋<code>panel_label_en</code>。不採用請寫 staging_waivers（W46＋原話）。'
+            '不擋核准、不改預設編譯。</p><ul>' + items + '</ul></section>')
+
+
+def stage4_board_suggestions(project_dir: Path, l2_files: List[Path]) -> List[str]:
+    try:
+        import board_advisor  # noqa: E402
+        return [f"{r['segment_id']}: {r['message']}" for r in board_advisor.advise_layer2_files(project_dir, l2_files)
+                if r.get("hit")]
+    except Exception as exc:  # 建議器自身出錯不擋審核頁
+        return [f"構圖板建議執行失敗：{exc}"]
 
 
 def stage5_ref2va_advisory(project_dir: Path, seg_files: List[Path],
@@ -2281,6 +2304,7 @@ def stage5_ref2va_advisory(project_dir: Path, seg_files: List[Path],
     root = project_dir.resolve()
     errors: List[str] = []
     notes: List[str] = []
+    suggestions: List[str] = []
     try:
         for row in refcheck_mod.run(root, seg_files, None):
             sid = str(row.get("segment_id") or row.get("key") or "")
@@ -2297,22 +2321,28 @@ def stage5_ref2va_advisory(project_dir: Path, seg_files: List[Path],
                 segments.append(refcheck_mod._merge_binding(seg, bindings.get(str(seg.get("segment_id")))))
         strict = staging_mod.project_strict(root)
         rows = staging_mod.lint_segments(segments, lambda s: refcheck_mod._resolve_backend(s, root, None),
-                                         lexicon, strict, anchors)
+                                         lexicon, strict, anchors, root=root)
         for row in rows:
             sid = str(row.get("segment_id"))
-            if row.get("backend") != "ref2va" or (only is not None and sid not in only):
+            if only is not None and sid not in only:
                 continue
-            errs, warns = staging_mod.split_findings(row["findings"])
+            # W46 構圖板建議兩個 backend 都列（remix 的 D06–D14 已在 audit 內跑過，這裡只補建議）
+            suggestions.extend(f"{sid}: {m}" for m in staging_mod.suggestions_of(row["findings"]))
+            if row.get("backend") != "ref2va":
+                continue
+            plain = [f for f in row["findings"] if f["level"] != "suggestion"]
+            errs, warns = staging_mod.split_findings(plain)
             errors.extend(f"{sid}: {e}" for e in errs)
             notes.extend(f"{sid}: {w}" for w in warns)
     except Exception as exc:  # 檢查器自身出錯不擋審核頁，但要讓人看到
         notes.append(f"refcheck／staging 執行失敗：{exc}")
-    if not notes:
-        return errors, ""
-    items = "".join(f"<li>{html.escape(n)}</li>" for n in notes)
-    panel = ('<section class="section-panel"><h2>參考包涵蓋與站位視線提醒（ref2va，只提示）</h2>'
-             '<p>來源：h3d refcheck（E50/E51）與 h3d staging（D06–D14）。逐段回到該鏡意圖判斷要不要改；'
-             '不准為了消警告刪劇情需要的人或道具。</p><ul>' + items + '</ul></section>')
+    panel = ""
+    if notes:
+        items = "".join(f"<li>{html.escape(n)}</li>" for n in notes)
+        panel += ('<section class="section-panel"><h2>參考包涵蓋與站位視線提醒（ref2va，只提示）</h2>'
+                  '<p>來源：h3d refcheck（E50/E51）與 h3d staging（D06–D14）。逐段回到該鏡意圖判斷要不要改；'
+                  '不准為了消警告刪劇情需要的人或道具。</p><ul>' + items + '</ul></section>')
+    panel += board_suggestion_panel(suggestions)
     return errors, panel
 
 

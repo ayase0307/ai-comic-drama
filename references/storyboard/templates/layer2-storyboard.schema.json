@@ -228,6 +228,10 @@
         },
         "primary_character": {
           "type": "string"
+        },
+        "interior": {
+          "type": "boolean",
+          "description": "Optional. 室內（true）／戶外（false）。h3d staging W46 構圖板建議用；沒寫時改讀 handoff 場景的 setting.interior／int_ext，都沒有就不建議"
         }
       }
     },
