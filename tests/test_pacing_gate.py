@@ -59,3 +59,20 @@ def test_camera_action_slow_passes():
         r = run(seg(ok, prompt=p))
         assert r.returncode == 0, (p, r.stdout)
     assert run(seg(ok, prompt="at fast speed, snaps")).returncode == 0
+
+def test_voiced_shot_ratio_warns():
+    s = seg([{"text": "一二三四五六七八九十", "start": 0.3, "end": 2.6}], dur=6.0)
+    s["shots"] = [{"start": 0, "end": 3, "has_dialogue": True},
+                  {"start": 3, "end": 4.5, "has_dialogue": False},
+                  {"start": 4.5, "end": 6, "has_dialogue": False}]
+    assert "有人聲鏡 1/3" in run(s).stdout
+
+def test_tail_freeze_warns():
+    r = run(seg([{"text": "一二三四五六七八九十", "start": 0.3, "end": 2.6}],
+                prompt="real-time speed. The final second holds still before the cut."))
+    assert "末 1 秒靜止" in r.stdout
+
+def test_skeleton_defaults_no_tail_freeze():
+    sys.path.insert(0, str(GATE.parent))
+    import inspect, handoff_to_skeleton as h
+    assert '"tail_freeze_hold": False' in inspect.getsource(h)
