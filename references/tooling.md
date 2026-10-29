@@ -24,14 +24,15 @@ python scripts/h3d.py status --root . # 全局狀態（階段／依賴／送件�
 | `concat` | `concat plan`／`concat build`：全集單一 Concat 剪輯專案（T1 影片、T2 字幕、T3 畫外音） | 剪輯方式定案為 Concat 時 |
 | `doctor` | GPU 顯存、ffmpeg（含 `-vsync` 回歸）、服務 port、磁碟 | 開工前、換機器後 |
 | `imagegen` | 生圖工具：`--detect` 偵測可用後端（Codex／Qwen-Image 經 FreeVideo／Grok／手繪上傳，ComfyUI 只回報），`--set <後端> --quote` 寫入使用者選擇（§2.4.1） | 階段 2 缺設定圖、階段 4 缺構圖且 `h3d next` 要你問使用者時 |
-| `compile` | Layer 2 → H3 六段式提示詞＋`segments-*.json`（remix 綁定＝REMIX 三欄，§2.3.1c）；`--check` 同時跑 17 條自檢與失敗目錄，並列鏡間銜接 D15–D21 警告；`seam_in=cont` 時把 `entry_state` 寫成第 1 鏡開頭交接塊 | 每次改完分鏡 |
+| `compile` | Layer 2 → H3 六段式提示詞＋`segments-*.json`（remix 綁定＝REMIX 三欄，§2.3.1c）；`--check` 同時跑 17 條自檢與失敗目錄，並列鏡間銜接 D15–D24（D21 只建議）；`seam_in=cont` 時把 `entry_state` 寫成第 1 鏡開頭交接塊；`lead_in_s`（選用）時寫前導靜止句 | 每次改完分鏡 |
 | `audit` | 參考圖／主體定義／台詞預算對帳 | 編譯後單獨重驗 |
 | `refcheck` | 參考包涵蓋檢查：提示詞寫到的具名角色／生物／道具／場景／群眾是否都有綁包（remix E50／E51 擋；ref2va 只提示），`--takes` 查已送出抽次的快照（§2.3.1d） | remix 每次改提示詞、送件前 |
-| `staging` | 站位／視線／運鏡閘門 D06–D14（兩個 backend；預設全部警告，`staging_gate=strict` 時 D06–D08 擋，§2.3.1d）；鏡間銜接與佔位延續 D15–D21（只警告，有新欄位才跑）；W46 構圖板自動建議（只建議；`--layer2` 在階段 4 未編譯時就能跑） | 階段 4 分鏡定稿後（`--layer2`）、階段 5 寫完提示詞後 |
+| `staging` | 站位／視線／運鏡閘門 D06–D14（兩個 backend；預設全部警告，`staging_gate=strict` 時 D06–D08 擋，§2.3.1d）；鏡間銜接與佔位延續 D15–D24（D21 只建議、其餘警告，有新欄位才跑）；W46 構圖板自動建議（只建議；`--layer2` 在階段 4 未編譯時就能跑） | 階段 4 分鏡定稿後（`--layer2`）、階段 5 寫完提示詞後 |
 | `submit` | 送 FreeVideo：能力表＋時長斷言＋ledger 去重（`--output-dir` 預設 `<--root-dir>/videos`；`h3d submit --root X` 會轉成 `--root-dir X`） | 使用者要求生成時 |
 | `collect` | 只把「已完成但沒下載」的工作收回來；影片已在但帳本仍記進行中的段，只查一次服務端並更新帳本 | 批次中斷後 |
 | `resume` | collect 後補送未產出的段；collect 有失敗／漂移就停，處置後用 `--resume-past-failures` 續送其餘缺片段（漂移段要 `submit --segment-id` 明確重送） | 中斷後續跑 |
 | `qa` | 影片驗收＋**證據分級** | 拿到影片後 |
+| `seamcheck` | 接點自檢包：段首末幀＋段內切點幀對照圖與檢查清單 JSON（人數／左右／錨點／重演／景別，預設 null，給人或視覺模型填；不自動判定、不呼叫模型，§2.8.2） | 拿到影片、要逐接點看接戲時 |
 | `assemble` | 配音、字幕、響度（整片 loudnorm，預設 EBU R128 −23 LUFS／TP −1.5）、拼接；`--output` 預設 `<videos-dir>/final-<集數>.mp4` | 交付前 |
 | `deps` | segment 級依賴帳本（`--record`／`--status`） | 改動後查「哪幾段要重跑」 |
 | `catalog` | 失敗目錄（`--list`／`--check`／`--acks`／`--prune-acks`） | 想知道「這句為什麼會被擋」 |
@@ -242,7 +243,7 @@ python scripts/h3d.py compile --layer2 "layer2/layer2-EP04-*.json" --episode EP0
 - **台詞與畫外音**：與 ref2va 同一套（`<d>[Chinese] …</d>`、`(Sx)`、畫外 O.S.／V.O. 官方句式＋閉唇、長句外部化、E22–E25、E43／E44）；說話者代號依第一次發聲順序 `(S1)`、`(S2)`（沒有 `<Subject k>` 可對齊）。remix 多人同框的可見台詞，同鏡其他演員另加 `while A's and B's lips remain completely closed`（ch02 寫法）。
 - **其他**：秒數→影格照 ref2va（台詞段往上取，`metadata.frames` 送 `frames/24` 精確值，家機往下取也落在同一量子），超出 REMIX 區間 56–243 幀記 compile note；`audio_references`、`en_overlay.show` 不輸出（REMIX 沒有音訊參考；可見度寫進五小節）；Combat_Impact 段不自動掛 LoRA（FreeVideo LoRA 目錄在 V1.3 未驗證）。
 - **segments 欄位**：`metadata.video_backend: "remix"`、`metadata.style_anchor_en`、`refmods`（含 `label`）、`pack_waivers`、`positions`、逐鏡 `visual_subject_ids`／`no_visual_reference_ids`／`pack_ids`、`reference_images: []`；編譯指紋 `compiled_prompt_sha256` 照舊（REMIX 取 `integrated_multimodal_description`，E38）。
-- **`--check`**：audit 走 remix 分支（E50–E55＋refcheck 文字比對＋站位 D06–D14）、鏡間銜接 D15–D21（只警告）、`lint_h3_prompt(backend="remix")`（三欄沒有 summary，時長改以 authored 時間軸與切點時間戳對帳）、失敗目錄、段間連戲、逐鏡撰寫審查（E30–E40、W41–W45；E40／E41 改看 refmods 與介紹句英文名，帶原話的 `pack_waivers` 視為已處置）。
+- **`--check`**：audit 走 remix 分支（E50–E55＋refcheck 文字比對＋站位 D06–D14）、鏡間銜接 D15–D24（D21 只建議、其餘警告）、`lint_h3_prompt(backend="remix")`（三欄沒有 summary，時長改以 authored 時間軸與切點時間戳對帳）、失敗目錄、段間連戲、逐鏡撰寫審查（E30–E40、W41–W45；E40／E41 改看 refmods 與介紹句英文名，帶原話的 `pack_waivers` 視為已處置）。
 - **backend 一致**：綁定是 remix 就產三欄；`--backend ref2va` 配 remix 綁定、或定案 remix 卻沒有 remix 綁定 → 報錯，先用同一個 backend 重跑 `h3d bind`。定案和綁定不同時照綁定編、印提示。
 - **送件**：`h3d submit`／`h3d run`（FreeVideo）看到 remix 段一律拒送；remix 送件 adapter 是 PR-R7，完成前在家機 REMIX Studio 手動送 `h3_prompt`＋`refmods`（依順序）。
 
@@ -306,17 +307,20 @@ python scripts/h3d.py staging --root . --layer2 [--explain]   # 階段 4：只�
 | D12 | 慢詞 slowly／gradually／near-freeze／hangs poised… | 警告 | 警告 | inferred（h3-video-prompting／h3-combat-impact 規範） |
 | D13 | 每一鏡都是 static | 警告 | 警告 | inferred |
 | D14 | remix 多人段沒有 `positions`（D09／D10 無從比對） | 警告（只 remix） | 警告 | — |
-| D15 | CUT 段縫（下一段 `seam_in: "cut"`）：上段末鏡 vs 本段首鏡，主體不同／景別差 ≥2 級／角度差 ≥90°（`camera_optics.azimuth_deg`）三項都證明不了 | 警告 | 警告 | **D**（Toonflow §A7.3 規則，無實測） |
-| D16 | 同主體相鄰鏡：景別差 <2 級且角度差 <30°（角度未填也算不足；OTS↔非 OTS 算換角度） | 警告 | 警告 | **A/B**（30° 規則、Dmytryk；跳 2 級為 B 單一作者） |
+| D15 | CUT 段縫（下一段 `seam_in: "cut"`）：上段末鏡 vs 本段首鏡，主體不同（一側 `character_ids` 空＝空鏡／局部也算）／景別差 ≥2 級／角度差 ≥90°（`camera_optics.azimuth_deg`）三項都證明不了 | 警告 | 警告 | **D**（Toonflow §A7.3 規則，無實測） |
+| D16 | 同主體相鄰鏡：景別差 <2 級且角度差 <30°（角度未填也算不足；OTS↔非 OTS 只在兩鏡都沒填角度時算換角度；前後任一鏡是 insert、或本鏡 match_action 不查） | 警告 | 警告 | **A/B**（30° 規則、Dmytryk；跳 2 級為 B 單一作者） |
 | D17 | 段內連 3 鏡同景別（A→B→A 正反打除外） | 警告 | 警告 | **C/D**（拉片統計＋規則） |
 | D18 | CONT 段縫（`seam_in: "cont"`）：缺 `entry_state`／上段 `exit_state`、共同欄位不符、上段末 1 s 有台詞、首鏡景別和上段末鏡不同、entry_state 寫「承接上一段／同上」 | 警告 | 警告 | **C/D**（manju-laoli、zenstory 自報；本 repo 未驗，E1） |
 | D19 | 台詞跨切點（L_CUT／J_CUT 或 speech_window 越過鏡頭邊界）兩側都沒有 `<scenetrans>` | 警告 | 警告 | **B/D**（H3 開源格式；未實測） |
-| D20 | 段內相鄰鏡共同角色 `positions.order_lr` 左右對調、`world` 改變、硬切同主體 `screen_x` 差 >0.15，且後一鏡沒寫走位／越軸理由（`cut_in.motivation`、`positions[].move`、blocking） | 警告 | 警告 | **A/B**（180° 規則）；≤15% 畫寬 **D**（DirectorSKILL） |
-| D21 | 多人鏡 `positions` 有人沒寫 `background_anchor` | 警告 | 警告 | **C**（manju-laoli 背景錨點鎖） |
+| D20 | 段內相鄰鏡共同角色 `positions.order_lr` 左右對調（方位角差 >90° 的反打不算）、`world` 改變，且後一鏡沒寫走位／越軸理由（`cut_in.motivation`、`positions[].move`、blocking；中文走位詞含經過、向東西南北、繞、退、跨、走到、移到…）；`screen_x` 差 >0.15 只在 `cut_in=match_action` 且景別差 ≤1 級時查 | 警告 | 警告 | **A/B**（180° 規則）；≤15% 畫寬 **D**（DirectorSKILL） |
+| D21 | 多人鏡 `positions` 有人沒寫 `background_anchor` | **建議**（💡，不算警告數） | 建議 | **C**（manju-laoli 背景錨點鎖）；T1 回溯命中率 20%，只是欄位完整度 |
+| D22 | 重演／狀態倒退：事件帳 `beats_new` 的 beat 在同場已新做過、同時在 `beats_done`、上段新做的沒進本段 `beats_done`；上段已完成的一次性事件（站起、坐下、倒地、落地、吞咬、破牆、撞翻、打飛、脫手、奔出）本段首鏡又演（中英關鍵詞，寫成「已／仍／still／already」狀態不報）；入口退回事件前、回原點；段內相鄰鏡同理（match_action／insert 不查） | 警告 | 警告 | **D**（waoowaoo／Toonflow 共識）；T1 盲判 7/18 問題屬此類（觀察） |
+| D23 | 朝向和站位矛盾：`facing` 寫畫左／畫右又指名看 X（`toward`），X 卻在另一邊；方位角差 <90° 時同一人朝向左右對調且沒寫轉身／回頭 | 警告 | 警告 | **A/B**（視線方向） |
+| D24 | 反打沒換邊：相鄰鏡（含同場段縫）方位角差 >90°，共同角色（≥2 人）左右順序沒換、沒寫走位 | 警告 | 警告 | **A/B**（180° 規則） |
 | W46 | 建議改用「以場景母片為底重畫的四格構圖板」：不是武戲（無 `Combat_Impact`、無自動 `h3_loras`、動作欄無打鬥詞）＋綁已驗收場景母片＋室內（`metadata.interior` 或 handoff `setting.interior`／`int_ext`）＋≥2 名具名角色＋有固定座位／站位（`positions`、`anchor_objects`、blocking 座位詞）＋段內有 MCU／CU／ECU／OTS_CU＋有台詞＋場景參考尚未宣告 `reference_view: panel`；任一判不了就不建議（`scripts/storyboard/board_advisor.py`，規則表 `RULES` 可擴充） | **建議**（💡，不擋送件、不擋核准、不改預設編譯） | 建議（strict 不升級） | 方向性：老易實驗第二批 D′ 15/16 vs 單用母片 A′ 6/8，座位錯／換牆／漂移 0，近景 S01-c 只有 D′ 拉對；未達 +25 門檻；武戲無證據（`spatial-consistency.md` §3） |
 
 - **「每鏡剛好 1 個運鏡句」「鏡長 ≥2 s」不重做**：`--lint-h3` 的 E6（缺運鏡）、E14（同鏡重複運鏡句）、E4（切點間隔／首末鏡 <2 s）早就是錯誤，兩個 backend 共用；衝擊幀串段的短鏡例外照 h3-combat-impact。
-- **D15–D21 啟用條件**（`scripts/storyboard/transition_lint.py`，規則全文 `references/storyboard/shot-transitions.md`）：D15／D18 看 `seam_in`；D16／D17／D19 要段落「已規劃銜接」（有 `seam_in`／`entry_state`／`exit_state` 或任一鏡 `cut_in.type`／`positions`）；D20 要相鄰兩鏡都有逐鏡 `positions`；D21 看逐鏡 `positions`（段層 positions 只在已規劃時看）。**舊專案沒有新欄位＝零新警告**。`h3d staging` 與 `compile --check`（兩個 backend）都跑；remix audit 的 D06–D14 不重複帶。上一段不在這次輸入時，compile 到同目錄 `layer2-*.json` 找。證據欄的 A/B/C/D 是外部來源等級（`shot-transitions.md` §0），和本表 measured／inferred 不同：D15–D21 在本 repo **都沒 H3 實測**。
+- **D15–D24 啟用條件**（`scripts/storyboard/transition_lint.py`，規則全文 `references/storyboard/shot-transitions.md`）：D15／D18 看 `seam_in`；D16／D17／D19／D22 要段落「已規劃銜接」（有 `seam_in`／`entry_state`／`exit_state`／`beats_done`／`beats_new` 或任一鏡 `cut_in.type`／`positions`／`beats_new`）；D20／D23／D24 要相鄰兩鏡都有逐鏡 `positions`；D21 看逐鏡 `positions`（段層 positions 只在已規劃時看）。段縫規則要上一段**同場**：`narrative_scene_id` → `source_scene_id` → `scene_id`（一段一個場景包的專案請寫 `narrative_scene_id`；`h3d staging` 讀分段檔，`source_scene_id` 與 `ledger_in`／`ledger_out` 只有 `compile --check` 讀 Layer 2 時看得到）。景別比對讀代碼、英文自由文字與中文。**舊專案沒有新欄位＝零新警告**。`h3d staging` 與 `compile --check`（兩個 backend）都跑；remix audit 的 D06–D14 不重複帶。上一段不在這次輸入時，compile 到同目錄 `layer2-*.json` 找。證據欄的 A/B/C/D 是外部來源等級（`shot-transitions.md` §0），和本表 measured／inferred 不同：D15–D24 在本 repo **都沒 H3 實測**（T1 回溯只量了 lint 對舊成片的命中，見 PR #115）。
 - **嚴重度為什麼保守**：證據只有一個專案一集；D08 回測誤報率高、D06／D07 抓得到的只是失敗抽的一部分；其餘規則沒有對照組。專案要擋就 `h3d decide staging_gate strict`（只升 D06–D08，inferred 規則 strict 也只警告）。
 - **豁免**：段落 `metadata.staging_waivers: [{"code": "D06", "reason": "…", "quote": "<使用者原話>"}]`（例如刻意讓角色對鏡頭說話）；沒有 `quote` 不算豁免，另列「豁免缺原話」。
 - **remix audit 會帶上**：`audit_refs_and_segments.py --audit-refs` 的 remix 分支把 D06–D14 併進 warnings（strict 時 D06–D08 進 errors）；**ref2va 的 audit 輸出不變**，ref2va 專案請另跑 `h3d staging`。
@@ -510,6 +514,15 @@ LoRA 沒裝 → error，附「拿掉 LoRA」與相近的已安裝名稱；多帶
 - **三欄幀差**：每個鏡（實際切點之間，排除切點那一對）左中右三欄平均絕對幀差；某欄 < 最大欄 25%（最大欄 ≥ 1.0）→「一側靜止候選」（例如對打一方定住；單人置中構圖也會觸發，目視拼貼判斷）。
 - 結果：`videos/qa/continuity/continuity-report.json`（`gate: warning_only`）。階段 6 審核頁（`build_stage_review.py --stage 6`）每段附拼貼、切點與警告。
 - **只警告、不擋任何關卡**：不寫 `qa-report.json`／verdicts、不在任何核准快照內、結束碼只反映執行錯誤。人工 9 項判定（cut_pos、cut_state、seg_in、seg_out、identity、all_move、reaction、causality、smooth）尚未實作；目視問題照常用 `h3d verdict` 記結論。
+
+### 2.8.2 接點自檢包（h3d seamcheck，不自動判定）
+
+`python scripts/h3d.py seamcheck --root . [--segments segments-ep05.json ...] [--videos-dir videos] [--segment-id <段>...] [--window 0.9] [--out-dir ...]`（`scripts/storyboard/seam_check.py`，需 ffmpeg／ffprobe、numpy、Pillow）
+
+- 每個接點一張對照圖 `videos/qa/seamcheck/<接點>.png`（左＝切前、右＝切後）：段縫＝上段末格｜本段首格（本段有 `lead_in_s` 就抽前導後第一格），段內＝實際切點前後各一格（找切點方法同 §2.8.1，找不到就用規劃秒數、標 `cut_found: false`）。
+- `videos/qa/seamcheck/seamcheck.json`：每個接點的 `expected`（兩側景別／代碼、人數、`character_ids`、左到右、朝向、背景錨點、方位角、`cut_in`、`seam_in`、是否同場、`exit_state`／`entry_state`、beats、`lead_in_s`）與待填 `checks`：`people_count`、`left_right`、`background_anchor`、`no_repeat`、`shot_size_as_planned`，**預設全是 null**，另有 `notes` 與每項的中文問題。
+- 交給人或視覺模型看圖填 `true`／`false`／`"unsure"`。工具不判定、不呼叫任何模型 API、不改門禁、不寫 qa-report／verdicts；結束碼只反映執行錯誤。接點 ID：段縫 `<上段>|<本段>`、段內 `<段>#<前鏡>><後鏡>`。
+- 分工：分鏡層的 D15–D24 看「計畫有沒有問題」；seamcheck 看「生成有沒有照計畫」（例如 CU 被渲成中景、主觀鏡沒出現、人數變了），後者分鏡 lint 原理上抓不到。
 
 ## 3. 文件同步（references/h3）
 

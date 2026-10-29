@@ -14,7 +14,7 @@ references/storyboard/templates/layer2-storyboard.schema.json。
 - 場景依序切段，每段預設 ≤ 3 鏡且估時 ≤ 10 秒；段名 <scene_id>-a…-z、-aa、-ab…，跨段預設採 INDEPENDENT_REF2VA 獨立分段。
 - 動作階段預填【施力點 ➔ 傳導路徑 ➔ 受擊與環境反饋】三要素模板，連戲預填四大錨點（lighting/axis/blocking/texture）。
 - 鏡間銜接欄位留空（seam_in=null、entry_state／exit_state={}、每鏡 cut_in={type: null}、positions=[]），
-  導演依 references/storyboard/shot-transitions.md 填；留空時 D15–D21 一條都不跑。
+  導演依 references/storyboard/shot-transitions.md 填；留空時 D15–D24 一條都不跑。
 - 鏡頭語言、動作階段、光線鎖、風格鎖等標 TODO，導演須依情節重寫；
   validate_storyboard.py 與 layer2_to_table.py --check 遇到 TODO 一律失敗。
 - 動作拍的順序為先動作後對白（handoff 未提供兩者的先後關係）。
@@ -392,7 +392,7 @@ def make_shot(item: dict, shot_id: str, start: float, duration: float,
             "observable_expression_en": f"{TODO}: observable expression in English",
         },
         "dialogue_and_audio": audio,
-        # 鏡間銜接（選填，references/storyboard/shot-transitions.md）：空值＝未規劃，D16–D21 不跑
+        # 鏡間銜接（選填，references/storyboard/shot-transitions.md）：空值＝未規劃，D16–D24 不跑
         "cut_in": {"type": None, "motivation": ""},
         "positions": [],
     }

@@ -10,8 +10,13 @@
 
 ### 新增
 - 鏡間銜接與佔位延續（文件、分鏡欄位、D15–D21 警告）：新增單一入口 `references/storyboard/shot-transitions.md`（接點分類段內切／段縫 CUT／CONT、段內切規則、CUT 三選一閘門、CONT 交接塊、逐鏡站位與背景錨點、剪輯剪點、E1–E3 待 H3 驗證；每條標外部證據等級 A–D 與來源）；Layer 2 選填欄位 `seam_in`（cut／cont）、`entry_state`／`entry_state_en`／`exit_state`、`shots[].cut_in {type, motivation}`、逐鏡 `shots[].positions`（`order_lr`、`facing`、`background_anchor`、`world`、`screen_x`、`move`）、`camera_optics.azimuth_deg`；`handoff_to_skeleton.py` 產空欄、`layer2_to_table.py` 有值才多一欄「接點／站位」與段縫列；`compile` 只在 `seam_in=cont` 時把英文 `entry_state` 寫成第 1 鏡開頭交接塊（ref2va／remix 都支援，取代該段的前段終態句；中文或「同上」類指代只留 compile note）；新 lint `scripts/storyboard/transition_lint.py` D15 CUT 段縫差異不足、D16 同主體相鄰鏡差異不足、D17 連 3 鏡同景別、D18 CONT 段縫不符、D19 台詞跨切點沒有 `<scenetrans>`、D20 相鄰鏡站位對調或漂移沒寫走位、D21 多人鏡缺背景錨點，併入 `h3d staging` 與 `compile --check`，全部警告（strict 不升級）、可用 `staging_waivers` 豁免；欄位缺時不跑，舊專案零新警告。
+- 鏡間銜接第二輪（T1 回溯驗證後；PR #115 同分支）：新 lint **D22 重演／狀態倒退**（同場相鄰段與段內相鄰鏡：事件帳選填欄位 `beats_done`／`beats_new`／`shots[].beats_new` 的 beat ID 重複、上段已完成的一次性事件本段首鏡又演一次、入口退回事件之前、回原點；中英關鍵詞，「已／仍／still／already」寫成靜止狀態不報）、**D23 朝向和站位矛盾**（「朝畫左看 X」而 X 在畫右；角度差 <90° 時朝向對調沒寫轉身）、**D24 反打沒換邊**（方位角差 >90° 共同角色左右沒換、沒寫走位）；新欄位 `narrative_scene_id`（敘事場景，同場判斷優先）、`lead_in_s`（拋棄式前導，選用、預設關：compile 在第 1 鏡寫前導靜止句，`h3d assemble` 自動剪掉片頭並前移台詞／字幕）、`positions[].toward`；新子命令 **`h3d seamcheck`**（`scripts/storyboard/seam_check.py`）：每個段縫／段內切點一張首末幀對照圖＋`videos/qa/seamcheck/seamcheck.json` 檢查清單（人數、左右、錨點、是否重演、是否照分鏡景別，預設 null，給人或視覺模型判讀；不自動判定、不呼叫模型 API、不改門禁）。
+
+### 修正
+- `transition_lint`：D15「人→空鏡」（一側 `character_ids` 空）算主體不同；景別解析支援英文自由文字（extreme close-up／close-up／medium close-up／medium／medium-wide／wide／extreme wide，含 shot、連字號、大小寫、OTS 變體）與中文（大特寫…大遠景），D15–D18 不再因 "medium shot" 這類寫法靜默；同場判斷依序看 `narrative_scene_id` → `source_scene_id` → `scene_id`（一段一個場景包時段縫規則不再整個跳過；`h3d staging`、`compile --check` 都改，D10 不變）；走位詞表補中文（經過、向東西南北、繞、退、跨、走到、移到、穿過…）與英文（passes、backs away、retreats…）；D16 遇插入鏡（前後任一鏡）與 `match_action` 跳過。
 
 ### 變更
+- 鏡間銜接降級：D20 畫面位置 ≤15% 子規則只在 `cut_in=match_action` 且景別差 ≤1 級時查（硬切不查），左右對調在方位角差 >90° 的反打不報；**D21 改成建議**（level＝suggestion，💡，不算警告數）；D16 過肩豁免收緊（OTS↔非 OTS 只在兩鏡都沒填角度時算換角度）。`shot-transitions.md` 補 azimuth 0°＝本場主機位的定義與例子、畫外發話者不放 `character_ids`、第 1 鏡 `cut_in` 不用寫、§4.4 拋棄式前導、§4.5 事件帳寫法（已發生寫成靜止狀態）、§6.1 seamcheck 用法、E4；`tooling.md`（staging 表加 D22–D24、§2.8.2 seamcheck）、`pipeline.md`、`skill-guide.md`、`SKILL.md`、schema、`docs/skill-roadmap.html` 同步。舊專案（沒有新欄位）仍零新警告。
 - `continuity-ledger.md` §6、`anime-drama-grid-and-continuity.md` 三.2、`consistency.md` 收尾交接格、`spatial-consistency.md`、`edit/manju-editing-playbook.md` §2 改成短摘要並指向 `shot-transitions.md`；`SKILL.md`、`skill-guide.md`、`pipeline.md` 階段 4（新 4.1b）、`tooling.md`（staging 檢查表加 D15–D21 與證據等級）加入口。「每段獨立、不用尾幀」定案不變，外部尾幀實測衝突並列待 E1。`references/h3/` 上游同步檔未動。
 
 ## [0.10.0] - 2026-10-28

@@ -112,7 +112,7 @@
 
 以下 Ref2VA／FreeVideo 做法來自特定 H3 專案與 adapter 實測，供相似環境參考；生成模式、參考圖限制與節奏依目標模型、當前 adapter 及使用者指定調整。本文的 Ref2VA CLI 本身輸出 H3 Ref2VA 格式，不代表其他工具都支援相同輸入。
 
-**6.x 交界連續性（收件後、寫逐段結論前）**：跑 `python scripts/h3d.py qa --continuity --root .`，審核頁每段附「上段末｜本段首／每個鏡交界／本段末｜下段首」拼貼與實際切點（模型常早晚切 0.1–0.5 s）。三欄幀差的「一側靜止候選」與「切點不明」只是提醒，目視拼貼後再用 `h3d verdict` 下結論；這一步不擋任何關卡（`references/tooling.md` §2.8.1）。
+**6.x 交界連續性（收件後、寫逐段結論前）**：跑 `python scripts/h3d.py qa --continuity --root .`，審核頁每段附「上段末｜本段首／每個鏡交界／本段末｜下段首」拼貼與實際切點（模型常早晚切 0.1–0.5 s）。三欄幀差的「一側靜止候選」與「切點不明」只是提醒，目視拼貼後再用 `h3d verdict` 下結論；這一步不擋任何關卡（`references/tooling.md` §2.8.1）。要逐接點核對人數、左右、背景錨點、有沒有重演、景別有沒有照分鏡，再跑 `python scripts/h3d.py seamcheck --root .`：每個接點一張對照圖＋`videos/qa/seamcheck/seamcheck.json` 檢查清單（預設 null），由人或視覺模型看圖填，工具不判定（§2.8.2）。
 
 **6.0 先確認工具（不可跳過）**
 

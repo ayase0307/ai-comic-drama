@@ -309,6 +309,42 @@
       ],
       "description": "Optional. 本段最後一格的狀態，欄位同 entry_state；下一段 seam_in=cont 時 D18 逐欄比對。"
     },
+    "narrative_scene_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Optional. 敘事場景 ID（shot-transitions.md §7）。scene_id 一段一個場景包（S-buffet-fight-a／-b…）時要寫，段縫規則 D15／D18／D22–D24 的同場判斷依序看 narrative_scene_id → source_scene_id → scene_id。"
+    },
+    "beats_done": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      },
+      "description": "Optional. 事件帳：本段開始前已完成的 beat ID（shot-transitions.md §4.5）。已發生的事在動作描述寫成靜止狀態（已站起、still standing），不用動作詞重述；D22 檢查。"
+    },
+    "beats_new": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      },
+      "description": "Optional. 事件帳：本段新做的 beat ID；同一 ID 在同場只能新做一次（D22）。"
+    },
+    "lead_in_s": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 3,
+      "description": "Optional. 拋棄式前導秒數（選用、預設不寫＝關；shot-transitions.md §4.4）：段頭這幾秒照起始狀態靜止，編譯器在第 1 鏡寫前導句，h3d assemble 自動剪掉；段長要多留這段時間。建議 0.5–1.5。"
+    },
     "shots": {
       "type": "array",
       "minItems": 1,
@@ -589,7 +625,7 @@
                 ],
                 "minimum": 0,
                 "maximum": 360,
-                "description": "Optional. 機位方位角（度，世界座標，0＝本場主軸正面，順時針）。D15（≥90°）／D16（≥30°）算角度差用；沒填就只能看主體與景別"
+                "description": "Optional. 機位方位角（度）＝鏡頭朝向，俯視順時針；0＝本場主機位（站位附表／continuity_anchors.axis 的建立鏡），反打＝180，過肩≈±30（shot-transitions.md §7）。D15（≥90°）／D16（≥30°）／D23／D24 用；沒填就只能看主體與景別"
               }
             }
           },
@@ -752,7 +788,7 @@
               "object",
               "null"
             ],
-            "description": "Optional. 這一刀怎麼切進本鏡（shot-transitions.md §2）。第 1 鏡可省略，段縫看段層 seam_in。",
+            "description": "Optional. 這一刀怎麼切進本鏡（shot-transitions.md §2）。第 1 鏡不用寫（寫了也不看），段縫看段層 seam_in。",
             "properties": {
               "type": {
                 "type": [
@@ -778,7 +814,7 @@
           },
           "positions": {
             "type": "array",
-            "description": "Optional. 逐鏡站位（世界座標＋畫面座標雙層，shot-transitions.md §5）。D20 比相鄰鏡左右順序、世界位置、硬切畫面位置；D21 要每人 background_anchor。",
+            "description": "Optional. 逐鏡站位（世界座標＋畫面座標雙層，shot-transitions.md §5）。D20 比相鄰鏡左右順序、世界位置、動作匹配畫面位置；D21（建議）要每人 background_anchor；D23 比朝向和被看的人在哪邊；D24 比反打有沒有換邊。",
             "items": {
               "type": "object",
               "required": [
@@ -794,11 +830,15 @@
                 },
                 "facing": {
                   "type": "string",
-                  "description": "朝向／視線所在邊，例 frame_right、toward C-02；toward＝朝鏡頭（D06）"
+                  "description": "朝向／視線所在邊，例 frame_right、frame_left toward C-02；toward＝朝鏡頭（D06）。寫畫左／畫右又指名看誰時，被看的人要在同一邊（D23）"
+                },
+                "toward": {
+                  "type": "string",
+                  "description": "Optional. 這人看誰（角色 ID）；D23 檢查被看的人是否在 facing 寫的那一邊"
                 },
                 "background_anchor": {
                   "type": "string",
-                  "description": "此人身後最可辨識的背景物（背景錨點鎖，D21）"
+                  "description": "此人身後最可辨識的背景物（背景錨點鎖；D21 只建議）"
                 },
                 "world": {
                   "type": "string",
@@ -816,6 +856,16 @@
                 }
               }
             }
+          },
+          "beats_new": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional. 本鏡新做的 beat ID（事件帳，D22：段內兩鏡重複會警告）"
           }
         }
       }

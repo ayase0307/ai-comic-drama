@@ -240,7 +240,8 @@ python scripts/adapt/compare_adaptation.py --source adapt/source.json --script s
 - 段內每一刀寫 `shots[].cut_in`（hard／match_action／eyeline／reaction／insert／scene_change），同主體相鄰鏡角度 ≥30° 或景別跳 ≥2 級、不連 3 鏡同景別、時間只往前。
 - 同場段縫標 `seam_in`：預設 **cut**（上段末鏡 vs 本段首鏡：主體不同／景別差 ≥2／角度差 ≥90° 三選一）；動作或台詞真的被拆開才用 **cont**（上段末 1 s 定格無台詞、本段同景別起手、`entry_state` 交接塊，上一段寫 `exit_state`）。不改「每段獨立、不用尾幀」定案。
 - 多人鏡寫逐鏡 `positions`（`order_lr`、`facing`、`background_anchor`，選填 `world`、`screen_x`、`move`）；越軸先插軸上鏡或寫畫內轉折。
-- 檢查：`h3d staging`／`compile --check` 的 D15–D21，全部只警告；欄位留空時不跑（`handoff_to_skeleton.py` 產空欄）。
+- 一段一個場景包時寫 `narrative_scene_id`（同場判斷用）；一次性事件用事件帳 `beats_done`／`beats_new`，已發生的事寫成靜止狀態、不用動作詞重述。拋棄式前導 `lead_in_s` 選用、預設關（assemble 自動剪）。
+- 檢查：`h3d staging`／`compile --check` 的 D15–D24（D21 只建議、其餘警告）；欄位留空時不跑（`handoff_to_skeleton.py` 產空欄）。階段 6 拿到影片後可跑 `h3d seamcheck` 產接點對照圖＋檢查清單給人或視覺模型判讀。
 
 ### 4.2 鏡頭調度防禦性規範（避開 H3 弱項陷阱）
 

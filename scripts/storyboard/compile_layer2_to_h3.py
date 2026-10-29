@@ -2918,7 +2918,7 @@ def compile_segment_h3(
         "speaker_ids": speaker_ids,
         "unanchored_in_frame_characters": unanchored_in_frame,
         "segment_end_state": layer2_data.get("segment_end_state"),
-        # 鏡間銜接欄位（選填）：只在 Layer 2 有寫時帶進分段檔，供 h3d staging／compile --check 的 D15–D21
+        # 鏡間銜接欄位（選填）：只在 Layer 2 有寫時帶進分段檔，供 h3d staging／compile --check 的 D15–D24；lead_in_s 給 assemble 剪前導
         **{key: layer2_data[key] for key in ("seam_in", "entry_state", "entry_state_en", "exit_state",
                                              "narrative_scene_id", "beats_done", "beats_new", "lead_in_s")
            if layer2_data.get(key) not in (None, "", {}, [])},
