@@ -572,12 +572,12 @@ def _plan(root: Path) -> Dict[str, Any]:
             stage4_extra: Dict[str, Any] = {}
             producers = {
                 0: (f"{H3D} decide --list --root .",
-                    "和使用者定調（h3d decide style／aspect_ratio／dialogue_policy），把 project.md 的模板欄位全部填實。"),
+                    "和使用者定調（h3d decide style／aspect_ratio；台詞政策固定「原著對白優先」不詢問），把 project.md 的模板欄位全部填實。"),
                 1: (f"{CHECK} --root . --stage 1",
                     "依原著寫完 adapt/character-bible.md（validate_character_bible.py --bible-md --bible-json 要 PASS）、"
                     "bible.json、source.json 的 story_units（含每個事件的交代需求 exposition_needs）與 adapt/series-outline.md；"
                     "成片形式預設長篇漫劇（整部一支連續長片、每個事件交代起因→經過→結果），"
-                    "跑 scripts/adapt/event_coverage.py 把被壓縮／跳過／交代不全的事件列進審核頁交使用者決定。"),
+                    "跑 scripts/adapt/event_coverage.py 對帳；被壓縮／跳過／交代不全的事件由 Agent 依原著補回後重跑，不問使用者。"),
                 2: (f"{CHECK} --root . --stage 2",
                     "把 assets.md 的模板卡片填實，並生成每張登記的設定圖。"),
                 3: (f"{CHECK} --root . --stage 3",

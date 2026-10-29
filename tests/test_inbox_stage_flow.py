@@ -125,7 +125,7 @@ class InboxStageCardTests(_Project):
         approve = next(c for c in model["cards"] if c["id"] == "D2-approve")
         self.assertEqual(len(approve["evidence_b64"]), 2)
 
-    def test_stage1_event_coverage_becomes_card_not_plain_approval(self):
+    def test_stage1_event_coverage_never_asks_user(self):
         (self.root / "adapt").mkdir(exist_ok=True)
         (self.root / "adapt" / "source.json").write_text(json.dumps({"story_units": [
             {"unit_id": "U1", "summary": "上島", "expected_grade": "KEEP_IF_POSSIBLE"},
@@ -136,11 +136,8 @@ class InboxStageCardTests(_Project):
         ps.mark_awaiting_review(self.root, ps.load_state(self.root), 1)
         cards = inbox.build_cards(self.root)["open"]
         ids = [c["id"] for c in cards]
-        self.assertIn("D1-event-coverage", ids)
-        self.assertNotIn("D1-approve", ids, "有待決事件時不能出「沒有例外，建議通過」")
-        card = next(c for c in cards if c["id"] == "D1-event-coverage")
-        self.assertIn("U1", card["finding"])
-        self.assertTrue(card["if_ignored"])
+        self.assertNotIn("D1-event-coverage", ids, "事件交代缺漏由 Agent 自動補回，不出決策卡")
+        self.assertFalse([c for c in cards if c.get("kind") == "event_coverage"])
 
     def _segments(self, refs):
         (self.root / "segments-ep01.json").write_text(json.dumps({"segments": [
