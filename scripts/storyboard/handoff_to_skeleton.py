@@ -462,7 +462,7 @@ def build_layer2(handoff: dict, scene: dict, seg_id: str, chunk: list[dict],
                 "blocking": f"{TODO}：站位錨點（主體與實體家具之相對空間坐標）",
                 "texture": f"{TODO}：材質錨點（服裝布料、皮膚質感與環境材質）",
             },
-            "tail_freeze_hold": True,
+            "tail_freeze_hold": False,
         },
         "asset_refs": build_asset_refs(scene, char_map),
         "metadata": {

@@ -13,7 +13,9 @@
 FAIL：句間空隙 >1.5s（beat_pause 亦不得超過）；提示詞含 slow（allow_slow 例外）；單句 >35 字。
 WARN：句間空隙 >1.0s（beat_pause 0.6–1.2s 例外）；切鏡後 >0.5s 才開口；
       對話段整段密度 <2.8 或 >3.9 字/s（目標 3.0–3.6）；每 15s 開口 <6 次（等比折算、下限 3）；
-      無台詞鏡 >5s；連續無台詞 >10s。
+      無台詞鏡 >5s；連續無台詞 >10s；
+      有人聲鏡比例 <80%（Work_01／Work_08 幾乎每鏡有人聲，含旁白；反應鏡用 L-cut 延續台詞）；
+      提示詞含末 1 秒靜止句（tail_freeze_hold；無廢片原則：不生成要剪掉的秒數）。
 """
 import json, re, sys, unicodedata
 
@@ -23,6 +25,8 @@ ONSET_MAX = 0.5
 LINE_HARD_MAX = 35
 DENSITY_LOW, DENSITY_HIGH, ONSETS_PER_15 = 2.8, 3.9, 6
 SILENT_SHOT_MAX, SILENT_RUN_MAX = 5.0, 10.0
+VOICED_SHOT_MIN = 0.8
+TAIL_FREEZE_RE = re.compile(r"final second holds still", re.I)
 SLOW_RE = re.compile(r"\bslow", re.I)
 
 
@@ -71,6 +75,13 @@ def check(seg):
         if run > SILENT_RUN_MAX:
             w.append(f"{sid} 連續無台詞 {run:.1f}s >{SILENT_RUN_MAX}s")
             run = 0.0
+    shots = seg.get("shots", [])
+    if shots:
+        voiced = sum(1 for s in shots if s.get("has_dialogue"))
+        if voiced / len(shots) < VOICED_SHOT_MIN:
+            w.append(f"{sid} 有人聲鏡 {voiced}/{len(shots)} <{VOICED_SHOT_MIN:.0%}（反應鏡用 L-cut 延續台詞或補旁白）")
+    if TAIL_FREEZE_RE.search(seg.get("prompt", "") or ""):
+        w.append(f"{sid} 提示詞含末 1 秒靜止（tail_freeze_hold）：這 1 秒會被剪掉或變空檔，改關閉、最後一句說完留 0.3s")
     return f, w
 
 

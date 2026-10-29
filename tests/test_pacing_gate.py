@@ -38,3 +38,20 @@ def test_role_rates():
     assert h.dialogue_seconds("一二三四五六七八", "male_lead") == 2.3
     assert h.dialogue_seconds("一二三四五六七八九", "female") == 2.3
     assert h.dialogue_seconds("字" * 11, audio_type="narration") == 2.3
+
+def test_voiced_shot_ratio_warns():
+    s = seg([{"text": "一二三四五六七八九十", "start": 0.3, "end": 2.6}], dur=6.0)
+    s["shots"] = [{"start": 0, "end": 3, "has_dialogue": True},
+                  {"start": 3, "end": 4.5, "has_dialogue": False},
+                  {"start": 4.5, "end": 6, "has_dialogue": False}]
+    assert "有人聲鏡 1/3" in run(s).stdout
+
+def test_tail_freeze_warns():
+    r = run(seg([{"text": "一二三四五六七八九十", "start": 0.3, "end": 2.6}],
+                prompt="real-time speed. The final second holds still before the cut."))
+    assert "末 1 秒靜止" in r.stdout
+
+def test_skeleton_defaults_no_tail_freeze():
+    sys.path.insert(0, str(GATE.parent))
+    import inspect, handoff_to_skeleton as h
+    assert '"tail_freeze_hold": False' in inspect.getsource(h)
