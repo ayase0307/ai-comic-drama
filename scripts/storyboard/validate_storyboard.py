@@ -26,6 +26,7 @@ from speech_utils import count_speech_chars, normalize_speech  # noqa: E402
 from audit_refs_and_segments import effective_duration  # noqa: E402
 from move_lint import lint_segment_moves  # noqa: E402
 from director_lint import lint_director, lint_segment_seam  # noqa: E402
+from dialogue_density import check_dialogue_density  # noqa: E402
 from shot_intent import cross_segment_intent_errors, segment_intent_errors, shot_intent_errors  # noqa: E402
 
 BEAT_TYPES = ("Expository_Fast", "Suspense_Delay", "Dramatic_Core", "Combat_Impact", "Reaction_OTS")
@@ -470,6 +471,9 @@ def validate_storyboard_data(data: dict, original_script_dialogues: list = None)
 
     # Check 7d: 同段鏡頭意圖／理由不准複製（I04、I05）
     errors += segment_intent_errors(shots)
+    _de, _dw = check_dialogue_density(data)  # PR #118 分鏡台詞密度閘門
+    errors += _de
+    warnings += _dw
 
     # Check 8: asset_refs 佔位符（#43：骨架的 TODO／S-item1／C-item2 不可原樣通過）
     _refs = data.get("asset_refs") or {}
@@ -623,6 +627,7 @@ def run_demo_suite():
             "aspect_ratio": "16:9",
             "target_duration_sec": 12.0,
             "pacing_profile": "Slow_Cinematic",
+            "density_exempt_reason": "對峙靜場示範：沉默本身是戲，台詞刻意稀疏",
             "lighting_lock_line": "冷鋼夜黑 (#0A0E17 暗部 + 4500K 窗外冷藍側逆光 + #D4AF37 門縫暖光)"
         },
         "continuity_handshake": {"mode": "HARD_CUT_ESTABLISH", "overflow_dialogue_out": None},
