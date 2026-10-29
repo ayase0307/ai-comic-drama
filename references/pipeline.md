@@ -25,18 +25,13 @@
 | 畫風 | **預設推 14 號「古風寫實厚塗・電影感」（`xianxia-cinematic-semireal`，附樣圖）**，使用者可改選 `references/styles.md` 任一套（整部只用一套）；角色設定板選項 `xianxia-cinematic-semireal`／`master`（3D 漫劇寫實厚塗）／`semi-real`（UE5 半寫實）／styles 編號，寫入 `assets.md` 的 `style_index`，並 `h3d decide style` 定案 |
 | `aspect_ratio` | 9:16（預設）／16:9／1:1 |
 | 語言與聲音形式 | 旁白解說／角色對白／混合／默片字幕 |
-| 台詞政策（需要改寫或估算時） | `① 原文逐字保留` / `② 只留重點句` / `③ 影視化改寫` / `④ 無台詞純旁白`；已在 brief 中交代則沿用。定案寫入 `h3d decide dialogue_policy`：④ 無台詞純旁白 → 編譯時等同 `--narration-policy external`；①②③ 只決定原著對白保留量，不改編譯政策（沿用預設 `short-offscreen-h3`）；無法辨識的值 `h3d next` 會報錯 |
+| 台詞政策（**固定，不詢問**） | **原著對白優先**：原著對白全保留、脫水不刪事件；只轉述的對話可補寫並標 `invented`；旁白＝主角內心聲（VO ≤30%）。規格見 `references/adapt/dialogue-first-adaptation.md`。不再出①–④四選一；舊專案已定案的 ①–④ 仍可讀（④ 編譯時仍等同 `--narration-policy external`） |
 | 交付深度 | 只到分鏡／到設定圖／到分鏡圖／到影片 |
 | 交付範圍（`delivery_scope`，選填） | `h3d decide delivery_scope <預設值> --quote "<使用者原話>"`：`script-only`（終點階段 3）／`storyboard-only`（4）／`prompts-only`（5）／`full`（7，沒定案就是全流程）；另可加 `no_image`（階段 2 改檢文字設定卡，不要求設定圖檔）、`no_video`（終點壓到 5，不送件）、`trial_segments`／`max_segments`（只送指定段）。值可直接給 JSON 物件，例如 `'{"end_stage": 4, "no_image": true}'`。`h3d next` 到終點階段就回報 done。 |
 
 ### 階段 0 按需求選用的台詞與體量檢查
 
-1. **台詞政策（只在當前改編需要決策時）**：
-   - 區分「外部框架規則」與「使用者真實需求」；沿用已給政策，不重複詢問。若台詞政策缺失且會影響改編，才詢問：
-     - `① 原文逐字保留`：忠於原著字句，但需嚴格遵守下述片長與氣口順延；
-     - `② 只留重點句，其餘可刪（推薦）`：去蕪存菁，留下推動情節之戲劇金句，大幅提升成片節奏；
-     - `③ 全部改寫為影視對白`：重構為影視化口語短句；
-     - `④ 無台詞純旁白`：角色閉唇不語，靠畫面與解說推進。
+1. **台詞政策（固定，不詢問）**：一律走「原著對白優先」（`references/adapt/dialogue-first-adaptation.md`）。開案與執行中都不問改寫方式；新增事件、合併事件、改視角、提前揭懸念預設禁止並記帳，不提案。每集長度用台詞預算排（`dialogue_budget.py`：150 秒＝450–540 字，未達下限就接下一場），交稿前跑 `adapt_gate.py`。
 2. **原文體量反推片長公式（先算再動工）**：
    - 實測中文口播極限安全值為 **4 字／秒**（常速 3.8 字/秒）：
      $$\text{純念台詞秒數} = \frac{\text{台詞字數}}{4}$$
@@ -47,8 +42,7 @@
      # 短劇短集模式（使用者明確選擇）才加單集目標：--format short --target-seconds 90
      ```
      該命令使用 Unicode P 類別統一排除標點符號，精確統計有效漢字數，並一次輸出四大台詞政策下的預估片長。長篇模式只報整部總長（分鐘），不換算集數、不做單集門禁；短劇模式才輸出集數建議與「> 單集目標 × 2」阻斷。
-   - **體量提示**：需要長度估算時，可用估算結果提示拆分、精簡或保留原文等選項；不把單一工作流的數值門檻套用到所有任務。缺少會影響當前目標的選擇時再詢問。
-     - **方案 A（精簡台詞）**：採用台詞政策 ②，只砍台詞冗句，事件交代鏡頭不砍；
+   - **體量提示**：估算結果只用來核對原著體量；不據此詢問改寫方式，也不據此刪台詞。
      - **方案 B（接受片長，長篇預設）**：事件都要講清楚，接受成片拉長；
      - **方案 C（分集）**：只有使用者明確要求時才拆成多集（每集＝完整劇情單元）或改走短劇短集模式。
 3. **工作紀律鐵律**：
@@ -105,13 +99,13 @@ python scripts/init_project.py my-drama --title "我的漫劇"
    ```bash
    python scripts/adapt/estimate_duration.py --events adapt/source.json
    ```
-4. **A／B／C 三方案停靠**：忠於原著／節奏優先／成本優先，比較後推薦，**交使用者選**。長篇預設最貼近 A（把故事講清楚）。
+4. **改編方案固定為忠於原著**（不再出 A／B／C 讓使用者選）：原著對白全保留、事件不刪不併；節奏靠台詞密度與分集，不靠刪內容。
 5. **全劇架構（預設不分集）**：長篇預設 `Arc → Sequence → Scene → Beat`，整部一支連續長片；使用者要求分集才加 `Episode` 層，每集＝完整劇情單元。每段（或每集）寫目標、阻礙、選擇、變化、結果、下一段動機與因果債務。模板 `series-outline.md`、`episode-outline.md`。
 6. **事件交代完整性檢查（必做）**：改編稿每場用 `event_exposition` 標明替哪個事件交代了哪些要素，再逐條對帳：
    ```bash
    python scripts/adapt/event_coverage.py --project-dir . --out adapt/event-coverage.md
    ```
-   被壓縮（compressed）、被跳過（skipped）、交代不全（partial）、未標註（unverified）的事件會在收件匣出一張「事件交代」決策卡（明細在 `review/stage-1-adaptation.html` 的「事件交代完整性」表），**由使用者決定**補鏡頭或接受；MUST_KEEP 事件完全沒交代（missing）時結束碼 2。
+   被壓縮（compressed）、被跳過（skipped）、交代不全（partial）、未標註（unverified）的事件**由 Agent 依原著補回並重跑**（不問使用者；收件匣的「事件交代」卡只作知會，明細在 `review/stage-1-adaptation.html`）；MUST_KEEP 事件完全沒交代（missing）時結束碼 2。
 7. **（使用者要求分集時）跨集驗收**：原著單章拆成多集時（如 1 章拆為 Ep01–Ep03），支援單集驗收與多集合併全章驗收：
    ```bash
    # 單集過濾驗收：

@@ -639,10 +639,8 @@ def main() -> int:
                 print("\n🚨 【觸發階段 0 阻斷閘門】")
                 for msg in res["gate_messages"]:
                     print(f"  {msg}")
-                if policy_decided:
-                    print("  ✅ 台詞政策已在 decisions.json 定案；以下試算僅供核對，不需再選。")
-                else:
-                    print("  👉 解決方案：必須在進入階段 1 前選定以下四大台詞政策之一！")
+                # 台詞政策固定「原著對白優先」，不再請使用者選；以下試算僅供核對原著體量。
+                print("  ℹ️ 台詞政策固定為「原著對白優先」（不詢問）；以下四種試算僅供核對，每集長度改用 dialogue_budget.py。")
 
             print("\n【四大台詞政策試算】")
             print(f"  {p['policy_1']['name']}:")

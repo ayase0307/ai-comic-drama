@@ -19,7 +19,8 @@ agent_created: true
 6. **遇到 `PARTIAL`、`duration_drift` 就停下**，照 `references/tooling.md` §4 處置並回報使用者，不要自行繞過。
 7. **成片形式預設＝長篇漫劇**：把故事講清楚是第一優先，每個原著關鍵事件都要交代起因→經過→結果（含動機、時地轉換），
    不以每集秒數壓縮事件；預設不分集，整部一支連續長片。短劇／竪屏爆款短集（1–2 分鐘、強鉤子）只有使用者明確要求才用
-   （`h3d decide series_format short`）。被壓縮、跳過或交代不全的事件一律在階段 1 交使用者決定（`event_coverage.py`），不自己砍。
+   （`h3d decide series_format short`）。被壓縮、跳過或交代不全的事件由 Agent 依原著補回（`event_coverage.py`），不自己砍、也不問使用者。
+8. **劇本改寫不詢問使用者**：一律走 `references/adapt/dialogue-first-adaptation.md`（原著對白全保留、只轉述的對話可補寫並標 `invented`、旁白＝主角內心聲 VO ≤30%、150 秒＝450–540 字、交稿前 `adapt_gate.py` 全過）。
 
 ## Overview
 
@@ -39,8 +40,8 @@ agent_created: true
 
 | 階段 | 做什麼 | 不准做什麼 | 跑哪個指令 | 先讀 |
 |---|---|---|---|---|
-| 0 定調 | 一次問完定調題（題材、載體、畫風、比例、台詞政策），每題附推薦值；**成片形式預設長篇漫劇**（不問集數秒數；使用者主動要短劇才 `h3d decide series_format short`）；**畫風預設推 14 號「古風寫實厚塗・電影感」**（附樣圖，可改選） | 不替使用者決定；不跳過體量反推；不預設切短集 | `init_project.py`、`h3d decide style/aspect_ratio/dialogue_policy` | `references/pipeline.md`、`references/styles.md` |
-| 1 改編 | 保留分級、**事件交代完整性**（每個事件起因→經過→結果，壓縮／跳過清單交使用者決定）、依事件估總長、A/B/C 方案、段落架構（使用者要求才分集）、因果債務 | 小說直接當劇本；為秒數壓縮事件；自行砍事件交代 | `event_coverage.py`、`estimate_duration.py --events`、`h3d next` | `references/adapt/novel-to-manju.md`、`references/adapt/structure-and-pacing.md` §零 |
+| 0 定調 | 一次問完定調題（題材、載體、畫風、比例），每題附推薦值；**台詞政策固定「原著對白優先」不詢問**；**成片形式預設長篇漫劇**（不問集數秒數；使用者主動要短劇才 `h3d decide series_format short`）；**畫風預設推 14 號「古風寫實厚塗・電影感」**（附樣圖，可改選） | 不替使用者決定；不跳過體量反推；不預設切短集 | `init_project.py`、`h3d decide style/aspect_ratio` | `references/pipeline.md`、`references/styles.md` |
+| 1 改編 | 保留分級、**事件交代完整性**（每個事件起因→經過→結果，缺漏由 Agent 補回）、**台詞優先改寫與依台詞預算分集**、段落架構、因果債務；交稿前 `adapt_gate.py` 全過 | 小說直接當劇本；為秒數壓縮事件；自行砍事件交代 | `event_coverage.py`、`dialogue_budget.py`、`adapt_gate.py`、`h3d next` | `references/adapt/dialogue-first-adaptation.md`、`references/adapt/novel-to-manju.md`、`references/adapt/structure-and-pacing.md` §零 |
 | 2 設定圖 | 生圖工具偵測後由使用者選（只有一個可用也要問）；主角優先出圖、自檢後重生；工具定案後全集鎖定 | 自己預設生圖工具；換生圖工具不並排比對；自動核准（永遠要人看臉和服裝） | `h3d imagegen --detect`／`--set`（寫 `design_engine`）、審核頁 | `references/consistency.md`、`references/styles.md` |
 | 3 劇本 | 場景化改寫、台詞預算（4 字/秒、說話 ≤ 60%）、改編差異 | 超預算照送 | `estimate_duration.py --h3`、`sync_script.py` | `references/adapt/screenplay-format.md` |
 | 4 分鏡 | **每鏡先寫 `shot_intent`（觀眾要看懂什麼）再定技術值，每項選擇在 `choice_why` 寫理由**；運鏡依 beat 情緒查 `references/camera-moves-guide.md` 選 `move_preset`（選用理由寫進分鏡表，編譯器展開、`move_lint` 警告）；每段附人物賬、台詞鏡寫視線、段縫寫末態並換機位（`continuity-ledger.md`）；Ref2VA 預設一鏡一張可辨識臉（單人裁切，走角色卡 remix 時不受此限）、遠景不放人、焦距物距成對寫 | 沒有對應構圖 PNG 就進編譯；按警告類型批量改、為過關改核准內容（人群換空座、補 empty background）；分鏡圖換人或漏關鍵道具 | 缺構圖時 `h3d imagegen --detect`／`--set --stage 4`（使用者選 Codex 分鏡／Qwen 鉛筆九宮格／手繪，寫 `storyboard_engine`）→ `h3d next` 給該工具的指令（Codex 要 `--model <使用者指定模型>`）、`validate_storyboard.py` | `references/storyboard/shot-intent.md`、`references/storyboard/cinematic-director.md`、`references/storyboard/continuity-ledger.md`；有打鬥／招式／特效另載 `h3-combat-impact`（見下節） |

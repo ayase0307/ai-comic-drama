@@ -64,8 +64,10 @@ KNOWN_DECISIONS: Dict[str, Dict[str, Any]] = {
                       "required_by": 99, "reference": "references/adapt/structure-and-pacing.md"},
     "aspect_ratio": {"label": "畫面比例", "stages": [2, 4, 5, 6, 7], "required_by": 2,
                      "reference": "references/model-profiles.md"},
-    "dialogue_policy": {"label": "台詞政策（哪些台詞上畫、哪些走旁白／TTS）", "stages": [3, 5, 7],
-                        "required_by": 3, "reference": "references/adapt/dialogue-and-audio.md"},
+    # 台詞政策固定為「原著對白優先」（references/adapt/dialogue-first-adaptation.md），不再詢問使用者。
+    # required_by=99：沒定案就走預設，不擋路；舊專案的 ①–④ 定案值仍可讀（④ 仍對應 external 編譯政策）。
+    "dialogue_policy": {"label": "台詞政策（固定預設：原著對白優先，不詢問）", "stages": [3, 5, 7],
+                        "required_by": 99, "reference": "references/adapt/dialogue-first-adaptation.md"},
     # 生圖後端由使用者選，不自行預設：`h3d imagegen --detect` 列出偵測到的工具，`h3d imagegen --set` 寫入（scripts/image_backends.py）。
     "design_engine": {"label": "設定圖生圖工具（一經定案全集鎖定）", "stages": [2], "required_by": 2,
                       "reference": "references/consistency.md"},
@@ -413,8 +415,8 @@ def value_warnings(decision_id: str, value: Any) -> List[str]:
         try:
             narration_policy_of({"decisions": [{"id": "dialogue_policy", "value": value}]})
         except ValueError:
-            out.append(f"dialogue_policy 值 {value!r} 不是 ①–④ 開頭或編譯器政策名；階段 5 編譯會報「無法辨識」，"
-                       "建議改寫成例如「② 只留重點句」")
+            out.append(f"dialogue_policy 值 {value!r} 不是「原著對白優先」、①–④ 開頭或編譯器政策名；階段 5 編譯會報「無法辨識」。"
+                       "台詞政策已固定為「原著對白優先」，通常不需定案")
     return out
 
 
@@ -462,6 +464,7 @@ def parse_value(decision_id: str, raw: str) -> Any:
 NARRATION_POLICY_NAMES = ("short-offscreen-h3", "external", "h3-native")
 DIALOGUE_POLICY_CHOICE_NARRATION = {"④": "external"}
 DIALOGUE_POLICY_NEUTRAL_CHOICES = ("①", "②", "③")
+DEFAULT_DIALOGUE_POLICY = "原著對白優先"  # 固定預設，不詢問；見 references/adapt/dialogue-first-adaptation.md
 
 
 def narration_policy_of(data: Dict[str, Any]) -> Optional[str]:
@@ -474,6 +477,8 @@ def narration_policy_of(data: Dict[str, Any]) -> Optional[str]:
         return None
     if value in NARRATION_POLICY_NAMES:
         return value
+    if value.startswith(DEFAULT_DIALOGUE_POLICY):
+        return None
     head = value[:1]
     if head in DIALOGUE_POLICY_CHOICE_NARRATION:
         return DIALOGUE_POLICY_CHOICE_NARRATION[head]

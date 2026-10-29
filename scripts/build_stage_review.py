@@ -1589,7 +1589,7 @@ def build_stage_0(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
     kpis.append(("成片形式", "短劇短集（使用者選擇）" if fmt == SHORT else "長篇漫劇（預設）", "gold"))
     checklist = [
         f"已確認成片形式：{SERIES_FORMAT_LABELS[fmt]}（短劇短集只在使用者明確要求時啟用）",
-        "已確認台詞政策（① 100%保留 / ② 只留重點句 / ③ 改寫影視對白 / ④ 純旁白）",
+        "台詞政策固定為「原著對白優先」（不詢問；references/adapt/dialogue-first-adaptation.md）",
         "已鎖定全劇唯一畫風錨點（style_anchor）與畫面比例（aspect_ratio）",
     ]
     html_out = wrap_studio_html(

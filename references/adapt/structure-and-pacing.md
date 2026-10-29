@@ -29,7 +29,7 @@
 5. **時間地點轉換**（`time_place_shift`）：換了時空就要有建立鏡頭或字卡（例：「三日後・書院」）。
 
 改編稿每場戲用 `event_exposition: {"U01": ["起因", "經過"]}` 標明替哪個事件交代了什麼；
-`scripts/adapt/event_coverage.py` 逐一對帳，**被壓縮、跳過或交代不全的事件在階段 1 審核頁列給使用者決定**（補鏡頭／接受壓縮／接受刪除），不由 Agent 自行砍掉。
+`scripts/adapt/event_coverage.py` 逐一對帳，**被壓縮、跳過或交代不全的事件由 Agent 依原著補回**，不自行砍掉、也不問使用者。每集長度依台詞預算排（`dialogue-first-adaptation.md` §3）。
 
 ---
 
