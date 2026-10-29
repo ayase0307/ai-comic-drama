@@ -380,7 +380,7 @@ def main() -> int:
         cov = res["event_coverage"]
         if cov["needs_decision"]:
             print(f"【事件交代完整性】{len(cov['needs_decision'])}/{cov['event_count']} 個事件未確認完整交代（交代不全／未標註／被壓縮／被跳過），"
-                  f"需使用者決定：{', '.join(cov['needs_decision'])}（詳見 event_coverage.py）")
+                  f"需 Agent 依原著補回：{', '.join(cov['needs_decision'])}（詳見 event_coverage.py）")
         else:
             print(f"【事件交代完整性】{cov['event_count']} 個事件都已完整交代或依分級處理")
         print("各維度得分明細:")
