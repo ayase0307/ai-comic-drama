@@ -28,6 +28,10 @@
   W46 建議改用母片底四格構圖板（level＝suggestion，永遠不擋、strict 也不升級）：室內固定場景、已驗收母片、≥2 角色有固定
       座位／站位、段內有近景、文戲時建議改用「以場景母片為底重畫的四格構圖板」；武戲、單人、戶外不建議。
       條件與證據見 `board_advisor.py`、`references/storyboard/spatial-consistency.md` §3（方向性、未達 +25 門檻）。
+  D15–D21 鏡間銜接與佔位延續（`transition_lint.py`，全部警告，strict 也不升級；規則見
+      `references/storyboard/shot-transitions.md`）：D15 CUT 段縫差異不足、D16 同主體相鄰鏡差異不足、D17 連 3 鏡同景別、
+      D18 CONT 段縫不符、D19 台詞跨切點沒有 <scenetrans>、D20 相鄰鏡站位對調或漂移沒寫走位、D21 多人鏡缺背景錨點。
+      只在段落有新欄位（seam_in／entry_state／exit_state／shots[].cut_in／shots[].positions）時跑，舊專案零新警告。
 
 豁免：段落 `metadata.staging_waivers`（或段層 `staging_waivers`）：[{"code": "D06", "reason": "…", "quote": "<使用者原話>"}]，
 沒有 quote 不算豁免（例如刻意讓角色對鏡頭說話）。
@@ -48,6 +52,7 @@ for _p in (str(HERE), str(HERE.parent)):
 
 import refcheck  # noqa: E402
 import board_advisor  # noqa: E402
+import transition_lint  # noqa: E402
 
 VIDEO_BACKENDS = ("ref2va", "remix")
 STRICTABLE = ("D06", "D07", "D08")
@@ -55,6 +60,7 @@ TITLES = {
     "D06": "面向鏡頭", "D07": "對話段缺視線句", "D08": "多人鏡缺左到右站位句", "D09": "站位和 positions 不一致",
     "D10": "跨段站位翻轉", "D11": "多人同步動作", "D12": "慢詞", "D13": "全段固定機位", "D14": "多人段沒有 positions",
     **board_advisor.TITLES,
+    **transition_lint.TITLES,
 }
 SUGGESTION_CODES = board_advisor.CODES  # level＝suggestion：只建議，永遠不擋
 
@@ -392,10 +398,17 @@ def lint_segments(segments: List[Dict[str, Any]], backend_of, lexicon=None, stri
         backend = backend_of(seg)
         findings = lint_segment(seg, backend, prev if same_scene else None, lexicon, strict, anchors,
                                 board_ctx=board_ctx)
+        findings += transition_findings(seg, prev if same_scene else None)
         rows.append({"segment_id": seg.get("segment_id"), "backend": backend, "findings": findings,
                      "ok": not any(f["level"] == "error" for f in findings)})
         prev = seg
     return rows
+
+
+def transition_findings(seg: Dict[str, Any], prev: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    """D15–D21（鏡間銜接與佔位延續，transition_lint.py）：全部警告、strict 不升級；沿用 staging_waivers。"""
+    waived, _ = _waived_codes(seg)
+    return [f for f in transition_lint.lint_segment(seg, prev) if f["code"] not in waived]
 
 
 def project_strict(root: Optional[Path]) -> bool:
@@ -427,6 +440,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         prog="h3d staging",
         description="站位／視線／運鏡閘門（PR-R6，兩個 backend 都適用）：D06 面向鏡頭、D07 對話缺視線、D08 多人缺左到右、"
                     "D09 與 positions 不一致、D10 跨段翻轉、D11 同步動作、D12 慢詞、D13 全段固定、D14 remix 多人缺 positions；"
+                    "D15–D21 鏡間銜接與佔位延續（只在有 seam_in／cut_in／逐鏡 positions 等新欄位時跑）；"
                     "W46 建議改用母片底四格構圖板（只建議）。"
                     "預設全部警告；decisions staging_gate=strict（或 --strict）時 D06–D08 擋。")
     ap.add_argument("--root", type=Path, default=Path("."), help="專案根目錄（讀 decisions.json、adapt/bible.json、"

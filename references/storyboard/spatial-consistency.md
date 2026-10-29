@@ -2,6 +2,7 @@
 
 > 來源：老易空間邏輯實驗 2026-10（第一批 70 支、第二批 86 支，REMIX／H3 本機實測；數據與限制見 `docs/experiments/laoyi-spatial-2026-10/README.md`）。
 > 和 `continuity-ledger.md` §3（三種方位）、§4（站位附表）、`consistency.md` §4（場景主圖、多角度分步生成）搭配使用；本檔只補「場景圖和提示詞怎麼一起鎖住空間」。
+> 跨鏡的站位延續（逐鏡 positions、背景錨點、越軸、≤15% 畫寬）與段縫 CUT／CONT 見 `shot-transitions.md` §5；「站位靠圖不靠字」的外部對照（phileiny 同 seed，C）也列在那裡。
 
 ## 證據等級（先讀）
 

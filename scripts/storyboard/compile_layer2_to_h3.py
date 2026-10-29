@@ -77,6 +77,7 @@ try:  # 以 scripts/storyboard 為 sys.path 執行（CLI 慣例）
     import continuity_lint
     import voice_lint
     import creature_lint
+    import transition_lint
 except ImportError:  # pragma: no cover - 套件匯入路徑
     from . import h3_spec
     from . import normalize as normalize_mod
@@ -85,6 +86,7 @@ except ImportError:  # pragma: no cover - 套件匯入路徑
     from . import continuity_lint
     from . import voice_lint
     from . import creature_lint
+    from . import transition_lint
 
 
 # ==============================================================================
@@ -837,6 +839,9 @@ def _apply_en_segment(data: Dict[str, Any], overlay: Dict[str, Any]) -> None:
         end_state = dict(end_state)
         end_state["planned_final_state_en"] = dict(overlay["end_state_en"])
         data["segment_end_state"] = end_state
+    if isinstance(overlay.get("entry_state_en"), dict) and overlay["entry_state_en"]:
+        # CONT 段縫交接塊的英文（shot-transitions.md §4）；只在 seam_in=cont 時寫進提示詞
+        data["entry_state_en"] = dict(overlay["entry_state_en"])
     voices = overlay.get("voice_4d_spec_en") or {}
     if isinstance(voices, dict):
         for shot in data.get("shots", []) or []:
@@ -2404,6 +2409,27 @@ def compile_segment_h3(
     carry_text = continuity_lint.carry_sentence(continuity_lint.english_end_state(previous_end_state)) if previous_end_state else ""
     if previous_end_state and not carry_text:
         notes.append("同場景前一段的 segment_end_state 沒有英文終態，未帶入本段第 1 鏡；請在前段 en_overlay.end_state_en 補英文")
+    # CONT 段縫交接塊（references/storyboard/shot-transitions.md §4）：只在 seam_in=cont 時，
+    # 把 entry_state 寫成第 1 鏡開頭的絕對起始狀態；不寫「承接上一段／同上」，也取代 #133 的前段終態句（避免兩句打架）。
+    handoff_text = ""
+    if str(layer2_data.get("seam_in") or "").strip().lower() == "cont":
+        entry_src = layer2_data.get("entry_state_en") or layer2_data.get("entry_state")
+        if entry_src:
+            def _who(cid: str) -> str:
+                if cid in tag_of:
+                    return tag_of[cid]
+                if re.match(r"^(?:C|CREATURE)-", cid):
+                    return char_info(cid).get("short_en") or cid
+                return cid
+            handoff_text = transition_lint.handoff_block(entry_src, _who)
+            if not handoff_text:
+                notes.append("seam_in=cont 但 entry_state 不是英文或含「承接上一段／同上」這類指代，交接塊沒寫進提示詞；"
+                             "請在 entry_state_en（或 en_overlay.entry_state_en）逐項寫英文絕對狀態")
+            elif carry_text:
+                carry_text = ""
+                notes.append("seam_in=cont：第 1 鏡改用 entry_state 交接塊，不再另帶前段終態句")
+        else:
+            notes.append("seam_in=cont 但沒有 entry_state，第 1 鏡沒有交接塊（D18）")
     det_lines = [det_header]
     tail_hold = style_lock.get("tail_freeze_hold", True)
     final_shot_start = float(shots[-1].get("start_time", 0))
@@ -2685,6 +2711,8 @@ def compile_segment_h3(
             notes.append(f"{s.get('shot_id')} en_overlay.show 是 Ref2VA 的 <Subject N> 可見度句，REMIX 不輸出；可見度請寫進 five_part_en")
         elif _show:
             head += _on_screen_sentence(_show, [(k, c, subject_picture_no[c]) for k, c in enumerate(selected, start=1)])
+        if idx == 1 and handoff_text:
+            head += handoff_text
         if idx == 1 and carry_text:
             head += carry_text
         tail = " The final second holds still before the cut." if (idx == n_shots and tail_hold) else ""
@@ -2879,6 +2907,9 @@ def compile_segment_h3(
         "speaker_ids": speaker_ids,
         "unanchored_in_frame_characters": unanchored_in_frame,
         "segment_end_state": layer2_data.get("segment_end_state"),
+        # 鏡間銜接欄位（選填）：只在 Layer 2 有寫時帶進分段檔，供 h3d staging／compile --check 的 D15–D21
+        **{key: layer2_data[key] for key in ("seam_in", "entry_state", "entry_state_en", "exit_state")
+           if layer2_data.get(key) not in (None, "", {}, [])},
         "carry_previous_end_state": (layer2_data.get("metadata") or {}).get("carry_previous_end_state", True) is not False,
         "compile_notes": notes + [f"參考圖不存在: {p}" for p in missing],
     }
@@ -3098,6 +3129,26 @@ def collect_segment_end_states(
             state["planned_final_state_en"] = dict(overlay["end_state_en"])
         end_states[sid] = state
     return scenes, end_states
+
+
+def load_neighbor_layer2(layer2_files: List[pathlib.Path]) -> Dict[str, Dict[str, Any]]:
+    """D15／D18 用：同目錄 layer2-*.json 依 segment_id 建表（只編部分段時，上一段不在這次輸入）。"""
+    docs: Dict[str, Dict[str, Any]] = {}
+    seen: List[pathlib.Path] = []
+    for path in layer2_files:
+        for cand in [path] + sorted(path.parent.glob("layer2-*.json")):
+            if cand in seen:
+                continue
+            seen.append(cand)
+            try:
+                data = json.loads(cand.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if isinstance(data, dict):
+                sid = str(data.get("segment_id") or data.get("scene_id") or "")
+                if sid:
+                    docs.setdefault(sid, data)
+    return docs
 
 
 def resolve_narration_policy(cli_value: Optional[str], project_root: pathlib.Path) -> str:
@@ -3379,6 +3430,27 @@ def main() -> int:
         for w in shot_res["warnings"]:
             print(f"    [畫面警告] {w}")
         total_warnings += len(shot_res["warnings"])
+
+        # 鏡間銜接與佔位延續 D15–D21（references/storyboard/shot-transitions.md）：只警告；
+        # 只在 Layer 2 有 seam_in／entry_state／exit_state／cut_in／逐鏡 positions 時跑，舊專案零新警告
+        by_sid = {str(seg.get("segment_id")): seg for seg in compiled_results}
+        neighbor_docs: Optional[Dict[str, Dict[str, Any]]] = None
+        transition_warnings: List[str] = []
+        for seg in compiled_results:
+            prev_sid = previous_of.get(str(seg.get("segment_id")))
+            prev_seg = by_sid.get(prev_sid) if prev_sid else None
+            if prev_sid and prev_seg is None and transition_lint.seam_in(seg):
+                if neighbor_docs is None:
+                    neighbor_docs = load_neighbor_layer2(layer2_files)
+                prev_seg = neighbor_docs.get(prev_sid)
+            waived = transition_lint.waived_codes(seg)
+            transition_warnings += [f["message"] for f in transition_lint.lint_segment(seg, prev_seg)
+                                    if f["code"] not in waived]
+        if transition_warnings:
+            print("\n✂️ 鏡間銜接與佔位延續（D15–D21，references/storyboard/shot-transitions.md）")
+        for w in transition_warnings:
+            print(f"    [銜接警告] {w}")
+        total_warnings += len(transition_warnings)
 
         # 逐鏡撰寫審查（防偷懶，references/prompt-authoring.md）：E30–E38 擋、W 提醒
         author_res = prompt_authoring.audit_segments(compiled_results)

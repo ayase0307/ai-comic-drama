@@ -104,6 +104,7 @@ def expand_segments(data: Any) -> tuple[list[dict], bool]:
             "style_lock": style_lock,
             "shots": segment["shots"],
             "continuity_handshake": {},
+            **{key: segment[key] for key in ("seam_in", "entry_state", "exit_state") if key in segment},
             "_compiled_timeline": True,
         })
     return compiled, True
@@ -163,7 +164,52 @@ def format_review_badge(review: dict | None) -> str:
     return f"{badge}{rev_str}"
 
 
-def md_row(shot: dict) -> str:
+CUT_LABELS = {"hard": "硬切", "match_action": "動作匹配", "eyeline": "視線接", "reaction": "反應",
+              "insert": "插入", "scene_change": "換場", "cont": "延續"}
+SEAM_LABELS = {"cut": "CUT（換機位硬切）", "cont": "CONT（同機位技術分段）"}
+
+
+def has_transition_columns(data: dict) -> bool:
+    """有任一鏡寫了 cut_in.type 或逐鏡 positions 才多一欄「接點／站位」；舊分鏡表輸出不變。"""
+    for shot in data.get("shots") or []:
+        cut = shot.get("cut_in") if isinstance(shot, dict) else None
+        if (isinstance(cut, dict) and cut.get("type")) or (isinstance(shot, dict) and shot.get("positions")):
+            return True
+    return False
+
+
+def transition_cell(shot: dict) -> str:
+    cut = shot.get("cut_in") if isinstance(shot.get("cut_in"), dict) else {}
+    parts = []
+    if cut.get("type"):
+        label = CUT_LABELS.get(str(cut["type"]), str(cut["type"]))
+        parts.append(label + (f"：{cut['motivation']}" if cut.get("motivation") else ""))
+    pos = [p for p in shot.get("positions") or [] if isinstance(p, dict) and p.get("id")]
+    if pos:
+        ordered = sorted(pos, key=lambda p: (p.get("order_lr") if isinstance(p.get("order_lr"), int) else 99))
+        parts.append("左→右 " + "、".join(
+            str(p["id"]) + (f"（背後：{p['background_anchor']}）" if p.get("background_anchor") else "") for p in ordered))
+    return "；".join(parts) or "—"
+
+
+def _state_line(label: str, state) -> list[str]:
+    if not isinstance(state, dict) or not any(v not in (None, "", {}, []) for v in state.values()):
+        return []
+    return [f"- {label}：{json.dumps(state, ensure_ascii=False)}"]
+
+
+def seam_lines(data: dict) -> list[str]:
+    """段縫（seam_in）與入口／出口狀態；沒寫就不輸出。"""
+    lines = []
+    seam = str(data.get("seam_in") or "").strip().lower()
+    if seam:
+        lines.append(f"- 段縫：{SEAM_LABELS.get(seam, seam)}")
+    lines += _state_line("入口狀態", data.get("entry_state"))
+    lines += _state_line("出口狀態", data.get("exit_state"))
+    return lines
+
+
+def md_row(shot: dict, with_transition: bool = False) -> str:
     cam = shot["camera_optics"]
     act = shot["action_and_performance"]
     dia = shot["dialogue_and_audio"]
@@ -183,6 +229,8 @@ def md_row(shot: dict) -> str:
         " → ".join(act["action_stages"]),
         dialogue,
     ]
+    if with_transition:
+        cells.insert(4, transition_cell(shot))
     return "| " + " | ".join(_cell(c) for c in cells) + " |"
 
 
@@ -218,6 +266,7 @@ def render_md(data: dict) -> str:
         *review_summary_lines(data),
         f"- 段落：`{data['segment_id']}`（來源場景 `{source}`）",
         *overflow_lines(data),
+        *seam_lines(data),
         f"- 比例：{meta['aspect_ratio']}　時長：{meta['target_duration_sec']} 秒"
         + (f"（有效 {meta['effective_duration_sec']} 秒）" if data.get("_compiled_timeline") else "")
         + f"　節奏：{meta['pacing_profile']}",
@@ -225,10 +274,15 @@ def render_md(data: dict) -> str:
         f"- 風格錨點：{style.get('anchor', '—')}",
         f"- 負向：{style.get('negative', '—')}",
         "",
-        "| 鏡 | 審核 | 草圖 | 時間 | 景別 | 焦段 / 距離 | POV | 運鏡 | 動作階段 | 對白 |",
-        "|---|---|---|---|---|---|---|---|---|---|",
     ]
-    lines += [md_row(shot) for shot in data["shots"]]
+    with_transition = has_transition_columns(data)
+    if with_transition:
+        lines += ["| 鏡 | 審核 | 草圖 | 時間 | 接點／站位 | 景別 | 焦段 / 距離 | POV | 運鏡 | 動作階段 | 對白 |",
+                  "|---|---|---|---|---|---|---|---|---|---|---|"]
+    else:
+        lines += ["| 鏡 | 審核 | 草圖 | 時間 | 景別 | 焦段 / 距離 | POV | 運鏡 | 動作階段 | 對白 |",
+                  "|---|---|---|---|---|---|---|---|---|---|"]
+    lines += [md_row(shot, with_transition) for shot in data["shots"]]
     return "\n".join(lines) + "\n"
 
 

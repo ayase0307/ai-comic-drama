@@ -276,6 +276,39 @@
         }
       }
     },
+    "seam_in": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "cut",
+        "cont",
+        null
+      ],
+      "description": "Optional. 本段和上一段的段縫類型（references/storyboard/shot-transitions.md §1）：cut＝換機位硬切、讓模型重建（D15 三選一閘門）；cont＝同機位技術分段（D18；上段末 1 s 定格無台詞、本段同景別起手＋entry_state 交接塊）。null／省略＝未規劃，D15／D18 不跑。和 continuity_handshake.mode（生成路線）是兩件事。"
+    },
+    "entry_state": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "Optional. 本段 0.0 s 的絕對起始狀態（CONT 段縫交接塊來源）：扁平 {position, facing, distance, momentum, damage, holding, background_anchor, light, sound} 或 {<角色 id>: {同欄位}}。逐項寫，禁寫「承接上一段／同上」（D18）。編譯器只在 seam_in=cont 時把英文值寫進第 1 鏡開頭。"
+    },
+    "entry_state_en": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "Optional. entry_state 的英文版（entry_state 是中文時給編譯器用；也可放在階段 5 en_overlay.entry_state_en）。"
+    },
+    "exit_state": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "Optional. 本段最後一格的狀態，欄位同 entry_state；下一段 seam_in=cont 時 D18 逐欄比對。"
+    },
     "shots": {
       "type": "array",
       "minItems": 1,
@@ -548,6 +581,15 @@
               },
               "axis_side": {
                 "type": "string"
+              },
+              "azimuth_deg": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 360,
+                "description": "Optional. 機位方位角（度，世界座標，0＝本場主軸正面，順時針）。D15（≥90°）／D16（≥30°）算角度差用；沒填就只能看主體與景別"
               }
             }
           },
@@ -702,6 +744,76 @@
               },
               "foley_and_ambience": {
                 "type": "string"
+              }
+            }
+          },
+          "cut_in": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Optional. 這一刀怎麼切進本鏡（shot-transitions.md §2）。第 1 鏡可省略，段縫看段層 seam_in。",
+            "properties": {
+              "type": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "hard",
+                  "match_action",
+                  "eyeline",
+                  "reaction",
+                  "insert",
+                  "scene_change",
+                  "cont",
+                  null
+                ]
+              },
+              "motivation": {
+                "type": "string",
+                "description": "切的動機：新資訊／視線／動作／聲音；越軸或換位時寫轉折理由（D20 會讀）"
+              }
+            }
+          },
+          "positions": {
+            "type": "array",
+            "description": "Optional. 逐鏡站位（世界座標＋畫面座標雙層，shot-transitions.md §5）。D20 比相鄰鏡左右順序、世界位置、硬切畫面位置；D21 要每人 background_anchor。",
+            "items": {
+              "type": "object",
+              "required": [
+                "id"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "order_lr": {
+                  "type": "integer",
+                  "description": "本機位畫面左到右順序，1＝最左"
+                },
+                "facing": {
+                  "type": "string",
+                  "description": "朝向／視線所在邊，例 frame_right、toward C-02；toward＝朝鏡頭（D06）"
+                },
+                "background_anchor": {
+                  "type": "string",
+                  "description": "此人身後最可辨識的背景物（背景錨點鎖，D21）"
+                },
+                "world": {
+                  "type": "string",
+                  "description": "世界座標（相對門窗桌，換機位不變）"
+                },
+                "screen_x": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1,
+                  "description": "畫面水平位置 0＝左緣、1＝右緣；硬切同主體差 >0.15 時 D20 提醒"
+                },
+                "move": {
+                  "type": "string",
+                  "description": "本鏡的走位（有寫就不報 D20）"
+                }
               }
             }
           }

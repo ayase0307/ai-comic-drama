@@ -13,6 +13,8 @@ references/storyboard/templates/layer2-storyboard.schema.json。
 - 單鏡估時超過 10~15 秒（H3 單鏡上限）的對白，依標點切成多鏡（找不到標點就切中間字），串接後與原文相同。
 - 場景依序切段，每段預設 ≤ 3 鏡且估時 ≤ 10 秒；段名 <scene_id>-a…-z、-aa、-ab…，跨段預設採 INDEPENDENT_REF2VA 獨立分段。
 - 動作階段預填【施力點 ➔ 傳導路徑 ➔ 受擊與環境反饋】三要素模板，連戲預填四大錨點（lighting/axis/blocking/texture）。
+- 鏡間銜接欄位留空（seam_in=null、entry_state／exit_state={}、每鏡 cut_in={type: null}、positions=[]），
+  導演依 references/storyboard/shot-transitions.md 填；留空時 D15–D21 一條都不跑。
 - 鏡頭語言、動作階段、光線鎖、風格鎖等標 TODO，導演須依情節重寫；
   validate_storyboard.py 與 layer2_to_table.py --check 遇到 TODO 一律失敗。
 - 動作拍的順序為先動作後對白（handoff 未提供兩者的先後關係）。
@@ -390,6 +392,9 @@ def make_shot(item: dict, shot_id: str, start: float, duration: float,
             "observable_expression_en": f"{TODO}: observable expression in English",
         },
         "dialogue_and_audio": audio,
+        # 鏡間銜接（選填，references/storyboard/shot-transitions.md）：空值＝未規劃，D16–D21 不跑
+        "cut_in": {"type": None, "motivation": ""},
+        "positions": [],
     }
 
 
@@ -459,6 +464,10 @@ def build_layer2(handoff: dict, scene: dict, seg_id: str, chunk: list[dict],
             "lighting_lock_line": TODO,
         },
         "continuity_handshake": handshake,
+        # 段縫（選填）：seam_in＝cut／cont；cont 時要 entry_state，上一段要 exit_state（shot-transitions.md §3–§4）
+        "seam_in": None,
+        "entry_state": {},
+        "exit_state": {},
         "shots": build_shots(chunk, seg_id, scene, char_map),
         "segment_end_state": {"planned_final_state": planned},
     }

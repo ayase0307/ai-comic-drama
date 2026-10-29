@@ -137,7 +137,7 @@
 > **使用者原話 1**：「我是說這個劇情就直接重新寫分鏡，所謂的重新寫，**就是不考慮接續首幀的意思，每一個片段都是獨立去寫 ref2va**，頂多考慮站位以及角度等等，而不是像你這樣硬改」  
 > **使用者原話 2**：「這種開場基本上算是靜幀的背面，就可以使用首幀動畫，去維持畫風……但如果是剛剛那種一開始是風景的，因為我們本來就有場景參考圖，所以還是用 ref2va」  
 > **使用者原話 3（第五輪首幀失敗判定）**：「多人背影段也算失敗，那個畫風跟其他片段差距過大」
-- **✅ 已驗證有效（主力定案）**：**每段獨立走 `Ref2VA`**（各自帶場景＋角色設定圖），不使用尾幀續接 `continue_from`（因 FreeVideo API `references` 與 `first/last` 互斥報 422，續接段 0 張角色參考圖會退化為通用塑膠卡通臉）。連戲靠企劃階段寫死四大錨點（**光線、軸線、站位、材質**）與設計「靜止、夠寬、留白」的收尾交接格。
+- **✅ 已驗證有效（主力定案）**：**每段獨立走 `Ref2VA`**（各自帶場景＋角色設定圖），不使用尾幀續接 `continue_from`（因 FreeVideo API `references` 與 `first/last` 互斥報 422，續接段 0 張角色參考圖會退化為通用塑膠卡通臉）。連戲靠企劃階段寫死四大錨點（**光線、軸線、站位、材質**）與設計「靜止、夠寬、留白」的收尾交接格。段縫 CUT／CONT 分流、交接塊與逐鏡站位見 `references/storyboard/shot-transitions.md`（外部「H3 尾幀當參考」實測與本定案衝突，並列在該檔 §4.3，待 E1，定案不變）。
 - **❌ 已驗證失敗／⚠️ 尚未驗證（重要警示）**：**「用外部圖片模型（GPT Image / Qwen-Image）先生成彩色首幀再送 H3 I2VA」混在純 Ref2VA 片段中已驗證失敗**，因為兩個引擎兩種畫風，會造成嚴重畫風割裂（使用者亦明確不採用「先用 Qwen-Image-Edit 做 still 再進 H3」）。若要嘗試首幀流程，必須「整部片全部統一用同一個圖片模型生首幀」或「先與既有 H3 片段並排對照畫風通過」，嚴禁單看首幀漂亮就誤判成功！因此階段 6 的 `--to-color-keyframe` 標註為「⚠️ 選用實驗功能（需全片統一畫風並排驗證）」，而將 Qwen 黑白鉛筆分鏡總覽圖定位為「✅ 階段 4 視覺化構圖與佔位審核工具」。
 
 #### 定案 3【參考圖張數與角色平均化現象】
@@ -207,7 +207,7 @@ H3 的聲音與畫面在同一次 forward 生成，輸出是**單一 32 kHz 立�
 - `references/tooling.md` — **產線工具（`h3d`）與四道確定性檢查**：一個入口、時長量子（17n+5）、證據分級（VERIFIED／PARTIAL／UNVERIFIED 與階段 6 閘門）、segment 級依賴帳本（`deps --record／--status`）、失敗目錄與 ack 憑證流程、provider 能力表、常見錯誤訊息 → 處置。**跑任何指令前先讀這頁。**
 - `references/pipeline.md` — 八階段詳細流程、提問清單與各階段模板；階段 7 含聲音三層決策（畫內對白／畫外音／全片外部聲景）、配音先行與時長對軸、TTS 引擎盤點與混音響度交付標準（EBU R128 / ATSC A/85 / Netflix）。
 - `references/adapt/` — **小說改編（階段 1、3）**：`novel-to-manju.md` 為總規範（10 階段、6 題材模式、四道退稿閘門、100 分制），其餘為原則、故事聖經、結構節奏、劇本格式、視覺寫作、對白、可拍性、分鏡交接、授權證據各篇，`templates/` 含交接 JSON Schema。腳本在 `scripts/adapt/`（附 10 個測試案例）。
-- `references/storyboard/` — **導演分鏡（階段 4）**：`cinematic-director.md` 為總規範（v2.0），含三步法、焦距物距光學、漫劇分鏡總覽圖與連戲狀態機、武戲 90° 與多模型編譯；`combat-and-vfx-library.md`（高階武戲連招、玄幻大招五段鏈與 11 大戰場拓撲）；`acting-and-emotion-library.md`（邁斯納行為表演法、言行反差、10 大景別句型與 4D 配音）；`spatial-consistency.md`（場景母片、牆面分配層、構圖板店感鎖、白模分工三檔）；`templates/` 含 Layer 2 JSON Schema。腳本在 `scripts/storyboard/`。
+- `references/storyboard/` — **導演分鏡（階段 4）**：`cinematic-director.md` 為總規範（v2.0），含三步法、焦距物距光學、漫劇分鏡總覽圖與連戲狀態機、武戲 90° 與多模型編譯；`combat-and-vfx-library.md`（高階武戲連招、玄幻大招五段鏈與 11 大戰場拓撲）；`acting-and-emotion-library.md`（邁斯納行為表演法、言行反差、10 大景別句型與 4D 配音）；`spatial-consistency.md`（場景母片、牆面分配層、構圖板店感鎖、白模分工三檔）；`shot-transitions.md`（鏡間銜接與佔位延續單一入口，D15–D21）；`templates/` 含 Layer 2 JSON Schema。腳本在 `scripts/storyboard/`。
 - `references/consistency.md` — **資產與一致性規範**：ID、角色設定板（洋子鎖臉規範）、生物怪獸三視圖規範、場景、道具、**音色鎖雙軌（`V-<slug>` ＋ 外部 TTS 固定聲線）**、多模態素材職責表（含**整板查表模式** `reference_view: "panel"` ＋ `panel_label_en`）、複製人防線三定律與門禁對照（E19–E27）、漂移偵測與修復、驗收門、待驗證清單。階段 2、6 必讀。
 - `references/styles.md` — **漫劇風格鎖定錨**：十餘種主流風格的錨定詞、負面錨、色盤與同角色樣圖。階段 0 選風格時讀。
 - `references/freevideo.md` — **建議搭配 FreeVideo**：連線步驟、規則、與八階段的對應。階段 6 先讀這份。

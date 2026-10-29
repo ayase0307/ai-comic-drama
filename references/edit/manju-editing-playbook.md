@@ -96,6 +96,8 @@ ffmpeg -y -i ep.mp4 -vf "trim=0:END,setpts=PTS-STARTPTS,tpad=stop_mode=add:stop_
 | J-cut／L-cut | 拖音訊軌前後多出一截 | 聲音先到／聲音延續；零成本高級感 | — | S11 |
 | Zoom／Shake 類 | CapCut：Zoom Shake 2、Blur & Zoom、Tremble Zoom | 能量轉場 | 8–20 影格（CapCut 官方建議） | S10 |
 
+- 分鏡層怎麼接（段內切、段縫 CUT／CONT、站位延續）見 `references/storyboard/shot-transitions.md`；剪點細節摘要：對白上一句結束 ≤6 幀下刀、下一位開口前留約 8 幀（Barry Salt 量測，A）；台詞 L-cut 延到反應鏡；CONT 段縫剪掉上段末 1 秒定格；H3 跨切點曝光會跳，剪前逐段 shot-match 調色（phileiny，C；提示詞寫「曝光一致」無效）。詳見該檔 §6。
+
 ### 2.2 何時不用
 
 - **翻頁、旋轉、百葉窗、菱形這類花俏轉場一律不用**（S12）；Spin／Glitch／3D Cube 當特效不當轉場，「最多一次、有理由」（推論，與 S11 紀律一致）。

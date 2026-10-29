@@ -8,6 +8,12 @@
 
 ## [未發布]
 
+### 新增
+- 鏡間銜接與佔位延續（文件、分鏡欄位、D15–D21 警告）：新增單一入口 `references/storyboard/shot-transitions.md`（接點分類段內切／段縫 CUT／CONT、段內切規則、CUT 三選一閘門、CONT 交接塊、逐鏡站位與背景錨點、剪輯剪點、E1–E3 待 H3 驗證；每條標外部證據等級 A–D 與來源）；Layer 2 選填欄位 `seam_in`（cut／cont）、`entry_state`／`entry_state_en`／`exit_state`、`shots[].cut_in {type, motivation}`、逐鏡 `shots[].positions`（`order_lr`、`facing`、`background_anchor`、`world`、`screen_x`、`move`）、`camera_optics.azimuth_deg`；`handoff_to_skeleton.py` 產空欄、`layer2_to_table.py` 有值才多一欄「接點／站位」與段縫列；`compile` 只在 `seam_in=cont` 時把英文 `entry_state` 寫成第 1 鏡開頭交接塊（ref2va／remix 都支援，取代該段的前段終態句；中文或「同上」類指代只留 compile note）；新 lint `scripts/storyboard/transition_lint.py` D15 CUT 段縫差異不足、D16 同主體相鄰鏡差異不足、D17 連 3 鏡同景別、D18 CONT 段縫不符、D19 台詞跨切點沒有 `<scenetrans>`、D20 相鄰鏡站位對調或漂移沒寫走位、D21 多人鏡缺背景錨點，併入 `h3d staging` 與 `compile --check`，全部警告（strict 不升級）、可用 `staging_waivers` 豁免；欄位缺時不跑，舊專案零新警告。
+
+### 變更
+- `continuity-ledger.md` §6、`anime-drama-grid-and-continuity.md` 三.2、`consistency.md` 收尾交接格、`spatial-consistency.md`、`edit/manju-editing-playbook.md` §2 改成短摘要並指向 `shot-transitions.md`；`SKILL.md`、`skill-guide.md`、`pipeline.md` 階段 4（新 4.1b）、`tooling.md`（staging 檢查表加 D15–D21 與證據等級）加入口。「每段獨立、不用尾幀」定案不變，外部尾幀實測衝突並列待 E1。`references/h3/` 上游同步檔未動。
+
 ## [0.10.0] - 2026-10-28
 
 移除免生圖 SVG 構圖（破壞性）；生圖後端改由使用者選擇；新增構圖板自動建議 W46。

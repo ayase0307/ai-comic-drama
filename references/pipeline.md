@@ -235,6 +235,13 @@ python scripts/adapt/compare_adaptation.py --source adapt/source.json --script s
   2. **分段計畫表**（生成調度單位，每段 7–10 秒、2–3 鏡）：標明自足開場、連戲四大錨點與收尾交接格，**先交人類審核通過**；
   3. **H3 `[Shot N]`**（生成單位）：編譯為符合 H3 時間網格之 prompt。
 
+### 4.1b 鏡間銜接與佔位延續（入口：`references/storyboard/shot-transitions.md`）
+
+- 段內每一刀寫 `shots[].cut_in`（hard／match_action／eyeline／reaction／insert／scene_change），同主體相鄰鏡角度 ≥30° 或景別跳 ≥2 級、不連 3 鏡同景別、時間只往前。
+- 同場段縫標 `seam_in`：預設 **cut**（上段末鏡 vs 本段首鏡：主體不同／景別差 ≥2／角度差 ≥90° 三選一）；動作或台詞真的被拆開才用 **cont**（上段末 1 s 定格無台詞、本段同景別起手、`entry_state` 交接塊，上一段寫 `exit_state`）。不改「每段獨立、不用尾幀」定案。
+- 多人鏡寫逐鏡 `positions`（`order_lr`、`facing`、`background_anchor`，選填 `world`、`screen_x`、`move`）；越軸先插軸上鏡或寫畫內轉折。
+- 檢查：`h3d staging`／`compile --check` 的 D15–D21，全部只警告；欄位留空時不跑（`handoff_to_skeleton.py` 產空欄）。
+
 ### 4.2 鏡頭調度防禦性規範（避開 H3 弱項陷阱）
 
 > **【定案 4 核心引用】使用者原話**：  
