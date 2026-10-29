@@ -55,12 +55,12 @@ from event_coverage import required_beats
 
 # 各題材預設語速區間（字/秒）：[慢速/沉澱 R_min, 快速/緊湊 R_max]
 GENRE_SPEECH_RATES: Dict[str, Tuple[float, float]] = {
-    "xuanhuan_revenge": (3.6, 4.4),
-    "romance_emotional": (3.0, 3.8),
-    "mystery_thriller": (3.1, 3.9),
+    "xuanhuan_revenge": (4.2, 5.2),
+    "romance_emotional": (4.3, 5.5),
+    "mystery_thriller": (4.0, 5.0),
     "comedy_slice_of_life": (3.8, 4.5),
-    "wuxia_action": (3.4, 4.2),
-    "healing_literary": (2.8, 3.5),
+    "wuxia_action": (4.2, 5.2),
+    "healing_literary": (3.8, 4.5),
 }
 
 _ASCII_PUNCT = frozenset(string.punctuation)
@@ -135,11 +135,16 @@ def estimate_script_duration(
                     f"單句發音字數為 {c_count} 字（超過 28 字 10 秒單鏡安全線，建議拆句或切反應鏡頭）"
                 )
 
-            # H3 實戰台詞預算檢查：單句發音字數 ≤ 15 字
-            if h3_mode and c_count > 15:
+            # H3 實戰台詞預算檢查（v2）：單氣口建議 ≤18 字，硬上限 25 字
+            if h3_mode and c_count > 35:
+                errors.append(
+                    f"[H3_LINE_HARD_LIMIT] 第 {dlg['line_no']} 行 ({sc['scene_num']} {dlg['speaker']}): "
+                    f"單句發音字數為 {c_count} 字（超過硬上限 35 字，必須拆句）"
+                )
+            elif h3_mode and c_count > 18:
                 warnings.append(
                     f"[H3_LINE_TOO_LONG] 第 {dlg['line_no']} 行 ({sc['scene_num']} {dlg['speaker']}): "
-                    f"單句發音字數為 {c_count} 字（超過 H3 建議上限 15 字，易引發加速講話或吞字，建議拆為短句或切特寫反應）"
+                    f"單句發音字數為 {c_count} 字（超過建議 18 字，建議拆為短句或切特寫反應）"
                 )
 
             # 發音時間 + 基礎氣口
@@ -175,14 +180,20 @@ def estimate_script_duration(
     mid_seconds = round((total_min + total_max) / 2.0, 1)
 
     # H3 實戰台詞預算指標計算
-    h3_speech_seconds = round(total_spoken_chars / 4.0, 1)
+    h3_speech_seconds = round(total_spoken_chars / 4.5, 1)
     base_dur = target_seconds if (target_seconds and target_seconds > 0) else mid_seconds
     h3_speech_ratio = round(h3_speech_seconds / base_dur, 3) if base_dur > 0 else 0.0
 
-    if h3_mode and h3_speech_ratio > 0.60:
+    # v2：文戲說話佔比目標 60–75%；>80% 才 WARN（只警告不擋）；過低也警告
+    if h3_mode and h3_speech_ratio > 0.80:
         warnings.append(
             f"[H3_SPEECH_RATIO_EXCEEDED] H3 純說話秒數佔比達 {h3_speech_ratio:.1%} "
-            f"({h3_speech_seconds}s/{base_dur}s)，超過 H3 漫劇鐵律上限 60%（建議精簡台詞或增加畫面動作空白）"
+            f"({h3_speech_seconds}s/{base_dur}s)，超過 80%（目標 60–75%；建議切反應鏡或插動作拍）"
+        )
+    elif h3_mode and h3_speech_ratio < 0.60:
+        warnings.append(
+            f"[H3_SPEECH_RATIO_LOW] H3 純說話秒數佔比僅 {h3_speech_ratio:.1%} "
+            f"({h3_speech_seconds}s/{base_dur}s)，低於目標 60–75%（畫面可能大量無人說話，檢查空白與無台詞鏡）"
         )
 
     budget_status = "PASS"
@@ -235,7 +246,7 @@ def estimate_script_duration(
             "speech_seconds": h3_speech_seconds,
             "speech_ratio": h3_speech_ratio,
             "max_line_chars": max_single_line_chars,
-            "passed": (h3_speech_ratio <= 0.60 and max_single_line_chars <= 15),
+            "passed": (h3_speech_ratio <= 0.80 and max_single_line_chars <= 35),
         },
         "scenes": scene_estimates,
         "compression_advice": compression_advice,

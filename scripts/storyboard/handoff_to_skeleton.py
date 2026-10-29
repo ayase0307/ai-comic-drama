@@ -39,8 +39,9 @@ HANDOFF_SCHEMA = ROOT / "references/adapt/templates/handoff.schema.json"
 
 DEFAULT_MAX_SHOTS = 3
 DEFAULT_MAX_SEGMENT_SEC = 10.0
-CHARS_PER_SEC = 4.0
-MIN_DIALOGUE_SEC = 2.5
+CHARS_PER_SEC = 4.5
+MIN_DIALOGUE_SEC = 1.2  # v2：實際窗口＝字數/CHARS_PER_SEC＋DIALOGUE_PAD_SEC，下限 1.2
+DIALOGUE_PAD_SEC = 0.3
 MAX_SHOT_SEC = 15.0  # H3 單鏡上限
 ACTION_SHOT_SEC = 2.5
 ASPECT_MAP = {"9:16": "9:16", "16:9": "16:9", "other": "16:9"}
@@ -161,8 +162,8 @@ def segment_sort_key(segment_id: str) -> tuple:
 
 
 def dialogue_seconds(text: str) -> float:
-    """對白鏡秒數 = 字數 ÷ 4.0，至少 2.5 秒（確保 H3 窗口足夠）。"""
-    return round(max(MIN_DIALOGUE_SEC, count_speech_chars(text) / CHARS_PER_SEC), 2)
+    """對白鏡秒數 = 字數 ÷ 4.5 ＋ 0.3 秒，至少 1.2 秒（v2）。"""
+    return round(max(MIN_DIALOGUE_SEC, count_speech_chars(text) / CHARS_PER_SEC + DIALOGUE_PAD_SEC), 2)
 
 
 def split_long_line(text: str, max_sec: float = MAX_SHOT_SEC) -> list[str]:
