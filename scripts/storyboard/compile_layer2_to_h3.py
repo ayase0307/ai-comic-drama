@@ -2430,6 +2430,15 @@ def compile_segment_h3(
                 notes.append("seam_in=cont：第 1 鏡改用 entry_state 交接塊，不再另帶前段終態句")
         else:
             notes.append("seam_in=cont 但沒有 entry_state，第 1 鏡沒有交接塊（D18）")
+    # 拋棄式前導（選用、預設關；shot-transitions.md §4.4）：lead_in_s>0 時第 1 鏡開頭寫「前導期間靜止」，
+    # 階段 7 assemble 依 lead_in_s 自動剪掉這段；沒寫 lead_in_s 時提示詞不變。
+    lead_in_s = transition_lint.lead_in_seconds(layer2_data)
+    lead_in_text = transition_lint.lead_in_block(lead_in_s) if lead_in_s else ""
+    if lead_in_s:
+        first_dur = float(shots[0].get("end_time", 0) or 0) - float(shots[0].get("start_time", 0) or 0)
+        if lead_in_s > 2.0 or (first_dur and lead_in_s >= first_dur):
+            notes.append(f"lead_in_s={lead_in_s:g} 太長（建議 0.5–1.5 s，且要短於第 1 鏡 {first_dur:g} s）；"
+                         "前導會被 assemble 剪掉，記得段長要多留這段時間")
     det_lines = [det_header]
     tail_hold = style_lock.get("tail_freeze_hold", True)
     final_shot_start = float(shots[-1].get("start_time", 0))
@@ -2713,6 +2722,8 @@ def compile_segment_h3(
             head += _on_screen_sentence(_show, [(k, c, subject_picture_no[c]) for k, c in enumerate(selected, start=1)])
         if idx == 1 and handoff_text:
             head += handoff_text
+        if idx == 1 and lead_in_text:
+            head += lead_in_text
         if idx == 1 and carry_text:
             head += carry_text
         tail = " The final second holds still before the cut." if (idx == n_shots and tail_hold) else ""
@@ -2908,7 +2919,8 @@ def compile_segment_h3(
         "unanchored_in_frame_characters": unanchored_in_frame,
         "segment_end_state": layer2_data.get("segment_end_state"),
         # 鏡間銜接欄位（選填）：只在 Layer 2 有寫時帶進分段檔，供 h3d staging／compile --check 的 D15–D21
-        **{key: layer2_data[key] for key in ("seam_in", "entry_state", "entry_state_en", "exit_state")
+        **{key: layer2_data[key] for key in ("seam_in", "entry_state", "entry_state_en", "exit_state",
+                                             "narrative_scene_id", "beats_done", "beats_new", "lead_in_s")
            if layer2_data.get(key) not in (None, "", {}, [])},
         "carry_previous_end_state": (layer2_data.get("metadata") or {}).get("carry_previous_end_state", True) is not False,
         "compile_notes": notes + [f"參考圖不存在: {p}" for p in missing],
@@ -3431,25 +3443,51 @@ def main() -> int:
             print(f"    [畫面警告] {w}")
         total_warnings += len(shot_res["warnings"])
 
-        # 鏡間銜接與佔位延續 D15–D21（references/storyboard/shot-transitions.md）：只警告；
-        # 只在 Layer 2 有 seam_in／entry_state／exit_state／cut_in／逐鏡 positions 時跑，舊專案零新警告
+        # 鏡間銜接與佔位延續 D15–D24（references/storyboard/shot-transitions.md）：D21 只建議、其餘警告；
+        # 只在 Layer 2 有 seam_in／entry_state／exit_state／beats／cut_in／逐鏡 positions 時跑，舊專案零新警告。
+        # 同場前一段依 narrative_scene_id → source_scene_id → scene_id 找（一段一個場景包時 scene_id 不同不代表換場），
+        # lint 用「Layer 2 原檔＋編譯結果」合併的視圖（ledger_in／out、source_scene_id 只在 Layer 2）。
         by_sid = {str(seg.get("segment_id")): seg for seg in compiled_results}
-        neighbor_docs: Optional[Dict[str, Dict[str, Any]]] = None
+        neighbor_docs = load_neighbor_layer2(layer2_files)
+
+        def _view(sid: str) -> Optional[Dict[str, Any]]:
+            doc, comp = neighbor_docs.get(sid), by_sid.get(sid)
+            if doc is None and comp is None:
+                return None
+            return {**(doc or {}), **(comp or {})}
+
+        trans_scene = {sid: transition_lint.scene_key(_view(sid)) for sid in set(neighbor_docs) | set(by_sid)}
+        trans_prev_of = continuity_lint.previous_segment_map(trans_scene.items())
+        ordered_by_scene: Dict[str, List[str]] = {}
+        for sid in sorted(trans_scene, key=continuity_lint.segment_sort_key):
+            if trans_scene[sid]:
+                ordered_by_scene.setdefault(str(trans_scene[sid]), []).append(sid)
         transition_warnings: List[str] = []
+        transition_suggestions: List[str] = []
         for seg in compiled_results:
-            prev_sid = previous_of.get(str(seg.get("segment_id")))
-            prev_seg = by_sid.get(prev_sid) if prev_sid else None
-            if prev_sid and prev_seg is None and transition_lint.seam_in(seg):
-                if neighbor_docs is None:
-                    neighbor_docs = load_neighbor_layer2(layer2_files)
-                prev_seg = neighbor_docs.get(prev_sid)
-            waived = transition_lint.waived_codes(seg)
-            transition_warnings += [f["message"] for f in transition_lint.lint_segment(seg, prev_seg)
-                                    if f["code"] not in waived]
-        if transition_warnings:
-            print("\n✂️ 鏡間銜接與佔位延續（D15–D21，references/storyboard/shot-transitions.md）")
+            sid = str(seg.get("segment_id"))
+            view = _view(sid) or seg
+            prev_sid = trans_prev_of.get(sid)
+            prev_view = _view(prev_sid) if prev_sid else None
+            if prev_view is not None and not transition_lint.same_scene(prev_view, view):
+                prev_view = None
+            seen: Dict[str, str] = {}
+            for earlier in ordered_by_scene.get(str(trans_scene.get(sid) or ""), []):
+                if earlier == sid:
+                    break
+                if earlier != prev_sid and _view(earlier):
+                    transition_lint.record_beats(seen, _view(earlier))
+            waived = transition_lint.waived_codes(view)
+            for f in transition_lint.lint_segment(view, prev_view, seen):
+                if f["code"] in waived:
+                    continue
+                (transition_suggestions if f["level"] == "suggestion" else transition_warnings).append(f["message"])
+        if transition_warnings or transition_suggestions:
+            print("\n✂️ 鏡間銜接與佔位延續（D15–D24，references/storyboard/shot-transitions.md）")
         for w in transition_warnings:
             print(f"    [銜接警告] {w}")
+        for w in transition_suggestions:
+            print(f"    [銜接建議] 💡 {w}")
         total_warnings += len(transition_warnings)
 
         # 逐鏡撰寫審查（防偷懶，references/prompt-authoring.md）：E30–E38 擋、W 提醒

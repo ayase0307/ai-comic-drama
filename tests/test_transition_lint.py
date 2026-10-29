@@ -191,9 +191,13 @@ class D20D21PositionTests(unittest.TestCase):
                  pos=self.pos(["C1", "C2"], world={"C1": "窗邊", "C2": "門口"}, xs={"C1": 0.3, "C2": 0.95}))
         found = tl.lint_segment(seg("S", [a, b]))
         msgs = " ".join(f["message"] for f in found)
-        self.assertEqual(codes(found), ["D20", "D20"])
+        self.assertEqual(codes(found), ["D20"])  # 硬切的畫面位置漂移不再查（第二輪：只在動作匹配時查）
         self.assertIn("世界位置改變", msgs)
-        self.assertIn("15% 畫寬", msgs)
+        b["cut_in"]["type"] = "match_action"
+        b["camera_optics"]["shot_size"] = "MCU"  # 和 MS 差 1 級
+        found = tl.lint_segment(seg("S", [a, b]))
+        self.assertEqual(codes(found), ["D20", "D20"])
+        self.assertIn("15% 畫寬", " ".join(f["message"] for f in found))
         b["positions"] = self.pos(["C1", "C2"], world={"C1": "桌東", "C2": "門口"}, xs={"C1": 0.35, "C2": 0.75})
         self.assertEqual(tl.lint_segment(seg("S", [a, b])), [])
 

@@ -44,6 +44,14 @@ try:  # ffmpeg／ffprobe 位置（AICD_FFMPEG／AICD_FFPROBE 可覆寫）
 except ImportError:  # pragma: no cover - 套件匯入路徑
     from . import media_tools
 
+try:  # 拋棄式前導秒數 lead_in_s（shot-transitions.md §4.4）
+    import transition_lint
+except ImportError:  # pragma: no cover - 套件匯入路徑
+    try:
+        from . import transition_lint
+    except ImportError:
+        transition_lint = None  # type: ignore[assignment]
+
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 if hasattr(sys.stderr, "reconfigure"):
@@ -331,10 +339,29 @@ def process_single_segment(
     burn_subtitles: bool = True,
     temp_dir: Optional[Path] = None,
     audio_required: bool = False,
+    lead_in_s: float = 0.0,
 ) -> Tuple[bool, str]:
-    """針對單個分段執行 TTS 生成、adelay 混音與字幕燒錄。"""
+    """針對單個分段執行 TTS 生成、adelay 混音與字幕燒錄。
+
+    lead_in_s>0（拋棄式前導，shot-transitions.md §4.4）：先剪掉片頭 lead_in_s 秒，台詞時間窗一併前移；
+    輸出長度＝seg_duration − lead_in_s。預設 0＝不剪，行為與舊版相同。
+    """
     t_dir = temp_dir or (out_video.parent / "tmp_audio")
     t_dir.mkdir(parents=True, exist_ok=True)
+    lead = float(lead_in_s or 0.0)
+    if lead < 0 or (lead and lead >= seg_duration):
+        return False, f"lead_in_s={lead:g} 無效（要 ≥0 且短於分段 {seg_duration:.3f}s）"
+    source_duration = seg_duration
+    if lead:
+        shifted = []
+        for item in lines_info:
+            st = float(item.get("start", 0.0)) - lead
+            et = float(item.get("end", float(item.get("start", 0.0)) + 2.5)) - lead
+            if et <= 0:
+                continue  # 整句落在前導裡（前導本來就不該有台詞）：不上字幕、不配音
+            shifted.append({**item, "start": max(0.0, st), "end": et})
+        lines_info = shifted
+        seg_duration = source_duration - lead
 
     # 1. 生成字幕 SRT
     srt_file = t_dir / f"{in_video.stem}.srt"
@@ -389,8 +416,8 @@ def process_single_segment(
         return False, f"無法讀取來源影片規格: {exc}"
     if not source_specs.get("has_video"):
         return False, f"來源影片沒有 video stream: {in_video}"
-    if abs(float(source_specs.get("duration", 0)) - seg_duration) > 0.1:
-        return False, f"來源影片時長 {source_specs.get('duration', 0):.3f}s 與預期分段 {seg_duration:.3f}s 相差超過 0.1s"
+    if abs(float(source_specs.get("duration", 0)) - source_duration) > 0.1:
+        return False, f"來源影片時長 {source_specs.get('duration', 0):.3f}s 與預期分段 {source_duration:.3f}s 相差超過 0.1s"
     has_native_audio = bool(source_specs.get("has_audio"))
     if audio_required and audio_mode == "native_sub" and not has_native_audio:
         return False, "分鏡要求音訊，但來源影片沒有音訊流"
@@ -409,6 +436,10 @@ def process_single_segment(
 
     # 原生音軌降音量只會降低其中的語音與環境音；不會分離或移除原生人聲。
     filter_complex_parts = []
+    trim_v = f"trim=start={lead:.6f},setpts=PTS-STARTPTS" if lead else ""
+    trim_a = f"atrim=start={lead:.6f},asetpts=PTS-STARTPTS," if lead else ""
+    if trim_v:
+        v_filter = trim_v + ("," + v_filter if v_filter else "")
     if v_filter:
         filter_complex_parts.append(f"[0:v]{v_filter}[vout]")
 
@@ -416,7 +447,7 @@ def process_single_segment(
         mix_inputs = []
         mix_native_audio = has_native_audio and audio_mode == "tts_replace"
         if mix_native_audio:
-            filter_complex_parts.append(f"[0:a]aresample=48000,volume={bg_volume}[native]")
+            filter_complex_parts.append(f"[0:a]{trim_a}aresample=48000,volume={bg_volume}[native]")
             mix_inputs.append("[native]")
         for i, (_, delay_ms) in enumerate(tts_tracks, 1):
             # adelay 的 all=1 才是單聲道來源的安全寫法；用 "|" 只對雙聲道有效。
@@ -432,7 +463,7 @@ def process_single_segment(
             f"[mixed]apad,atrim=duration={seg_duration:.6f}[aout]"
         )
     elif has_native_audio:
-        filter_complex_parts.append(f"[0:a]aresample=48000,apad,atrim=duration={seg_duration:.6f}[aout]")
+        filter_complex_parts.append(f"[0:a]{trim_a}aresample=48000,apad,atrim=duration={seg_duration:.6f}[aout]")
 
     if filter_complex_parts:
         cmd.extend(["-filter_complex", ";".join(filter_complex_parts)])
@@ -959,8 +990,14 @@ def main() -> int:
             seg_dur = ramp_info["duration"] or seg_dur
             print(f"  [~] 分段 [{sid}] 用變速版 {ramp_info['rel']}（{ramp_info['delta']:+.3f}s）")
 
+        # 拋棄式前導（選用、預設關）：段層／metadata 的 lead_in_s，這裡自動剪掉，不用另外後處理
+        lead_in_s = transition_lint.lead_in_seconds(seg) if transition_lint else 0.0
+        if lead_in_s and ramp_info:
+            lead_in_s = speed_ramps_mod.map_window(0.0, lead_in_s, ramp_info["time_map"])[1]
+        if lead_in_s:
+            print(f"  [-] 分段 [{sid}] 剪掉拋棄式前導 {lead_in_s:.2f}s（lead_in_s）")
         out_seg_v = temp_dir / f"proc_{sid}.mp4"
-        planned_durations.append(seg_dur)
+        planned_durations.append(seg_dur - lead_in_s)
         dialogue_required = any(
             (shot.get("dialogue_and_audio") or {}).get("has_dialogue") is True
             or any(str(value or "").strip() not in {"", "（無台詞）", "(無台詞)", "無台詞"} for value in (
@@ -991,6 +1028,7 @@ def main() -> int:
             burn_subtitles=not args.no_burn_subtitles,
             temp_dir=temp_dir,
             audio_required=dialogue_required,
+            lead_in_s=lead_in_s,
         )
         if ok and out_seg_v.exists():
             processed_videos.append(out_seg_v)
