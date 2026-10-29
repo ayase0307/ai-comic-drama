@@ -20,7 +20,7 @@ agent_created: true
 7. **成片形式預設＝長篇漫劇**：把故事講清楚是第一優先，每個原著關鍵事件都要交代起因→經過→結果（含動機、時地轉換），
    不以每集秒數壓縮事件；預設不分集，整部一支連續長片。短劇／竪屏爆款短集（1–2 分鐘、強鉤子）只有使用者明確要求才用
    （`h3d decide series_format short`）。被壓縮、跳過或交代不全的事件由 Agent 依原著補回（`event_coverage.py`），不自己砍、也不問使用者。
-8. **劇本改寫不詢問使用者**：一律走 `references/adapt/dialogue-first-adaptation.md`（原著對白全保留、只轉述的對話可補寫並標 `invented`、旁白＝主角內心聲 VO ≤30%、150 秒＝450–540 字、交稿前 `adapt_gate.py` 全過）。
+8. **劇本改寫不詢問使用者**：一律走 `references/adapt/dialogue-first-adaptation.md`（原著對白全保留、只轉述的對話可補寫並標 `invented`、旁白＝主角內心聲 VO ≤30%、集長不設限、斷點停在自然故事點並記原著錨點＋理由、交稿前 `adapt_gate.py` 全過）。
 
 ## Overview
 

@@ -10,7 +10,8 @@ adapt_gate.py — 台詞優先改編自檢門（dialogue-first adaptation gate�
   G3 密度 3.0–3.6 字/秒（<2.8 或 >3.9 FAIL，其餘區間外 WARN）
   G5 單行 ≤35 字
   G7 連續無台詞 ≤10 秒（>5 秒 WARN）
-  G9 場次標題 `N-M 地點 日|夜|晨|昏/內|外`；片長 ≤ 目標秒數（預設 150）
+  G9 場次標題 `N-M 地點 日|夜|晨|昏/內|外`；集尾不加鉤子旁白（集長不設上下限）
+  G13 分集斷點：集尾有 `<!-- episode-end: 「原著錨點」 | 理由 -->`；錨點 2–30 字、在原著段落逐字出現，理由非空
   G12 原著出處範圍已填（`<!-- source: 卷X Ln-Lm -->`）
   G10 內容安全：全員成年、不性化（關鍵詞掃描＋人物表聲明）
 警告（WARN）：平均行長 >13、旁白／內心 VO >30%、補寫台詞數（記帳）、無結尾鉤子旁白檢查。
@@ -28,8 +29,8 @@ from typing import Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from dialogue_budget import (  # noqa: E402
-    DEFAULT_EPISODE_SECONDS, DENSITY_MAX, DENSITY_MIN, HEADING_RE, LINE_HARD_MAX, LINE_TARGET,
-    SPACE_WORDS, TIME_WORDS, VO_MAX_SHARE, Script, parse_script, scene_stats, speech_chars,
+    ANCHOR_LEN, DENSITY_MAX, DENSITY_MIN, HEADING_RE, LINE_HARD_MAX, LINE_TARGET,
+    SPACE_WORDS, TIME_WORDS, VO_MAX_SHARE, Script, parse_script, split_episodes, scene_stats, speech_chars,
 )
 
 QUOTE_RE = re.compile(r"「([^「」]+)」")
@@ -72,7 +73,7 @@ def safety_hits(text: str) -> List[str]:
 
 
 def run_gate(script_text: str, novel_text: Optional[str] = None, quotes: Optional[List[str]] = None,
-             male_leads: List[str] = (), episode_seconds: float = DEFAULT_EPISODE_SECONDS) -> Dict[str, object]:
+             male_leads: List[str] = (), target_seconds: Optional[float] = None) -> Dict[str, object]:
     sc = parse_script(script_text, male_leads)
     st = scene_stats(sc.scenes)
     fails: List[str] = []
@@ -101,8 +102,19 @@ def run_gate(script_text: str, novel_text: Optional[str] = None, quotes: Optiona
                 fails.append(f"G5 L{ln.lineno} 單行 {ln.chars} 字 > {LINE_HARD_MAX}：{ln.text[:20]}…")
     if not sc.scenes:
         fails.append("G9 找不到任何場次標題")
-    if st["seconds"] > episode_seconds:
-        fails.append(f"G9 預估片長 {st['seconds']}s > {episode_seconds:g}s")
+    if not sc.breaks:
+        fails.append("G13 缺分集斷點：集尾加 `<!-- episode-end: 「原著逐字錨點」 | 這集為什麼停在這 -->`")
+    norm_src = normalize(novel_text) if novel_text else None
+    for b in sc.breaks:
+        n = len(normalize(b["anchor"]))
+        if not ANCHOR_LEN[0] <= n <= ANCHOR_LEN[1]:
+            fails.append(f"G13 L{b['lineno']} 斷點錨點 {n} 字，需 {ANCHOR_LEN[0]}–{ANCHOR_LEN[1]} 字")
+        elif norm_src is not None and normalize(b["anchor"]) not in norm_src:
+            fails.append(f"G13 L{b['lineno']} 斷點錨點不在原著段落：「{b['anchor']}」")
+        if not b["reason"]:
+            fails.append(f"G13 L{b['lineno']} 斷點缺理由（這集為什麼停在這）")
+    if sc.breaks and norm_src is None:
+        warns.append("G13 未提供原著段落，斷點錨點未逐字核對（--source-text）")
     if st["longest_silence"] > SILENCE_FAIL:
         fails.append(f"G7 連續無台詞 {st['longest_silence']}s > {SILENCE_FAIL:g}s")
     elif st["longest_silence"] > SILENCE_WARN:
@@ -118,14 +130,16 @@ def run_gate(script_text: str, novel_text: Optional[str] = None, quotes: Optiona
         warns.append(f"G5 平均行長 {st['avg_line_chars']} 字 > {LINE_TARGET[1]}（目標 {LINE_TARGET[0]}–{LINE_TARGET[1]}）")
     if st["vo_share"] > VO_MAX_SHARE:
         warns.append(f"G6 旁白／內心 VO 佔 {st['vo_share']:.0%} > {VO_MAX_SHARE:.0%}")
-    last = next((ln for s in reversed(sc.scenes) for ln in reversed(s.dialogue)), None)
-    if last and last.is_vo and HOOK_NARRATION_RE.search(last.text):
-        fails.append(f"G9 L{last.lineno} 集尾加了鉤子旁白：{last.text}")
+    for ep in split_episodes(sc):
+        last = next((ln for s in reversed(ep) for ln in reversed(s.dialogue)), None)
+        if last and last.is_vo and HOOK_NARRATION_RE.search(last.text):
+            fails.append(f"G9 L{last.lineno} 集尾加了鉤子旁白：{last.text}")
     if st["invented_lines"]:
         warns.append(f"記帳：補寫台詞 {st['invented_lines']} 行（須寫入 adaptation-diff.md）")
 
+    info = {"target_seconds": target_seconds, "seconds": st["seconds"]} if target_seconds else None
     return {"status": "FAIL" if fails else ("WARN" if warns else "PASS"), "fails": fails, "warns": warns,
-            "stats": st, "coverage": cov, "sources": sc.sources,
+            "stats": st, "breaks": sc.breaks, "length_info": info, "coverage": cov, "sources": sc.sources,
             "invented": [ln.raw for s in sc.scenes for ln in s.dialogue if ln.invented]}
 
 
@@ -135,12 +149,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--source-text", help="本集對應的原著段落（自動抽「」台詞）")
     ap.add_argument("--source-quotes", help="JSON 陣列：抽好的原著台詞")
     ap.add_argument("--male-lead", action="append", default=[])
-    ap.add_argument("--episode-seconds", type=float, default=DEFAULT_EPISODE_SECONDS)
+    ap.add_argument("--target-seconds", type=float, default=None, help="參考秒數，只回報不擋")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
     novel = Path(a.source_text).read_text(encoding="utf-8") if a.source_text else None
     quotes = json.loads(Path(a.source_quotes).read_text(encoding="utf-8")) if a.source_quotes else None
-    res = run_gate(Path(a.script).read_text(encoding="utf-8"), novel, quotes, a.male_lead, a.episode_seconds)
+    res = run_gate(Path(a.script).read_text(encoding="utf-8"), novel, quotes, a.male_lead, a.target_seconds)
     if a.json:
         print(json.dumps(res, ensure_ascii=False, indent=2))
     else:

@@ -26,20 +26,23 @@ def scene(n, lines=10, time="日", space="內", establish=2.5, pause=1.0, speake
     return out
 
 
-def script(scenes=4, source=True, **kw):
+END = f"<!-- episode-end: 「{LINE}」 | 換場，兩人對話告一段落 -->"
+
+
+def script(scenes=4, source=True, end=END, **kw):
     head = ["第01集｜測試"] + (["<!-- source: 卷1 L1-L80 -->"] if source else [])
     body = [ln for i in range(1, scenes + 1) for ln in scene(i, **kw)]
-    return "\n".join(head + body) + "\n"
+    return "\n".join(head + body + ([end] if end else [])) + "\n"
 
 
 QUOTES = [LINE]
 
 
 class Budget(unittest.TestCase):
-    def test_150s_budget_is_450_540(self):
+    def test_reference_budget_is_informational_rate(self):
         b = db.budget(150)
         self.assertEqual((b["chars_min"], b["chars_max"]), (450, 540))
-        self.assertEqual(db.budget(125)["chars_min"], 375)
+        self.assertFalse(hasattr(db, "DEFAULT_EPISODE_SECONDS"))
 
     def test_role_rates_follow_pr116(self):
         self.assertEqual(db.role_rate("阿青", "", ["阿青"]), 4.0)
@@ -59,19 +62,24 @@ class Budget(unittest.TestCase):
         self.assertTrue(d[0].is_vo)
         self.assertTrue(d[1].invented)
 
-    def test_split_appends_next_scene_when_under_floor(self):
-        sc = db.parse_script(script(scenes=6))
-        eps = db.split_episodes(sc.scenes, 150)
-        # 每場 110 字：4 場 440 字 < 450 下限仍接第 5 場？第 5 場會超過 150 秒才切
-        for ep in eps:
-            self.assertLessEqual(db.scene_stats(ep)["seconds"], 150)
-        self.assertGreaterEqual(len(eps[0]), 4)
+    def test_no_break_means_one_episode_of_any_length(self):
+        sc = db.parse_script(script(scenes=12, end=""))
+        eps = db.split_episodes(sc)
+        self.assertEqual(len(eps), 1)
+        self.assertGreater(db.scene_stats(eps[0])["seconds"], 300)  # 無上限
 
-    def test_split_stops_once_floor_reached(self):
-        sc = db.parse_script(script(scenes=8, lines=24, establish=0, pause=0))
-        eps = db.split_episodes(sc.scenes, 150)
-        self.assertTrue(all(len(ep) >= 1 for ep in eps))
-        self.assertGreaterEqual(len(eps), 4)
+    def test_split_inside_scene_at_any_sentence(self):
+        text = "1-1 屋 日/內\n阿木：第一句。\n阿木：第二句。\n<!-- episode-end: 「第二句」 | 揭曉 -->\n阿木：第三句。\n1-2 院 夜/外\n阿青：第四句。\n"
+        sc = db.parse_script(text)
+        self.assertEqual(sc.breaks[0]["anchor"], "第二句")
+        self.assertEqual(sc.breaks[0]["reason"], "揭曉")
+        eps = db.split_episodes(sc)
+        self.assertEqual([sum(len(s.dialogue) for s in ep) for ep in eps], [2, 2])
+        self.assertEqual(eps[1][0].heading, "1-1 屋 日/內")  # 場被切開，後半沿用場次標題
+
+    def test_break_comment_is_not_a_source(self):
+        sc = db.parse_script(script())
+        self.assertEqual(sc.sources, ["卷1 L1-L80"])
 
 
 class Gate(unittest.TestCase):
@@ -121,9 +129,35 @@ class Gate(unittest.TestCase):
         res = self.run_gate(script(time="午", space="內外"))
         self.assertTrue(any(f.startswith("G9") and "標題" in f for f in res["fails"]))
 
-    def test_over_150s_fails(self):
-        res = self.run_gate(script(scenes=7))
-        self.assertTrue(any("預估片長" in f for f in res["fails"]))
+    def test_long_episode_has_no_length_cap(self):
+        res = self.run_gate(script(scenes=12), target_seconds=150)
+        self.assertEqual(res["fails"], [], res["fails"])
+        self.assertEqual(res["length_info"]["target_seconds"], 150)
+
+    def test_short_episode_has_no_floor(self):
+        res = self.run_gate(script(scenes=1))
+        self.assertEqual(res["fails"], [], res["fails"])
+
+    def test_missing_break_fails(self):
+        res = self.run_gate(script(end=""))
+        self.assertTrue(any(f.startswith("G13") for f in res["fails"]))
+
+    def test_break_needs_reason_and_short_anchor(self):
+        res = self.run_gate(script(end="<!-- episode-end: 「" + "長" * 31 + "」 | -->"))
+        g13 = [f for f in res["fails"] if f.startswith("G13")]
+        self.assertTrue(any("錨點" in f for f in g13) and any("理由" in f for f in g13), g13)
+
+    def test_break_anchor_must_be_in_source(self):
+        novel = f"他說：「{LINE}」"
+        ok = adapt_gate.run_gate(script(), novel_text=novel)
+        self.assertFalse(any(f.startswith("G13") for f in ok["fails"]), ok["fails"])
+        bad = adapt_gate.run_gate(script(end="<!-- episode-end: 「原著沒有這句」 | 轉折 -->"), novel_text=novel)
+        self.assertTrue(any("不在原著" in f for f in bad["fails"]))
+
+    def test_hook_narration_checked_at_every_break(self):
+        text = "第01集\n<!-- source: 卷1 L1 -->\n1-1 屋 日/內\n阿木：走吧。\n旁白：究竟他會怎麼做？\n<!-- episode-end: 「走吧」 | 轉折 -->\n阿木：好。\n<!-- episode-end: 「好」 | 換場 -->\n"
+        res = adapt_gate.run_gate(text, quotes=[])
+        self.assertTrue(any("鉤子旁白" in f for f in res["fails"]), res["fails"])
 
     def test_source_range_required(self):
         res = self.run_gate(script(source=False))

@@ -10,9 +10,11 @@ dialogue_budget.py — 台詞優先（dialogue-first）片長估算與依台詞�
 - 一般動作行（△）與說話並行，不另計時間；只有標記的動作行計時：
   △【停頓0.8】…   刻意停頓（0.6–1.2 s，每集最多 3 處）
   △【建立2.0】…   無聲建立鏡（≤2.5 s，每場最多 1 處）
-- 密度 D = 可發聲字數 ÷ L，目標 3.0–3.6 字/秒；150 秒集 ＝ 450–540 字，其他長度等比例換算。
-- 分集：依序累加整場；未達下限（3.0 × 目標秒數）就把下一場接進來；
-  接進來會超過目標秒數時才在場次邊界切。
+- 密度 D = 可發聲字數 ÷ L，目標 3.0–3.6 字/秒（是速率，不是每集字數額度）。
+- 分集＝分鏡斷點（ArcReel 式，見 adaptation-evidence.md）：單集**沒有長度上下限**，最後全部串成一支。
+  斷點選在自然的故事點（換場、揭曉、轉折），可落在任何一句之後，以註解記錄：
+    <!-- episode-end: 「原著逐字錨點」 | 這集為什麼停在這 -->
+  `--target-seconds` 只換算參考字數，純資訊，不擋、不據此切集。
 
 台詞行格式：`名（註）：台詞`；旁白行 `旁白：…`；內心獨白 `名（內心）：…` 或 `名（OS）：…`。
 行尾 `<!-- invented -->` 標記原著沒有、依規則補寫的台詞（記帳用）。
@@ -32,7 +34,6 @@ from typing import Dict, Iterable, List, Optional
 ROLE_RATES: Dict[str, float] = {"male_lead": 4.0, "female": 4.5, "narration": 5.5}  # 同 PR #116
 LINE_GAP_SEC = 0.3
 DENSITY_MIN, DENSITY_MAX = 3.0, 3.6
-DEFAULT_EPISODE_SECONDS = 150.0
 LINE_HARD_MAX = 35
 LINE_TARGET = (9, 13)
 VO_MAX_SHARE = 0.30
@@ -46,6 +47,8 @@ HEADING_LOOSE_RE = re.compile(r"^\d+-\d+\s+\S")
 DIALOGUE_RE = re.compile(r"^(?P<speaker>[^：△（()\s<]{1,12})(?:[（(](?P<note>[^）)]*)[）)])?：(?P<text>.+)$")
 COMMENT_RE = re.compile(r"<!--(.*?)-->", re.S)
 MARK_RE = re.compile(r"【(停頓|建立)\s*([\d.]+)?\s*(?:s|秒)?】")
+BREAK_RE = re.compile(r"episode-end\s*[:：]\s*「(?P<anchor>[^」]*)」\s*[|｜]\s*(?P<reason>.*)$", re.S)
+ANCHOR_LEN = (2, 30)  # ArcReel end_anchor 10–30 字元；中文原著句短，下限放到 2
 NARRATOR_NAMES = ("旁白", "畫外音", "VO", "OS")
 VO_NOTES = ("內心", "畫外", "畫外音", "OS", "VO", "旁白")
 
@@ -86,6 +89,7 @@ class Script:
     sources: List[str] = field(default_factory=list)
     scenes: List[Scene] = field(default_factory=list)
     stray: List[Line] = field(default_factory=list)
+    breaks: List[Dict[str, object]] = field(default_factory=list)  # 分集斷點（episode-end 註解）
 
 
 def role_rate(speaker: str, note: str, male_leads: Iterable[str]) -> float:
@@ -103,7 +107,15 @@ def parse_script(text: str, male_leads: Iterable[str] = ()) -> Script:
     for i, raw in enumerate(text.splitlines(), 1):
         comments = " ".join(c.strip() for c in COMMENT_RE.findall(raw))
         for m in re.finditer(r"source\s*[:：]\s*([^;；]+)", comments):
-            sc.sources.append(m.group(1).strip())
+            if "episode-end" not in m.group(0):
+                sc.sources.append(m.group(1).strip())
+        for c in COMMENT_RE.findall(raw):
+            bm = BREAK_RE.search(c.strip())
+            if bm:
+                sc.breaks.append({"lineno": i, "anchor": bm.group("anchor").strip(),
+                                  "reason": bm.group("reason").strip(),
+                                  "scene": len(sc.scenes) - 1,
+                                  "pos": len(sc.scenes[-1].lines) if sc.scenes else 0})
         line = COMMENT_RE.sub("", raw).strip()
         if not line:
             continue
@@ -164,47 +176,56 @@ def scene_stats(scenes: List[Scene]) -> Dict[str, float]:
     }
 
 
-def budget(seconds: float = DEFAULT_EPISODE_SECONDS) -> Dict[str, float]:
-    """目標秒數對應的可發聲字數區間與行數區間（以每行 11 字估）。"""
+def budget(seconds: float) -> Dict[str, float]:
+    """參考用：某個秒數在 3.0–3.6 字/秒下對應的字數與行數（每行以 11 字估）。不是每集額度。"""
     lo, hi = DENSITY_MIN * seconds, DENSITY_MAX * seconds
     return {"seconds": seconds, "chars_min": round(lo), "chars_max": round(hi),
             "lines_min": round(lo / 11), "lines_max": round(hi / 11)}
 
 
-def split_episodes(scenes: List[Scene], episode_seconds: float = DEFAULT_EPISODE_SECONDS) -> List[List[Scene]]:
-    """依台詞預算在場次邊界分集：未達字數下限就接下一場；接了會超過秒數上限才切。"""
-    floor = DENSITY_MIN * episode_seconds
+def split_episodes(script: "Script") -> List[List[Scene]]:
+    """依 episode-end 斷點切集；斷點可在場內任何一句之後（場被切開時，後半段沿用同一場次標題）。
+    沒有斷點時整份是一集。不看秒數、不補場、不設上下限。"""
+    cuts = {(b["scene"], b["pos"]) for b in script.breaks}
     episodes: List[List[Scene]] = []
     cur: List[Scene] = []
-    for s in scenes:
-        if cur:
-            st_now = scene_stats(cur)
-            st_next = scene_stats(cur + [s])
-            if st_next["seconds"] > episode_seconds or st_now["chars"] >= floor:
+    for si, s in enumerate(script.scenes):
+        part = Scene(heading=s.heading, lineno=s.lineno)
+        for li in range(len(s.lines) + 1):
+            if (si, li) in cuts and (part.lines or cur):
+                if part.lines:
+                    cur.append(part)
                 episodes.append(cur)
-                cur = []
-        cur.append(s)
+                cur, part = [], Scene(heading=s.heading, lineno=s.lineno)
+            if li < len(s.lines):
+                part.lines.append(s.lines[li])
+        if part.lines:
+            cur.append(part)
     if cur:
         episodes.append(cur)
     return episodes
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    ap = argparse.ArgumentParser(description="台詞優先片長估算與依台詞預算分集")
+    ap = argparse.ArgumentParser(description="台詞優先片長估算；依 episode-end 斷點列出各集（集長不設限）")
     ap.add_argument("script", nargs="?", help="劇本 .md（不給則只印預算表）")
     ap.add_argument("--male-lead", action="append", default=[], help="男主角色名（4.0 字/秒，可重複）")
-    ap.add_argument("--episode-seconds", type=float, default=DEFAULT_EPISODE_SECONDS)
-    ap.add_argument("--split", action="store_true", help="依台詞預算重新分集並列出各集場次")
+    ap.add_argument("--target-seconds", type=float, default=None, help="參考秒數（純資訊，不擋）")
+    ap.add_argument("--split", action="store_true", help="依 episode-end 斷點列出各集與斷點理由")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
     if not a.script:
-        print(json.dumps(budget(a.episode_seconds), ensure_ascii=False))
+        print(json.dumps(budget(a.target_seconds or 60.0), ensure_ascii=False))
         return 0
     sc = parse_script(Path(a.script).read_text(encoding="utf-8"), a.male_lead)
-    out: Dict[str, object] = {"budget": budget(a.episode_seconds), "stats": scene_stats(sc.scenes)}
+    out: Dict[str, object] = {"stats": scene_stats(sc.scenes), "breaks": sc.breaks}
+    if a.target_seconds:
+        out["reference"] = budget(a.target_seconds)
     if a.split:
-        out["episodes"] = [{"scenes": [s.heading for s in ep], **scene_stats(ep)}
-                           for ep in split_episodes(sc.scenes, a.episode_seconds)]
+        eps = split_episodes(sc)
+        out["episodes"] = [{"scenes": [s.heading for s in ep], **scene_stats(ep),
+                            "end": sc.breaks[k] if k < len(sc.breaks) else None}
+                           for k, ep in enumerate(eps)]
     print(json.dumps(out, ensure_ascii=False, indent=None if a.json else 2))
     return 0
 
