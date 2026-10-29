@@ -21,7 +21,7 @@ def test_gap_over_1_5_fails_even_with_beat_pause():
     assert r.returncode == 1
 
 def test_slow_and_long_line_fail():
-    assert run(seg([{"text": "字" * 10, "start": 0, "end": 2}], prompt="slow push")).returncode == 1
+    assert run(seg([{"text": "字" * 10, "start": 0, "end": 2}], prompt="(S1) says slowly")).returncode == 1
     assert run(seg([{"text": "字" * 36, "start": 0, "end": 6}], dur=10)).returncode == 1
 
 def test_sparse_dialogue_warns():
@@ -39,12 +39,23 @@ def test_role_rates():
     assert h.dialogue_seconds("一二三四五六七八九", "female") == 2.3
     assert h.dialogue_seconds("字" * 11, audio_type="narration") == 2.3
 
-def test_slow_variants_fail():
+def test_speech_slow_fails():
     ok = [{"text": "字" * 10, "start": 0.2, "end": 2.6}]
-    for p in ["The camera pushes in at slow speed", "she turns SLOWLY", "Slow Motion impact",
-              "鏡頭緩慢推近", "镜头缓缓推近", "她慢慢轉身"]:
+    for p in ["She says slowly", "he speaks slowly", "in a slow voice", "slow delivery", "slow speech",
+              "slowly says the line", "slowly asks", "slowly whispers", "a lazy drawl", "speaks at slow speed",
+              "語速放緩", "語速慢", "慢慢說", "緩緩道", "慢慢地說", "放慢語速", "语气缓慢", "聲音放慢",
+              "(S1) 「你來了」 slowly", "(S2): 'go' , calm and slow"]:
         r = run(seg(ok, prompt=p))
         assert r.returncode == 1 and "慢詞" in r.stdout, p
-    s = seg(ok, prompt="鏡頭緩慢推近"); s["allow_slow"] = True
+    s = seg(ok, prompt="慢慢說"); s["allow_slow"] = True
     assert run(s).returncode == 0
+
+def test_camera_action_slow_passes():
+    ok = [{"text": "字" * 10, "start": 0.2, "end": 2.6}]
+    for p in ["The camera pushes in at slow speed", "slow pan left", "slow orbit around her",
+              "the camera slowly pushes in", "Slow Motion impact", "she turns SLOWLY",
+              "鏡頭緩慢推近", "镜头缓缓推近", "緩緩抬起手", "她慢慢轉身", "木屑緩慢飄落",
+              "The camera slowly pushes in as (S1) says 「走吧」 at real-time speed"]:
+        r = run(seg(ok, prompt=p))
+        assert r.returncode == 0, (p, r.stdout)
     assert run(seg(ok, prompt="at fast speed, snaps")).returncode == 0
