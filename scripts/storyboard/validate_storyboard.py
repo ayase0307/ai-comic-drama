@@ -24,6 +24,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from handoff_to_skeleton import MAX_SHOT_SEC, find_todo, segment_sort_key  # noqa: E402
 from speech_utils import count_speech_chars, normalize_speech  # noqa: E402
 from audit_refs_and_segments import effective_duration  # noqa: E402
+from move_lint import lint_segment_moves  # noqa: E402
+from director_lint import lint_director, lint_segment_seam  # noqa: E402
 from shot_intent import cross_segment_intent_errors, segment_intent_errors, shot_intent_errors  # noqa: E402
 
 BEAT_TYPES = ("Expository_Fast", "Suspense_Delay", "Dramatic_Core", "Combat_Impact", "Reaction_OTS")
@@ -301,6 +303,9 @@ def validate_storyboard_data(data: dict, original_script_dialogues: list = None)
     else:
         checks_passed.append(f"[PASS] 時長守恆核對通過 ({total_shot_dur}s == {target_dur}s，共 {len(shots)} 鏡)")
 
+    warnings += lint_segment_moves(shots)  # PR-14c 運鏡導演助手（warning）
+    warnings += lint_director(shots)  # PR-15c 導演層 lint（warning）
+
     # Check 1b: H3 取整後的切點可行性（與 audit_refs_and_segments E4 同規則，提前到階段 4 攔截）
     if len(shots) > 1 and target_dur > 0:
         eff_d = effective_duration(target_dur)
@@ -424,9 +429,14 @@ def validate_storyboard_data(data: dict, original_script_dialogues: list = None)
             )
 
         # Check 6d: 無參考圖路人單獨佔據中近景/特寫主鏡攔截
-        has_protagonist_or_creature = any(
-            k in combined_visual for k in ["洛年", "沈洛年", "懷真", "賴一心", "瑪蓮", "奇雅", "狄純", "巨鼠", "巨蟒", "白獸", "A", "B", "調查員", "旅人", "女主角", "劍客"]
-        ) or len(s.get("character_ids", [])) > 0
+        # 已錨定主體：鏡頭有 character_ids，或文字點名了本段登記的角色名／專案指定的名單
+        # （metadata.anchored_names；舊專案的預設名單保留在 LEGACY_ANCHORED_NAMES 以維持相容）。
+        anchored_names = list(LEGACY_ANCHORED_NAMES) + _segment_anchor_names(data)
+        has_protagonist_or_creature = (
+            any(k and k in combined_visual for k in anchored_names)
+            or bool(_PLACEHOLDER_ROLE_RE.search(combined_visual))
+            or len(s.get("character_ids", [])) > 0
+        )
         is_back_or_partial = any(
             k in combined_visual.lower() for k in ["背影", "剪影", "失焦", "局部", "畫外音", "back view", "silhouette", "blurred"]
         )
@@ -756,10 +766,44 @@ def load_json(path: str):
         raise ValueError(f"{path} 不是合法 JSON（第 {exc.lineno} 行第 {exc.colno} 欄）：{exc.msg}") from None
 
 
+# 6d 的舊預設名單（《噩盡島》與早期範例）；新專案不需要它，名單改從 Layer 2 讀（見 _segment_anchor_names）。
+LEGACY_ANCHORED_NAMES = ("洛年", "沈洛年", "懷真", "賴一心", "瑪蓮", "奇雅", "狄純", "巨鼠", "巨蟒", "白獸",
+                         "調查員", "旅人", "女主角", "劍客")
+# 範例裡的「角色 A／B」：只認獨立字母，不再用子字串（舊寫法會讓任何含大寫 A／B 的文字都算已錨定）
+_PLACEHOLDER_ROLE_RE = re.compile(r"(?<![A-Za-z])[AB](?![A-Za-z])")
+
+
+def _segment_anchor_names(data: dict) -> list:
+    """本段登記的角色名：asset_refs.characters[].name／name_zh／display_name 與 metadata.anchored_names。"""
+    names: list = []
+    for entry in ((data.get("asset_refs") or {}).get("characters") or []):
+        if isinstance(entry, dict):
+            names.extend(str(entry[k]) for k in ("name", "name_zh", "display_name") if entry.get(k))
+    extra = (data.get("metadata") or {}).get("anchored_names") or []
+    names.extend(str(x) for x in (extra if isinstance(extra, list) else [extra]) if x)
+    return names
+
+
+def check_segment_seams(datas: list) -> list:
+    """D05：同一場景相鄰兩段（依段序）的接縫提醒；只警告、不影響 passed。"""
+    by_scene: dict = {}
+    for d in datas:
+        if isinstance(d, dict) and d.get("shots"):
+            by_scene.setdefault(str(d.get("scene_id") or ""), []).append(d)
+    out = []
+    for scene, segs in by_scene.items():
+        segs = sorted(segs, key=lambda d: segment_sort_key(str(d.get("segment_id") or "")))
+        for prev, nxt in zip(segs, segs[1:]):
+            for msg in lint_segment_seam((prev.get("shots") or [None])[-1], (nxt.get("shots") or [None])[0]):
+                out.append(f"{prev.get('segment_id')}→{nxt.get('segment_id')}：{msg}")
+    return out
+
+
 def main():
     parser = argparse.ArgumentParser(description="AI 電影與漫劇分鏡靜態驗證器 (v2.0)")
     parser.add_argument("--file", nargs="+", help="待驗證的 Layer 2 JSON 分鏡檔（一或多個；分段時請把各段一併給出）")
-    parser.add_argument("--handoff", help="handoff JSON；提供時核對各場景台詞與劇本逐字一致（段落自動依段序合併）")
+    parser.add_argument("--handoff", nargs="+",
+                        help="handoff JSON（多集專案可給多個或萬用字元，如 handoff-ep*.json）；提供時核對各場景台詞與劇本逐字一致（段落自動依段序合併）")
     parser.add_argument("--scene", help="搭配 --handoff，只核對指定場景，例如 EP01-S01")
     parser.add_argument("--demo", action="store_true", help="執行內建合規與防呆攔截雙向回歸測試")
     args = parser.parse_args()
@@ -783,16 +827,25 @@ def main():
             expanded_files.append(p)
     args.file = expanded_files
 
+    handoff_paths = []
+    for p in args.handoff or []:
+        matched = sorted(glob.glob(p)) if any(c in p for c in ("*", "?", "[")) else []
+        handoff_paths.extend(matched or [p])
     try:
         datas = [load_json(path) for path in args.file]
-        handoff = load_json(args.handoff) if args.handoff else None
+        handoffs = [(path, load_json(path)) for path in handoff_paths]
     except ValueError as exc:
         print(f"[錯誤] {exc}", file=sys.stderr)
         sys.exit(1)
 
     problems = [f"{path}：{msg}" for path, data in zip(args.file, datas) for msg in layer2_format_errors(data)]
-    if handoff is not None:
-        problems += [f"{args.handoff}：{msg}" for msg in handoff_format_errors(handoff)]
+    for path, item in handoffs:
+        problems += [f"{path}：{msg}" for msg in handoff_format_errors(item)]
+    handoff = None
+    if handoffs and not problems:
+        # 多集：逐集 handoff 的 episodes 串起來，一次比對全部段落（單一 handoff 時行為不變）
+        handoff = dict(handoffs[0][1])
+        handoff["episodes"] = [ep for _, item in handoffs for ep in item.get("episodes", [])]
     if problems:
         for msg in problems:
             print(f"[錯誤] {msg}", file=sys.stderr)
@@ -813,6 +866,9 @@ def main():
 
     passed = all(r["passed"] for r in files.values()) and all(r["passed"] for r in dialogue.values()) and not cross_slop
     out_obj = {"passed": passed, "files": files, "dialogue_checks": dialogue}
+    seams = check_segment_seams(datas)
+    if seams:
+        out_obj["seam_warnings"] = seams
     if cross_slop:
         out_obj["cross_segment_slop_errors"] = cross_slop
     print(json.dumps(out_obj, ensure_ascii=False, indent=2))

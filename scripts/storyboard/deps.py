@@ -72,6 +72,20 @@ def _segments_kind(name: str) -> str:
     return "episode" if match and match.group(1) != "all" else "all"
 
 
+def _bible_entities(root: Path) -> Dict[str, str]:
+    """video-bible.json 的角色／場景／道具 → {id: 該條目內容 sha}（R3-24：外觀依賴）。"""
+    bible = _load_json(Path(root) / "video-bible.json")
+    out: Dict[str, str] = {}
+    if not isinstance(bible, dict):
+        return out
+    for key in ("characters", "locations", "props"):
+        for item in bible.get(key) or []:
+            if isinstance(item, dict) and item.get("id"):
+                out[str(item["id"])] = sha256_text(
+                    json.dumps(item, ensure_ascii=False, sort_keys=True))
+    return out
+
+
 def scan(root: Path) -> Dict[str, Any]:
     """掃描專案，回傳 {"segments": {...}, "ignored_videos": [...]}（不寫檔）。"""
     root = Path(root)
@@ -83,7 +97,13 @@ def scan(root: Path) -> Dict[str, Any]:
             "layer2": {"path": None, "sha256": None},
             "prompts": [],
             "video": {"path": None, "sha256": None, "mtime": None},
+            "appearance": {},
         })
+
+    entities = _bible_entities(root)
+    aliases = (_load_json(root / "video-bible.json") or {}).get("id_aliases") or {}
+    if not isinstance(aliases, dict):
+        aliases = {}
 
     # 1) Layer 2
     for layer2_path in sorted(root.glob("layer2/layer2-*.json")):
@@ -96,6 +116,12 @@ def scan(root: Path) -> Dict[str, Any]:
             "path": layer2_path.relative_to(root).as_posix(),
             "sha256": sha256_file(layer2_path),
         }
+        if entities:
+            text = layer2_path.read_text(encoding="utf-8", errors="replace")
+            used = {eid for eid in entities if eid in text}
+            used |= {str(canon) for alias, canon in aliases.items()
+                     if alias in text and str(canon) in entities}
+            entry["appearance"] = {eid: entities[eid] for eid in sorted(used)}
 
     # 2) 編譯產物（只認 canonical 檔名；備份不會變成新基準）
     for segments_path in sorted(root.glob("segments-*.json")):
@@ -120,6 +146,7 @@ def scan(root: Path) -> Dict[str, Any]:
                 "kind": _segments_kind(segments_path.name),
                 "sha256": sha256_text(str(prompt)) if prompt else None,
                 "frames": (item.get("metadata") or {}).get("frames"),
+                "compiler_rules": (item.get("metadata") or {}).get("compiler_rules"),
             })
 
     # 3) 影片（只收 id 已經存在的檔，其餘列 ignored，避免 `-v2` 之類生假段）
@@ -195,6 +222,11 @@ def record(root: Path, ledger_path: Optional[Path] = None) -> Path:
                 entry["video"] = new_video
         else:
             entry["video"] = old_video
+        # R3-24：影片產出當下的外觀依賴；影片沒換就沿用舊記錄（保留段不會被洗成最新）
+        if entry["video"].get("sha256") != old_video.get("sha256") or "video_appearance" not in was:
+            entry["video_appearance"] = now.get("appearance") or {}
+        else:
+            entry["video_appearance"] = was.get("video_appearance") or {}
         merged[segment_id] = entry
 
     # 保留已從磁碟移除的分段（status 要用它來報 removed）
@@ -213,7 +245,60 @@ def record(root: Path, ledger_path: Optional[Path] = None) -> Path:
     return ledger_path
 
 
+def stage5_review_stale(root: Path) -> List[Dict[str, Any]]:
+    """PR-19a：stage-5 段級核准後被改、且已有影片的段 → prompt_stale（＋stage5_pending_review）。
+
+    不需要先 --record：核准快照本身就是「影片是照哪一版提示詞產的」的基準。
+    """
+    root = Path(root)
+    scripts_dir = Path(__file__).resolve().parents[1]
+    if str(scripts_dir) not in sys.path:
+        sys.path.insert(0, str(scripts_dir))
+    try:
+        import project_state as ps
+        if not ps.state_path(root).is_file():
+            return []
+        review = ps.stage5_segment_review(root)
+    except Exception:
+        return []
+    if review.get("mode") != "partial":
+        return []
+    out = []
+    for sid in review.get("changed", []) + review.get("removed", []):
+        video = root / "videos" / f"{sid}.mp4"
+        if video.is_file():
+            out.append({"segment_id": sid, "reasons": ["prompt_stale", "stage5_pending_review"]})
+    return out
+
+
+def _merge_stage5(report: Dict[str, Any], root: Path) -> Dict[str, Any]:
+    extra = stage5_review_stale(root)
+    if not extra:
+        return report
+    by_id = {item["segment_id"]: item for item in report.get("stale", [])}
+    for item in extra:
+        sid = item["segment_id"]
+        if sid in by_id:
+            for reason in item["reasons"]:
+                if reason not in by_id[sid]["reasons"]:
+                    by_id[sid]["reasons"].append(reason)
+        else:
+            by_id[sid] = {"segment_id": sid, "reasons": list(item["reasons"])}
+        seg = report.setdefault("segments", {}).setdefault(sid, {"reasons": [], "has_video": True})
+        for reason in item["reasons"]:
+            if reason not in seg["reasons"]:
+                seg["reasons"].append(reason)
+        if sid in report.get("unproduced", []):
+            report["unproduced"].remove(sid)
+    report["stale"] = [by_id[k] for k in sorted(by_id)]
+    return report
+
+
 def status(root: Path, ledger_path: Optional[Path] = None) -> Dict[str, Any]:
+    return _merge_stage5(_ledger_status(root, ledger_path), Path(root))
+
+
+def _ledger_status(root: Path, ledger_path: Optional[Path] = None) -> Dict[str, Any]:
     root = Path(root)
     ledger_path = Path(ledger_path) if ledger_path else root / LEDGER_NAME
     if not ledger_path.is_file():
@@ -259,8 +344,19 @@ def status(root: Path, ledger_path: Optional[Path] = None) -> Dict[str, Any]:
             elif video.get("sha256") and video.get("sha256") != now_video.get("sha256"):
                 reasons.append("video_changed")
             elif video.get("sha256") and prompt.get("built_at") and video.get("mtime"):
-                if str(video["mtime"]) < str(prompt["built_at"]):
+                # #150：編譯規則版本不同時，提示詞變動來自規則改版而非內容修改，
+                # 不用時間判舊（layer2 內容與影片都沒變）；版本相同才比 mtime。
+                rules_was = prompt.get("compiler_rules")
+                rules_now = (now.get("prompt") or {}).get("compiler_rules")
+                same_rules = rules_was == rules_now
+                if same_rules and str(video["mtime"]) < str(prompt["built_at"]):
                     reasons.append("video_older_than_prompt")
+            # R3-24：保留段（影片沒重跑）的 bible 外觀若在產片後改了 → 標 stale
+            recorded = was.get("video_appearance")
+            if recorded and video.get("sha256"):
+                current_app = now.get("appearance") or {}
+                if any(current_app.get(eid) not in (None, sha) for eid, sha in recorded.items()):
+                    reasons.append("appearance_changed")
             if was.get("prompt_ambiguous") or now.get("prompt_ambiguous"):
                 reasons.append("prompt_ambiguous")
         has_video = bool((was.get("video") or {}).get("sha256"))
@@ -285,7 +381,12 @@ def status(root: Path, ledger_path: Optional[Path] = None) -> Dict[str, Any]:
 
 def render(report: Dict[str, Any]) -> str:
     if not report.get("recorded"):
-        return f"（尚未建立依賴帳本：{report['ledger']}；先跑 --record）"
+        head = f"（尚未建立依賴帳本：{report['ledger']}；先跑 --record）"
+        if report.get("stale"):
+            lines = [head, f"⚠️ {len(report['stale'])} 段需要重跑（stage-5 核准後提示詞改了、已有影片）："]
+            lines.extend(f"  - {item['segment_id']}: {', '.join(item['reasons'])}" for item in report["stale"])
+            return "\n".join(lines)
+        return head
     if report.get("schema_mismatch"):
         return f"⚠️ {report.get('note')}"
     lines = [f"依賴帳本：{report['ledger']}（記錄於 {report.get('generated_at')}）"]

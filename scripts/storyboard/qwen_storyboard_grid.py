@@ -46,8 +46,14 @@ if sys.platform.startswith("win"):
 class FreeVideoClient:
     """管理本機 FreeVideo 連線與生圖 API，嚴格遵守安全規範，絕不輸出 Token。"""
 
-    def __init__(self, base_url: str = "http://127.0.0.1:8189"):
-        self.base_url = base_url.rstrip("/")
+    def __init__(self, base_url: Optional[str] = None):
+        # 與 submit_h3_segments／doctor／image_backends 一致：FREEVIDEO_API_URL（可含 /freevideo/agent/v1）> 家機 127.0.0.1:8189
+        raw = base_url or os.environ.get("FREEVIDEO_API_URL", "").strip() or "http://127.0.0.1:8189"
+        raw = raw.rstrip("/")
+        for suffix in ("/freevideo/agent/v1", "/freevideo/agent"):
+            if raw.endswith(suffix):
+                raw = raw[: -len(suffix)]
+        self.base_url = raw
         self._token: Optional[str] = None
 
     def locate_and_load_token(self) -> str:

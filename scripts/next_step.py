@@ -30,8 +30,10 @@ for candidate in (str(SCRIPTS_DIR), str(SCRIPTS_DIR / "storyboard"), str(SCRIPTS
         sys.path.insert(0, candidate)
 
 import decisions as decisions_mod  # noqa: E402
+import image_backends  # noqa: E402
 import project_state as ps  # noqa: E402
 import verdicts as verdicts_mod  # noqa: E402
+import skill_version  # noqa: E402
 
 H3D = f'python "{(SCRIPTS_DIR / "h3d.py").as_posix()}"'
 REVIEW = f'python "{(SCRIPTS_DIR / "build_stage_review.py").as_posix()}"'
@@ -50,6 +52,7 @@ STAGE_REFERENCES: Dict[int, List[str]] = {
 }
 
 SKELETON = f'python "{(SCRIPTS_DIR / "storyboard" / "handoff_to_skeleton.py").as_posix()}"'
+CODEX_PANELS = f'python "{(SCRIPTS_DIR / "storyboard" / "codex_storyboard_panels.py").as_posix()}"'
 
 
 def _episode_of(text: str) -> Optional[str]:
@@ -69,8 +72,12 @@ def _episodes(root: Path) -> List[str]:
     return sorted(eps, key=lambda e: int(e[2:]))
 
 
-def stage4_producer(root: Path, errors: List[str]) -> tuple:
-    """階段 4 下一步：還沒有 layer2 就先跑 handoff_to_skeleton（#36）；有了才補構圖，集號代換成真值（#44）。"""
+def stage4_producer(root: Path, errors: List[str], *, extra: Optional[Dict[str, Any]] = None) -> tuple:
+    """階段 4 下一步：還沒有 layer2 就先跑 handoff_to_skeleton（#36）；有了才補構圖，集號代換成真值（#44）。
+
+    構圖用哪個生圖工具由使用者選（storyboard_engine，h3d imagegen），不自行預設：
+    沒選／選了但現在不可用 → 指令是 `h3d imagegen --set ...`，action 列出偵測結果請使用者選；
+    已選 → 給該後端的指令。`extra` 會收到 image_backends.next_step() 的結果（給 --json／notes 用）。"""
     if not list((root / "layer2").glob("layer2-*.json")):
         handoffs = sorted(root.glob("handoff-ep*.json"))
         if not handoffs:
@@ -80,14 +87,61 @@ def stage4_producer(root: Path, errors: List[str]) -> tuple:
                 f"先把 handoff 轉成 layer2 分鏡骨架（共 {len(handoffs)} 集，逐集執行），填實鏡頭內容後再補構圖。")
     rejected = [e for e in errors if "自檢退回" in e]
     episode = next((_episode_of(e) for e in errors if _episode_of(e)), None)
-    ep_flag = f" --episode {episode}" if episode else ""
-    action = f"補齊每一鏡對應的構圖 PNG（缺 {len(errors) - len(rejected)} 鏡"
-    action += f"、自檢退回 {len(rejected)} 鏡要重畫）。" if rejected else "）。"
-    return (f"{H3D} sketch --root .{ep_flag}", action)
+    gap = f"缺 {len(errors) - len(rejected)} 鏡" + (f"、自檢退回 {len(rejected)} 鏡要重畫" if rejected else "")
+    step = image_backends.next_step(root, 4, episode)
+    if extra is not None:
+        extra.update(step)
+    if step["ask_user"]:
+        return (step["command"], f"補齊每一鏡對應的構圖 PNG 之前（{gap}），{step['action']}")
+    action = f"補齊每一鏡對應的構圖 PNG（{gap}）。{step['action']}"
+    return (step["command"], action)
+
+
+def stage2_image_step(res: Dict[str, Any], root: Path, errors: List[str]) -> Optional[Dict[str, Any]]:
+    """階段 2 設定圖缺圖時：依使用者選的生圖工具（design_engine）給指令；沒選／不可用就請使用者選。
+    只處理「登記的設定圖不存在」；assets.md 沒填實等其他錯誤照舊。回 None＝不是缺圖問題。"""
+    if not any("設定圖有" in e and "不存在" in e for e in errors):
+        return None
+    step = image_backends.next_step(root, 2)
+    res["imagegen"] = step["imagegen"]
+    res["notes"].extend(step["notes"])
+    if step["ask_user"]:
+        res["blocked_on"].append(step["blocked"])
+        res["action"] = step["action"]
+    else:
+        res["action"] = step["action"]
+    res["next_command"] = step["command"]
+    return res
 
 
 def stage5_producer(root: Path, errors: List[str]) -> tuple:
     """階段 5 下一步：印完整 compile 參數，照抄就會寫出 prompts／segments（#56）。"""
+    # 定案 remix 但提示詞包還是 Ref2VA 六段式（PR-R5 起 compile 會產 REMIX 三欄）：
+    # 綁定不是 remix 或已落後 → 先 bind；綁定已是新鮮的 remix → 照常給 compile 指令重編。
+    remix_gap = next((e for e in errors if "video_backend=remix" in e), None)
+    import generate_bindings
+    if remix_gap:
+        try:
+            bound = json.loads((root / "video-bindings.json").read_text(encoding="utf-8-sig")).get("video_backend")
+        except (OSError, json.JSONDecodeError, AttributeError):
+            bound = None
+        if bound != "remix" or generate_bindings.bindings_stale(root):
+            return (f"{H3D} bind --root .",
+                    "定案 video_backend=remix：先產 REMIX 角色包綁定（refmods，讀 assets/character-packs.json），"
+                    "再用 --bindings 重編成 REMIX 三欄。")
+    stale = generate_bindings.bindings_stale(root)
+    if stale:
+        # 沒有 bindings 時編譯器會拿四視圖整板、只錨定一個角色 → E19／E20 必擋。
+        return (f"{H3D} bind --root .",
+                f"先產生參考圖綁定（{stale}）：正臉用單視角裁切、側背／生物用整板查表；有缺圖會列出 crop 指令。")
+    catalog = [e for e in errors if "失敗目錄" in e]
+    if catalog and len(catalog) == len([e for e in errors if not e.startswith("提示詞包缺少")]):
+        import re
+        ids = sorted({m.group(0) for e in catalog for m in [re.search(r"F-[A-Z0-9-]+", e)] if m})
+        return (f"{H3D} catalog --list --root .",
+                f"失敗目錄命中 {len(catalog)} 處（{'、'.join(ids)}）。首選：回 Layer 2 five_part_en 或 bindings en_overlay 改稿再重編"
+                f"（改完命中自動消失）。只有使用者看過並接受某條警告時，才用 {H3D} ack <ID> --root . --note \"<使用者原話>\" 記錄；"
+                f"enforce=error 的條目不能 ack。")
     episodes = _episodes(root)
     missing = [e for e in episodes if not (root / f"segments-{e.lower()}.json").is_file()]
     episode = (missing[0] if missing else None) or next(
@@ -98,15 +152,42 @@ def stage5_producer(root: Path, errors: List[str]) -> tuple:
         if (root / "video-bindings.json").is_file():
             parts.append("--bindings video-bindings.json")
     parts.append(f"--output-md prompts-{episode.lower()}.md --output-segments segments-{episode.lower()}.json --check")
+    try:
+        policy = decisions_mod.narration_policy_of(decisions_mod.load(root))
+    except (ValueError, decisions_mod.DecisionError) as exc:
+        return (f"{H3D} decide dialogue_policy <④|short-offscreen-h3|external|h3-native> --quote \"<使用者原話>\"", str(exc))
+    if policy:
+        parts.append(f"--narration-policy {policy}")
     action = (f"編譯 {episode} 提示詞包並補齊參考圖" + (f"（還沒編的集：{'、'.join(missing)}）" if missing else "") + "。")
     return (" ".join(parts), action)
 
 
 ACTIVE_JOB_STATUSES = {"waiting", "queued", "running"}
+DRIFT_JOB_STATUSES = {"duration_drift", "duration_unverified"}
 
 
 def _segment_files(root: Path) -> List[Path]:
+    # #74：階段 6 預設用 segments-all.json（若存在），不是逐集檔。
+    all_file = root / "segments-all.json"
+    if all_file.is_file():
+        return [all_file]
     return sorted(root.glob("segments-ep*.json"))
+
+
+def _delivery_scope(root: Path) -> Dict[str, Any]:
+    """讀 decisions 裡的 delivery_scope；沒定案或格式壞了就回空 dict（＝全流程）。"""
+    try:
+        return decisions_mod.delivery_scope(root)
+    except decisions_mod.DecisionError:
+        return {}
+
+
+def _scope_end(scope: Dict[str, Any]) -> Optional[int]:
+    """交付終點階段；不生影片時終點最多到階段 5（提示詞）。沒有終點回 None。"""
+    end = scope.get("end_stage")
+    if scope.get("no_video"):
+        end = 5 if end is None else min(int(end), 5)
+    return int(end) if isinstance(end, int) else None
 
 
 def _segment_ids(path: Path) -> List[str]:
@@ -118,16 +199,27 @@ def _segment_ids(path: Path) -> List[str]:
     return [str(i["segment_id"]) for i in items if isinstance(i, dict) and i.get("segment_id")]
 
 
-def _active_jobs(root: Path) -> List[str]:
-    found: List[str] = []
+def _latest_ledger_jobs(root: Path) -> Dict[str, Dict[str, Any]]:
+    """每段只取帳本裡最新一次送件（與 collect 的 #93 規則一致；較舊的 job 已被取代）。"""
+    latest: Dict[str, Dict[str, Any]] = {}
     for ledger in sorted(root.glob("videos/**/_fv-job-ledger.json")):
         try:
             payload = json.loads(ledger.read_text(encoding="utf-8-sig"))
         except (OSError, json.JSONDecodeError):
             continue
         for job in payload.get("jobs", []) or []:
-            if str(job.get("status")) in ACTIVE_JOB_STATUSES:
-                found.append(f"{job.get('segment_id', '?')}（{job.get('job_id', '?')}，{job.get('status')}）")
+            if isinstance(job, dict) and job.get("segment_id"):
+                latest[str(job["segment_id"])] = job
+    return latest
+
+
+def _active_jobs(root: Path) -> List[str]:
+    # 舊版掃全部紀錄：同段被重送過時，被取代的舊 job 永遠停在 running，collect 又刻意不收它，
+    # `h3d next` 就一直指示 collect（死循環）。帳本欄位是 `id`，舊版讀 `job_id` 永遠印「?」。
+    found: List[str] = []
+    for sid, job in _latest_ledger_jobs(root).items():
+        if str(job.get("status")) in ACTIVE_JOB_STATUSES:
+            found.append(f"{sid}（{job.get('id') or job.get('job_id') or '?'}，{job.get('status')}）")
     return found
 
 
@@ -158,6 +250,14 @@ def _decision_step(res: Dict[str, Any], root: Path, missing: List[str]) -> Dict[
     did = missing[0]
     meta = decisions_mod.KNOWN_DECISIONS[did]
     res["blocked_on"].append("尚未定案：" + "、".join(decisions_mod.KNOWN_DECISIONS[m]["label"] for m in missing))
+    if did == "design_engine":
+        # 設定圖生圖工具：偵測環境裡可用的工具，請使用者選（只有一個可用也要問），不自行預設。
+        step = image_backends.next_step(root, 2)
+        res["action"] = step["action"]
+        res["next_command"] = step["command"]
+        res["imagegen"] = step["imagegen"]
+        res["read"] = [meta["reference"], "references/tooling.md（h3d imagegen）"]
+        return res
     hint = "recommended" if did in ("acceptance_policy", "style") else "<值>"
     res["action"] = (f"向使用者問「{meta['label']}」（附推薦值），拿到回覆後用使用者原話寫入。"
                      "不要自己替使用者決定。")
@@ -167,6 +267,16 @@ def _decision_step(res: Dict[str, Any], root: Path, missing: List[str]) -> Dict[
     res["next_command"] = f'{H3D} decide {did} "{hint}" --quote "<使用者原話>" --root .'
     res["read"] = [meta["reference"]]
     return res
+
+
+def _apply_imagegen(res: Dict[str, Any], step: Dict[str, Any]) -> None:
+    """把 image_backends.next_step() 的結果併進 h3d next 的回傳（--json 的 imagegen 欄、警告、詢問）。"""
+    if not step:
+        return
+    res["imagegen"] = step.get("imagegen")
+    res["notes"].extend(step.get("notes") or [])
+    if step.get("ask_user") and step.get("blocked"):
+        res["blocked_on"].append(step["blocked"])
 
 
 def _approve_command(stage: int, technical: List[str]) -> str:
@@ -182,13 +292,39 @@ def _stage6_work(res: Dict[str, Any], root: Path) -> Optional[Dict[str, Any]]:
     expected: List[str] = []
     for f in seg_files:
         expected.extend(_segment_ids(f))
+    scope = _delivery_scope(root)
+    if scope.get("trial_segments"):
+        allowed = {str(x) for x in scope["trial_segments"]}
+        expected = [sid for sid in expected if sid in allowed]
+    elif isinstance(scope.get("max_segments"), int) and scope["max_segments"] >= 0:
+        expected = expected[: scope["max_segments"]]
     missing_videos = [sid for sid in expected if not (root / "videos" / f"{sid}.mp4").is_file()]
+    if missing_videos and scope.get("no_video"):
+        res["blocked_on"].append("delivery_scope 為 no_video：使用者決定不生影片，不得送件")
+        res["action"] = ("停下：已定案的交付範圍不含影片。不要執行 resume；要生影片須先請使用者同意改範圍，"
+                         "再用 `" + H3D + " decide delivery_scope full --quote \"<使用者原話>\" --root .` 寫入。")
+        res["next_command"] = None
+        return res
+    drifted = [sid for sid in missing_videos
+                if str((_latest_ledger_jobs(root).get(sid) or {}).get("status")) in DRIFT_JOB_STATUSES]
+    if drifted:
+        # 漂移件被隔離成 .drift.mp4／.unverified.mp4，看起來像「缺片」；舊版這裡會指示 resume，
+        # resume 的 collect 又因漂移停下——兩邊互相指。這裡直接照開工規則 6 停下。
+        res["blocked_on"].append(f"{len(drifted)} 段時長漂移或無法斷言（例如 {drifted[0]}），影片已隔離")
+        res["action"] = ("停下：出現時長漂移（duration_drift）。不要把漂移的片子拿去 QA，也不要用 --force 重送；"
+                         "照 references/tooling.md §4 查明原因並回報使用者。使用者決定重跑後，只重送這幾段："
+                         f"{H3D} submit --segments <分段檔> --segment-id {' '.join(drifted[:10])} --root-dir .；"
+                         "其餘缺片段可用 h3d resume ... --resume-past-failures。")
+        res["next_command"] = None
+        return res
     if missing_videos:
         first_file = next((f for f in seg_files if missing_videos[0] in _segment_ids(f)), seg_files[0])
         res["blocked_on"].append(f"尚有 {len(missing_videos)} 段沒有影片（例如 {missing_videos[0]}）")
         res["action"] = "先收件、再補送尚未產出的分段（ledger 自動去重）。一次只跑一個 runner。"
+        only = " ".join(missing_videos) if scope.get("trial_segments") or scope.get("max_segments") is not None else ""
         res["next_command"] = (f'{H3D} resume --segments {_rel(root, first_file)} '
-                               f'--output-dir videos --root-dir .')
+                               f'--output-dir videos --root-dir .'
+                               + (f' --segment-id {only}' if only else ''))
         return res
 
     hard, technical = ps.stage6_issues(root)
@@ -255,13 +391,48 @@ def _auto_step(res: Dict[str, Any], root: Path, stage: int) -> Optional[Dict[str
     return res
 
 
+def _stage5_partial_step(res: Dict[str, Any], root: Path, review: Dict[str, Any]) -> Dict[str, Any]:
+    """PR-19a：階段 5 只有部分段在核准後變了。沒變的段可送件；變了的段要人工重審（不自動核准）。"""
+    pending = review["pending"]
+    ids = ",".join(pending)
+    res["status"] = "segments_pending_review"
+    res["segments_pending_review"] = pending
+    res["segments_approved"] = review["approved"]
+    res["blocked_on"].append(review["reason"])
+    if review.get("removed"):
+        res["notes"].append("已刪除的段也要重審確認刪除：" + "、".join(review["removed"]))
+    res["action"] = ("只重審改過的段：跑下面指令產生只列這些段的重審頁（不改其他段的核准），交給使用者並停下。"
+                     "使用者明確回覆「通過」後才執行 "
+                     f"{H3D} approve --stage 5 --segments {ids} --user-note \"<使用者原話>\" --root .；"
+                     "改過的段一律人工重審，不得用 --auto。")
+    res["next_command"] = f"{REVIEW} --project-dir . --stage 5 --segments {ids}"
+    if review["approved"]:
+        segs = _segment_files(root)
+        seg_arg = f" --segments {_rel(root, segs[0])}" if segs else ""
+        shown = " ".join(review["approved"][:20])
+        res["notes"].append(f"已核准且未變的 {len(review['approved'])} 段現在就能送件（送件閘門自動跳過待重審段）："
+                            f"{H3D} submit{seg_arg} --segment-id {shown} --root-dir .")
+    return res
+
+
 def plan(root: Path) -> Dict[str, Any]:
+    res = _plan(root)
+    res["version_notice"] = None
+    try:
+        if ps.state_path(Path(root).expanduser().resolve()).is_file():
+            res["version_notice"] = skill_version.check_project(ps.load_state(Path(root).expanduser().resolve()))
+    except ValueError:
+        pass
+    return res
+
+
+def _plan(root: Path) -> Dict[str, Any]:
     root = Path(root).expanduser().resolve()
     if not ps.state_path(root).is_file():
         res = _result(root, None, "uninitialized")
         res["blocked_on"].append("沒有 review/project-state.json")
         res["action"] = "先建立專案骨架（會一併建立空的 decisions.json）。"
-        res["next_command"] = f'{INIT} "{root.as_posix()}" --title "<劇名>" --episodes <集數>'
+        res["next_command"] = f'{INIT} "{root.as_posix()}" --title "<劇名>"'
         res["read"] = ["references/pipeline.md"]
         return res
 
@@ -279,6 +450,13 @@ def plan(root: Path) -> Dict[str, Any]:
         res = _result(root, 7, "done")
         res["done"] = True
         res["action"] = "八個階段都已有效核准；交付 final/ 下的成片與 delivery manifest。"
+        return res
+    scope_end = _scope_end(_delivery_scope(root))
+    if scope_end is not None and stage > scope_end:
+        res = _result(root, scope_end, "done")
+        res["done"] = True
+        res["action"] = (f"已定案的交付範圍（終點階段 {scope_end}）全部核准完成；"
+                         "交付已核准的各階段產物，不必推進到後面的階段。")
         return res
 
     entry = state["stages"][ps.stage_key(stage)]
@@ -309,10 +487,15 @@ def plan(root: Path) -> Dict[str, Any]:
     if active:
         res["blocked_on"].append(f"有 {len(active)} 個影片工作還在跑：{active[0]}")
         res["action"] = "不要再開第二個 runner，也不要送新件；只收件。"
-        res["next_command"] = f"{H3D} collect --segments <該批 segments 檔> --output-dir videos --root-dir ."
+        segs = _segment_files(root)
+        seg_arg = f" --segments {_rel(root, segs[0])}" if segs else ""
+        res["next_command"] = f"{H3D} collect{seg_arg} --output-dir videos --root-dir ."
         return res
 
     missing = decisions_mod.missing_for_stage(root, stage)
+    if _delivery_scope(root).get("no_image"):
+        # 使用者定了不生圖：階段 2 只要文字設定卡，不必選設定圖生圖工具。
+        missing = [m for m in missing if m != "design_engine"]
     if missing:
         return _decision_step(res, root, missing)
 
@@ -326,6 +509,27 @@ def plan(root: Path) -> Dict[str, Any]:
         except Exception:
             pass
 
+    if status == "approved" and stage == 5:
+        review = ps.stage5_segment_review(root)
+        if review["mode"] == "partial":
+            return _stage5_partial_step(res, root, review)
+    if status == "approved" and stage in (4, 5):
+        # 核准失效時先看產物本身齊不齊（缺構圖、漏編一集、綁定／提示詞落後、失敗目錄未處置、backend 不符），
+        # 不齊就先修；直接重建審核頁只會讓使用者審一份核准時必擋的稿。
+        current = ps.stage_validation_errors(root, stage, strict=True)
+        if current:
+            res["status"] = "approval_invalid"
+            res["blocked_on"].append(f"核准已失效：{first_failure}")
+            res["blocked_on"].append(current[0])
+            if stage == 4:
+                extra: Dict[str, Any] = {}
+                command, action = stage4_producer(root, current, extra=extra)
+                _apply_imagegen(res, extra)
+            else:
+                command, action = stage5_producer(root, current)
+            res["action"] = action
+            res["next_command"] = command
+            return res
     if status == "approved":
         res["status"] = "approval_invalid"
         res["blocked_on"].append(f"核准已失效：{first_failure}")
@@ -344,9 +548,10 @@ def plan(root: Path) -> Dict[str, Any]:
             res["next_command"] = f"{REVIEW} --project-dir . --stage {stage}"
             return res
         technical = ps.stage6_issues(root)[1] if stage == 6 else []
-        res["blocked_on"].append("等使用者在審核頁明確回覆通過")
-        res["notes"].append(f"要使用者決定的事可用收件匣呈現：{H3D} inbox --root .（review/inbox.html）")
-        res["action"] = ("把審核頁交給使用者並停下。只有使用者明確回覆「通過」後才執行下面指令，"
+        res["blocked_on"].append("等使用者在決策收件匣明確回覆通過")
+        res["notes"].append(f"舊版階段頁 review/stage-{stage}-*.html 只作除錯／附錄；階段 0、2 可附給使用者看設定與臉")
+        res["action"] = (f"產生／開啟決策收件匣（{H3D} inbox --root .，review/inbox.html）交給使用者並停下。"
+                         "只有使用者明確回覆「通過」後才執行下面指令，"
                          "--user-note 填使用者原話；不得代替使用者核准。")
         if technical:
             res["action"] += f" 技術 QA 有 {len(technical)} 項未過，核准必須帶使用者的覆寫理由。"
@@ -362,6 +567,9 @@ def plan(root: Path) -> Dict[str, Any]:
         errors = ps.stage_validation_errors(root, stage, strict=True)
         if errors:
             res["blocked_on"].append(errors[0])
+            if stage == 2 and stage2_image_step(res, root, errors) is not None:
+                return res
+            stage4_extra: Dict[str, Any] = {}
             producers = {
                 0: (f"{H3D} decide --list --root .",
                     "和使用者定調（h3d decide style／aspect_ratio／dialogue_policy），把 project.md 的模板欄位全部填實。"),
@@ -374,17 +582,19 @@ def plan(root: Path) -> Dict[str, Any]:
                     "把 assets.md 的模板卡片填實，並生成每張登記的設定圖。"),
                 3: (f"{CHECK} --root . --stage 3",
                     "寫完 script-ep*.md，跑 sync_script.py 產 handoff，修到 validate_structure／check_continuity／compare_adaptation 沒有 FAIL。"),
-                4: stage4_producer(root, errors) if stage == 4 else None,
+                4: stage4_producer(root, errors, extra=stage4_extra) if stage == 4 else None,
                 5: stage5_producer(root, errors) if stage == 5 else None,
                 7: (f"{H3D} voice align --root .",
                     "先跑階段 7 固定流程（ASR 對位、畫外句壓原聲、響度），再 h3d concat plan／build 建全集剪輯專案，"
                     "或 h3d assemble 組裝成片並產出 delivery manifest。"),
             }
             command, action = producers.get(stage) or (f"{H3D} status --root .", "先修正上面的錯誤。")
+            _apply_imagegen(res, stage4_extra)
             res["action"] = action
             res["next_command"] = command
             return res
-    res["action"] = "產物已齊：產出本階段審核頁交給使用者，然後停下等回覆。"
+    res["action"] = (f"產物已齊：跑下面指令綁定本階段審核快照（同時寫出舊版除錯頁），"
+                     f"再用 {H3D} inbox --root . 產生決策收件匣交給使用者，然後停下等回覆。")
     res["next_command"] = f"{REVIEW} --project-dir . --stage {stage}"
     return res
 
@@ -412,6 +622,9 @@ def render(res: Dict[str, Any]) -> str:
         lines.append("先讀：" + "、".join(res["read"]))
     for note in res["notes"]:
         lines.append(f"附註：{note}")
+    notice = res.get("version_notice")
+    if notice:
+        lines.append(("版本：⚠️ " if notice.get("level") == "warn" else "版本：ℹ️ ") + notice["message"])
     return "\n".join(lines)
 
 

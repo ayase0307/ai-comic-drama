@@ -1,0 +1,21 @@
+name: PR title
+
+# PR 標題要用 Conventional Commits 前綴（內容照寫繁體中文），見 docs/RELEASING.md。
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+jobs:
+  conventional-title:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check title
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          if printf '%s' "$TITLE" | grep -Eq '^(feat|fix|docs|refactor|test|ci|chore|perf|build|revert)(\([^)]+\))?!?: .+'; then
+            echo "OK: $TITLE"
+          else
+            echo "::error::PR 標題需以 feat:／fix:／docs:／refactor:／test:／ci:／chore: 等開頭（不相容加 !），例：fix(stage5): 修正 E20 誤判。目前：$TITLE"
+            exit 1
+          fi

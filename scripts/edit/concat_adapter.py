@@ -75,18 +75,18 @@ def build_plan(*, name: str, order: List[str], durations: Dict[str, float],
         segments.append({"id": sid, "file": video_path(sid, sid in muted), "start": round(t, 3),
                          "duration": round(dur, 3)})
         seg_lines = lines.get(sid, [])
-        ref, ref_idx = "", []
+        ref, ref_idx = [], []
         for i, line in enumerate(seg_lines):
             if (sid, line["text"]) in vo_line:
                 continue
-            for c in V.norm(line["text"]):
-                ref += c
+            for c in V.tokens(line["text"]):
+                ref.append(c)
                 ref_idx.append(i)
         words = [w for chunk in V._clean_chunks(asr.get(sid, [])) for w in (chunk.get("words") or []) if V.norm(w[2])]
-        hyp, hyp_idx = "", []
+        hyp, hyp_idx = [], []
         for wi, w in enumerate(words):
-            for c in V.norm(w[2]):
-                hyp += c
+            for c in V.tokens(w[2]):
+                hyp.append(c)
                 hyp_idx.append(wi)
         got: Dict[int, List[float]] = {}
         for block in difflib.SequenceMatcher(None, hyp, ref, autojunk=False).get_matching_blocks():

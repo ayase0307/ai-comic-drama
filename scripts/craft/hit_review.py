@@ -38,7 +38,7 @@ Finding = Tuple[str, str, str]
 
 
 def load_handoff(path: Path) -> Dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
+    return json.loads(path.read_text(encoding="utf-8-sig"))
 
 
 def find_episode(handoff: Dict[str, Any], episode: str) -> Optional[Dict[str, Any]]:
@@ -66,6 +66,14 @@ def first_line_time(ep: Dict[str, Any]) -> Optional[float]:
     return None
 
 
+def first_line_has_timestamp(ep: Dict[str, Any]) -> bool:
+    """第一句台詞是否有真實時間戳（#33：沒有就只能退回場景起點，不能當證據）。"""
+    for _s, _e, sc in scene_spans(ep):
+        for d in sc.get("dialogue", []):
+            return "start" in d
+    return False
+
+
 def check_title(title: str) -> List[Finding]:
     out: List[Finding] = []
     for w in BANNED_TITLE_WORDS:
@@ -83,7 +91,7 @@ def review_stage0(project_dir: Path) -> List[Finding]:
     p = project_dir / "project.md"
     if not p.exists():
         return [("⚠️", "定位三行", "找不到 project.md，略過")]
-    text = p.read_text(encoding="utf-8")
+    text = p.read_text(encoding="utf-8-sig")
     out: List[Finding] = []
     for label, keys in (("受眾", AUDIENCE_KEYS), ("內核", CORE_KEYS), ("外殼", SHELL_KEYS)):
         hit = any(k in text for k in keys)
@@ -116,6 +124,8 @@ def review_stage3(ep: Dict[str, Any]) -> List[Finding]:
     first = first_line_time(ep)
     if first is None:
         out.append(("⚠️", "開場鉤子", "整集沒有台詞，無法估算開場時間"))
+    elif not first_line_has_timestamp(ep):
+        out.append(("ℹ️", "開場鉤子", "台詞沒有時間戳（start），無法量秒數；請 Agent 讀開場內容判斷 5 秒內有無衝突或反常資訊"))
     else:
         mark = "✅" if first <= OPENING_LIMIT_S else "⚠️"
         out.append((mark, "開場鉤子", f"第一句台詞在 {first:.1f}s（建議 ≤ {OPENING_LIMIT_S:.0f}s 進入衝突或反常資訊）"))
@@ -185,8 +195,8 @@ def self_test() -> bool:
                            "scenes": [{"scene_id": "S01", "estimated_duration_seconds": 70, "dramatic_turn": "",
                                        "dialogue": [{"text": "你好", "start": 8.0}]}]}]}
         (p / "handoff-ep01.json").write_text(json.dumps(h, ensure_ascii=False), encoding="utf-8")
-        t0 = run(p, 0, "EP01", None, None).read_text(encoding="utf-8")
-        t3 = run(p, 3, "EP01", None, None).read_text(encoding="utf-8")
+        t0 = run(p, 0, "EP01", None, None).read_text(encoding="utf-8-sig")
+        t3 = run(p, 3, "EP01", None, None).read_text(encoding="utf-8-sig")
         ok = ("禁用行銷詞「熱播」" in t0 and "【" in t0 and "內核：沒寫" in t0
               and "8.0s" in t3 and "沒寫 dramatic_turn" in t3 and "長 70s" in t3)
     print("hit_review self-test:", "PASS" if ok else "FAIL")

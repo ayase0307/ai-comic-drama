@@ -6,6 +6,7 @@
 
 1. **開工先跑 `python scripts/h3d.py next --root <專案>`**，照它印的唯一一條指令做；每做完一步再跑一次。
 2. **使用者定案一律 `h3d decide <id> <值> --quote "<使用者原話>"`**，不要只寫在筆記裡，也不要替使用者決定。
+2a. **生圖後端由使用者選，不自行預設**：出設定圖（階段 2）或構圖（階段 4）前用 `h3d imagegen --detect` 列出偵測到可用的工具交給使用者選（只偵測到一個也要問），再 `h3d imagegen --set <後端> --quote "<使用者原話>"`；選了但現在不可用就警告並重新詢問。
 3. **不准手改 `review/project-state.json`。** 狀態只能由 `scripts/build_stage_review.py`（`--stage`／`--approve-stage`）寫入；手改會被偵測（寫入戳記對不上）並由 `h3d next` 擋下。
    階段 6 技術 QA 為 PARTIAL 但使用者看過仍核准：`--approve-stage 6 --override --reason "<使用者理由>"`；不得代替使用者核准。
 4. **階段 6 逐段結論一律 `h3d verdict`** 寫進 `review/verdicts.json`，依 `decisions.json` 的 `acceptance_policy` 分類；舊格式 conclusions-*.json 用 `h3d verdict import` 轉。
@@ -19,4 +20,5 @@
 
 - 測試：`python -m unittest discover -s tests -q` 必須全過；新功能要附單元測試。
 - `h3d` 只做路由，規則留在原本的模組（`project_state.py`、`decisions.py`、`verdicts.py`…），不要在 `h3d.py` 寫第二套邏輯。
+- 版本：PR 標題用 Conventional Commits 前綴（`feat:`／`fix:`／`docs:`…，不相容加 `!`），每個 PR 在 `CHANGELOG.md`「未發布」加一行；資料格式改動同步改 `scripts/skill_version.py:SCHEMA_VERSIONS`。升版與發版照 `docs/RELEASING.md`。
 - 檔案格式改動要同步更新 `references/schemas/` 裡的 JSON Schema 與 `references/tooling.md`。

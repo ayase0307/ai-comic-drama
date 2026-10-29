@@ -42,14 +42,18 @@ COMMANDS: Dict[str, str] = {
     "decide": "把使用者定案寫進 decisions.json（必附 --quote 使用者原話）",
     "verdict": "階段 6 逐段目視結論寫進 review/verdicts.json；--summary 依驗收政策分類；import 轉舊格式",
     "inbox": "決策收件匣 review/inbox.html：只列需要使用者決定的事（手機優先、內嵌縮圖）",
-    "approve": "--auto：沒有未決卡且符合 decisions 政策時自動核准並記錄依據",
+    "approve": "--auto：沒有未決卡且符合 decisions 政策時自動核准並記錄依據；--stage 5 --segments X,Y：人工重審改過的段",
     "doctor": "本機環境自檢（GPU／ffmpeg／服務 port／-vsync）",
-    "sketch": "免生圖 SVG 構圖分鏡總覽圖（階段 4 構圖來源，回寫 sketch_file 供審核門禁）",
+    "imagegen": "生圖工具：--detect 偵測可用後端（不生圖、不花錢）；--set <後端> --quote 寫入使用者選擇（design_engine／storyboard_engine）",
+    "sketch": "已移除：只印替代指令後 exit 2；階段 4 構圖改用 h3d imagegen 選定的生圖工具",
     "crop": "依比例／格位裁設定板頭像（輸出 tmp/crops，不進 images/）",
-    "compile": "Layer 2 → H3 六段式提示詞與 segments（--check 可同時審查）",
+    "bind": "產生階段 5 video-bible.json／video-bindings.json（正臉單視角裁切、側背／生物整板查表）",
+    "compile": "Layer 2 → H3 六段式提示詞與 segments（remix 綁定＝REMIX 三欄；--check 可同時審查）",
     "audit": "分段參考圖／主體定義／台詞預算的確定性對帳",
     "author": "逐鏡撰寫審查（防偷懶 E30–E38，references/prompt-authoring.md）",
-    "qa": "影片自動審查（時長／色彩／分鏡總覽圖／證據分級）",
+    "refcheck": "參考包涵蓋檢查（PR-R4）：提示詞寫到的具名角色／生物／道具／群眾是否都有綁包（remix E50／E51 擋，ref2va 只提示）",
+    "staging": "站位／視線／運鏡閘門（PR-R6，兩個 backend）：D06–D14，預設警告，staging_gate=strict 時 D06–D08 擋；W46 構圖板建議（只建議，--layer2 階段 4 可跑）",
+    "qa": "影片自動審查（時長／色彩／分鏡總覽圖／證據分級）；--continuity：交界連續性 QA（實際切點＋交界拼貼＋一側靜止，只警告）",
     "motion": "階段 6 動態 QA（光流量凍結／定住／起手延遲）＋自動提案變速清單 videos/speed-ramps.json",
     "ramp": "依已核准的變速清單產 videos/ramped/<段>.mp4（原片不動，台詞區 1×＋音訊相關驗證）",
     "submit": "送件到 FreeVideo（含能力校驗與時長斷言）",
@@ -64,6 +68,8 @@ COMMANDS: Dict[str, str] = {
     "catalog": "失敗目錄（--list／--check／--acks）",
     "ack": "記錄失敗目錄的 ack 憑證（綁定提示詞 hash 與目錄版本）",
     "status": "綜合狀態：階段門禁＋依賴帳本＋送件帳本＋失敗目錄",
+    "version": "技能版本／資料格式版本；--root 比對專案版本章，--accept 看過 CHANGELOG 後更新版本章",
+    "doc": "階段文件狀態卡與修訂紀錄：stamp 建立／更新、resolve 記下使用者決定、check 列缺卡（references/document-standard.md）",
 }
 
 MODULE_FOR = {
@@ -73,11 +79,14 @@ MODULE_FOR = {
     "inbox": "inbox",
     "approve": "auto_approve",
     "doctor": "doctor",
-    "sketch": "svg_storyboard_grid",
+    "imagegen": "image_backends",
     "crop": "crop_sheet",
+    "bind": "generate_bindings",
     "compile": "compile_layer2_to_h3",
     "audit": "audit_refs_and_segments",
     "author": "prompt_authoring",
+    "refcheck": "refcheck",
+    "staging": "staging_lint",
     "qa": "verify_video_shot",
     "motion": "motion_qa",
     "ramp": "speed_ramp",
@@ -92,7 +101,36 @@ MODULE_FOR = {
     "deps": "deps",
     "catalog": "failure_catalog",
     "ack": "failure_catalog",
+    "version": "skill_version",
+    "doc": "doc_card",
 }
+
+# 已移除的子命令：保留名稱只為了印替代指令（exit 2），不再路由到任何模組。
+CODEX_PANELS = STORYBOARD_DIR / "codex_storyboard_panels.py"
+
+
+def removed_sketch(argv: List[str], root: Optional[Path]) -> int:
+    """`h3d sketch` 已移除：印 Codex 分鏡的等價指令（沿用 --root／--episode／--segment），exit 2。"""
+    sub = argparse.ArgumentParser(add_help=False)
+    sub.add_argument("--root", default=None)
+    sub.add_argument("--episode", default=None)
+    sub.add_argument("--segment", nargs="*", default=None)
+    known, _ = sub.parse_known_args(argv)
+    command = f'python "{CODEX_PANELS.as_posix()}" --root {known.root or (str(root) if root else "<專案>")}'
+    if known.episode:
+        command += f" --episode {known.episode}"
+    if known.segment:
+        command += " --segment " + " ".join(known.segment)
+    command += " --model <使用者指定模型>"
+    print("SVG 構圖已移除。階段 4 構圖改用使用者選的生圖工具："
+          f"先 h3d imagegen --detect 列出可用工具、請使用者選；選 Codex 分鏡時：{command}", file=sys.stderr)
+    print("（生圖後端由使用者選，不自行預設；--model 填使用者指定的 Codex 生圖模型。"
+          "既有專案已回寫的 sketch_file 仍有效，不必重畫。）", file=sys.stderr)
+    return 2
+
+
+# 專案根旗標叫 --root-dir 的子命令（h3d 會把 --root 轉過去）
+ROOT_DIR_COMMANDS = ("submit", "collect", "resume")
 
 # 需要自動補上前置旗標的子命令
 IMPLIED_FLAGS = {
@@ -170,11 +208,19 @@ def _ledger_summary(root: Path) -> List[str]:
         except (OSError, json.JSONDecodeError) as exc:
             lines.append(f"  {ledger.relative_to(root).as_posix()}：無法解析（{exc}）")
             continue
+        # 每段只算最新一筆（與 collect／next 一致）；被重送取代的舊 job 另計，不再混進 running 之類的計數。
+        latest: Dict[str, Dict[str, Any]] = {}
+        jobs = [job for job in payload.get("jobs", []) or [] if isinstance(job, dict)]
+        for job in jobs:
+            latest[str(job.get("segment_id") or job.get("id") or "?")] = job
         counts: Dict[str, int] = {}
-        for job in payload.get("jobs", []) or []:
+        for job in latest.values():
             status = str(job.get("status") or "unknown")
             counts[status] = counts.get(status, 0) + 1
         summary = ", ".join(f"{key}={value}" for key, value in sorted(counts.items())) or "（空）"
+        superseded = len(jobs) - len(latest)
+        if superseded > 0:
+            summary += f"（另有 {superseded} 筆被重送取代的舊紀錄）"
         lines.append(f"  {ledger.relative_to(root).as_posix()}：{summary}")
     return lines
 
@@ -223,6 +269,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="AI 漫劇產線單一入口（把 scripts/ 的工具收成一個名字）",
         epilog="每個子命令都支援 --help，例如：h3d compile --help",
     )
+    parser.add_argument("--version", action="store_true", help="印出技能版本（VERSION）")
     parser.add_argument("--list", action="store_true", help="列出所有子命令")
     parser.add_argument("--root", type=Path, default=None, help="專案根目錄（給 status／next／decide／verdict 用）")
     parser.add_argument("--json", action="store_true", help="status／next 以 JSON 輸出")
@@ -234,6 +281,11 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Optional[List[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if args.version:
+        import skill_version
+        print(f"ai-comic-drama v{skill_version.skill_version()}")
+        return 0
 
     if args.list or not args.command:
         print("h3d 子命令：")
@@ -254,17 +306,43 @@ def main(argv: Optional[List[str]] = None) -> int:
         known, _ = sub.parse_known_args(list(args.args))
         return cmd_status(Path(known.root).resolve(), known.json or args.json)
 
-    module = _load(command)
     passthrough = list(args.args)
     if passthrough and passthrough[0] == "--":
         passthrough = passthrough[1:]
+    if command == "sketch":
+        return removed_sketch(passthrough, args.root)
+    if command == "qa" and "--continuity" in passthrough:
+        # R3-16：交界連續性 QA 是獨立工具（只警告、不寫 qa-report.json），不混進 verify_video_shot 的旗標。
+        passthrough = [a for a in passthrough if a != "--continuity"]
+        if args.root is not None and "--root" not in passthrough:
+            passthrough += ["--root", str(args.root)]
+        if args.json and "--json" not in passthrough:
+            passthrough.append("--json")
+        return _invoke(importlib.import_module("continuity_qa"), passthrough)
+    module = _load(command)
     passthrough = IMPLIED_FLAGS.get(command, []) + passthrough
-    if command in ("next", "decide", "verdict", "inbox", "approve", "run"):
+    if command in ("next", "decide", "verdict", "inbox", "approve", "run", "refcheck", "staging", "version", "imagegen"):
         # 允許 `h3d --root X next` 與 `h3d next --root X` 兩種寫法
         if args.root is not None and "--root" not in passthrough:
             passthrough += ["--root", str(args.root)]
         if args.json and "--json" not in passthrough:
             passthrough.append("--json")
+    elif command in ROOT_DIR_COMMANDS:
+        # submit／collect／resume 的專案根旗標叫 --root-dir；`--root` 是其他子命令的慣例，
+        # 舊版直接丟給 argparse 會報「unrecognized arguments」，`h3d --root X submit` 則被默默忽略。
+        passthrough = ["--root-dir" if a == "--root" else
+                       ("--root-dir=" + a[len("--root="):] if a.startswith("--root=") else a)
+                       for a in passthrough]
+        if args.root is not None and not any(a == "--root-dir" or a.startswith("--root-dir=") for a in passthrough):
+            passthrough += ["--root-dir", str(args.root)]
+    elif command == "doctor":
+        if args.root is not None and "--root" not in passthrough:
+            passthrough += ["--root", str(args.root)]
+        if args.json and "--json" not in passthrough:
+            passthrough.append("--json")
+    elif args.root is not None:
+        print(f"⚠️ h3d --root 對 `{command}` 沒有作用（這個子命令的路徑以目前目錄解析）；"
+              f"請在專案根目錄執行，或用子命令自己的路徑參數（h3d {command} --help）。", file=sys.stderr)
     return _invoke(module, passthrough)
 
 

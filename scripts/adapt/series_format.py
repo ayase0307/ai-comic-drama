@@ -55,7 +55,7 @@ def normalize(value: Any) -> Optional[str]:
 
 def _decided(root: Path) -> Optional[str]:
     try:
-        data = json.loads((Path(root) / "decisions.json").read_text(encoding="utf-8"))
+        data = json.loads((Path(root) / "decisions.json").read_text(encoding="utf-8-sig"))
     except (OSError, ValueError):
         return None
     for d in data.get("decisions", []) if isinstance(data, dict) else []:
@@ -66,7 +66,7 @@ def _decided(root: Path) -> Optional[str]:
 
 def _project_md(root: Path) -> Optional[str]:
     try:
-        text = (Path(root) / "project.md").read_text(encoding="utf-8")
+        text = (Path(root) / "project.md").read_text(encoding="utf-8-sig")
     except OSError:
         return None
     m = re.search(r"^-[ \t]*成片形式[ \t]*[：:][ \t]*(.*)$", text, flags=re.M)

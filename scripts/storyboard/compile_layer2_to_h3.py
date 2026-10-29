@@ -47,7 +47,7 @@ if str(CURRENT_DIR) not in sys.path:
 SCRIPTS_DIR = CURRENT_DIR.parent
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
-from project_state import require_approved, stage4_artifacts, stage_snapshot
+from project_state import record_gate_bypass, require_approved, stage4_artifacts, stage_snapshot
 
 from audit_refs_and_segments import (
     COMPOUND_CAMERA_MOTIONS,
@@ -66,6 +66,7 @@ from director_storyboard_assistant import (
 )
 from handoff_to_skeleton import segment_sort_key
 import style_rules
+import camera_moves
 from speech_utils import count_speech_chars, normalize_speech
 
 try:  # 以 scripts/storyboard 為 sys.path 執行（CLI 慣例）
@@ -75,6 +76,7 @@ try:  # 以 scripts/storyboard 為 sys.path 執行（CLI 慣例）
     import prompt_authoring
     import continuity_lint
     import voice_lint
+    import creature_lint
 except ImportError:  # pragma: no cover - 套件匯入路徑
     from . import h3_spec
     from . import normalize as normalize_mod
@@ -82,6 +84,7 @@ except ImportError:  # pragma: no cover - 套件匯入路徑
     from . import prompt_authoring
     from . import continuity_lint
     from . import voice_lint
+    from . import creature_lint
 
 
 # ==============================================================================
@@ -179,6 +182,9 @@ CAMERA_HOLD_ACTION_RE = re.compile(
 )
 
 
+COMPILER_RULES_VERSION = "2026-10-26"  # 改編譯輸出規則時更新（#150）
+
+
 def normalize_authored_camera_hold_action(stage: str) -> str:
     """Keep a stated held composition without duplicating the camera clause."""
     match = CAMERA_HOLD_ACTION_RE.match(stage.strip())
@@ -195,6 +201,19 @@ SHEET_PHRASES_RE = re.compile(
     r"|,?\s*(?:three-view|turnaround|model sheet|character sheet|creature sheet)[^,]*",
     re.IGNORECASE,
 )
+
+
+def _english_name_fields(rec: Dict[str, Any]) -> Dict[str, Any]:
+    """bible 記錄的英文名欄位（name_en／aliases_en）；沒寫就不帶。中文值不收（提示詞只放英文）。"""
+    out: Dict[str, Any] = {}
+    name_en = rec.get("name_en")
+    if isinstance(name_en, str) and name_en.strip() and not CJK_RE.search(name_en):
+        out["name_en"] = name_en.strip()
+    aliases = [str(a).strip() for a in (rec.get("aliases_en") or []) if isinstance(a, str) and a.strip()
+               and not CJK_RE.search(a)] if isinstance(rec.get("aliases_en"), list) else []
+    if aliases:
+        out["aliases_en"] = aliases
+    return out
 
 
 def strip_sheet_phrases(desc: str) -> str:
@@ -297,6 +316,8 @@ class AssetRegistry:
                 "voice_only": bool(char.get("voice_only", False)),
                 "no_visual_reference": bool(char.get("no_visual_reference", False)) or bool(char.get("voice_only", False)),
                 "variants": char.get("variants") or char.get("visual_variants") or {},
+                # PR-R5：REMIX 介紹句「<Video N> is <英文名>, …」與 refcheck／staging 詞表共用的英文名
+                **_english_name_fields(char),
             }
         for loc in data.get("locations", []) or []:
             if not isinstance(loc, dict):
@@ -311,6 +332,7 @@ class AssetRegistry:
                 "desc_en": "" if CJK_RE.search(desc_en or "") else desc_en,
                 "desc_zh": loc.get("description_zh") or loc.get("description", ""),
                 "ref_img": loc.get("reference_image") or loc.get("image_path") or "",
+                **_english_name_fields(loc),
             }
         aliases = data.get("id_aliases", {}) or {}
         if isinstance(aliases, dict):
@@ -326,6 +348,7 @@ class AssetRegistry:
                     "name": prop.get("name", pid),
                     "desc_en": "" if CJK_RE.search(desc_en or "") else desc_en,
                     "ref_img": prop.get("reference_image") or prop.get("image_path") or "",
+                    **_english_name_fields(prop),
                 }
         for detail in data.get("bodydetails", []) or []:
             if not isinstance(detail, dict):
@@ -342,7 +365,7 @@ class AssetRegistry:
         if isinstance(style, dict):
             for key in ("anchor", "negative", "lighting_lock_line"):
                 value = style.get(key)
-                if value:
+                if value and not re.fullmatch(r"\s*<[^<>]*>\s*", str(value)):  # 模板佔位不是定案值
                     mapped_key = {"anchor": "style_anchor", "negative": "style_negative"}.get(key, key)
                     self.style[mapped_key] = str(value)
 
@@ -360,7 +383,10 @@ class AssetRegistry:
             # 風格錨點
             m = re.match(r"^-\s*\*\*(style_anchor|style_negative|lighting_lock_line|style_index)\*\*[：:]\s*`([^`]+)`", line)
             if m:
-                self.style[m.group(1)] = m.group(2).strip()
+                value = m.group(2).strip()
+                # init_project 的模板佔位（`<全片共用風格，例：…>`）不是定案值，不能寫進提示詞
+                if not re.fullmatch(r"<[^<>]*>", value):
+                    self.style[m.group(1)] = value
                 continue
             # 卡片標題
             m = re.match(r"^#{2,4}\s*((?:C|CREATURE|EXTRAS)-[\w-]+|CREATURE-\d+)\s*[　\s]*(.*)$", line)
@@ -540,7 +566,11 @@ def _on_screen_sentence(show: Dict[str, Any], subjects: List[Tuple[int, str, int
                 bits.append(("@", mode))  # type: ignore[arg-type]
             groups[mode].append(label)
     out = [SHOW_MODES[b[1]].format(L=", ".join(groups[b[1]])) if isinstance(b, tuple) else b for b in bits]
-    return " On screen: " + "; ".join(out) + "."
+    sentence = " On screen: " + "; ".join(out) + "."
+    # #96：參考圖整段共用，遠景空鏡所有 Subject 都 absent 時，自動補空場景句，避免 H3 把人畫出來
+    if subjects and all(str(show.get(cid) or "absent") == "absent" for _k, cid, _p in subjects):
+        sentence += " The frame is completely empty of people; no person, figure or silhouette appears anywhere in it."
+    return sentence
 LIPS_MODES = {"closed", "omit"}
 # 中文運鏡關鍵字 → H3 官方動詞（依序比對，先比較長、較具體的詞）。
 CJK_CAMERA_KEYWORDS: List[Tuple[Tuple[str, ...], str]] = [
@@ -658,6 +688,8 @@ def validate_stage5_binding(
         if not isinstance(override, dict) or set(override) - SHOT_OVERRIDE_KEYS:
             raise ValueError(f"Stage5 shot override {sid} may override only {', '.join(sorted(SHOT_OVERRIDE_KEYS))}")
     stage5_pending_references(binding)
+    if is_remix_binding(binding):
+        remix_refmods(binding)  # E52／E53 同規則：包、tag、編號、場景第一
     overlay = stage5_en_overlay(binding)
     for sid, entry in (overlay.get("shots") or {}).items():
         if sid not in known:
@@ -889,9 +921,16 @@ def _stage5_reference_path_map(binding: Dict[str, Any]) -> Tuple[Dict[str, str],
                         current = {
                             "id": str(aid), "variant": variant, "path": image,
                             "description": entry.get("desc_en") or entry.get("description_en") or "",
+                            "on_screen_en": "", "banned_en": [],
                             "shot_ids": [],
                         }
                         variants[key] = current
+                    # PR-17c（#142 #153 R3-2）：階段專屬的逐鏡外觀句與禁用詞，可寫在綁定或 bible 的 variants 裡
+                    if entry.get("on_screen_en") and not current["on_screen_en"]:
+                        current["on_screen_en"] = str(entry["on_screen_en"]).strip()
+                    for _bw in creature_lint.normalize_banned(entry.get("banned_en")):
+                        if _bw not in current["banned_en"]:
+                            current["banned_en"].append(_bw)
                     sid = shot_binding.get("global_shot_id")
                     if sid and sid not in current["shot_ids"]:
                         current["shot_ids"].append(sid)
@@ -1043,6 +1082,23 @@ def _dialogue_visibility(s: Dict[str, Any]) -> str:
         searchable.extend(value if isinstance(value, list) else [value])
     searchable.extend([dlg.get("voice_4d_spec", ""), dlg.get("audio_type", "")])
     text = " ".join(str(part or "") for part in searchable).lower()
+    # An explicit statement that the speaker's mouth is visible wins over generic
+    # off-screen words, which often describe the *listener* ("looking at {C-x} off-screen").
+    visible_terms = (
+        "mouth is clearly visible", "mouth clearly visible", "mouth is visible", "mouth visible",
+        "lips visible", "lips are visible", "嘴部可見", "看得到嘴", "露嘴",
+    )
+    hidden_terms = (
+        "never appears", "no speaking mouth", "mouth is out of view", "mouth out of view",
+        "mouth remains unseen", "嘴部不可見", "不顯示聲源嘴部", "不露臉",
+    )
+    negated = re.search(r"\b(?:no|not|never|without)\b[^.;,]{0,30}\b(?:mouth|lips)\b", text)
+    if dlg.get("mouth_visible") is False or negated or any(term in text for term in hidden_terms):
+        return "offscreen"
+    if dlg.get("mouth_visible") is True or any(term in text for term in visible_terms):
+        return "mouth_hidden" if dlg.get("lips_closed_lock") else "visible"
+    # Drop "<target> off-screen" phrases that place someone else outside the frame.
+    text = re.sub(r"\b(?:at|to|toward|towards)\s+\{?[\w\- <>]+\}?\s+off-?screen", " ", text)
     offscreen_terms = (
         "offscreen", "off-screen", "beyond frame", "out of frame", "outside the frame",
         "never appears", "no speaking mouth", "mouth is out of view", "mouth out of view",
@@ -1287,6 +1343,192 @@ def _english_anchor_objects(values: Any, registry: "AssetRegistry", notes: List[
     return out
 
 
+# ==============================================================================
+# REMIX 三欄輸出（PR-R5，video_backend=remix）
+# ==============================================================================
+# 實戰格式來源：《噩盡島》ch02 EP04 的家機 REMIX 送件（ch02/build.py；measured 只在那一集、8 GB、V1.3＋turbo）。
+#   integrated_multimodal_description：風格錨開頭 → [Shot 1] 場景句＋每個包一句「<Picture N>／<Video N> is 誰」
+#   → 逐鏡頭句＋五小節（與 Ref2VA 同一套 five_part_en、台詞／畫外音規則）→ Style lock → 無字句（可關）。
+#   overall_soundscape、non_diegetic_music 照官方三欄。不輸出 subject_definitions／retention_analysis／summary。
+REMIX_PACK_TAGS = ("Picture", "Video")
+REMIX_SUBJECT_KINDS = ("actor", "creature", "extras")
+REMIX_STYLE_LOCK_DEFAULT = (
+    "Style lock for every shot: the same rendering as the character and location references, "
+    "with consistent shading of skin, hair, fabric and environment."
+)
+REMIX_SCENE_KEEP = "keep its layout, lighting and render style"
+
+
+def is_remix_binding(binding: Optional[Dict[str, Any]]) -> bool:
+    """段落綁定是不是 REMIX 角色包（video_backend=remix 或帶 refmods）。"""
+    return isinstance(binding, dict) and (binding.get("video_backend") == "remix" or "refmods" in binding)
+
+
+def remix_refmods(binding: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """驗證並回傳 refmods 副本（補上 label）。
+
+    規則與 audit E52／E53 相同：每項要有 id、pack、kind、tag（Picture＝單圖包、Video＝多圖包），
+    <Picture N>／<Video N> 依 refmods 順序各自從 1 編號，場景包第一，同一個包不能掛兩次；
+    綁定寫了 label 就要和順序一致（不一致代表綁定被手改過，編譯器不替它猜）。
+    """
+    seg_id = binding.get("segment_id")
+    raw = binding.get("refmods")
+    if not isinstance(raw, list) or not raw:
+        raise ValueError(f"remix 綁定 {seg_id} 沒有 refmods（角色包）；先跑 h3d bind（video_backend=remix）")
+    counters = {"Picture": 0, "Video": 0}
+    seen_packs: set = set()
+    seen_ids: set = set()
+    out: List[Dict[str, Any]] = []
+    for index, ref in enumerate(raw):
+        if not isinstance(ref, dict):
+            raise ValueError(f"remix 綁定 {seg_id} refmods[{index}] 必須是物件")
+        pack = str(ref.get("pack") or "").strip()
+        aid = str(ref.get("id") or "").strip()
+        if not pack or not aid:
+            raise ValueError(f"remix 綁定 {seg_id} refmods[{index}] 要有 id 與 pack")
+        if pack in seen_packs:
+            raise ValueError(f"remix 綁定 {seg_id} 的包 {pack} 掛了兩次")
+        if aid in seen_ids:
+            raise ValueError(f"remix 綁定 {seg_id} 的資產 {aid} 掛了兩個包")
+        seen_packs.add(pack)
+        seen_ids.add(aid)
+        tag = ref.get("tag")
+        if tag not in REMIX_PACK_TAGS:
+            raise ValueError(f"remix 綁定 {seg_id} 包 {pack} 的 tag={tag!r}；只能是 Picture（單圖包）或 Video（多圖包）")
+        kind = str(ref.get("kind") or "")
+        if kind not in REMIX_SUBJECT_KINDS + ("scene", "prop"):
+            raise ValueError(f"remix 綁定 {seg_id} 包 {pack} 的 kind={kind!r}；只能是 scene／actor／creature／prop／extras")
+        if kind == "scene" and index != 0:
+            raise ValueError(f"remix 綁定 {seg_id} 的場景包 {pack} 不在 refmods 第一個（E53：場景包第一）")
+        counters[tag] += 1
+        label = f"<{tag} {counters[tag]}>"
+        if ref.get("label") and ref["label"] != label:
+            raise ValueError(f"remix 綁定 {seg_id} 包 {pack} 標成 {ref['label']}，依 refmods 順序應為 {label}（E52）")
+        out.append({**json.loads(json.dumps(ref, ensure_ascii=False)), "label": label})
+    return out
+
+
+def _ascii_name(value: Any) -> str:
+    text = str(value or "").strip()
+    return text if text and not CJK_RE.search(text) and not re.search(r"[^\x00-\x7f]", text) else ""
+
+
+def _remix_plan_entry(plan: Optional[Dict[str, Any]], asset_id: str, costume: Optional[str]) -> Dict[str, Any]:
+    raw = ((plan or {}).get(asset_id) if isinstance(plan, dict) else None) or {}
+    if not isinstance(raw, dict):
+        return {}
+    entry = {k: v for k, v in raw.items() if k != "costumes"}
+    variant = (raw.get("costumes") or {}).get(costume) if costume else None
+    if isinstance(variant, dict):
+        entry.update(variant)
+    return entry
+
+
+def remix_english_name(ref: Dict[str, Any], registry: "AssetRegistry", plan: Optional[Dict[str, Any]] = None) -> str:
+    """介紹句用的英文名：refmods.name_en > 計畫表 packs.<id>.name_en > bible name_en > 英文 display_name／name。"""
+    aid = str(ref.get("id"))
+    entry = _remix_plan_entry(plan, aid, ref.get("costume_id"))
+    kind = ref.get("kind")
+    if kind == "scene":
+        rec = registry.locations.get(aid, {})
+    elif kind == "prop":
+        rec = registry.props.get(aid, {})
+    else:
+        rec = registry.characters.get(registry.id_aliases.get(aid, aid), {})
+    for candidate in (ref.get("name_en"), entry.get("name_en"), rec.get("name_en"), ref.get("display_name"),
+                      entry.get("display_name"), rec.get("name")):
+        name = _ascii_name(candidate)
+        if name and name != aid:
+            return name
+    return ""
+
+
+def remix_description(ref: Dict[str, Any], registry: "AssetRegistry", plan: Optional[Dict[str, Any]] = None,
+                      wardrobe: Optional[str] = None) -> str:
+    """外觀錨：refmods.description_en > 計畫表 description_en（服裝變體優先）> bible 英文固定描述。
+
+    外觀錨要和建包時的 description 一致（PR-R5 規格）；建包描述和 bible 不同時，請把包描述寫進計畫表。
+    """
+    aid = str(ref.get("id"))
+    entry = _remix_plan_entry(plan, aid, ref.get("costume_id"))
+    for candidate in (ref.get("description_en"), entry.get("description_en")):
+        text = _clean(candidate)
+        if text and not CJK_RE.search(text):
+            return text.rstrip(" .")
+    kind = ref.get("kind")
+    if kind == "scene":
+        rec = registry.locations.get(aid, {})
+        desc = rec.get("desc_en") or ""
+    elif kind == "prop":
+        desc = (registry.props.get(registry.id_aliases.get(aid, aid)) or {}).get("desc_en") or ""
+    else:
+        desc = registry.get_character(aid, wardrobe_state=ref.get("costume_id") or wardrobe).get("desc_en") or ""
+    return _clean(desc).rstrip(" .")
+
+
+def remix_intro_sentences(refmods: List[Dict[str, Any]], registry: "AssetRegistry",
+                          plan: Optional[Dict[str, Any]] = None, wardrobe: Optional[str] = None,
+                          notes: Optional[List[str]] = None) -> Tuple[List[str], Dict[str, str]]:
+    """每個包一句「<標籤> is 誰」：只寫身份與外觀，不寫位置與姿態（站位寫在各鏡，W42）。
+
+    回傳（句子清單, {資產 id: 英文名}）。演員／生物／群演沒有英文名就報錯：
+    介紹句、refcheck、站位閘門都靠這個名字對人（ch02 S04-a 左右對調就是靠名字抓的）。
+    """
+    notes = notes if notes is not None else []
+    sentences: List[str] = []
+    names: Dict[str, str] = {}
+    for ref in refmods:
+        label, kind, aid = ref["label"], ref.get("kind"), str(ref["id"])
+        name = remix_english_name(ref, registry, plan)
+        desc = remix_description(ref, registry, plan, wardrobe)
+        if kind == "scene":
+            if desc and desc != "the location shown in the reference plate":
+                sentences.append(desc[:1].upper() + desc[1:] + ".")
+            sentences.append(f"{label} is the location, {REMIX_SCENE_KEEP}.")
+            if name:
+                names[aid] = name
+            continue
+        if not name:
+            if kind in REMIX_SUBJECT_KINDS:
+                raise ValueError(
+                    f"remix 包 {ref.get('pack')}（{aid}）沒有英文名：在 adapt/bible.json 或 assets/character-packs.json "
+                    f"的 packs.{aid} 寫 name_en（介紹句「{label} is <英文名>, …」、refcheck、站位閘門都用它）")
+            name = "the prop"
+        names[aid] = name
+        if not desc:
+            notes.append(f"remix 包 {ref.get('pack')}（{aid}）沒有英文外觀描述；介紹句只有名字，"
+                         f"請在 bible visual_prompt_en 或計畫表 description_en 補上（要和建包描述一致）")
+        if kind == "extras":
+            body = f"{name}, a group of background extras" + (f", {desc}" if desc else "")
+        else:
+            body = name + (f", {desc}" if desc else "")
+        sentences.append(f"{label} is {body}.")
+    return sentences, names
+
+
+def remix_style_anchor(layer2_data: Dict[str, Any], registry: "AssetRegistry") -> str:
+    """REMIX 風格錨（E55 同一個順序）：Layer 2 metadata.style_anchor_en > 定案 style_anchor > 14 號固定影片錨。"""
+    meta = layer2_data.get("metadata") or {}
+    anchor = _clean(meta.get("style_anchor_en"))
+    if not anchor:
+        try:
+            sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+            import decisions as _decisions_mod
+            anchor = _clean(_decisions_mod.style_anchor(registry.project_root))
+        except ImportError:  # pragma: no cover
+            anchor = ""
+    if not anchor and style_rules.is_style14(meta.get("style_key") or registry.style.get("style_index")
+                                             or style_rules.project_style(registry.project_root)):
+        anchor = style_rules.VIDEO_ANCHOR
+    if not anchor:
+        raise ValueError(
+            "remix 沒有 negative 欄位，提示詞開頭的風格錨是唯一防線（E55）；請先 "
+            "`h3d decide style_anchor \"<英文錨句>\" --quote \"<使用者原話>\"`（或在 Layer 2 metadata.style_anchor_en 寫段落錨）")
+    if CJK_RE.search(anchor):
+        raise ValueError("remix 風格錨必須是英文（提示詞只放英文）")
+    return anchor
+
+
 def compile_segment_h3(
     layer2_data: Dict[str, Any],
     registry: AssetRegistry,
@@ -1300,8 +1542,15 @@ def compile_segment_h3(
     previous_end_state: Optional[Dict[str, Any]] = None,
     no_lettering: bool = True,
     compact_description: bool = False,
+    backend: Optional[str] = None,
+    remix_packs: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """將單個 Layer 2 JSON 分鏡檔編譯為符合 H3 官方六段式規範的資料結構。
+
+    backend="remix"（或 stage5_binding 是 remix 綁定，PR-R5）：改產 REMIX 三欄
+    （integrated_multimodal_description／overall_soundscape／non_diegetic_music），
+    角色改用綁定的 refmods（<Picture N>／<Video N>），五小節、台詞、畫外音規則與 Ref2VA 相同。
+    remix_packs：video-bindings.json 頂層 packs（計畫表），用來找英文名與建包描述。
 
     主角參考圖：asset_refs.primary_character / metadata.primary_character 優先；
     否則取臉戲權重（景別越近權重越高）最重的角色。旁白與畫外音永不成為主體。
@@ -1342,6 +1591,12 @@ def compile_segment_h3(
         layer2_data = apply_stage5_binding(layer2_data, stage5_binding)
     if stage5_binding is None:
         stage5_binding = layer2_data.get("_stage5_binding")
+    remix = backend == "remix" or is_remix_binding(stage5_binding)
+    if backend == "ref2va" and is_remix_binding(stage5_binding):
+        raise ValueError("綁定是 video_backend=remix（refmods），不能用 ref2va 編譯；改回 ref2va 請先重跑 h3d bind --backend ref2va")
+    if remix and not is_remix_binding(stage5_binding):
+        raise ValueError("video_backend=remix 需要 remix 綁定（refmods）；先跑 h3d bind（video_backend=remix）再用 --bindings 編譯")
+    remix_mods: List[Dict[str, Any]] = remix_refmods(stage5_binding) if remix else []
     ensure_global_shot_ids(layer2_data)
     secondary_desc_en: Dict[str, str] = dict(layer2_data.get("_secondary_desc_en") or {})
     seg_id = layer2_data.get("segment_id") or layer2_data.get("scene_id", "SEG01")
@@ -1454,7 +1709,20 @@ def compile_segment_h3(
     unanchored_stage5: List[str] = []
     asset_meta: Dict[str, Dict[str, Any]] = {}
     pending_refs = set(stage5_pending_references(stage5_binding))
-    if stage5_binding:
+    remix_names: Dict[str, str] = {}
+    if remix:
+        # REMIX：身份來自家機角色包，不掛本機參考圖；單臉模式、Subject↔Picture 序對都不適用。
+        for shot_binding in stage5_binding.get("shots", []) or []:
+            no_visual_ids.update(shot_binding.get("no_visual_reference_ids", []) or [])
+        for ref in remix_mods:
+            if ref.get("costume_id") and ref.get("kind") in REMIX_SUBJECT_KINDS:
+                current = costume_of.get(ref["id"])
+                if current and current != ref["costume_id"]:
+                    raise ValueError(f"remix 包 {ref['pack']} 的服裝 {ref['costume_id']} 和 Layer 2 的 {current} 不一致；重跑 h3d bind")
+                costume_of[ref["id"]] = ref["costume_id"]
+        selected = [ref["id"] for ref in remix_mods if ref.get("kind") in REMIX_SUBJECT_KINDS]
+        secondary = [cid for cid in ranked if cid not in selected]
+    elif stage5_binding:
         ref_path_map, bound_scene_path, creature_variants, bound_scene_description, asset_meta = _stage5_reference_path_map(stage5_binding)
         for shot_binding in stage5_binding.get("shots", []) or []:
             paths = shot_binding.get("reference_paths", {}) or {}
@@ -1634,8 +1902,10 @@ def compile_segment_h3(
     else:
         selected = [cid for cid in ranked if cid not in no_visual_ids][:max(1, max_char_refs)]
         secondary = [cid for cid in ranked if cid not in selected]
-    # #66：<Subject k> 的說話者代號一律 (Sk)，其他發聲者接在後面
-    speaker_ids = _align_speaker_ids(speaker_ids, selected)
+    # #66：<Subject k> 的說話者代號一律 (Sk)，其他發聲者接在後面。
+    # REMIX 沒有 <Subject k>：照 ch02 實戰，依第一次發聲順序 (S1)、(S2)…
+    if not remix:
+        speaker_ids = _align_speaker_ids(speaker_ids, selected)
 
     # ---------- 未錨定的在場人物（複製人主因，送件前由 E19 攔截） ----------
     in_frame_ids: List[str] = []
@@ -1649,8 +1919,10 @@ def compile_segment_h3(
                 if cid and cid not in in_frame_ids:
                     in_frame_ids.append(cid)
     unanchored_in_frame: List[str] = []
+    remix_waived = {str(w.get("id")) for w in ((stage5_binding or {}).get("pack_waivers") or [])
+                    if isinstance(w, dict) and w.get("id")} if remix else set()
     for cid in in_frame_ids:
-        if cid in selected or cid in no_visual_ids:
+        if cid in selected or cid in no_visual_ids or cid in remix_waived:
             continue
         info = registry.get_character(cid, wardrobe_state=costume_of.get(cid) or seg_wardrobe)
         if info.get("no_visual_reference") or info.get("voice_only") or is_narrator(cid):
@@ -1659,7 +1931,12 @@ def compile_segment_h3(
     for cid in unanchored_stage5:
         if cid not in unanchored_in_frame:
             unanchored_in_frame.append(cid)
-    if unanchored_in_frame:
+    if unanchored_in_frame and remix:
+        notes.append(
+            f"在場但沒有 REMIX 包的角色：{', '.join(unanchored_in_frame)}（audit E50 會擋）。"
+            f"建包加進 assets/character-packs.json 後重跑 h3d bind，或寫 waivers 並附使用者原話。"
+        )
+    elif unanchored_in_frame:
         notes.append(
             f"未錨定在場人物（會被 H3 補成複製臉）：{', '.join(unanchored_in_frame)}。"
             f"請為其掛上自己的單視角裁切參考圖並在 stage5 綁定 identity_anchor_ids，或把該角色移出畫面。"
@@ -1721,7 +1998,9 @@ def compile_segment_h3(
         if speaker and _shot_speaker_has_visible_mouth(shot, registry) and speaker not in on_screen_speakers:
             on_screen_speakers.append(speaker)
     audio_refs: List[Dict[str, Any]] = []
-    for entry in (stage5_binding or {}).get("audio_references", []) or []:
+    if remix and (stage5_binding or {}).get("audio_references"):
+        notes.append("REMIX 沒有音訊參考輸入，audio_references 已略過（音色靠 voice_4d_spec_en 描述詞）")
+    for entry in ([] if remix else (stage5_binding or {}).get("audio_references", []) or []):
         if not isinstance(entry, dict):
             raise ValueError("Stage5 audio_references entries must be objects")
         character_id = entry.get("character_id")
@@ -1748,7 +2027,13 @@ def compile_segment_h3(
         tag = f"<Audio {idx}>"
         audio_tag_of[str(ref.get("character_id") or "")] = tag
         audio_ref_entries.append((ref, tag, speaker_ids.get(str(ref.get("character_id") or ""))))
-    for k, cid in enumerate(selected, start=1):
+    remix_intros: List[str] = []
+    if remix:
+        remix_intros, remix_names = remix_intro_sentences(remix_mods, registry, remix_packs, seg_wardrobe, notes)
+        for cid in selected:
+            tag_of[cid] = remix_names[cid]
+        reference_images = []
+    for k, cid in enumerate([] if remix else selected, start=1):
         info = char_info(cid)
         tag_of[cid] = f"<Subject {k}>"
         subject_picture_no[cid] = k + 1
@@ -1832,8 +2117,10 @@ def compile_segment_h3(
                 f"{k + 1}, {kind_label}), {desc}.")
             if info.get("is_creature"):
                 # 生物沒有髮型與服裝；沿用人類模板會把 H3 引向「人臉」（#60）
-                ret = (f"<Subject {k}> (appears across shots): fully_preserved - the body shape, skin or surface "
-                       f"texture, and head features from <Picture {k + 1}> are retained.")
+                ret = (f"<Subject {k}> (appears across shots): fully_preserved - "
+                       f"{creature_lint.head_retention_clause(info.get('desc_en') or '', k + 1)}.")
+                for _w in creature_lint.lint_creature_text(info.get("id") or disp_name, info.get("desc_en") or "", []):
+                    notes.append(_w)
                 ret += " Ignore neutral gray/white studio background of creature turnaround sheet."
             else:
                 ret = f"<Subject {k}> (appears across shots): fully_preserved - the facial identity, hairstyle, and wardrobe from <Picture {k + 1}> are retained."
@@ -1904,7 +2191,25 @@ def compile_segment_h3(
     # Stage5 supplementary props/body details are Pictures after the subject sequence.
     # They inform object or localized-detail appearance without becoming face Subjects.
     variant_picture_by_shot: Dict[str, List[Tuple[int, str]]] = {}
-    if stage5_binding:
+    # PR-17c：逐鏡的生物階段（外觀句＋禁用詞）。來源＝綁定的變體條目，其次 bible 的 variants[階段]
+    variant_stage_by_shot: Dict[str, List[Dict[str, Any]]] = {}
+
+    def _register_stage(sid: str, variant: Dict[str, Any], info: Dict[str, Any]) -> None:
+        bible_variants = info.get("variants", {}) or {}
+        bible_info = bible_variants.get(variant["variant"], {}) if isinstance(bible_variants, dict) else {}
+        if not isinstance(bible_info, dict):
+            bible_info = {}
+        on_screen = variant.get("on_screen_en") or bible_info.get("on_screen_en") or ""
+        banned = list(variant.get("banned_en") or [])
+        for _bw in creature_lint.normalize_banned(bible_info.get("banned_en")):
+            if _bw not in banned:
+                banned.append(_bw)
+        if on_screen or banned:
+            variant_stage_by_shot.setdefault(sid, []).append({
+                "creature": variant["id"], "stage": variant["variant"],
+                "on_screen_en": str(on_screen).strip(), "banned_en": banned,
+            })
+    if stage5_binding and not remix:
         supplementary: List[Tuple[str, Dict[str, Any]]] = []
         prop_ids: List[str] = []
         detail_ids: List[str] = []
@@ -1980,6 +2285,7 @@ def compile_segment_h3(
                 )
                 for sid in variant["shot_ids"]:
                     variant_picture_by_shot.setdefault(sid, []).append((pic_no, variant["variant"]))
+                    _register_stage(sid, variant, info)
                 continue
             reference_images.append({
                 "id": f"{variant['id']}@{variant['variant']}", "type": "creature_variant",
@@ -1997,6 +2303,7 @@ def compile_segment_h3(
             )
             for sid in variant["shot_ids"]:
                 variant_picture_by_shot.setdefault(sid, []).append((pic_no, variant["variant"]))
+                _register_stage(sid, variant, info)
 
     # 音色參考的音訊素材排在所有圖像素材之後：官方 ref-en §2.5 明載 <Video N> 與
     # <Audio N> 各自獨立編號，音訊不參與 <Picture N> 的序對。
@@ -2008,12 +2315,15 @@ def compile_segment_h3(
         })
 
     # ---------- 風格與光線 ----------
-    if stage5_binding:
+    if remix:
+        # E55：remix 的錨句逐字照定案（audit 比對開頭），不套 14 號的錨句改寫
+        anchor = remix_style_anchor(layer2_data, registry)
+    elif stage5_binding:
         anchor = registry.style.get("style_anchor", "") or "cinematic film look"
     else:
         anchor = _clean(style_lock.get("anchor")) or registry.style.get("style_anchor", "") or "cinematic film look"
-    if style_rules.is_style14(metadata.get("style_key") or registry.style.get("style_index")
-                              or style_rules.project_style(registry.project_root)):
+    if not remix and style_rules.is_style14(metadata.get("style_key") or registry.style.get("style_index")
+                                            or style_rules.project_style(registry.project_root)):
         # 14 號風格：固定影片錨，刪掉「hand-painted 2D／cel-like／non-photorealistic」這類平塗模板句
         anchor = style_rules.video_anchor(anchor)
     lighting_line = (_clean(metadata.get("lighting_lock_line")) or _clean(style_lock.get("lighting_lock_line"))
@@ -2036,6 +2346,9 @@ def compile_segment_h3(
         if _has_cjk(value):
             notes.append(f"連戲錨 {key} 是中文，未寫進英文提示詞；請在 en_overlay.continuity_anchors_en 補英文")
             continue
+        if key == "blocking" and continuity_lint.FUTURE_BLOCKING_RE.search(str(value)):
+            notes.append(f"連戲錨 blocking 含之後才發生的走位（{continuity_lint.FUTURE_BLOCKING_RE.search(str(value)).group(0)}）；"
+                         f"錨點只寫段落開頭狀態，否則空鏡會畫出人物分身（#95）")
         authored_anchors.append(f"{key}: {value}")
     if anchor:
         authored_anchors.insert(0, f"style anchor: {anchor}")
@@ -2113,6 +2426,7 @@ def compile_segment_h3(
             break
     tail_hold = tail_hold and not final_second_has_dialogue
     used_motion: set = set()
+    remix_kind = {str(r["id"]): str(r.get("kind") or "") for r in remix_mods}
     spoken_lines: List[str] = []
     external_narration: List[Dict[str, Any]] = []
     for idx, s in enumerate(shots, start=1):
@@ -2133,10 +2447,22 @@ def compile_segment_h3(
         else:
             focal = "the scene"
 
-        motion = map_camera_motion(cam.get("movement_en") or cam.get("movement", "static"), idx).replace("camera ", "").strip()
-        mclause = "the camera holds a static shot" if ("static" in motion or "steady" in motion) else f"the camera {motion}"
-        if mclause in used_motion and "static" not in mclause:
-            mclause += " slowly"
+        if cam.get("move_preset"):
+            # PR-14b：運鏡預設展開成完整 Camera 子句（不加 slowly、不走動詞映射）
+            # 第 3 輪：秒數不足（yo-yo、三格分割需 8 秒）、開場景別不符、掛了場景參考圖（運鏡砍半）都記 compile_notes
+            try:
+                _shot_secs = float(s.get("duration") or target_dur)
+            except (TypeError, ValueError):
+                _shot_secs = target_dur
+            mclause, _preset_warn = camera_moves.expand_preset(
+                cam["move_preset"], cam.get("move_slots"),
+                seconds=_shot_secs, shot_size=shot_size, bg_plate=ref2va)
+            notes.extend(f"{s.get('shot_id')} {w}" for w in _preset_warn)
+        else:
+            motion = map_camera_motion(cam.get("movement_en") or cam.get("movement", "static"), idx).replace("camera ", "").strip()
+            mclause = "the camera holds a static shot" if ("static" in motion or "steady" in motion) else f"the camera {motion}"
+            if mclause in used_motion and "static" not in mclause:
+                mclause += " slowly"
         used_motion.add(mclause)
 
         act = s.get("action_and_performance", {}) or {}
@@ -2164,6 +2490,10 @@ def compile_segment_h3(
             line = dlg["line_verbatim"].strip()
             spk = dlg.get("speaker")
             identity = _dialogue_speaker_label(spk, registry)
+            if remix and spk:
+                # REMIX 提示詞只放英文：沒包的發聲者（畫外音）也用英文名，不用 bible 的中文名
+                identity = (remix_names.get(str(spk))
+                            or _ascii_name((registry.characters.get(spk) or {}).get("name_en")) or identity)
             speaker_tag = tag_of.get(spk)
             speaker_id = speaker_ids.get(str(spk)) if spk else None
             if speaker_tag and speaker_id:
@@ -2288,6 +2618,13 @@ def compile_segment_h3(
                 else:
                     delivery = f"{subject_speaker} is the visible speaking character ({who}){voice_clause}, and says: "
                 speech = f"; {window}{delivery}<d>[Chinese] {line}</d>"
+                if remix:
+                    # REMIX 多人同框：同鏡其他演員寫閉唇，避免台詞被配到別人嘴上（ch02 build.py 實戰寫法）
+                    others = list(dict.fromkeys(
+                        tag_of[c] for c in (s.get("character_ids") or [])
+                        if c in tag_of and c != spk and remix_kind.get(c) == "actor" and c not in no_visual_ids))
+                    if others:
+                        speech += f" while {_possessive_list(others)} lips remain completely closed"
         else:
             speech = "; lips stay closed" if lips_closed else ""
 
@@ -2307,6 +2644,12 @@ def compile_segment_h3(
         global_shot_id = s.get("global_shot_id")
         for picture_no, variant_name in variant_picture_by_shot.get(global_shot_id, []):
             stage_refs += f" Stage-specific reference: use <Picture {picture_no}> for the creature's {variant_name} morphology in this shot only."
+        stage_sentence = ""
+        for _st in variant_stage_by_shot.get(global_shot_id, []):
+            if _st["on_screen_en"]:
+                _txt = _st["on_screen_en"].rstrip()
+                stage_sentence += f" In this shot the creature is: {_txt}" + ("" if _txt.endswith((".", "!", "?")) else ".")
+        stage_refs += stage_sentence
         # 整板查表角色：把「用哪一格」寫進鏡頭描述，讓模型知道該取板上的哪個人。
         bound_shot_refs = next((b for b in (stage5_binding or {}).get("shots", []) or []
                                 if b.get("global_shot_id") == global_shot_id), {})
@@ -2325,7 +2668,11 @@ def compile_segment_h3(
                 f"no other figure on that sheet appears in this shot."
             )
 
-        if idx == 1 and ref2va:
+        if idx == 1 and remix:
+            # REMIX：場景句＋每個包的介紹句放在第 1 鏡開頭（ch02 實戰位置），接著才是鏡頭句
+            head = (f"[Shot 1] {' '.join(remix_intros)} The shot opens on a {shot_size}{optics} of {focal}, "
+                    f"as {mclause}.").replace("[Shot 1]  ", "[Shot 1] ")
+        elif idx == 1 and ref2va:
             head = f"[Shot 1] The scene opens with <Picture 1> as a scene/style reference for spatial guidance: {shot_size}{optics} of {focal}, as {mclause}."
         elif idx == 1:
             head = f"[Shot 1] The shot begins from <Picture 1>: {shot_size}{optics} of {focal}, as {mclause}."
@@ -2334,7 +2681,9 @@ def compile_segment_h3(
                     f"{shot_size}{optics} of {focal}, as {mclause}.")
         # #67：逐鏡 On screen 句（en_overlay.shots.<gsid>.show）
         _show = ((stage5_en_overlay(stage5_binding).get("shots") or {}).get(global_shot_id) or {}).get("show") if stage5_binding else None
-        if _show:
+        if _show and remix:
+            notes.append(f"{s.get('shot_id')} en_overlay.show 是 Ref2VA 的 <Subject N> 可見度句，REMIX 不輸出；可見度請寫進 five_part_en")
+        elif _show:
             head += _on_screen_sentence(_show, [(k, c, subject_picture_no[c]) for k, c in enumerate(selected, start=1)])
         if idx == 1 and carry_text:
             head += carry_text
@@ -2381,6 +2730,15 @@ def compile_segment_h3(
         else:
             closing = f"{speech}." if speech else ("." if (expr and not blocking_clause and not stage_refs and not expr.rstrip().endswith((".", "!", "?"))) else "")
             body = f"{head} {action}." + (f" Expression: {expr}" if expr else "") + blocking_clause + stage_refs + f"{closing}{tail}{marker}"
+        for _st in variant_stage_by_shot.get(global_shot_id, []):
+            if not _st["banned_en"]:
+                continue
+            _scan = body.replace(stage_sentence, "") if stage_sentence else body
+            _hits = creature_lint.banned_hits(_scan, _st["banned_en"])
+            if _hits:
+                notes.append(
+                    f"{s.get('shot_id')} 生物 {_st['creature']} 在 {_st['stage']} 階段，但鏡頭文字含前一型態／禁用詞"
+                    f"「{'、'.join(_hits)}」（variants.banned_en）；請改寫或確認是否該換階段 (R3-2)")
         det_lines.append(sanitize_english_text(body))
 
     detailed_block = "detailed_description:\n" + "\n".join(det_lines)
@@ -2405,14 +2763,36 @@ def compile_segment_h3(
         music = ""
     music_block = "non_diegetic_music:\n" + music
 
-    full_h3_prompt = (
-        "subject_definitions:\n" + "\n".join(subject_def_lines) + "\n\n"
-        f"{summary_block}\n\n{retention_block}\n\n{detailed_block}\n\n{soundscape_block}\n\n{music_block}\n"
-    )
+    if remix:
+        # REMIX 三欄：風格錨開頭（E55）→ 畫幅與光線鎖 → 逐鏡 → Style lock → 無字句（--no-lettering-guard／allow_lettering 可關）
+        remix_header = f"The whole clip is {aspect}, lit by {lighting_line_clean}."
+        if metadata.get("palette_preset"):
+            remix_header += f" Color palette: {metadata['palette_preset']}."
+        style_tail = _clean(metadata.get("style_lock_tail_en")) or REMIX_STYLE_LOCK_DEFAULT
+        if CJK_RE.search(style_tail):
+            notes.append("metadata.style_lock_tail_en 是中文，改用預設 Style lock 句")
+            style_tail = REMIX_STYLE_LOCK_DEFAULT
+        remix_notext = bool(no_lettering and not metadata.get("allow_lettering"))
+        tail_text = style_tail + (continuity_lint.NO_LETTERING_SENTENCE if remix_notext else "")
+        integrated = " ".join([anchor.rstrip(), remix_header] + det_lines[1:] + [tail_text.strip()])
+        added_no_lettering = remix_notext
+        full_h3_prompt = (
+            f"integrated_multimodal_description: {sanitize_english_text(integrated)}\n\n"
+            f"overall_soundscape: {foley}\n\n"
+            f"non_diegetic_music: {music or 'N/A'}\n"
+        )
+    else:
+        full_h3_prompt = (
+            "subject_definitions:\n" + "\n".join(subject_def_lines) + "\n\n"
+            f"{summary_block}\n\n{retention_block}\n\n{detailed_block}\n\n{soundscape_block}\n\n{music_block}\n"
+        )
 
     # ---------- LoRA：只有 Combat_Impact 段才推導 ----------
     loras: List[Dict[str, Any]] = []
-    if auto_lora and any(s.get("dramatic_beat_type") == "Combat_Impact" for s in shots):
+    if remix and auto_lora and any(s.get("dramatic_beat_type") == "Combat_Impact" for s in shots):
+        # FreeVideo 的 LoRA 目錄在 REMIX V1.3 上沒驗證過（LoRA 疊加未試），不自動掛
+        notes.append("REMIX 不自動推導 LoRA（FreeVideo LoRA 目錄在 REMIX V1.3 上未驗證）")
+    elif auto_lora and any(s.get("dramatic_beat_type") == "Combat_Impact" for s in shots):
         combined_spec = {
             "focal": shots[0].get("camera_optics", {}).get("focal_length", "35mm"),
             "pov": shots[0].get("camera_optics", {}).get("pov_routing", "objective"),
@@ -2442,10 +2822,12 @@ def compile_segment_h3(
             f"畫外音／旁白 {len(external_narration)} 句已改為外部 TTS（未寫入 <d>），"
             f"階段 7 需以 {narration_policy} 政策合成後混入"
         )
-    if not h3_spec.in_supported_range(seg_frames):
+    frame_provider = "remix" if remix else h3_spec.DEFAULT_PROVIDER
+    if not h3_spec.in_supported_range(seg_frames, frame_provider):
+        spec = h3_spec.provider_spec(frame_provider)
         notes.append(
-            f"⚠️ {seg_frames} 幀超出 H3 支援區間 "
-            f"{h3_spec.MIN_SUPPORTED_FRAMES}–{h3_spec.MAX_SUPPORTED_FRAMES}；送件前請拆段"
+            f"⚠️ {seg_frames} 幀超出 {'REMIX' if remix else 'H3'} 支援區間 "
+            f"{spec['min_frames']}–{spec['max_frames']}；送件前請拆段"
         )
     cut_markers = [
         {
@@ -2456,13 +2838,15 @@ def compile_segment_h3(
         for shot in shots
         if float(shot.get("start_time", 0.0)) > 0
     ]
-    return {
+    result = {
         "segment_id": seg_id,
         "scene_id": scene_id,
         "metadata": {
             **metadata,
             # 編譯指紋：送件與階段 5 審查會比對，編譯後再被腳本或手動覆寫就擋下（E38）。
             "compiled_prompt_sha256": prompt_authoring.prompt_fingerprint(full_h3_prompt),
+            # #150：編譯規則版本；規則改版時 deps 不因提示詞變新就把舊影片標過期
+            "compiler_rules": COMPILER_RULES_VERSION,
             "aspect_ratio": aspect,
             "target_duration_sec": target_dur,
             "effective_duration_sec": round(eff_d, 3),
@@ -2498,6 +2882,20 @@ def compile_segment_h3(
         "carry_previous_end_state": (layer2_data.get("metadata") or {}).get("carry_previous_end_state", True) is not False,
         "compile_notes": notes + [f"參考圖不存在: {p}" for p in missing],
     }
+    if remix:
+        result["metadata"].update({"video_backend": "remix", "style_anchor_en": anchor})
+        result["reference_images"] = []
+        result["refmods"] = remix_mods
+        for key in ("pack_waivers", "positions"):
+            if stage5_binding.get(key) is not None:
+                result[key] = json.loads(json.dumps(stage5_binding[key], ensure_ascii=False))
+        bound_shots = {b.get("global_shot_id"): b for b in stage5_binding.get("shots", []) or [] if isinstance(b, dict)}
+        for shot in result["shots"]:
+            bound = bound_shots.get(shot.get("global_shot_id")) or {}
+            for key in ("visual_subject_ids", "no_visual_reference_ids", "pack_ids"):
+                if key in bound:
+                    shot[key] = list(bound[key] or [])
+    return result
 
 
 # ==============================================================================
@@ -2545,17 +2943,40 @@ def load_stage5_bindings(path: pathlib.Path) -> Dict[str, Dict[str, Any]]:
     return result
 
 
+def bindings_backend(path: pathlib.Path) -> Tuple[Optional[str], Dict[str, Any]]:
+    """綁定檔是哪個 backend（PR-R5）：回傳（"remix"／"ref2va"／None＝讀不到, 頂層 packs 計畫表）。
+
+    remix 綁定（頂層或任一段 video_backend=remix、或段落帶 refmods）改產 REMIX 三欄；
+    單臉模式、Subject↔Picture 序對只在 ref2va 執行。
+    """
+    try:
+        payload = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+    except Exception:
+        return None, {}  # 讀檔錯誤交給 load_stage5_bindings 報
+    if not isinstance(payload, dict):
+        return None, {}
+    remix = payload.get("video_backend") == "remix" or any(
+        isinstance(seg, dict) and (seg.get("video_backend") == "remix" or "refmods" in seg)
+        for seg in payload.get("segments") or [])
+    packs = payload.get("packs") if isinstance(payload.get("packs"), dict) else {}
+    return ("remix" if remix else "ref2va"), packs
+
+
 def render_markdown_package(
     compiled_segments: List[Dict[str, Any]],
     episode: Optional[str] = None
 ) -> str:
     """渲染人類可讀、可交付之 prompts-epXX.md 提示詞包。"""
     ep_title = episode or (compiled_segments[0]["segment_id"].split("-")[0] if compiled_segments else "EP01")
+    all_remix = bool(compiled_segments) and all(isinstance(seg.get("refmods"), list) for seg in compiled_segments)
     md_lines: List[str] = [
-        f"# {ep_title} MiniMax H3 官方六段式提示詞包",
+        f"# {ep_title} " + ("REMIX 三欄提示詞包（角色包）" if all_remix else "MiniMax H3 官方六段式提示詞包"),
         "",
-        f"> 本提示詞包由 `compile_layer2_to_h3.py` 自動編譯自 Layer 2 分鏡檔，"
-        f"全面對齊《噩盡島》實戰定案（7–10s 分段、獨立 Ref2VA、防混臉序對與動作力學）。",
+        (f"> 本提示詞包由 `compile_layer2_to_h3.py` 自動編譯自 Layer 2 分鏡檔（video_backend=remix）："
+         f"風格錨開頭、<Picture N>／<Video N> 依 refmods 各自編號、場景包第一；送件時 refmods 照下列順序帶。"
+         if all_remix else
+         f"> 本提示詞包由 `compile_layer2_to_h3.py` 自動編譯自 Layer 2 分鏡檔，"
+         f"全面對齊《噩盡島》實戰定案（7–10s 分段、獨立 Ref2VA、防混臉序對與動作力學）。"),
         "",
         "## 分段提示詞清單",
         ""
@@ -2571,9 +2992,17 @@ def render_markdown_package(
 
         md_lines.append(f"### Segment {idx}: `{sid}` (場景: `{sc_id}` | 目標: `{meta['target_duration_sec']}s` | 真實有效: `{meta['effective_duration_sec']}s`)")
         md_lines.append("")
-        md_lines.append(f"**參考圖清單（共 {len(refs)} 張）：**")
-        for r_idx, r in enumerate(refs, start=1):
-            md_lines.append(f"- `<Picture {r_idx}>` ({r['type']}): `{r['id']}` — {r['description']}")
+        if isinstance(seg.get("refmods"), list):
+            md_lines.append(f"**REMIX 角色包（refmods，共 {len(seg['refmods'])} 包，順序即送件順序）：**")
+            for ref in seg["refmods"]:
+                extra = f"，服裝 {ref['costume_id']}" if ref.get("costume_id") else ""
+                md_lines.append(f"- `{ref['label']}` ({ref.get('kind')}): `{ref['id']}` → 包 `{ref['pack']}`{extra}")
+            for waiver in seg.get("pack_waivers") or []:
+                md_lines.append(f"- 豁免 `{waiver.get('id') or waiver.get('pack')}`：{waiver.get('reason', '')}（原話：{waiver.get('quote', '')}）")
+        else:
+            md_lines.append(f"**參考圖清單（共 {len(refs)} 張）：**")
+            for r_idx, r in enumerate(refs, start=1):
+                md_lines.append(f"- `<Picture {r_idx}>` ({r['type']}): `{r['id']}` — {r['description']}")
         md_lines.append("")
         md_lines.append("```text")
         md_lines.append(prompt.strip())
@@ -2594,6 +3023,8 @@ def verify_stage4_gate(project_root: pathlib.Path, skip_gate: bool = False, laye
     """要求有效 stage-4 人工核准，且核准快照涵蓋目前分鏡與對應草圖。"""
     if skip_gate:
         print("⚠️ [警告] 已顯式指定 --skip-stage-gate，跳過階段 4 分鏡總覽圖門禁檢查。")
+        if not record_gate_bypass(project_root, "stage-4", "compile_layer2_to_h3 --skip-stage-gate"):
+            print("⚠️ [警告] 沒有 review/project-state.json，這次繞過未留紀錄。", file=sys.stderr)
         return True
     try:
         matched, errors = stage4_artifacts(project_root)
@@ -2669,6 +3100,21 @@ def collect_segment_end_states(
     return scenes, end_states
 
 
+def resolve_narration_policy(cli_value: Optional[str], project_root: pathlib.Path) -> str:
+    """CLI 旗標與 decisions.json 的 dialogue_policy 定案必須一致；都沒有才用預設。"""
+    scripts_dir = str(CURRENT_DIR.parent)
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
+    import decisions as decisions_mod
+    try:
+        decided = decisions_mod.narration_policy_of(decisions_mod.load(project_root))
+    except decisions_mod.DecisionError as exc:
+        raise ValueError(f"decisions.json 讀取失敗：{exc}") from exc
+    if cli_value and decided and cli_value != decided:
+        raise ValueError(f"--narration-policy {cli_value} 與 decisions.json 的 dialogue_policy 定案 {decided} 衝突，請統一後再編譯")
+    return cli_value or decided or DEFAULT_NARRATION_POLICY
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Layer 2 分鏡轉 H3 官方六段式 Prompt 與分段對帳 JSON 批次編譯器"
@@ -2691,9 +3137,10 @@ def main() -> int:
     parser.add_argument("--embed-cut-markers", action="store_true",
                         help="在提示詞寫入 <scenetrans>／<cutoff> 標記（本專案約定，非官方語法）")
     parser.add_argument(
-        "--narration-policy", type=str, default=DEFAULT_NARRATION_POLICY, choices=list(NARRATION_POLICIES),
-        help=("畫外音／旁白政策：short-offscreen-h3=短畫外句與旁白（≤15 字）由 H3 用官方句式＋<d> 直接生成，長句才外部 TTS（預設）；"
-              "external=全部外部 TTS，於階段 7 混入；h3-native=全部留 H3"),
+        "--narration-policy", type=str, default=None, choices=list(NARRATION_POLICIES),
+        help=("畫外音／旁白政策：short-offscreen-h3=短畫外句與旁白（≤15 字）由 H3 用官方句式＋<d> 直接生成，長句才外部 TTS；"
+              "external=全部外部 TTS，於階段 7 混入；h3-native=全部留 H3。"
+              "省略時讀 <project-root>/decisions.json 的 dialogue_policy，都沒有才用 short-offscreen-h3（預設）；與定案衝突會報錯"),
     )
     parser.add_argument("--no-carry-end-state", action="store_false", dest="carry_end_state", default=True,
                         help="不把同場景前一段的英文終態帶入本段第 1 鏡（#133；預設帶入）")
@@ -2703,8 +3150,37 @@ def main() -> int:
                         help="選用、預設關閉：只有使用者看過 W11 報告並同意壓縮時才開。壓縮內容：刪 Camera 開頭重複的鏡頭參數、逐鏡 Sound 改只寫在 overall_soundscape（也可在 Layer 2 metadata.compact_description=true）")
     parser.add_argument("--project-root", type=pathlib.Path, default=pathlib.Path("."), help="專案根目錄（預設當前目錄）")
     parser.add_argument("--skip-stage-gate", action="store_true", help="強制跳過階段 4 分鏡總覽圖門禁檢查（僅限測試或除錯）")
+    parser.add_argument("--backend", choices=("ref2va", "remix"), default=None,
+                        help="影片生成路線（PR-R5）；預設看 --bindings 的綁定（remix 綁定＝REMIX 三欄）。"
+                             "和綁定不一致會報錯，請先用同一個 backend 重跑 h3d bind")
 
     args = parser.parse_args()
+    try:
+        args.narration_policy = resolve_narration_policy(args.narration_policy, args.project_root)
+    except ValueError as exc:
+        print(f"[錯誤] {exc}", file=sys.stderr)
+        return 1
+
+    try:
+        sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+        import decisions as _decisions_mod
+        decided_backend = _decisions_mod.video_backend(args.project_root)
+    except ImportError:  # pragma: no cover
+        decided_backend = "ref2va"
+    bound_backend, remix_packs = bindings_backend(args.bindings) if args.bindings else (None, {})
+    backend = args.backend or bound_backend or decided_backend
+    if args.backend and bound_backend and args.backend != bound_backend:
+        print(f"[錯誤] --backend {args.backend} 和 video-bindings.json（{bound_backend}）不一致；"
+              f"請先 h3d bind --backend {args.backend} 重產綁定", file=sys.stderr)
+        return 1
+    if backend == "remix" and bound_backend != "remix":
+        print("[錯誤] video_backend=remix 要用 remix 綁定（refmods）編譯：先跑 h3d bind --root .（remix 分支），"
+              "再加 --bible video-bible.json --bindings video-bindings.json", file=sys.stderr)
+        return 1
+    if bound_backend and decided_backend != bound_backend:
+        print(f"[提示] decisions.json 定案 video_backend={decided_backend}，但綁定是 {bound_backend}；"
+              f"這次照綁定產 {'REMIX 三欄' if bound_backend == 'remix' else 'Ref2VA 六段式'}。要換路線請先重跑 h3d bind。",
+              file=sys.stderr)
 
     layer2_files = load_layer2_files(args.layer2)
     if not layer2_files:
@@ -2753,7 +3229,7 @@ def main() -> int:
     previous_of = continuity_lint.previous_segment_map(neighbor_scenes.items())
 
     print("=" * 75)
-    print(f"🎬 正在執行 Layer 2 ➔ H3 官方六段式批次編譯器")
+    print("🎬 正在執行 Layer 2 ➔ " + ("REMIX 三欄（角色包）" if backend == "remix" else "H3 官方六段式") + "批次編譯器")
     print(f"輸入檔案數: {len(layer2_files)} 個分鏡段落")
     print("=" * 75)
 
@@ -2782,7 +3258,11 @@ def main() -> int:
                 previous_end_state=(neighbor_end_states.get(prev_sid) if (carry and prev_sid and (l2_data.get('metadata') or {}).get('carry_previous_end_state', True) is not False) else None),
                 no_lettering=getattr(args, "lettering_guard", True),
                 compact_description=getattr(args, "compact_description", False),
+                backend=backend,
+                remix_packs=remix_packs,
             )
+            # 來源指紋：階段 5 strict 檢查用它判斷「分鏡改了、提示詞沒重編」（不影響 compiled_prompt_sha256）
+            seg_res.setdefault("metadata", {})["source_layer2_sha256"] = hashlib.sha256(p.read_bytes()).hexdigest()
             compiled_results.append(seg_res)
             print(f"  ✅ 成功編譯段落: {seg_res['segment_id']} ({len(seg_res['shots'])} 鏡, {seg_res['metadata']['target_duration_sec']}s)")
         except Exception as exc:
@@ -2793,7 +3273,10 @@ def main() -> int:
     if args.output_md:
         args.output_md.parent.mkdir(parents=True, exist_ok=True)
         md_text = render_markdown_package(compiled_results, episode=args.episode)
-        args.output_md.write_text(md_text, encoding="utf-8")
+        sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+        import doc_card  # 保留狀態卡與修訂紀錄（references/document-standard.md）
+        doc_card.write_generated(args.output_md, md_text, stage=5,
+                                 summary=f"{len(compiled_results)} 段 H3 提示詞（產生器輸出）", by="compile_layer2_to_h3.py")
         print(f"\n📄 已輸出 Markdown 提示詞包: {args.output_md}")
 
     # 輸出分段對帳 JSON
@@ -2830,14 +3313,15 @@ def main() -> int:
         for seg in compiled_results:
             sid = seg["segment_id"]
             dur = seg["metadata"]["target_duration_sec"]
-            # 模式 A: 參考圖序對
-            refs_res = audit_refs_and_subjects(seg, project_root=args.project_root)
-            # 模式 B: H3 提示詞 17 條自檢
+            # 模式 A: 參考圖序對（remix：角色包 E50–E55＋refcheck 文字比對＋站位閘門 D06–D14）
+            refs_res = audit_refs_and_subjects(seg, project_root=args.project_root, backend=backend)
+            # 模式 B: H3 提示詞 17 條自檢（remix 讀三欄）
             lint_res = lint_h3_prompt(
                 seg["h3_prompt"],
                 nominal_duration=dur,
                 rounding_mode=seg.get("metadata", {}).get("rounding_mode", "floor"),
                 authored_shots=seg.get("shots"),
+                backend=backend,
             )
 
             passed = refs_res["passed"] and lint_res["passed"]
@@ -2848,6 +3332,8 @@ def main() -> int:
                 for e in refs_res["errors"]:
                     print(f"    [模式A錯誤] {e}")
                 total_errors += len(refs_res["errors"])
+            elif backend == "remix":
+                print(f"    [模式A通過] 角色包涵蓋與 <Picture N>／<Video N> 編號合規 (共 {len(seg.get('refmods') or [])} 包)")
             else:
                 print(f"    [模式A通過] 參考圖與主體定義序對完全合規 (共 {len(seg['reference_images'])} 張圖)")
 
@@ -2880,7 +3366,7 @@ def main() -> int:
                 print(f"    [編譯提醒] {note}")
                 total_warnings += 1
 
-        # 段間連戲（#133 #139）：前段終態、相鄰段姿勢矛盾、同場光線鎖一致；只警告不擋
+        # 段間連戲（#133 #139）：前段終態、相鄰段姿勢矛盾、同場光線鎖一致、同場配樂（C4）；只警告不擋
         cont_res = continuity_lint.lint_adjacent(compiled_results, neighbor_end_states, neighbor_scenes)
         if cont_res["warnings"]:
             print("\n🔗 段間連戲檢查")

@@ -14,6 +14,13 @@ class ReferenceLabelTests(unittest.TestCase):
         ids = {"a": "S1", "b": "S2", "c": "S3"}
         self.assertEqual(C._align_speaker_ids(ids, ["b", "x", "c"]), {"b": "S1", "c": "S3", "a": "S4"})
 
+    def test_all_absent_adds_empty_scene_sentence(self):
+        subs = [(1, "a", 2), (2, "b", 3)]
+        s = C._on_screen_sentence({"c": "face"}, subs)
+        self.assertIn("completely empty of people", s)
+        s2 = C._on_screen_sentence({"a": "small"}, subs)
+        self.assertNotIn("empty of people", s2)
+
     def test_on_screen_sentence_groups_and_modes(self):
         subs = [(1, "a", 2), (2, "b", 3), (3, "c", 4)]
         s = C._on_screen_sentence({"a": "face", "b": "back", "c": "back"}, subs)

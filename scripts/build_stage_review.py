@@ -105,11 +105,80 @@ def get_png_dimensions(path: Path) -> Optional[Tuple[int, int]]:
     return None
 
 
+# 圖片路徑：反引號內允許空白與中文（`images/scene 燈塔-master.png`）；裸寫的路徑到空白為止。
+_IMG_EXT = r"\.(?:png|jpg|jpeg|webp)"
+_IMG_TICK_RE = re.compile(r"`(images/[^`\n]+?" + _IMG_EXT + r")`", re.I)
+_IMG_BARE_RE = re.compile(r"images/[^\s`'\"|)）]+?" + _IMG_EXT, re.I)
+
+
+def image_refs(text: str) -> List[str]:
+    """抓出文字裡的 images/... 圖片路徑（依出現順序、去重）。
+
+    以前只認 `images/[A-Za-z0-9_.-]+.png`：中文檔名、含空白、子資料夾或 .jpg／.webp 的設定圖
+    在階段 2 審核頁會被當成「沒有圖」。"""
+    found: List[str] = []
+    for m in _IMG_TICK_RE.finditer(text or ""):
+        found.append(m.group(1).strip())
+    stripped = _IMG_TICK_RE.sub(" ", text or "")
+    for m in _IMG_BARE_RE.finditer(stripped):
+        found.append(m.group(0))
+    out: List[str] = []
+    for item in found:
+        if item not in out:
+            out.append(item)
+    return out
+
+
+_ASSET_CARD_IMAGE_LABELS = ("設定圖", "母版圖", "服裝設定圖", "三視圖")
+
+
+def assets_md_images(project_dir: Path) -> Dict[str, List[str]]:
+    """assets.md 卡片（### C-xxx／CREATURE-xxx／S-xxx…）登記的設定圖／母版圖路徑：{資產 ID: [路徑…]}。
+
+    階段 2 內容門禁（stage_content_checks）認的就是這些欄位；審核頁在 bible.json 沒寫圖時也要用同一份，
+    不然門禁說齊了、審核頁卻依 images/<id>.png 報缺圖阻斷。"""
+    path = Path(project_dir) / "assets.md"
+    if not path.is_file():
+        return {}
+    text = path.read_text(encoding="utf-8-sig", errors="replace")
+    out: Dict[str, List[str]] = {}
+    for m in re.finditer(r"^###\s+((?:C|CREATURE|EXTRAS|S|P)-[\w-]+)[^\n]*$(.*?)(?=^#{1,3}\s|\Z)", text, re.M | re.S):
+        aid, body = m.group(1), m.group(2)
+        paths: List[str] = []
+        for line in body.splitlines():
+            lm = re.match(r"^\s*-\s*\*\*([^*]+)\*\*\s*[：:]\s*(.*)$", line)
+            if not lm or not lm.group(1).strip().startswith(_ASSET_CARD_IMAGE_LABELS):
+                continue
+            for ref in image_refs(lm.group(2)):
+                if "<" not in ref and ref not in paths:
+                    paths.append(ref)
+        if paths:
+            out[aid] = paths
+    return out
+
+
+def no_image_scope(project_dir: Path) -> bool:
+    """delivery_scope.no_image：階段 2 只要文字設定卡，缺圖不阻斷（與 stage_content_checks 一致）。"""
+    try:
+        import decisions as decisions_mod
+        return bool(decisions_mod.delivery_scope(Path(project_dir)).get("no_image"))
+    except Exception:
+        return False
+
+
+def _load_json_file(path: Path) -> Any:
+    """讀 JSON（容忍 Windows 記事本存的 UTF-8 BOM）。"""
+    return json.loads(path.read_text(encoding="utf-8-sig"))
+
+
 def scene_master_image(project_dir: Path, loc: Dict[str, Any], lid: str) -> str:
-    """場景母版圖路徑：bible 明指 > images/<lid>.png > export_asset_prompts 的 images/scene-<slug>-master.png。"""
+    """場景母版圖路徑：bible 明指 > assets.md 該場景卡的「母版圖」> images/<lid>.png > images/scene-<slug>-master.png。"""
     explicit = loc.get("reference_image") or loc.get("image_path") or loc.get("image_file")
     if explicit:
         return str(explicit)
+    from_assets = assets_md_images(project_dir).get(lid)
+    if from_assets:
+        return from_assets[0]
     default = f"images/{lid}.png"
     slug = lid[2:] if lid.startswith("S-") else lid
     exported = f"images/scene-{slug}-master.png"
@@ -518,11 +587,13 @@ def render_prompt(prompt: str, pid: str = "") -> str:
         head = f'<div class="ps-name">{html.escape(name.replace("_", " "))}</div>' if name else ""
         parts.append(f'<div class="ps">{head}<div class="ps-body">{hl(txt)}</div></div>')
     raw = html.escape(prompt, quote=True)
+    # 完整 prompt 預設收合（review-page-spec.md：不平鋪完整 prompt）
     return (
+        f'<details class="prompt-fold"><summary>H3 提示詞全文（{len(prompt)} 字，點開才看）</summary>'
         f'<div class="prompt-doc">'
         f'<div class="prompt-tools"><span>H3 提示詞</span>'
         f'<button class="btn ghost copy-prompt" type="button" data-copy="{raw}">{icon("copy")}<span class="lab">複製全文</span></button></div>'
-        f'{"".join(parts)}</div>'
+        f'{"".join(parts)}</div></details>'
     )
 
 
@@ -717,6 +788,9 @@ a{color:var(--indigo);text-underline-offset:3px;text-decoration-thickness:1px}
 .issues h2{margin:0 0 8px;font:700 16px/1.4 var(--sans);color:var(--seal);display:flex;align-items:center;gap:8px}
 .issues ol{margin:0;padding-left:1.4em;color:#5E1610;font-size:14px}
 .issues li+li{margin-top:4px}
+.issues details{margin-top:8px;font-size:14px;color:#5E1610}.issues summary{cursor:pointer}
+.legacy-note{margin-top:16px;padding:10px 14px;border:1px dashed var(--ink-2);border-radius:var(--r);font-size:14px}
+.prompt-fold>summary{cursor:pointer;font-weight:600;padding:6px 0}
 
 /* ---------- 區塊標題 ---------- */
 .block{margin-top:40px}
@@ -1111,14 +1185,36 @@ STUDIO_JS = r"""
 
 
 
+# 各階段可用的創作 lens（只建議、不擋關）。沒有報告時審核頁列出指令提醒，避免 lens 寫好卻沒人跑。
+CRAFT_LENSES_BY_STAGE: Dict[int, List[Tuple[str, str, str]]] = {
+    0: [("爆款方法論", "hit_review.py", "--stage 0")],
+    1: [("爆款方法論", "hit_review.py", "--stage 1")],
+    2: [("荒木飛呂彥", "araki_review.py", "--stage 2")],
+    3: [("爆款方法論", "hit_review.py", "--stage 3"),
+        ("荒木飛呂彥", "araki_review.py", "--stage 3"),
+        ("McKee 場景與對白", "mckee_review.py", "")],
+    4: [("McCloud 分鏡轉場", "mccloud_review.py", "")],
+    7: [("Murch／Hamilton 剪輯", "edit_review.py", "--lens all")],
+}
+
+
 def craft_lens_panel(project_dir: Path, stage: int) -> str:
     """Advisory craft-lens reports (review/craft/stage-N-*.md). Display only; never affects gates."""
     craft_dir = project_dir / "review" / "craft"
-    if not craft_dir.is_dir():
-        return ""
-    reports = sorted(craft_dir.glob(f"stage-{stage}-*.md"))
+    reports = sorted(craft_dir.glob(f"stage-{stage}-*.md")) if craft_dir.is_dir() else []
     if not reports:
-        return ""
+        lenses = CRAFT_LENSES_BY_STAGE.get(stage)
+        if not lenses:
+            return ""
+        rows = []
+        for name, script, extra in lenses:
+            script_path = (SCRIPTS_DIR / "craft" / script).as_posix()
+            cmd = f'python "{script_path}" --project-dir . {extra}'.strip()
+            rows.append(f"<li>{html.escape(name)}：<code>{html.escape(cmd)}</code></li>")
+        items = "".join(rows)
+        return ('<section class="section-panel"><h2>創作 lens 建議（不擋關）</h2>'
+                '<p>本階段還沒有 lens 報告。可選擇先跑下列 lens（只給建議，報告寫進 <code>review/craft/</code> 後重建審核頁就會顯示）：</p>'
+                f'<ul>{items}</ul></section>')
     parts = []
     for rp in reports:
         try:
@@ -1232,6 +1328,12 @@ def wrap_studio_html(
 
     body_html = body_html + craft_lens_panel(project_dir, stage)
     body_html = iconize(body_html)
+    appendix = ("階段 0／2 仍要你親眼看設定與臉，本頁保留作附錄；" if stage in (0, 2) else "")
+    legacy_html = (
+        f'<p class="legacy-note" role="note"><b>舊版除錯頁</b>：要你決定的事請看 '
+        f'<a href="inbox.html">決策收件匣 inbox.html</a>（h3d inbox 產生）。{appendix}'
+        f'這頁只給 agent 除錯與對帳用。</p>'
+    )
 
     return f"""<!DOCTYPE html>
 <html lang="zh-Hant">
@@ -1265,6 +1367,7 @@ def wrap_studio_html(
       </div>
       <div class="metrics">{metrics_html}</div>
     </header>
+    {legacy_html}
     <!--ISSUES-->
     {body_html}
     {gate_html}
@@ -1287,14 +1390,32 @@ def wrap_studio_html(
 """
 
 
+MAX_GATE_ISSUES = 3  # review-page-spec.md：真正擋關最多攤開 3 條
+
+
 def render_issues(errors: List[str]) -> str:
     """門禁未通過時，把問題直接列在頁面上（不再只印在終端機）。"""
     if not errors:
         return ""
-    items = "".join(f"<li>{inline_md(strip_emoji(e).replace(chr(10), ' '))}</li>" for e in errors)
+    # 同類合併：去掉開頭的「段落 ID:」後同一句話併成一條；只攤開前 MAX_GATE_ISSUES 條，其餘收合
+    groups: Dict[str, List[str]] = {}
+    for e in errors:
+        text = strip_emoji(e).replace(chr(10), " ").strip()
+        m = re.match(r"^([A-Za-z0-9][\w.-]{2,}):\s*(.+)$", text)
+        who, msg = (m.group(1), m.group(2)) if m else ("", text)
+        groups.setdefault(msg, []).append(who)
+    rows = []
+    for msg, whos in groups.items():
+        named = [w for w in whos if w]
+        prefix = (f"{len(whos)} 處（{'、'.join(named[:3])}{'…' if len(named) > 3 else ''}）：" if len(whos) > 1
+                  else (f"{named[0]}: " if named else ""))
+        rows.append(f"<li>{inline_md(prefix + msg)}</li>")
+    shown, rest = rows[:MAX_GATE_ISSUES], rows[MAX_GATE_ISSUES:]
+    more = (f'<details><summary>其餘 {len(rest)} 條（點開）</summary><ol>{"".join(rest)}</ol></details>'
+            if rest else "")
     return (
         f'<section class="issues" role="alert"><h2>{icon("alert")}門禁未通過，{len(errors)} 項需要修正</h2>'
-        f'<ol>{items}</ol></section>'
+        f'<ol>{"".join(shown)}</ol>{more}</section>'
     )
 
 
@@ -1461,7 +1582,6 @@ def build_stage_0(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
 
     kpis = [
         ("當前階段", "Stage 0 定調", "gold"),
-        ("project.md 狀態", "已建立" if not errors else "待補齊", "emerald" if not errors else "rose"),
         ("原著目錄", f"{len(list((project_dir / 'source').glob('*')))} 個檔案" if (project_dir / "source").exists() else "無", "cyan"),
     ]
     body = f'<section class="section-panel">{render_markdown_block(text)}</section>'
@@ -1470,8 +1590,6 @@ def build_stage_0(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
     checklist = [
         f"已確認成片形式：{SERIES_FORMAT_LABELS[fmt]}（短劇短集只在使用者明確要求時啟用）",
         "已確認台詞政策（① 100%保留 / ② 只留重點句 / ③ 改寫影視對白 / ④ 純旁白）",
-        ("已執行 `estimate_duration.py --novel` 完成原文體量反推片長與集數配置" if fmt == SHORT else
-         "已執行 `estimate_duration.py --novel`／`--events` 依原著體量與事件交代需求估出整部總長（不以集數 × 固定秒數估算）"),
         "已鎖定全劇唯一畫風錨點（style_anchor）與畫面比例（aspect_ratio）",
     ]
     html_out = wrap_studio_html(
@@ -1494,8 +1612,11 @@ def build_stage_1(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
         )
         return False, errors, ""
 
-    md_text = char_bible_md.read_text(encoding="utf-8")
-    bible_json = json.loads(bible_json_path.read_text(encoding="utf-8")) if bible_json_path.exists() else None
+    md_text = char_bible_md.read_text(encoding="utf-8-sig")
+    try:
+        bible_json = _load_json_file(bible_json_path) if bible_json_path.exists() else None
+    except (ValueError, OSError) as exc:
+        return False, [f"adapt/bible.json 無法解析：{exc}"], ""
     val_res = validate_character_bible(md_text, bible_json)
     if not val_res["passed"]:
         errors.extend(val_res["errors"])
@@ -1503,8 +1624,11 @@ def build_stage_1(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
     source_html = ""
     unit_count = 0
     if source_json_path.exists():
-        sdata = json.loads(source_json_path.read_text(encoding="utf-8"))
-        units = sdata.get("story_units", [])
+        try:
+            sdata = _load_json_file(source_json_path)
+        except (ValueError, OSError) as exc:
+            return False, [f"adapt/source.json 無法解析：{exc}"], ""
+        units = sdata.get("story_units", []) if isinstance(sdata, dict) else []
         unit_count = len(units)
         rows = ["| 單元 ID | 原著事件摘要 | 保留分級 |", "|---|---|---|"]
         for u in units:
@@ -1527,7 +1651,6 @@ def build_stage_1(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
         )
 
     kpis = [
-        ("角色設定深層審查", "PASS" if val_res["passed"] else "FAIL", "emerald" if val_res["passed"] else "rose"),
         ("核心與重要配角數", f"{val_res['character_count']} 位", "gold"),
         ("原著事件單元數", f"{unit_count} 個單元", "cyan"),
     ]
@@ -1544,7 +1667,6 @@ def build_stage_1(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
         f'{coverage_html}'
     )
     checklist = [
-        "《完整角色設定文件 v4.0》已包含全部 11 大章節，且每位角色皆有表深層性格、能力、弧光、金句與原著 `(Lxxx)` 行號依據",
         "已跨章節查證所有登場角色的真實中文姓名（如瑪蓮、奇雅、賴一心），無自創英文代號或張冠李戴",
         "每位角色的「視覺與服裝狀態機」已明確區分不同日夜/場次的服裝設定圖路徑",
         "原著事件保留分級與成片形式已確認無誤（預設長篇漫劇整部一支連續長片；只有使用者要求才分集，且依完整劇情單元切）",
@@ -1564,12 +1686,12 @@ def collect_creatures(project_dir: Path, prefix: str = "CREATURE") -> List[Dict[
     seen_imgs = set()
     amd = project_dir / "assets.md"
     if amd.is_file():
-        text = amd.read_text(encoding="utf-8")
+        text = amd.read_text(encoding="utf-8-sig")
         for m in re.finditer(r"^###\s+(" + prefix + r"-[A-Za-z0-9_-]+)[\s\u3000]*(.*?)$(.*?)(?=^#{2,3}\s|\Z)", text, re.M | re.S):
             cid, title, body = m.group(1), m.group(2).strip(), m.group(3).strip()
             name = re.sub(r"[（(].*?[）)]", "", title).strip() or cid
-            im = re.search(r"images/[A-Za-z0-9_./-]+\.(?:png|jpg|jpeg|webp)", body)
-            img = im.group(0) if im else f"images/{cid.lower()}.png"
+            refs = image_refs(body)
+            img = refs[0] if refs else f"images/{cid.lower()}.png"
             seen_imgs.add(img)
             out.append({"id": cid, "name": name, "spec": body, "image": img})
     img_dir = project_dir / "images"
@@ -1600,16 +1722,22 @@ def build_stage_2(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
 
     char_blocks: Dict[str, str] = {}
     if char_bible_md.exists():
-        char_blocks = parse_character_blocks(char_bible_md.read_text(encoding="utf-8"))
+        char_blocks = parse_character_blocks(char_bible_md.read_text(encoding="utf-8-sig"))
     else:
         errors.append("缺少 `adapt/character-bible.md`，無法將角色設定表與產出圖片並排對照！")
 
-    bible_json = json.loads(bible_json_path.read_text(encoding="utf-8")) if bible_json_path.exists() else {}
+    try:
+        bible_json = _load_json_file(bible_json_path) if bible_json_path.exists() else {}
+    except (ValueError, OSError) as exc:
+        return False, [f"adapt/bible.json 無法解析：{exc}"], ""
+    if not isinstance(bible_json, dict):
+        bible_json = {}
+    card_images = assets_md_images(project_dir)
+    text_only = no_image_scope(project_dir)
     chars = bible_json.get("characters", [])
     locs = bible_json.get("locations", [])
 
     cards_html: List[str] = []
-    total_imgs_found = 0
     missing_assets: List[str] = []
 
     # 1. 角色與異獸並排卡片
@@ -1643,9 +1771,12 @@ def build_stage_2(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
             _wimg = ws.get("image_path") or ws.get("image_file") if isinstance(ws, dict) else ""
             if _wimg:
                 img_candidates.append((ws.get("label") or ws.get("wardrobe_id") or "服裝變體", _wimg))
-        for m_img in re.findall(r"images/[A-Za-z0-9_.-]+\.png", spec_md):
+        for m_img in image_refs(spec_md):
             if all(m_img != p for _, p in img_candidates):
                 img_candidates.append(("設定圖／服裝狀態", m_img))
+        if not img_candidates:
+            # bible.json 與角色設定都沒寫圖：用 assets.md 卡片登記的設定圖（init 模板的命名是 C-<slug>_W01_sheet_v1.png）
+            img_candidates.extend(("設定圖（assets.md）", p) for p in card_images.get(cid, []))
 
         if not img_candidates:
             img_candidates.append(("預設路徑", f"images/{cid}.png"))
@@ -1654,7 +1785,6 @@ def build_stage_2(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
         for label, raw_p in img_candidates:
             src_rel, real_p = rel_img_src(project_dir, raw_p)
             if real_p and real_p.exists():
-                total_imgs_found += 1
                 dims = get_png_dimensions(real_p)
                 dim_str = f"{dims[0]}×{dims[1]} px" if dims else "PNG"
                 size_kb = real_p.stat().st_size // 1024
@@ -1697,7 +1827,6 @@ def build_stage_2(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
         kind = cr["_kind"]
         src_rel, real_p = rel_img_src(project_dir, cr["image"])
         if real_p and real_p.exists():
-            total_imgs_found += 1
             dims = get_png_dimensions(real_p)
             dim_str = f"{dims[0]}×{dims[1]} px" if dims else "PNG"
             size_kb = real_p.stat().st_size // 1024
@@ -1742,7 +1871,6 @@ def build_stage_2(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
             f"| 綁定圖檔路徑 | `{l_img}` |",
         ]
         if real_p and real_p.exists():
-            total_imgs_found += 1
             dims = get_png_dimensions(real_p)
             dim_str = f"{dims[0]}×{dims[1]} px" if dims else "PNG"
             v_html = (
@@ -1778,7 +1906,11 @@ def build_stage_2(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
         _no_master = []
     if _no_master:
         print(f"[階段 2 提醒] 劇本用到但沒有場景母版圖的場景：{', '.join(_no_master)}", file=sys.stderr)
-    if missing_assets:
+    if missing_assets and text_only:
+        # 不生圖（delivery_scope.no_image）：門禁只要文字設定卡（stage_content_checks），缺圖照樣畫紅框但不阻斷；
+        # 以前 h3d next 說「產物已齊、去產審核頁」，審核頁卻因缺圖阻斷，兩邊互卡。
+        print(f"[階段 2 提醒] 不生圖模式：{len(missing_assets)} 項資產沒有圖，只審文字設定卡", file=sys.stderr)
+    elif missing_assets:
         errors.append(f"[階段 2 缺圖阻斷] 共有 {len(missing_assets)} 項核心資產圖片尚未生成或路徑不存在：{', '.join(missing_assets)}")
 
     kpis = [
@@ -1786,13 +1918,11 @@ def build_stage_2(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
         ("生物／異獸設定卡", f"{len(creatures)} 組", "gold"),
         ("群演參考圖", f"{len(extras)} 組", "gold"),
         ("場景母版設定卡", f"{len(locs)} 組", "cyan"),
-        ("實體圖片核驗", f"已就緒 {total_imgs_found} 張" if not missing_assets else f"缺漏 {len(missing_assets)} 張", "emerald" if not missing_assets else "rose"),
     ]
     body = f'<div class="side-by-side-list">{"".join(cards_html)}</div>'
     checklist = [
         "每一張角色圖片均已與左側《角色設定文件》之外貌、年齡、體型、服裝、武器形制（如單刃砍刀 vs 雙刃劍、銀槍三節棍、白色長背包）逐項並排核對無誤",
-        "無任何角色漏生（如賴一心、瑪蓮、奇雅等重要配角均已生成）",
-        "所有角色圖片畫風 100% 統一（同為使用者指定之生圖工具如 Codex CLI 產出，無皮克斯卡通臉或異質畫風混入）",
+        "所有角色圖片畫風 100% 統一（同為 decisions.json design_engine 定案之生圖引擎（如 Codex CLI 或 Grok 內建 GenerateImage）產出，無皮克斯卡通臉或異質畫風混入）",
         "異獸／生物設定圖均為純灰／純白單色背景三視圖（Creature Sheet），無帶場景背景防染色",
     ]
     html_out = wrap_studio_html(
@@ -1918,7 +2048,6 @@ def build_stage_3(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
     kpis = [
         ("分集劇本數", f"{len(scripts)} 集", "gold"),
         ("總場次數", f"{total_scenes} 場", "cyan"),
-        ("結構與連戲校驗", "PASS" if not errors else "FAIL", "emerald" if not errors else "rose"),
     ]
     budget_rows = []
     predicted = predicted_skeleton_seconds(project_dir)
@@ -1936,8 +2065,6 @@ def build_stage_3(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
     )
     body = budget + f'<div class="side-by-side-list">{"".join(sbs_items)}</div>'
     checklist = [
-        "劇本正文採用中文場號制（人物、△ 動作行、對白），無混入攝影機術語",
-        "台詞字數符合 4 字/秒預算、單句精簡有力，說話秒數佔比 ≤ 60%",
         "每場出場人物與服裝狀態已與階段 1《角色設定文件》完全對齊",
     ]
     html_out = wrap_studio_html(
@@ -2010,7 +2137,7 @@ def build_stage_4(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
         shots = d.get("shots", [])
 
         panel_boxes: List[str] = []
-        for sh in shots:
+        for sh_index, sh in enumerate(shots, start=1):
             sh_id = sh.get("shot_id", "")
             global_shot_id = sh.get("global_shot_id") or sh_id
             sh_dur = sh.get("duration", 0)
@@ -2025,6 +2152,10 @@ def build_stage_4(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
                 else:
                     panel_candidates.extend((project_dir / sketch_path, p.parent / sketch_path))
             panel_candidates.extend((
+                # 與 stage4_artifacts 門禁同一套命名（panel-NN-<shot>.png），門禁認得的圖審核頁也要顯示得出來
+                project_dir / "panels" / f"panel-{sh_index:02d}-{sh_id}.png",
+                p.parent / "panels" / f"panel-{sh_index:02d}-{sh_id}.png",
+                project_dir / f"panel-{sh_index:02d}-{sh_id}.png",
                 project_dir / "panels" / f"panel-{seg_id}-{sh_id}.png",
                 project_dir / "panels" / f"panel-{sh_id}.png",
             ))
@@ -2108,7 +2239,6 @@ def build_stage_4(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
     kpis = [
         ("分鏡段落數", f"{len(l2_files)} 段", "gold"),
         ("分鏡總覽圖拼版圖", f"{len(grid_files)} 張 (單格 {len(panel_files)} 張)", "emerald" if (grid_files or panel_files) else "rose"),
-        ("防偷懶與物理門禁", "PASS (0 罐頭詞)" if not errors else f"FAIL ({len(errors)} 錯)", "emerald" if not errors else "rose"),
     ]
     by_ep: Dict[str, List[Tuple[str, float]]] = {}
     for p, d in all_l2_data:
@@ -2121,12 +2251,12 @@ def build_stage_4(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
           "short": project_format(project_dir) == SHORT, "parts": parts} for eid, parts in sorted(by_ep.items())],
         "每個色塊是一個分段（寬度＝秒數），虛線＝目標（已接受則為接受秒數）。分鏡後變長是正常的；長篇漫劇以事件交代清楚為先，明顯超出時只刪冗餘或接受實際長度，不刪事件交代鏡頭（短劇短集模式才考慮拆集）。",
     )
-    body = budget + grid_gallery_html + f'<div class="side-by-side-list">{"".join(seg_cards)}</div>'
+    body = (budget + grid_gallery_html + f'<div class="side-by-side-list">{"".join(seg_cards)}</div>'
+            + board_suggestion_panel(stage4_board_suggestions(project_dir, l2_files)))
     checklist = [
         "已檢視黑白鉛筆分鏡總覽圖構圖（`images/grid-*.png`），確認每鏡人物站位、景別遠近與動作張力符合預期",
         "無任何單鏡同時塞入「主角＋路人＋道具＋巨獸」四方複雜碰撞（已拆分為慢動作感知特寫 ➔ 90度純粹打擊 ➔ 受擊翻滾）",
         "無任何未掛載參考圖之路人單獨佔據正面特寫／中景主鏡",
-        "每鏡動作力學三要素（①施力點 ➔ ②傳導路徑 ➔ ③受擊反饋）具象無罐頭複製貼上",
     ]
     html_out = wrap_studio_html(
         project_dir, 4, state,
@@ -2136,7 +2266,89 @@ def build_stage_4(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
     return len(errors) == 0, errors, html_out
 
 
-def build_stage_5(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[str], str]:
+def board_suggestion_panel(suggestions: List[str]) -> str:
+    """W46 構圖板自動建議區塊（階段 4、5 審核頁共用；只建議、不擋核准）。"""
+    if not suggestions:
+        return ""
+    items = "".join(f"<li>{html.escape(n)}</li>" for n in suggestions)
+    return ('<section class="section-panel"><h2>💡 自動建議：改用母片底四格構圖板（W46，只建議）</h2>'
+            '<p>來源：h3d staging W46（<code>scripts/storyboard/board_advisor.py</code>）；規則見 '
+            '<code>references/storyboard/spatial-consistency.md</code> §3。證據是方向性（老易實驗第二批 D′ 15/16 vs '
+            '單用母片 6/8，未達 +25 門檻；武戲沒有證據）。採用時板一律以已驗收母片為底重畫並寫店感鎖；整板當參考須 '
+            '<code>reference_view: "panel"</code>＋<code>panel_label_en</code>。不採用請寫 staging_waivers（W46＋原話）。'
+            '不擋核准、不改預設編譯。</p><ul>' + items + '</ul></section>')
+
+
+def stage4_board_suggestions(project_dir: Path, l2_files: List[Path]) -> List[str]:
+    try:
+        import board_advisor  # noqa: E402
+        return [f"{r['segment_id']}: {r['message']}" for r in board_advisor.advise_layer2_files(project_dir, l2_files)
+                if r.get("hit")]
+    except Exception as exc:  # 建議器自身出錯不擋審核頁
+        return [f"構圖板建議執行失敗：{exc}"]
+
+
+def stage5_ref2va_advisory(project_dir: Path, seg_files: List[Path],
+                           only: Optional[set] = None) -> Tuple[List[str], str]:
+    """ref2va 段的 refcheck（E50/E51）與 staging（D06–D14）。
+
+    remix 段已在 audit_refs_and_subjects 內跑過；ref2va 原本只有手動 `h3d refcheck`／`h3d staging`
+    才看得到，審核頁漏掉。這裡補上：預設只列警告（不改 ref2va 既有門禁），
+    decisions staging_gate=strict 時 D06–D08 才回傳成錯誤。回傳 (errors, panel_html)。
+    """
+    try:
+        import refcheck as refcheck_mod  # noqa: E402
+        import staging_lint as staging_mod  # noqa: E402
+    except ImportError:  # pragma: no cover
+        return [], ""
+    root = project_dir.resolve()
+    errors: List[str] = []
+    notes: List[str] = []
+    suggestions: List[str] = []
+    try:
+        for row in refcheck_mod.run(root, seg_files, None):
+            sid = str(row.get("segment_id") or row.get("key") or "")
+            if row.get("backend") != "ref2va" or (only is not None and sid not in only):
+                continue
+            notes.extend(f"{sid}: {w}" for w in row.get("warnings", []))
+        plan = refcheck_mod.load_pack_plan(root)
+        lexicon = refcheck_mod.load_lexicon(root, plan)
+        anchors = refcheck_mod._anchors(root)
+        bindings = refcheck_mod._bindings_by_id(root)
+        segments = []
+        for path in seg_files:
+            for seg in refcheck_mod._load_segments(path):
+                segments.append(refcheck_mod._merge_binding(seg, bindings.get(str(seg.get("segment_id")))))
+        strict = staging_mod.project_strict(root)
+        rows = staging_mod.lint_segments(segments, lambda s: refcheck_mod._resolve_backend(s, root, None),
+                                         lexicon, strict, anchors, root=root)
+        for row in rows:
+            sid = str(row.get("segment_id"))
+            if only is not None and sid not in only:
+                continue
+            # W46 構圖板建議兩個 backend 都列（remix 的 D06–D14 已在 audit 內跑過，這裡只補建議）
+            suggestions.extend(f"{sid}: {m}" for m in staging_mod.suggestions_of(row["findings"]))
+            if row.get("backend") != "ref2va":
+                continue
+            plain = [f for f in row["findings"] if f["level"] != "suggestion"]
+            errs, warns = staging_mod.split_findings(plain)
+            errors.extend(f"{sid}: {e}" for e in errs)
+            notes.extend(f"{sid}: {w}" for w in warns)
+    except Exception as exc:  # 檢查器自身出錯不擋審核頁，但要讓人看到
+        notes.append(f"refcheck／staging 執行失敗：{exc}")
+    panel = ""
+    if notes:
+        items = "".join(f"<li>{html.escape(n)}</li>" for n in notes)
+        panel += ('<section class="section-panel"><h2>參考包涵蓋與站位視線提醒（ref2va，只提示）</h2>'
+                  '<p>來源：h3d refcheck（E50/E51）與 h3d staging（D06–D14）。逐段回到該鏡意圖判斷要不要改；'
+                  '不准為了消警告刪劇情需要的人或道具。</p><ul>' + items + '</ul></section>')
+    panel += board_suggestion_panel(suggestions)
+    return errors, panel
+
+
+def build_stage_5(project_dir: Path, state: Dict[str, Any],
+                  only: Optional[set] = None, removed: Optional[List[str]] = None) -> Tuple[bool, List[str], str]:
+    """only：PR-19a 段級重審，只列這些段（其餘已核准未變的段不顯示、不檢查）。"""
     errors: List[str] = []
     seg_files = sorted(project_dir.glob("segments-ep*.json"))
     if not seg_files:
@@ -2150,11 +2362,13 @@ def build_stage_5(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
         data = json.loads(sf.read_text(encoding="utf-8"))
         segs = data if isinstance(data, list) else data.get("segments", [data])
         for seg in segs:
+            if only is not None and str(seg.get("segment_id")) not in only:
+                continue
             total_segs += 1
             sid = seg.get("segment_id", f"seg-{total_segs}")
             dur = float(seg.get("metadata", {}).get("target_duration_sec", 7.0))
             prompt_str = extract_prompt_from_seg(seg)
-            r_res = audit_refs_and_subjects(seg)
+            r_res = audit_refs_and_subjects(seg, project_root=project_dir)  # 要讀像素才判得出 E20 整板／E26–E27
             l_res = lint_h3_prompt(
                 prompt_str,
                 nominal_duration=dur,
@@ -2207,16 +2421,26 @@ def build_stage_5(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
     # 逐鏡撰寫審查（防偷懶）：最終送件文字要逐鏡親手寫，套模板／後設詞／禁止句堆疊直接擋核准
     from prompt_authoring import audit_files as _author_audit  # noqa: E402
     author_res = _author_audit(seg_files)
-    errors.extend(f"撰寫審查 {e}" for e in author_res["errors"])
+    errors.extend(f"撰寫審查 {e}" for e in author_res["errors"]
+                  if only is None or any(str(sid) in str(e) for sid in only))
+    # 失敗目錄：enforce=error 或未 ack 的警告要在交給使用者之前處置（核准門禁同一套，見 project_state）
+    from project_state import _stage5_catalog_errors  # noqa: E402
+    errors.extend(e for e in _stage5_catalog_errors(project_dir)
+                  if only is None or any(str(e).startswith(f"{sid}:") for sid in only))
+
+    # ref2va 段補跑 refcheck／staging（remix 段已在 audit 內跑過）
+    adv_errors, adv_panel = stage5_ref2va_advisory(project_dir, seg_files, only)
+    errors.extend(adv_errors)
 
     kpis = [
-        ("已編譯分段數", f"{total_segs} 段", "gold"),
-        ("17 條 H3 防偷懶自檢", "PASS (0 錯誤)" if not errors else f"FAIL ({len(errors)} 錯)", "emerald" if not errors else "rose"),
+        ("已編譯分段數" if only is None else "待重審分段", f"{total_segs} 段", "gold"),
     ]
-    body = f'<div class="side-by-side-list">{"".join(cards)}</div>'
+    for sid in removed or []:
+        cards.append(f'<article class="sbs-card"><div class="sbs-header"><h3 class="sbs-title">🗑️ `{html.escape(sid)}` '
+                     f'已從提示詞包刪除（核准時存在）：通過＝確認刪除</h3></div></article>')
+    body = f'<div class="side-by-side-list">{"".join(cards)}</div>' + adv_panel
     checklist = [
         "已逐段檢查右側 `<Picture 1..N>` 縮圖，確認角色服裝（如夜間便服 vs 日間制服）與該場次時空 100% 吻合",
-        "已確認 `detailed_description` 完整保留動作力學三要素與物理反饋，無重複貼上 `as the camera holds a static shot` 等罐頭句",
         "已確認外掛 LoRA 合理（非人異獸或砸鐵凳未誤掛刀劍/拳腳人形 LoRA）",
     ]
     html_out = wrap_studio_html(
@@ -2361,6 +2585,43 @@ def _stage6_split(project_dir: Path) -> Tuple[List[str], List[str]]:
     return [e for e in errors if e not in technical_set], [e for e in errors if e in technical_set]
 
 
+def _continuity_entries(project_dir: Path) -> Dict[str, Dict[str, Any]]:
+    """R3-16 交界連續性 QA 報告（videos/qa/continuity/continuity-report.json）；沒有就空。只供顯示。"""
+    try:
+        import continuity_qa
+    except ImportError:
+        return {}
+    return continuity_qa.load_report(project_dir)
+
+
+def _continuity_panel(project_dir: Path, entry: Optional[Dict[str, Any]]) -> str:
+    """每段附交界拼貼（上段末｜本段首、每個鏡交界、本段末｜下段首）與警告；只警告、不影響核准。"""
+    head = '<h4 class="md-h4">交界連續性（h3d qa --continuity，只警告、不擋核准）</h4>'
+    if not entry:
+        return head + '<p class="md-p">（尚未產生：<code>python scripts/h3d.py qa --continuity --root .</code>）</p>'
+    parts = [head]
+    montage = entry.get("montage")
+    if montage:
+        src_rel, real = rel_img_src(project_dir, str(montage))
+        if real is not None and real.exists():
+            parts.append(f'<div class="asset-img-box"><img src="{src_rel}" alt="continuity {html.escape(str(entry.get("segment_id")))}"></div>')
+    cuts = entry.get("cuts") or []
+    if cuts:
+        cells = "".join(
+            f'<span class="tag-badge {"emerald" if c.get("confident") else "gold"}">'
+            f'切點 {i}: 規劃 {c.get("planned")}s → 實際 {c.get("actual")}s'
+            + (f'（{c["offset"]:+.2f}s）' if isinstance(c.get("offset"), (int, float)) else "")
+            + ("" if c.get("confident") else " 不明") + '</span> '
+            for i, c in enumerate(cuts, start=1))
+        parts.append(f'<div>{cells}</div>')
+    warnings = entry.get("warnings") or []
+    if warnings:
+        parts.append('<ul class="md-ul">' + "".join(f'<li>⚠️ {html.escape(str(w))}</li>' for w in warnings) + '</ul>')
+    elif entry.get("status") == "analyzed":
+        parts.append('<p class="md-p">✅ 沒有交界警告（仍請目視拼貼確認動作、位置、身分連續）</p>')
+    return "".join(parts)
+
+
 def build_stage_6(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[str], str]:
     """階段 6：分段影片 × 分鏡總覽圖構圖 × 角色設定圖 × QA 指標，四項並排驗收。
 
@@ -2376,6 +2637,7 @@ def build_stage_6(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
     except Exception:
         verdict_rows = {}
     videos: List[Path] = []
+    video_sid: Dict[Path, str] = {}
     qa_path = project_dir / "videos" / "qa-report.json"
     qa_map: Dict[str, Any] = {}
     if qa_path.exists():
@@ -2390,6 +2652,9 @@ def build_stage_6(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
                 video_path = video_path.resolve()
                 if video_path.is_relative_to(project_dir.resolve()) and video_path.is_file():
                     videos.append(video_path)
+                    if item.get("segment_id"):
+                        # QA 也收 `seg-<段>.mp4` 檔名；卡片要用段 id 對 verdicts／layer2，不能用檔名 stem。
+                        video_sid[video_path] = str(item["segment_id"])
             if item.get("segment_id"):
                 qa_map[str(item["segment_id"])] = item
 
@@ -2400,12 +2665,13 @@ def build_stage_6(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
 
     bible = _load_bible_characters(project_dir)
     manifest = _manifest_character_images(project_dir)
+    continuity = _continuity_entries(project_dir)
     cards: List[str] = []
     grid_covered = 0
     design_covered = 0
 
     for vp in videos:
-        seg_id = vp.stem
+        seg_id = video_sid.get(vp, vp.stem)
         v_rel = "../" + vp.relative_to(project_dir.resolve()).as_posix()
         q_item = qa_map.get(seg_id, {})
         q_pass = q_item.get("passed") is True
@@ -2494,6 +2760,7 @@ def build_stage_6(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
             f'      {design_html}'
             f'      <h4 class="md-h4">自動品質審查數據 (verify_video_shot.py)</h4>'
             f'      <div class="qa-box">{qa_panel(q_item)}</div>'
+            f'      {_continuity_panel(project_dir, continuity.get(seg_id))}'
             f'    </div>'
             f'  </div>'
             f'</article>'
@@ -2543,7 +2810,6 @@ def build_stage_7(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
 
     kpis = [
         ("最終交付成片", f"{len(finals)} 部", "gold"),
-        ("全流程狀態", "7 階段全部完成", "emerald"),
     ]
     body = "".join(v_cards)
     checklist = [
@@ -2662,15 +2928,65 @@ def run_self_test() -> bool:
     return True
 
 
+REREVIEW_FILE = "stage-5-prompts-rereview.html"
+
+
+def _build_stage5_rereview(project_dir: Path, state: Dict[str, Any], raw_ids: str, self_contained: bool) -> int:
+    """PR-19a：只列核准後改過的段；通過後用 h3d approve --stage 5 --segments 人工核准。"""
+    import copy
+    from project_state import record_segment_review, stage5_segment_review
+    review = stage5_segment_review(project_dir)
+    if review["mode"] != "partial":
+        print(f"❌ 無法段級重審（{review['mode']}）：{review['reason'] or '沒有待重審的段'}。"
+              "整份重審請用 --stage 5（不帶 --segments）。", file=sys.stderr)
+        return 2
+    pending = set(review["pending"])
+    wanted = sorted(pending) if raw_ids.strip().lower() == "all" else sorted(
+        {x.strip() for x in raw_ids.replace("，", ",").split(",") if x.strip()})
+    outside = [x for x in wanted if x not in pending]
+    if not wanted or outside:
+        print(f"❌ 這些段不在待重審清單：{'、'.join(outside) or '（未指定）'}；待重審：{'、'.join(sorted(pending))}",
+              file=sys.stderr)
+        return 2
+    view_state = copy.deepcopy(state)
+    view_state["stages"][stage_key(5)]["status"] = "awaiting_user_approval"
+    removed = [x for x in wanted if x in set(review["removed"])]
+    passed, errors, html_content = build_stage_5(project_dir, view_state, only=set(wanted), removed=removed)
+    banner = (f'<div class="issues-box"><strong>段級重審</strong>：只列核准後改過的 {len(wanted)} 段'
+              f'（{html.escape("、".join(wanted))}）。其餘 {len(review["approved"])} 段維持原核准、不在此頁。</div>')
+    review_dir = project_dir / "review"
+    review_dir.mkdir(parents=True, exist_ok=True)
+    out_html = review_dir / REREVIEW_FILE
+    if html_content:
+        html_content = html_content.replace("<!--ISSUES-->", banner + render_issues(errors if not passed else []))
+        if self_contained:
+            html_content, _embedded = inline_local_images(html_content, review_dir)
+        out_html.write_text(html_content, encoding="utf-8")
+        print(f"🎨 已產出段級重審頁: {out_html}")
+    if not passed:
+        print(f"❌ 待重審段的檢查未通過（{len(errors)} 項）：", file=sys.stderr)
+        for e in errors:
+            print(f"  - {e}", file=sys.stderr)
+        return 1
+    record_segment_review(project_dir, wanted)
+    print("🛑 段級重審快照已綁定（其他段的核准不受影響）。交給使用者後【停下】。")
+    print(f"👉 使用者明確回覆「通過」後：python \"{(Path(__file__).resolve().parent / 'h3d.py').as_posix()}\" approve --stage 5 --segments {','.join(wanted)} "
+          '--user-note "<使用者原話>" --root .（改過的段一律人工重審，不得 --auto）')
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="八階段強制斷點狀態機與高設計感 HTML 視覺化審核介面產生器")
     parser.add_argument("--project-dir", type=Path, help="專案根目錄")
     parser.add_argument("--stage", type=int, choices=range(8), help="建構並驗證指定階段 (0..7) 之 HTML 審核頁面")
     parser.add_argument("--approve-stage", type=int, choices=range(8), help="使用者明確確認沒問題後，標記該階段為 approved 解鎖下一關")
-    parser.add_argument("--user-note", type=str, default="使用者確認通過", help="搭配 --approve-stage 記錄使用者簽核備註")
+    parser.add_argument("--user-note", type=str, default=None,
+                        help="搭配 --approve-stage 記錄使用者原話（省略時記「使用者確認通過」並在 stderr 提醒）")
     parser.add_argument("--override", action="store_true",
                         help="僅階段 6：技術 QA 為 PARTIAL 時，使用者看過影片仍核准；必須搭配 --reason")
     parser.add_argument("--reason", type=str, default=None, help="搭配 --override：使用者的覆寫理由（寫進 project-state）")
+    parser.add_argument("--segments", type=str, default=None,
+                        help="僅搭配 --stage 5：段級重審頁，只列核准後改過的段（逗號分隔或 all）；不改其他段的核准")
     parser.add_argument("--require-approved", type=int, choices=range(8), help="供下游腳本檢查指定前置階段是否已 approved")
     parser.add_argument("--force-unlock-prev", action="store_true", help="相容舊 CLI；不會授予核准，使用時明確拒絕並要求逐階段重審")
     parser.add_argument("--self-test", action="store_true", help="執行內建自檢")
@@ -2742,8 +3058,13 @@ def main() -> int:
             if not ok:
                 print(f"❌ 無法簽核：前置階段已失效或未核准：{msg}", file=sys.stderr)
                 return 2
+        note = (args.user_note or "").strip()
+        if not note:
+            # 不擋（相容舊流程與自動化），但提醒：SKILL 要求核准記使用者原話，預設句不是原話。
+            print("⚠️ 沒有 --user-note：核准備註會記成預設句「使用者確認通過」；請改帶使用者原話。", file=sys.stderr)
+            note = "使用者確認通過"
         ok_approve, why = state_approve_stage_detailed(
-            project_dir, s_idx, args.user_note, args.reason if args.override else None)
+            project_dir, s_idx, note, args.reason if args.override else None)
         if not ok_approve:
             print(f"❌ 無法簽核：{why}", file=sys.stderr)
             return 2
@@ -2760,6 +3081,12 @@ def main() -> int:
         if s_idx + 1 in STAGE_META:
             print(f"🔓 已解鎖下一階段：「{STAGE_META[s_idx + 1]['name']}」。")
         return 0
+
+    # 2b. PR-19a：階段 5 段級重審頁（不動狀態、不讓其他段失去核准）
+    if args.segments is not None:
+        if args.stage != 5:
+            parser.error("--segments 只能搭配 --stage 5")
+        return _build_stage5_rereview(project_dir, state, args.segments, args.self_contained)
 
     # 3. 建構指定階段之 HTML 審核頁面
     if args.stage is not None:
@@ -2803,10 +3130,13 @@ def main() -> int:
 
         out_html = project_dir / "review" / STAGE_META[s_idx]["file"]
         print("\n" + "=" * 75)
-        print(f"🛑 【強制斷點已啟動】{STAGE_META[s_idx]['name']}")
-        print(f"📄 視覺化 HTML 審核頁已就緒: {out_html.as_uri()}")
-        print("👉 請立即將此 HTML 檔案連結呈現給使用者審閱，並【停止呼叫後續階段工具】！")
-        print(f"👉 待使用者明確回覆「沒問題／通過」後，再執行 `--approve-stage {s_idx}` 進入下一關。")
+        print(f"🛑 【強制斷點已啟動】{STAGE_META[s_idx]['name']}：審核快照已綁定")
+        print(f"📄 舊版階段頁（除錯／附錄用）: {out_html.as_uri()}")
+        print("👉 交給使用者的是決策收件匣：執行 `h3d inbox --root .` 產生 review/inbox.html，交給使用者後【停下】，"
+              "不要再呼叫後續階段工具！")
+        if s_idx in (0, 2):
+            print("   階段 0／2 要使用者親眼看設定與臉：上面這頁當附錄一起給（階段 2 的核准卡也會內嵌設定圖）。")
+        print(f"👉 待使用者明確回覆「通過」後，再執行 `--approve-stage {s_idx}` 進入下一關。")
         print("=" * 75)
         return 0
 

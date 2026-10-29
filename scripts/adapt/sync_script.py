@@ -32,7 +32,8 @@ import sys
 from typing import Any, Dict, List, Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from validate_structure import parse_and_validate_script  # noqa: E402
+from validate_structure import EPISODE_HEADER_RE, parse_and_validate_script  # noqa: E402
+from project_ids import slugify_project  # noqa: E402
 from audio_keywords import classify_note  # noqa: E402
 from series_format import SHORT, SHORT_EPISODE_DEFAULT_SECONDS, project_format  # noqa: E402
 
@@ -108,35 +109,91 @@ def detect_audio_type(note: str, current_type: str = "onscreen") -> str:
     return kind or current_type or "onscreen"
 
 
-def read_project_defaults(project_dir: Path) -> Dict[str, str]:
-    """從零建 handoff 的頂層預設值：decisions.json（aspect_ratio）＞ project.md／adapt/source.json（genre_mode）＞ 範本預設（議題 #26）。"""
-    out = {"genre_mode": "healing_literary", "aspect_ratio": "9:16"}
+HANDOFF_ASPECTS = ("9:16", "16:9")  # handoff.schema.json 的 aspect_ratio enum；其他比例寫 other
+
+
+def _read_json(path: Path) -> Any:
+    """讀 JSON（容忍 Windows 記事本存的 UTF-8 BOM）。"""
+    return json.loads(path.read_text(encoding="utf-8-sig"))
+
+
+def handoff_aspect(value: Any) -> Optional[str]:
+    """定案比例 → handoff enum（9:16／16:9／other）；看不懂回 None。"""
+    m = re.fullmatch(r"\s*(\d+)\s*[:：xX×]\s*(\d+)\s*", str(value or ""))
+    if not m:
+        return None
+    ratio = f"{m.group(1)}:{m.group(2)}"
+    return ratio if ratio in HANDOFF_ASPECTS else "other"
+
+
+def decided_aspect(project_dir: Path) -> Optional[str]:
+    """decisions.json 的 aspect_ratio 定案（原值）；沒有或讀不到回 None。"""
     try:
-        data = json.loads((project_dir / "decisions.json").read_text(encoding="utf-8"))
-        for d in data.get("decisions", []):
-            if d.get("id") == "aspect_ratio" and isinstance(d.get("value"), str):
-                out["aspect_ratio"] = d["value"]
+        data = _read_json(project_dir / "decisions.json")
     except Exception:
-        pass
+        return None
+    for d in data.get("decisions", []) if isinstance(data, dict) else []:
+        if d.get("id") == "aspect_ratio" and isinstance(d.get("value"), str) and d["value"].strip():
+            return d["value"].strip()
+    return None
+
+
+def read_project_defaults(project_dir: Path) -> Dict[str, str]:
+    """從零建 handoff 的頂層預設值：decisions.json（aspect_ratio）＞ project.md／adapt/source.json（genre_mode）＞ 範本預設（議題 #26）。
+
+    以前只有「decisions.json 不存在」時才讀 project.md 的 aspect_ratio；init 一定會建空的 decisions.json，
+    所以還沒定案比例時 project.md 寫的比例永遠用不到。現在：有定案用定案，沒定案才看 project.md。"""
+    out = {"genre_mode": "healing_literary", "aspect_ratio": "9:16"}
+    decided = handoff_aspect(decided_aspect(project_dir))
+    if decided:
+        out["aspect_ratio"] = decided
     md = project_dir / "project.md"
     if md.exists():
-        text = md.read_text(encoding="utf-8")
-        m = re.search(r"aspect_ratio[：:]\s*(\d+:\d+)", text)
-        if m and out["aspect_ratio"] == "9:16" and not (project_dir / "decisions.json").exists():
-            out["aspect_ratio"] = m.group(1)
+        text = md.read_text(encoding="utf-8-sig")
+        m = re.search(r"aspect_ratio[：:]\s*(\d+\s*:\s*\d+)", text)
+        if m and not decided:
+            out["aspect_ratio"] = handoff_aspect(m.group(1)) or out["aspect_ratio"]
         m = re.search(r"genre_mode[：:]\s*([a-z_]+)", text)
         if m:
             out["genre_mode"] = m.group(1)
             return out
     for cand in (project_dir / "adapt" / "source.json", project_dir / "source" / "source.json"):
         try:
-            g = json.loads(cand.read_text(encoding="utf-8")).get("genre_mode")
+            g = _read_json(cand).get("genre_mode")
             if g:
                 out["genre_mode"] = g
                 break
         except Exception:
             pass
     return out
+
+
+def align_with_decisions(handoff_data: Dict[str, Any], project_dir: Path) -> List[str]:
+    """把 handoff 頂層的 aspect_ratio 對齊 decisions.json 定案；回傳改了什麼（空清單＝沒改）。
+
+    init 的 handoff 骨架寫死 9:16，使用者後來定案 16:9 時以前不會同步，handoff_to_skeleton
+    會照 9:16 產 Layer 2，一路錯到影片比例。"""
+    changes: List[str] = []
+    want = handoff_aspect(decided_aspect(project_dir))
+    have = handoff_data.get("aspect_ratio")
+    if want and have != want:
+        handoff_data["aspect_ratio"] = want
+        changes.append(f"aspect_ratio {have} → {want}（依 decisions.json 定案）")
+    return changes
+
+
+def script_episode_title(script_text: str) -> Optional[str]:
+    """劇本第一個集標題行「第01集｜回信」的集名；沒有回 None。"""
+    for raw in script_text.splitlines():
+        line = re.sub(r"^#+\s*", "", raw.strip().lstrip("\ufeff"))
+        if not line:
+            continue
+        m = EPISODE_HEADER_RE.match(line)
+        if m:
+            name = m.group(2).strip()
+            if name and not name.startswith("<"):
+                return name
+    return None
 
 
 def time_to_en(time_str: str) -> str:
@@ -560,6 +617,7 @@ def main() -> int:
     parser.add_argument("--lock", action="store_true", help="強制鎖定場景")
     parser.add_argument("--unlock", action="store_true", help="解除場景鎖定")
     parser.add_argument("--force", action="store_true", help="忽略鎖定強制覆蓋修改")
+    parser.add_argument("--resign", action="store_true", help="改劇本並重新核准：等同 --force 同步，之後把同步前已核准的場景設回 approved＋locked（一步完成，免手動 --force 再 --set-status）")
     parser.add_argument("--prune-extra", action="store_true", help="若劇本場景數少於 Handoff，自動清理多出的未鎖定場景")
     args = parser.parse_args()
 
@@ -589,14 +647,15 @@ def main() -> int:
         proj_id = "project"
         for sibling in parent_dir.glob("handoff-*.json"):
             try:
-                sib_data = json.loads(sibling.read_text(encoding="utf-8"))
+                sib_data = _read_json(sibling)
                 if sib_data.get("project_id"):
                     proj_id = sib_data["project_id"]
                     break
             except Exception:
                 pass
-        if proj_id == "project" and parent_dir.name:
-            proj_id = re.sub(r"[^a-z0-9]+", "-", parent_dir.name.lower()).strip("-") or "project"
+        if proj_id == "project" and parent_dir.resolve().name:
+            # 與 init_project 同一套：中文資料夾名用 project-<雜湊>，不再撞成 project
+            proj_id = slugify_project(parent_dir.resolve().name)
 
         ep_num_int = int(re.sub(r"[^0-9]", "", ep_id) or "1")
         project_defaults = read_project_defaults(parent_dir)
@@ -618,7 +677,7 @@ def main() -> int:
         }
     else:
         try:
-            handoff_data = json.loads(args.handoff.read_text(encoding="utf-8"))
+            handoff_data = _read_json(args.handoff)
         except Exception as exc:
             print(f"[錯誤] Handoff JSON 解析失敗：{exc}", file=sys.stderr)
             return 1
@@ -630,9 +689,18 @@ def main() -> int:
     target_scenes = all_scenes
     if args.scene:
         target_scenes = [s for s in all_scenes if s.get("scene_id") == args.scene]
-        if not target_scenes and args.handoff.exists():
-            print(f"[錯誤] 在 Handoff 中找不到指定的場景 ID: {args.scene}", file=sys.stderr)
+        if not target_scenes:
+            # handoff 不存在（剛從零建立）時也沒有場景可選；以前會往下走到 target_scenes[0] 直接 IndexError。
+            hint = "" if args.handoff.exists() else "（handoff 剛從零建立、還沒有任何場景：先不帶 --scene 全集同步一次）"
+            print(f"[錯誤] 在 Handoff 中找不到指定的場景 ID: {args.scene}{hint}", file=sys.stderr)
             return 1
+
+    if args.resign:
+        args.force = True
+    resign_ids = {
+        s.get("scene_id") for s in target_scenes
+        if (s.get("review") or {}).get("locked") or (s.get("review") or {}).get("review_status") == "approved"
+    } if args.resign else set()
 
     # 2. 處理純審核指令
     review_changed = False
@@ -652,7 +720,7 @@ def main() -> int:
             print(f"[錯誤] 找不到劇本檔案：{args.script}", file=sys.stderr)
             return 1
 
-        script_text = args.script.read_text(encoding="utf-8")
+        script_text = args.script.read_text(encoding="utf-8-sig")
         parsed = parse_and_validate_script(script_text)
         if parsed.get("errors"):
             print(f"[警告] 劇本包含格式問題，但仍嘗試解析：{len(parsed['errors'])} 項錯誤", file=sys.stderr)
@@ -664,7 +732,7 @@ def main() -> int:
         # 若指定了 --source，執行自動配對未標註之單元
         if args.source and args.source.exists():
             try:
-                s_data = json.loads(args.source.read_text(encoding="utf-8"))
+                s_data = _read_json(args.source)
                 auto_match_source_units(script_scenes, s_data)
             except Exception as s_err:
                 print(f"[警告] 讀取 --source 檔案失敗：{s_err}", file=sys.stderr)
@@ -674,7 +742,7 @@ def main() -> int:
         for bp in [args.handoff.parent / "adapt" / "bible.json", args.handoff.parent / "bible.json"]:
             if bp.exists():
                 try:
-                    bdata = json.loads(bp.read_text(encoding="utf-8"))
+                    bdata = _read_json(bp)
                     for ch in bdata.get("characters", []):
                         cid = ch.get("character_id")
                         cname = ch.get("canonical_name")
@@ -706,6 +774,14 @@ def main() -> int:
                 if ep.get("episode_id", "").upper() == args.episode.upper():
                     current_ep = ep
                     break
+
+        # 集名：handoff 還是 TODO／空白／預設「第NN集」時，用劇本集標題行的集名補上（不覆蓋人工寫過的標題）
+        ep_title = script_episode_title(script_text)
+        cur_title = str(current_ep.get("title") or "").strip()
+        if ep_title and (cur_title in ("", "TODO") or re.fullmatch(r"第\s*\d+\s*集", cur_title)):
+            current_ep["title"] = ep_title
+            print(f"[集名] {current_ep.get('episode_id', '?')} title ← 劇本集標題「{ep_title}」")
+            sync_performed = True
 
         if args.scene:
             # 單一場景模式
@@ -822,6 +898,20 @@ def main() -> int:
                         f"[提示] 劇本場景數 ({len(script_scenes)}) 少於 Handoff 場景數 ({len(current_ep_scenes)})。"
                         f"多出場景：{', '.join(extra_ids)}。若需自動清理未鎖定的多餘場景，請加上 --prune-extra 參數。"
                     )
+
+    aligned = align_with_decisions(handoff_data, args.handoff.parent)
+    for msg in aligned:
+        print(f"[對齊定案] {msg}")
+    if aligned:
+        sync_performed = True
+
+    if resign_ids and sync_performed:
+        for s in all_scenes:
+            if s.get("scene_id") in resign_ids and update_scene_review_status(
+                s, "approved", args.note or "resign：劇本修改後重新核准", False, False
+            ):
+                review_changed = True
+                print(f"[重新核准] {s.get('scene_id')}: approved＋locked（rev {s['review'].get('revision')}）")
 
     if review_changed or sync_performed:
         args.handoff.write_text(json.dumps(handoff_data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

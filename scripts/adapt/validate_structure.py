@@ -150,7 +150,8 @@ def _parse_change_comment(body: str) -> Dict[str, Any]:
 
 def parse_and_validate_script(script_text: str) -> Dict[str, Any]:
     """解析人類可讀劇本並執行結構、黑名單與可拍性驗證。"""
-    lines = script_text.splitlines()
+    # Windows 記事本存的 UTF-8 BOM 會黏在第一行，集標題被當成 ORPHAN_LINE
+    lines = script_text.lstrip("\ufeff").splitlines()
     errors: List[str] = []
     warnings: List[str] = []
     gate_failures: List[str] = []
@@ -168,6 +169,10 @@ def parse_and_validate_script(script_text: str) -> Dict[str, Any]:
 
         # 略過 Markdown code fence
         if line.startswith("```"):
+            continue
+
+        # `>` 引言行是文件框（狀態卡、修訂紀錄，見 references/document-standard.md），不是劇本正文
+        if line.startswith(">"):
             continue
 
         # 支援 HTML 註解元數據 (例如 <!-- source: U01, U02 -->)
@@ -373,7 +378,7 @@ def main() -> int:
         print(f"錯誤：找不到劇本檔案 {script_path}", file=sys.stderr)
         return 1
 
-    script_text = script_path.read_text(encoding="utf-8")
+    script_text = script_path.read_text(encoding="utf-8-sig")
     result = parse_and_validate_script(script_text)
 
     if args.handoff:
@@ -383,9 +388,9 @@ def main() -> int:
             result["errors"].append(f"[HANDOFF_NOT_FOUND] 找不到交接檔案: {handoff_path}")
         else:
             try:
-                handoff_data = json.loads(handoff_path.read_text(encoding="utf-8"))
+                handoff_data = json.loads(handoff_path.read_text(encoding="utf-8-sig"))
                 if schema_path.exists():
-                    schema_data = json.loads(schema_path.read_text(encoding="utf-8"))
+                    schema_data = json.loads(schema_path.read_text(encoding="utf-8-sig"))
                     schema_errors = validate_json_against_schema(handoff_data, schema_data)
                     result["errors"].extend(schema_errors)
 

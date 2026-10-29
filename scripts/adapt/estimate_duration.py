@@ -50,6 +50,7 @@ if sys.platform.startswith("win"):
             _stream.reconfigure(encoding="utf-8", errors="replace")
 
 from validate_structure import parse_and_validate_script
+from audio_keywords import classify_note
 from series_format import LONGFORM, SHORT, SHORT_EPISODE_DEFAULT_SECONDS, project_format
 from event_coverage import required_beats
 
@@ -121,6 +122,7 @@ def estimate_script_duration(
     total_max = 0.0
     total_spoken_chars = 0
     h3_speech_raw = 0.0
+    vo_chars = 0  # 旁白／內心獨白走外部 TTS，不佔 H3 口型秒數（#35）
     max_single_line_chars = 0
 
     for sc in parsed["scenes"]:
@@ -136,8 +138,11 @@ def estimate_script_duration(
         for dlg in sc["dialogues"]:
             c_count = count_spoken_chars(dlg["text"])
             sc_chars += c_count
-            total_spoken_chars += c_count
-            h3_speech_raw += c_count / speaker_rate(dlg.get("speaker", ""), male_leads)
+            if classify_note(dlg.get("note", "")) == "voiceover":
+                vo_chars += c_count
+            else:
+                total_spoken_chars += c_count
+                h3_speech_raw += c_count / speaker_rate(dlg.get("speaker", ""), male_leads)
             if c_count > max_single_line_chars:
                 max_single_line_chars = c_count
 
@@ -257,6 +262,7 @@ def estimate_script_duration(
         "estimated_total_seconds": {"min": total_min, "max": total_max, "mid": mid_seconds},
         "budget_status": budget_status,
         "h3_speech_seconds": h3_speech_seconds,
+        "voiceover_chars_excluded": vo_chars,
         "h3_speech_ratio": h3_speech_ratio,
         "h3_audit": {
             "h3_mode": h3_mode,
@@ -501,14 +507,14 @@ def project_genre(root: Optional[Path]) -> Optional[str]:
     if root is None:
         return None
     try:
-        m = re.search(r"genre_mode[：:]\s*([a-z_]+)", (root / "project.md").read_text(encoding="utf-8"))
+        m = re.search(r"genre_mode[：:]\s*([a-z_]+)", (root / "project.md").read_text(encoding="utf-8-sig"))
         if m and m.group(1) in GENRE_SPEECH_RATES:
             return m.group(1)
     except OSError:
         pass
     for cand in (root / "adapt" / "source.json", root / "adapt" / "bible.json"):
         try:
-            g = json.loads(cand.read_text(encoding="utf-8")).get("genre_mode")
+            g = json.loads(cand.read_text(encoding="utf-8-sig")).get("genre_mode")
             if g in GENRE_SPEECH_RATES:
                 return g
         except (OSError, ValueError):
@@ -521,7 +527,7 @@ def genre_unconfirmed(root: Optional[Path]) -> bool:
     if root is None:
         return False
     try:
-        text = (root / "project.md").read_text(encoding="utf-8")
+        text = (root / "project.md").read_text(encoding="utf-8-sig")
     except OSError:
         return False
     m = re.search(r"genre_mode[：:]\s*(\S.*)", text)
@@ -532,7 +538,7 @@ def dialogue_policy_decided(root: Optional[Path]) -> bool:
     if root is None:
         return False
     try:
-        data = json.loads((root / "decisions.json").read_text(encoding="utf-8"))
+        data = json.loads((root / "decisions.json").read_text(encoding="utf-8-sig"))
     except (OSError, ValueError):
         return False
     return any(d.get("id") == "dialogue_policy" and d.get("value") for d in data.get("decisions", []))
@@ -560,12 +566,23 @@ def main() -> int:
     # 事件模式：依事件數與交代需求估總長
     if args.events:
         ev_path = Path(args.events)
-        if not ev_path.exists():
-            print(f"[錯誤] 找不到檔案：{ev_path}", file=sys.stderr)
+        if not ev_path.is_file():
+            print(f"[錯誤] 找不到檔案：{ev_path}" + ("（這是資料夾，請指到 adapt/source.json）" if ev_path.is_dir() else ""),
+                  file=sys.stderr)
+            return 1
+        try:
+            ev_data = json.loads(ev_path.read_text(encoding="utf-8-sig"))
+        except (ValueError, UnicodeDecodeError) as exc:
+            print(f"[錯誤] {ev_path} 不是合法的 JSON：{exc}", file=sys.stderr)
+            return 1
+        if not isinstance(ev_data, dict):
+            print(f"[錯誤] {ev_path} 應是 source.json 物件（含 story_units），收到 {type(ev_data).__name__}", file=sys.stderr)
+            return 1
+        if args.episodes is not None and args.episodes < 1:
+            print("[錯誤] --episodes 必須 ≥ 1", file=sys.stderr)
             return 1
         fmt = args.series_format or project_format(find_project_root(ev_path))
-        res = estimate_event_based_duration(json.loads(ev_path.read_text(encoding="utf-8")),
-                                            episodes=args.episodes, series_format=fmt)
+        res = estimate_event_based_duration(ev_data, episodes=args.episodes, series_format=fmt)
         if args.json:
             print(json.dumps(res, ensure_ascii=False, indent=2))
         else:
@@ -591,15 +608,24 @@ def main() -> int:
         print("[錯誤] 請指定檔案路徑（--script 或 --novel-file）", file=sys.stderr)
         return 1
 
-    if not target_path.exists():
-        print(f"[錯誤] 找不到檔案：{target_path}", file=sys.stderr)
+    if not target_path.is_file():
+        print(f"[錯誤] 找不到檔案：{target_path}" + ("（這是資料夾，請指到檔案）" if target_path.is_dir() else ""),
+              file=sys.stderr)
+        return 1
+    if args.target_seconds is not None and args.target_seconds <= 0:
+        print("[錯誤] --target-seconds 必須 > 0", file=sys.stderr)
         return 1
 
-    if is_novel_mode:
-        from novel_text import read_novel_text
-        file_text, _enc = read_novel_text(target_path)
-    else:
-        file_text = target_path.read_text(encoding="utf-8")
+    try:
+        if is_novel_mode:
+            from novel_text import read_novel_text
+            file_text, _enc = read_novel_text(target_path)
+        else:
+            # utf-8-sig：Windows 記事本存的 BOM 不黏在第一行；換行交給 splitlines（\r\n 也認）
+            file_text = target_path.read_text(encoding="utf-8-sig")
+    except UnicodeDecodeError as exc:
+        print(f"[錯誤] 無法解碼 {target_path}：{exc}（劇本請存成 UTF-8）", file=sys.stderr)
+        return 1
     project_root = find_project_root(target_path)
     if args.genre is None:
         args.genre = project_genre(project_root) or "xuanhuan_revenge"

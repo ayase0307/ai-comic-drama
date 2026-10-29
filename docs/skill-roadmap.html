@@ -1,0 +1,471 @@
+<!doctype html>
+<html lang="zh-Hant"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>漫劇產線路線圖</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="ai-comic-drama 技能的八階段動態路線圖：每個動作做什麼、寫出哪個檔、誰決定、何時停下。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@600;900&family=Noto+Sans+TC:wght@400;500;700&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<style>
+/* 版面：頂部片盤（八階段＋播放頭）→ 選中階段的工作單 → 迴圈與停車訊號 → 指令速查。色票沿用收件匣（scripts/review/inbox.py）。 */
+:root{
+  --bg:#f6f4ef;--panel:#fffdf8;--panel2:#efebe2;--line:#ddd6c8;--tx:#1d1f22;--mut:#5d6168;--dim:#8a8f96;
+  --hot:#c4532f;--hotbg:rgba(196,83,47,.10);--ok:#2f8a66;--okbg:rgba(47,138,102,.10);--acc:#a8771c;--accbg:rgba(168,119,28,.12);
+  --user:#c4532f;--agent:#3b6fb0;--agentbg:rgba(59,111,176,.10);--gate:#6b4fa3;--gatebg:rgba(107,79,163,.10);
+  --film:#24262a;--filmtx:#efebe2;
+  --f-display:"Noto Serif TC","Songti TC","PMingLiU",serif;
+  --f-body:"Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;
+  --f-mono:"IBM Plex Mono","Cascadia Mono",Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0e1013;--panel:#161a1f;--panel2:#1c2128;--line:#2a3039;--tx:#ecebe7;--mut:#a3a9b2;--dim:#7d848e;
+  --hot:#ef7a5a;--hotbg:rgba(239,122,90,.13);--ok:#7cc8a8;--okbg:rgba(124,200,168,.12);--acc:#e8c27a;--accbg:rgba(232,194,122,.12);
+  --user:#ef7a5a;--agent:#7fa9e0;--agentbg:rgba(127,169,224,.12);--gate:#b49ae6;--gatebg:rgba(180,154,230,.12);
+  --film:#07080a;--filmtx:#ecebe7;color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0e1013;--panel:#161a1f;--panel2:#1c2128;--line:#2a3039;--tx:#ecebe7;--mut:#a3a9b2;--dim:#7d848e;
+  --hot:#ef7a5a;--hotbg:rgba(239,122,90,.13);--ok:#7cc8a8;--okbg:rgba(124,200,168,.12);--acc:#e8c27a;--accbg:rgba(232,194,122,.12);
+  --user:#ef7a5a;--agent:#7fa9e0;--agentbg:rgba(127,169,224,.12);--gate:#b49ae6;--gatebg:rgba(180,154,230,.12);
+  --film:#07080a;--filmtx:#ecebe7;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.75 var(--f-body);letter-spacing:.02em;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding-block:28px 72px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0}
+.eyebrow{font:600 12.5px/1 var(--f-mono);letter-spacing:.14em;color:var(--dim);text-transform:uppercase}
+header{display:grid;gap:10px;margin-bottom:22px}
+header h1{font-size:clamp(30px,5vw,46px);font-weight:900;line-height:1.2}
+header p{margin:0;color:var(--mut);max-width:62ch}
+.legend{display:flex;flex-wrap:wrap;gap:8px 16px;margin-top:6px;font-size:14px;color:var(--mut)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.who{display:inline-flex;align-items:center;justify-content:center;min-width:44px;padding:1px 8px;border-radius:6px;font-size:12px;font-weight:700;letter-spacing:.06em;white-space:nowrap;font-style:normal}
+.who.agent{background:var(--agentbg);color:var(--agent)}.who.user{background:var(--hotbg);color:var(--user)}.who.gate{background:var(--gatebg);color:var(--gate)}
+
+/* 片盤 */
+.reel{background:var(--film);color:var(--filmtx);border-radius:14px;padding:14px 0 12px;position:relative;overflow:hidden}
+.reel::before,.reel::after{content:"";position:absolute;left:0;right:0;height:9px;background:repeating-linear-gradient(90deg,transparent 0 10px,color-mix(in srgb,var(--filmtx) 22%,transparent) 10px 20px)}
+.reel::before{top:4px}.reel::after{bottom:4px}
+.track-scroll{overflow-x:auto;padding:12px 14px 8px;scrollbar-width:thin}
+.track{display:grid;grid-template-columns:repeat(8,minmax(118px,1fr));gap:8px;position:relative;min-width:980px}
+.frame{all:unset;cursor:pointer;display:grid;gap:4px;padding:12px 12px 10px;border-radius:9px;background:color-mix(in srgb,var(--filmtx) 6%,transparent);border:1px solid color-mix(in srgb,var(--filmtx) 14%,transparent);transition:background .2s,border-color .2s,opacity .2s,transform .2s}
+.frame:hover{border-color:color-mix(in srgb,var(--filmtx) 40%,transparent)}
+.frame:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.frame .tc{font:600 11.5px/1 var(--f-mono);color:color-mix(in srgb,var(--filmtx) 55%,transparent);letter-spacing:.08em}
+.frame .nm{font:900 21px/1.2 var(--f-display)}
+.frame .q{font-size:12.5px;line-height:1.5;color:color-mix(in srgb,var(--filmtx) 70%,transparent)}
+.frame .pins{display:flex;gap:4px;flex-wrap:wrap;margin-top:2px}
+.pin{font-size:10.5px;padding:0 6px;border-radius:4px;border:1px solid currentColor;line-height:1.6}
+.pin.user{color:var(--user)}.pin.opt{color:color-mix(in srgb,var(--filmtx) 55%,transparent)}
+.frame[aria-current="true"]{background:var(--acc);color:#1d1606;border-color:var(--acc);transform:translateY(-2px)}
+.frame[aria-current="true"] .tc,.frame[aria-current="true"] .q{color:rgba(29,22,6,.72)}
+.frame[aria-current="true"] .pin.user{color:#7a1f05}.frame[aria-current="true"] .pin.opt{color:rgba(29,22,6,.6)}
+.frame.out{opacity:.28}
+.playhead{position:absolute;top:-6px;bottom:-6px;width:2px;background:var(--hot);left:0;transition:left .55s cubic-bezier(.2,.8,.2,1);pointer-events:none}
+.playhead::before{content:"";position:absolute;top:-2px;left:-6px;border:7px solid transparent;border-top:9px solid var(--hot)}
+.controls{display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;padding:6px 14px 2px}
+.btn{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:8px;min-height:36px;padding:0 14px;border-radius:8px;font-weight:700;font-size:14.5px;background:var(--hot);color:#fff}
+.btn:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.btn.ghost{background:transparent;color:var(--filmtx);border:1px solid color-mix(in srgb,var(--filmtx) 30%,transparent)}
+.scope{display:flex;align-items:center;gap:8px;font-size:14px;color:color-mix(in srgb,var(--filmtx) 75%,transparent)}
+.scope select{font:inherit;color:var(--filmtx);background:color-mix(in srgb,var(--filmtx) 8%,transparent);border:1px solid color-mix(in srgb,var(--filmtx) 25%,transparent);border-radius:7px;padding:5px 8px}
+.scope select option{color:#1d1f22}
+.scope-note{font-size:13px;color:color-mix(in srgb,var(--filmtx) 60%,transparent)}
+
+/* 工作單 */
+.sheet{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:22px;margin-top:22px;align-items:start}
+.sheet-main{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px 22px 18px;min-width:0}
+.sheet-head{display:grid;gap:6px;border-bottom:1px dashed var(--line);padding-bottom:14px;margin-bottom:6px}
+.sheet-head h2{font-size:clamp(24px,3.4vw,32px);font-weight:900}
+.sheet-head .ask{font-size:17px;color:var(--tx);font-weight:500}
+.sheet-head .why{color:var(--mut);margin:0}
+.steps{list-style:none;margin:0;padding:0;counter-reset:s}
+.step{display:grid;grid-template-columns:28px minmax(0,1fr);gap:4px 12px;padding:14px 0;border-bottom:1px solid var(--line);animation:rise .35s both}
+.step:last-child{border-bottom:0}
+.step::before{counter-increment:s;content:counter(s);grid-row:1/span 3;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font:600 12.5px/1 var(--f-mono);background:var(--panel2);color:var(--mut);margin-top:2px}
+.step-top{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.step-top b{font-size:16.5px}
+.step p{margin:0;color:var(--mut);font-size:15px}
+.step .meta{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:13.5px;color:var(--dim)}
+code,.cmd{font-family:var(--f-mono);font-size:13px}
+.cmd{display:inline-block;background:var(--panel2);color:var(--tx);border-radius:6px;padding:1px 7px;word-break:break-all}
+.writes{color:var(--ok)}
+@keyframes rise{from{opacity:.001;transform:translateY(6px)}to{opacity:1;transform:none}}
+.side{display:grid;gap:14px;min-width:0}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+.box h3{font-size:17px;margin-bottom:8px;display:flex;align-items:center;gap:8px}
+.box ul{margin:0;padding-left:1.1em;color:var(--mut);font-size:14.5px}
+.box li+li{margin-top:4px}
+.box.human{border-color:color-mix(in srgb,var(--user) 45%,var(--line));background:linear-gradient(var(--hotbg),var(--hotbg)),var(--panel)}
+.box.stop{border-color:color-mix(in srgb,var(--gate) 40%,var(--line))}
+.files{display:grid;gap:6px}
+.file{display:grid;grid-template-columns:auto minmax(0,1fr);gap:2px 10px;font-size:14px}
+.file code{color:var(--tx);word-break:break-all}
+.file span{color:var(--dim);grid-column:2;font-size:13px}
+
+/* 迴圈 */
+section{margin-top:44px}
+section>h2{font-size:clamp(22px,3vw,28px);font-weight:900;margin:6px 0 6px}
+section>p.lead{margin:0 0 16px;color:var(--mut);max-width:66ch}
+.cycle{display:grid;grid-template-columns:minmax(0,320px) minmax(0,1fr);gap:24px;align-items:center}
+.cycle svg{width:100%;height:auto;max-width:320px}
+.cycle ol{margin:0;padding-left:1.2em;display:grid;gap:8px}
+.cycle li{color:var(--mut)}.cycle li b{color:var(--tx)}
+.cycle li.on b{color:var(--hot)}
+.loops{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.loop{border-top:3px solid var(--acc);background:var(--panel);border-radius:0 0 12px 12px;padding:14px 16px}
+.loop h3{font-size:17px;margin-bottom:6px}.loop p{margin:0;color:var(--mut);font-size:14.5px}
+.loop .path{font:600 12.5px/1.6 var(--f-mono);color:var(--acc);margin-top:8px;word-break:break-word}
+.stops{width:100%;border-collapse:collapse;font-size:14.5px}
+.stops th,.stops td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+.stops th{font-size:12.5px;color:var(--dim);font-weight:600;letter-spacing:.06em}
+.stops td:first-child{font-family:var(--f-mono);font-size:13px;color:var(--gate);white-space:nowrap}
+.table-scroll{overflow-x:auto;background:var(--panel);border:1px solid var(--line);border-radius:12px}
+.cmdgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
+.cmdcard{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:grid;gap:4px}
+.cmdcard .cmd{justify-self:start}
+.cmdcard p{margin:0;font-size:13.5px;color:var(--mut);line-height:1.6}
+.cmdcard .st{font-size:12px;color:var(--dim)}
+footer{margin-top:44px;padding-top:14px;border-top:1px solid var(--line);font-size:13px;color:var(--dim)}
+@media (max-width:860px){.sheet,.cycle{grid-template-columns:minmax(0,1fr)}.loops{grid-template-columns:minmax(0,1fr)}.cycle svg{margin:0 auto}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head><body>
+
+<div class="wrap">
+<header>
+  <span class="eyebrow">ai-comic-drama · v<span id="ver">0.9.0</span></span>
+  <h1>漫劇產線路線圖</h1>
+  <p>從一篇小說到一部成片，技能把工作切成 8 關。每一關 Agent 先做、程式驗收，需要你判斷的事才送進「決策收件匣」。點上方任何一格看那一關的工作單，或按「播放全流程」讓播放頭自己走一遍。</p>
+  <div class="legend">
+    <span><i class="who agent">Agent</i>Agent 動手做</span>
+    <span><i class="who user">你</i>只有你能決定</span>
+    <span><i class="who gate">門禁</i>程式自動檢查，不過就擋</span>
+  </div>
+</header>
+
+<div class="reel" aria-label="八階段片盤">
+  <div class="track-scroll"><div class="track" id="track" role="tablist"><span class="playhead" id="playhead" aria-hidden="true"></span></div></div>
+  <div class="controls">
+    <button class="btn" id="play" type="button" aria-pressed="false">▶ 播放全流程</button>
+    <button class="btn ghost" id="prev" type="button" aria-label="上一關">◀</button>
+    <button class="btn ghost" id="next" type="button" aria-label="下一關">▶</button>
+    <label class="scope" for="scope">交付範圍
+      <select id="scope"></select>
+    </label>
+    <span class="scope-note" id="scopeNote"></span>
+  </div>
+</div>
+
+<div class="sheet" id="sheet" aria-live="polite">
+  <article class="sheet-main">
+    <div class="sheet-head">
+      <span class="eyebrow" id="sTc"></span>
+      <h2 id="sName"></h2>
+      <div class="ask" id="sAsk"></div>
+      <p class="why" id="sWhy"></p>
+    </div>
+    <ol class="steps" id="sSteps"></ol>
+  </article>
+  <aside class="side">
+    <div class="box human"><h3><i class="who user">你</i>這關你要做的決定</h3><ul id="sHuman"></ul></div>
+    <div class="box"><h3>這關會留下的文件</h3><div class="files" id="sFiles"></div></div>
+    <div class="box stop"><h3><i class="who gate">門禁</i>什麼情況會擋下</h3><ul id="sGates"></ul></div>
+  </aside>
+</div>
+
+<section>
+  <span class="eyebrow">每一關都照這個節奏</span>
+  <h2>一關的一圈：做 → 驗 → 問你 → 記下來</h2>
+  <p class="lead">Agent 不自己排流程。每一圈都從 <code>h3d next</code> 開始，它只給一條指令；做完由程式驗收，要你判斷的事變成收件匣卡片，你回覆的原話寫進檔案，才算數。</p>
+  <div class="cycle">
+    <svg viewBox="0 0 320 320" role="img" aria-label="六步循環圖">
+      <circle cx="160" cy="160" r="118" fill="none" stroke="var(--line)" stroke-width="2" stroke-dasharray="4 6"/>
+      <g id="cycleNodes"></g>
+      <circle id="cycleDot" r="7" fill="var(--hot)" cx="160" cy="42"/>
+      <text x="160" y="154" text-anchor="middle" fill="var(--tx)" font-family="var(--f-display)" font-size="20" font-weight="900">一關</text>
+      <text x="160" y="178" text-anchor="middle" fill="var(--dim)" font-size="12.5">直到核准才進下一關</text>
+    </svg>
+    <ol id="cycleList"></ol>
+  </div>
+</section>
+
+<section>
+  <span class="eyebrow">走回頭路是正常的</span>
+  <h2>三條回頭路</h2>
+  <p class="lead">核准不是終點。下游改了上游的東西，或片子不合格，就沿這三條路回去，程式會記住哪些地方失效。</p>
+  <div class="loops" id="loops"></div>
+</section>
+
+<section>
+  <span class="eyebrow">看到就停</span>
+  <h2>「現在不能繼續」的訊號</h2>
+  <p class="lead">出現這些字，Agent 必須停下回報你，不能自己繞過。</p>
+  <div class="table-scroll"><table class="stops"><thead><tr><th>訊號</th><th>意思</th><th>該怎麼辦</th></tr></thead><tbody id="stops"></tbody></table></div>
+</section>
+
+<section>
+  <span class="eyebrow">h3d 單一入口</span>
+  <h2>指令速查</h2>
+  <p class="lead">所有指令都是 <code>python scripts/h3d.py &lt;指令&gt;</code>。卡片上標的是它主要用在哪一關。</p>
+  <div class="cmdgrid" id="cmds"></div>
+</section>
+
+<footer>資料來源：<code>SKILL.md</code>、<code>scripts/h3d.py</code>、<code>scripts/decisions.py</code>、<code>references/tooling.md</code> §2.6 與 §4。改了流程請同步更新本頁內嵌的 <code>roadmap-data</code>；<code>tests/test_skill_roadmap.py</code> 會檢查指令與腳本都對得上。</footer>
+</div>
+
+<script type="application/json" id="roadmap-data">
+{
+  "version": "0.10.0",
+  "stages": [
+    {"n": 0, "name": "定調", "ask": "這部作品要做成什麼樣子？",
+     "why": "一次問完題材、載體、畫風、比例、台詞政策，每題附推薦值。成片預設長篇漫劇，不切短集；畫風預設推 14 號古風寫實厚塗。",
+     "steps": [
+       {"who": "agent", "do": "建立專案資料夾", "means": "產生標準目錄、狀態檔與版本章，之後每個指令都認得這個專案。", "cmd": "scripts/init_project.py", "writes": "project.md、review/project-state.json"},
+       {"who": "agent", "do": "原文體量反推片長", "means": "先算台詞量能撐多長，太長就提出台詞政策選項，不硬塞。", "cmd": "scripts/adapt/estimate_duration.py --novel", "writes": ""},
+       {"who": "user", "do": "回答定調題", "means": "畫風、比例、台詞政策都是你的事；Agent 只給推薦。", "cmd": "h3d decide style / aspect_ratio / dialogue_policy", "writes": "decisions.json（附你的原話）"},
+       {"who": "user", "do": "核准定調", "means": "這關永遠要你本人核准，不能自動通過。", "cmd": "scripts/build_stage_review.py --approve-stage 0", "writes": "review/project-state.json"}
+     ],
+     "human": ["題材、畫風、比例、台詞政策", "要不要改成短劇（預設長篇）", "交付到哪一關為止（delivery_scope）"],
+     "files": [["project.md", "定調單：作品方向、成片形式、體量估算"], ["decisions.json", "你每一個定案與原話"]],
+     "gates": ["定調題缺項時不能往下", "階段 0 永遠要人核准"],
+     "pins": ["user"]},
+    {"n": 1, "name": "改編", "ask": "保留了哪些故事？改了哪些地方？",
+     "why": "小說不能直接當劇本。先拆事件，每個事件要交代起因→經過→結果，被壓縮或跳過的事件交給你決定。",
+     "steps": [
+       {"who": "agent", "do": "切章與清洗原文", "means": "從大檔抽出要改的章節，清掉轉檔雜質。", "cmd": "scripts/adapt/extract_chapter.py", "writes": "source/"},
+       {"who": "agent", "do": "寫角色設定（十一章）", "means": "外貌、動機、關係、服裝狀態一次寫清楚，後面出圖和寫提示詞都靠它。", "cmd": "scripts/adapt/validate_character_bible.py", "writes": "adapt/character-bible.md"},
+       {"who": "gate", "do": "事件交代檢查", "means": "列出被壓縮、跳過或交代不全的事件，一件都不能偷偷砍。", "cmd": "scripts/adapt/event_coverage.py", "writes": ""},
+       {"who": "agent", "do": "依事件估總長", "means": "片長由事件決定，不為了秒數壓事件。", "cmd": "scripts/adapt/estimate_duration.py --events", "writes": ""},
+       {"who": "user", "do": "選改編方案、處置事件", "means": "A／B／C 方案與「補足或接受刪減」由你選。", "cmd": "h3d inbox", "writes": "review/inbox.html"}
+     ],
+     "human": ["改編方案 A／B／C", "每個被壓縮或跳過的事件：補足還是接受"],
+     "files": [["adapt/character-bible.md", "角色設定 v4 十一章"], ["adapt/source.json、adapt/bible.json", "原著事件與故事聖經（機器讀）"], ["series-outline", "段落架構（要求才分集）"]],
+     "gates": ["事件交代不全、未登記的改動", "角色設定章節不齊"],
+     "pins": []},
+    {"n": 2, "name": "設定圖", "ask": "這是不是我想要的角色與世界？",
+     "why": "先出主角，每張圖自檢後才給你看。生圖工具由你選（Agent 只列出偵測到可用的），一經定案就全集鎖定，換工具要並排比對。",
+     "steps": [
+       {"who": "user", "do": "選設定圖生圖工具", "means": "Agent 偵測環境裡可用的工具（Codex、Grok、手繪上傳…），由你選，不替你預設；工具決定整部片的長相，定了就不換。", "cmd": "h3d imagegen --set", "writes": "decisions.json"},
+       {"who": "agent", "do": "寫資產聖經、出設定圖", "means": "角色四視圖、場景、道具、生物（純底三視圖），主角優先。", "cmd": "scripts/storyboard/export_asset_prompts.py", "writes": "assets.md、images/"},
+       {"who": "agent", "do": "親眼自檢，不合格重生", "means": "Agent 先看臉、服裝、道具，退回的圖不送你看。", "cmd": "", "writes": "assets/reference-manifest.json"},
+       {"who": "user", "do": "看臉和服裝，核准", "means": "這關永遠要你本人看，不能自動通過。", "cmd": "scripts/build_stage_review.py --approve-stage 2", "writes": "review/project-state.json"}
+     ],
+     "human": ["設定圖生圖工具", "每個角色的臉與服裝", "生物與關鍵道具的長相"],
+     "files": [["assets.md", "風格錨＋角色／場景／道具／音色聖經"], ["images/", "設定板圖片"], ["assets/reference-manifest.json", "每張圖的版本與自檢結果"]],
+     "gates": ["缺圖紅框攔截", "階段 2 永遠要人核准"],
+     "pins": ["user"]},
+    {"n": 3, "name": "劇本", "ask": "故事順不順？台詞對不對？節奏夠不夠？",
+     "why": "把改編結果寫成可拍的場景劇本：場號、人物、△動作行、台詞。台詞預算每秒 4 字、說話不超過片長 60%。",
+     "steps": [
+       {"who": "agent", "do": "寫場景劇本", "means": "只寫看得到、聽得到的東西，不寫鏡頭術語。", "cmd": "", "writes": "script-ep01.md"},
+       {"who": "gate", "do": "台詞預算審計", "means": "超過每秒 4 字或單句太長就擋，避免 H3 念不完。", "cmd": "scripts/adapt/estimate_duration.py --h3", "writes": ""},
+       {"who": "agent", "do": "同步交接資料", "means": "把劇本轉成分鏡要用的交接 JSON，已核准的場景不被覆寫。", "cmd": "scripts/adapt/sync_script.py", "writes": "handoff-ep01.json"},
+       {"who": "agent", "do": "對帳改編差異", "means": "每一處刪減、合併、新增都登記理由與影響。", "cmd": "scripts/adapt/compare_adaptation.py", "writes": "adaptation-diff.md"}
+     ],
+     "human": ["劇本是否核准（可授權自動核准）", "時長超出預估時接不接受"],
+     "files": [["script-ep01.md", "漫劇劇本（△ 場號制）"], ["handoff-ep01.json", "劇本→分鏡交接"], ["adaptation-diff.md", "改編差異對帳表"]],
+     "gates": ["台詞超預算", "未登記的重大改動（UNTRACKED_MAJOR_CHANGE）"],
+     "pins": []},
+    {"n": 4, "name": "分鏡", "ask": "觀眾要看懂什麼？畫面做不做得到？",
+     "why": "每一鏡先寫「觀眾要看懂什麼」（shot_intent），再定景別、焦距、運鏡，每個選擇附理由。每鏡都要有構圖圖才能往下。",
+     "steps": [
+       {"who": "agent", "do": "產分鏡骨架", "means": "依節拍切成 7–10 秒的自足分段，預填連戲錨點。", "cmd": "scripts/storyboard/handoff_to_skeleton.py", "writes": "layer2/layer2-*.json"},
+       {"who": "agent", "do": "逐鏡寫意圖與拍法", "means": "運鏡依情緒查手冊選 move_preset，理由寫進 choice_why。", "cmd": "", "writes": "layer2/layer2-*.json"},
+       {"who": "user", "do": "選構圖生圖工具", "means": "缺構圖時 Agent 列出偵測到可用的工具（Codex 分鏡、Qwen 鉛筆九宮格、手繪上傳），由你選，不替你預設。", "cmd": "h3d imagegen --set", "writes": "decisions.json"},
+       {"who": "agent", "do": "畫構圖分鏡圖", "means": "用你選的工具補每鏡構圖（Codex 要填你指定的 --model），回寫 sketch_file。", "cmd": "scripts/storyboard/codex_storyboard_panels.py", "writes": "panels/、images/grid-*.png"},
+       {"who": "gate", "do": "分鏡驗證", "means": "缺構圖、同框過多人、越軸、遠景放人等都會提醒或擋下。", "cmd": "scripts/storyboard/validate_storyboard.py", "writes": ""},
+       {"who": "agent", "do": "產人讀分鏡表", "means": "把 JSON 轉成你看得懂的表格。", "cmd": "scripts/storyboard/layer2_to_table.py", "writes": "storyboard-ep01.md"}
+     ],
+     "human": ["構圖用哪個生圖工具", "分鏡是否核准", "缺構圖或自檢退回的鏡怎麼處理"],
+     "files": [["layer2/*.json", "分鏡唯一真相（機器讀）"], ["storyboard-ep01.md", "人讀分鏡表"], ["panels/", "每鏡構圖圖"]],
+     "gates": ["沒有對應構圖 PNG 不能進編譯", "為消警告偷改核准內容"],
+     "pins": []},
+    {"n": 5, "name": "提示詞", "ask": "要送出的是哪個版本？這次改了哪些段？",
+     "why": "每一鏡親手寫五小節（Camera／Motion／Performance／Light／Sound），編譯器只負責組成 H3 官方六段式。核准後只改部分段，只有改過的段要重審。",
+     "steps": [
+       {"who": "agent", "do": "綁定參考圖", "means": "正臉用單視角裁切，背影、側面、生物用整板查表。", "cmd": "h3d bind", "writes": "video-bible.json、video-bindings.json"},
+       {"who": "agent", "do": "逐鏡親手寫五小節", "means": "讀分鏡與構圖後才寫，不准用程式批量產生。", "cmd": "", "writes": "layer2 的 five_part_en"},
+       {"who": "gate", "do": "撰寫審查", "means": "抓偷懶寫法（E30–E38）：後設詞、禁止句堆疊、重寫外貌。", "cmd": "h3d author", "writes": ""},
+       {"who": "gate", "do": "編譯並對帳", "means": "組成六段式，順便查參考圖、主體定義、台詞預算。", "cmd": "h3d compile --check", "writes": "prompts-ep01.md、segments-ep01.json"},
+       {"who": "gate", "do": "失敗目錄比對", "means": "命中已知會壞的寫法就擋，或要你 ack。", "cmd": "h3d catalog --check", "writes": ""},
+       {"who": "user", "do": "核准，或只重審改過的段", "means": "改過的段一律人工重審，不能自動。", "cmd": "h3d approve --stage 5 --segments X,Y", "writes": "review/project-state.json"}
+     ],
+     "human": ["提示詞包是否核准", "改過的段逐段重審", "要不要接受混臉風險"],
+     "files": [["prompts-ep01.md", "逐段提示詞（人讀）"], ["segments-ep01.json", "送件分段檔"], ["video-bindings.json", "每段掛哪些參考圖"]],
+     "gates": ["缺參考圖、同段多張可辨識臉", "時長不是 17n+5 量子", "命中失敗目錄未 ack"],
+     "pins": []},
+    {"n": 6, "name": "影片", "ask": "生成的影片符不符合這一鏡的要求？",
+     "why": "選用關卡：要有可用的影片工具才做。送件、收件、技術 QA、動態 QA、交界 QA，最後逐段寫結論。",
+     "steps": [
+       {"who": "user", "do": "定驗收政策", "means": "哪些問題才值得重跑，由你決定。", "cmd": "h3d decide acceptance_policy", "writes": "decisions.json"},
+       {"who": "gate", "do": "送件前探測", "means": "查 API 與已裝 LoRA，缺的直接擋。", "cmd": "h3d probe", "writes": ""},
+       {"who": "agent", "do": "送件與收件", "means": "單例 runner，不同時跑兩個；有在跑的工作只收件不送新件。", "cmd": "h3d run --plan", "writes": "videos/、ledger"},
+       {"who": "gate", "do": "技術與動態 QA", "means": "時長、色彩、凍結定住、交界切點；自動提案變速清單。", "cmd": "h3d qa、h3d motion、h3d qa --continuity", "writes": "videos/qa-report.json、videos/speed-ramps.json"},
+       {"who": "agent", "do": "逐段目視寫結論", "means": "pass／warn／fail＋一句原因＋證據圖。", "cmd": "h3d verdict", "writes": "review/verdicts.json"},
+       {"who": "user", "do": "裁示有問題的段", "means": "收件匣只列例外：重跑、接受、後製修。", "cmd": "h3d inbox", "writes": "review/inbox.html"}
+     ],
+     "human": ["驗收政策", "有問題的段：重跑或接受", "QA 為 PARTIAL 時要不要覆寫（附你的理由）"],
+     "files": [["videos/", "每段影片"], ["videos/qa-report.json", "技術 QA"], ["review/verdicts.json", "逐段結論"]],
+     "gates": ["duration_drift：長度不符，片子隔離", "PARTIAL：缺段或沒達 VERIFIED", "已有 waiting 的工作"],
+     "pins": ["opt"]},
+    {"n": 7, "name": "配音剪輯", "ask": "這部成片可以交付了嗎？",
+     "why": "選用關卡。動作段後製變速（台詞原速），ASR 對位、畫外句壓原聲、響度 −23 LUFS，全集一個剪輯專案。",
+     "steps": [
+       {"who": "user", "do": "定每個角色的音色", "means": "音色一次定案，永遠由你本人決定。", "cmd": "h3d decide voice:<角色>", "writes": "decisions.json"},
+       {"who": "agent", "do": "後製變速", "means": "照已核准的變速清單，原片不動、台詞區 1 倍速。", "cmd": "h3d ramp", "writes": "videos/ramped/"},
+       {"who": "agent", "do": "配音對位與響度", "means": "長旁白走外部 TTS，短畫外句留 H3。", "cmd": "h3d voice align", "writes": ""},
+       {"who": "agent", "do": "組成剪輯專案與成片", "means": "影片、字幕、畫外音三軌一個專案。", "cmd": "h3d concat plan/build、h3d assemble", "writes": "final/"},
+       {"who": "agent", "do": "剪輯建議（只給建議）", "means": "剪點、轉場、登場卡、配樂閃避的提醒，不擋關。", "cmd": "scripts/craft/edit_review.py", "writes": ""}
+     ],
+     "human": ["每個角色的音色", "成片是否交付"],
+     "files": [["final/", "成片與交付檔"], ["narration-ep01.md", "旁白與字幕稿"]],
+     "gates": ["有畫外台詞的角色沒有你定的音色", "變速區碰到台詞"],
+     "pins": ["user", "opt"]}
+  ],
+  "cycle": [
+    ["h3d next", "看下一步", "印出目前階段、卡在哪、唯一一條指令。"],
+    ["做", "Agent 照指令做", "讀它指定的 reference 再動手；寫完用 h3d doc stamp 更新文件最上方的狀態卡。"],
+    ["build_stage_review.py --stage N", "綁審核快照", "程式驗收產物並記下這一版的指紋。"],
+    ["h3d inbox", "產決策收件匣", "只把要你判斷的事做成卡片，交給你。"],
+    ["你回覆卡片文字", "你決定", "點選項就複製回覆，貼回對話；文件裡的待決用 h3d doc resolve 記進修訂紀錄。"],
+    ["h3d decide / approve", "寫進檔案", "原話寫進 decisions.json 或 project-state.json，才算數。"]
+  ],
+  "loops": [
+    {"name": "改稿回層", "body": "同一鏡重抽最多 2 次還不行，就回上一層找原因（提示詞→分鏡→劇本），改稿要附改動清單與聯動結論。", "path": "6 → 5 → 4 → 3"},
+    {"name": "段級重審", "body": "階段 5 核准後只改了幾段，只有那幾段要重審，其他段照樣可送件；改過的段永遠人工重審。", "path": "5（局部）→ 6"},
+    {"name": "影片重跑", "body": "逐段結論判 fail 的段改提示詞後只重跑那幾段；已有影片的段被改，依賴帳本會標成過期。", "path": "6 verdict fail → 5 → 6"}
+  ],
+  "stops": [
+    ["duration_drift", "影片長度和要求的 17n+5 影格不符，已隔離", "停下回報；你決定重跑才用 h3d submit 重送該段，不用 --force"],
+    ["PARTIAL", "QA 缺段，或量化指標沒過", "缺段就補跑；只是指標沒過，先逐段目視，你看過仍要核准才覆寫並附理由"],
+    ["已有 waiting 的 job", "服務端還有活著的工作", "只 h3d collect 收件，不重送（會重複計費）"],
+    ["project-state.json 被手改過", "狀態檔不是程式寫的", "停下回報，從備份還原或重新核准"],
+    ["驗收結論需重跑", "依驗收政策判為 fail", "改提示詞後只重跑這些段，不能覆寫放行"]
+  ],
+  "scopes": [
+    {"id": "full", "label": "全流程（預設）", "end": 7},
+    {"id": "prompts-only", "label": "只要提示詞", "end": 5},
+    {"id": "storyboard-only", "label": "只要分鏡", "end": 4},
+    {"id": "script-only", "label": "只要劇本", "end": 3}
+  ],
+  "commands": [
+    ["next", -1, "下一步：目前階段、卡在哪、唯一一條指令"],
+    ["status", -1, "綜合狀態：門禁＋依賴帳本＋送件帳本＋失敗目錄"],
+    ["decide", -1, "把你的定案寫進 decisions.json（附原話）"],
+    ["inbox", -1, "決策收件匣：只列要你決定的事"],
+    ["approve", -1, "自動核准（你授權過的階段）或階段 5 指定段重審"],
+    ["version", -1, "技能版本；比對專案版本章"],
+    ["doctor", -1, "本機環境自檢：GPU、ffmpeg、服務 port"],
+    ["imagegen", -1, "偵測可用的生圖工具；寫入你選的後端（不替你預設）"],
+    ["doc", -1, "階段文件狀態卡：寫狀態、一句話、要你決定、修訂紀錄"],
+    ["sketch", 4, "已移除：只印替代指令（構圖改用你選的生圖工具）"],
+    ["crop", 5, "依比例裁設定板頭像"],
+    ["bind", 5, "產生參考圖綁定"],
+    ["author", 5, "逐鏡撰寫審查（E30–E38）"],
+    ["compile", 5, "Layer 2 → H3 六段式提示詞與 segments"],
+    ["audit", 5, "參考圖／主體定義／台詞預算對帳"],
+    ["refcheck", 5, "提示詞寫到的角色、生物、道具都有參考包嗎"],
+    ["staging", 5, "站位、視線、運鏡閘門"],
+    ["catalog", 5, "失敗目錄比對"],
+    ["ack", 5, "記錄失敗目錄的確認憑證"],
+    ["probe", 6, "送件前查 API 與 LoRA"],
+    ["submit", 6, "送件到 FreeVideo"],
+    ["run", 6, "送件 runner：單例鎖、佇列、暫停續跑"],
+    ["collect", 6, "只收件，不送新件"],
+    ["resume", 6, "先收件再補送缺的段"],
+    ["qa", 6, "影片技術 QA 與交界連續性 QA"],
+    ["motion", 6, "動態 QA＋變速提案"],
+    ["verdict", 6, "逐段目視結論"],
+    ["deps", 6, "segment 級依賴帳本"],
+    ["ramp", 7, "依核准清單後製變速"],
+    ["voice", 7, "ASR 對位、壓原聲、響度"],
+    ["concat", 7, "全集單一剪輯專案"],
+    ["assemble", 7, "配音、字幕與成片組裝"]
+  ]
+}
+</script>
+
+<script>
+(() => {
+  const D = JSON.parse(document.getElementById('roadmap-data').textContent);
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const WHO = {agent: 'Agent', user: '你', gate: '門禁'};
+  const track = $('track'), head = $('playhead');
+  let cur = 0, timer = null, end = 7;
+
+  D.stages.forEach(s => {
+    const b = document.createElement('button');
+    b.className = 'frame'; b.type = 'button'; b.setAttribute('role', 'tab'); b.dataset.n = s.n; b.id = 'stage-' + s.n;
+    const pins = s.pins.map(p => p === 'user' ? '<span class="pin user">永遠要你</span>' : '<span class="pin opt">選用</span>').join('');
+    b.innerHTML = `<span class="tc">STAGE 0${s.n}</span><span class="nm">${esc(s.name)}</span><span class="q">${esc(s.ask)}</span><span class="pins">${pins}</span>`;
+    b.addEventListener('click', () => { stop(); show(s.n); });
+    track.appendChild(b);
+  });
+
+  D.scopes.forEach(sc => { const o = document.createElement('option'); o.value = sc.id; o.textContent = sc.label; $('scope').appendChild(o); });
+  $('scope').addEventListener('change', e => {
+    end = D.scopes.find(x => x.id === e.target.value).end;
+    $('scopeNote').textContent = end < 7 ? `h3d decide delivery_scope ${e.target.value}：做到階段 ${end} 就交付` : '沒定案就是全流程，6、7 關要有影片工具才做';
+    track.querySelectorAll('.frame').forEach(f => f.classList.toggle('out', +f.dataset.n > end));
+    if (cur > end) show(end);
+  });
+  $('scope').dispatchEvent(new Event('change'));
+
+  function show(n) {
+    cur = n;
+    const s = D.stages[n];
+    track.querySelectorAll('.frame').forEach(f => f.setAttribute('aria-current', +f.dataset.n === n ? 'true' : 'false'));
+    const f = $('stage-' + n);
+    head.style.left = (f.offsetLeft + f.offsetWidth / 2) + 'px';
+    f.scrollIntoView({block: 'nearest', inline: 'nearest', behavior: matchMedia('(prefers-reduced-motion:reduce)').matches ? 'auto' : 'smooth'});
+    $('sTc').textContent = `STAGE 0${n} / 07` + (n > end ? '　· 不在目前交付範圍' : '');
+    $('sName').textContent = `${n}　${s.name}`;
+    $('sAsk').textContent = '要回答的問題：' + s.ask;
+    $('sWhy').textContent = s.why;
+    $('sSteps').innerHTML = s.steps.map((st, i) => `<li class="step" style="animation-delay:${i * 60}ms">
+      <div class="step-top"><i class="who ${st.who}">${WHO[st.who]}</i><b>${esc(st.do)}</b></div>
+      <p>${esc(st.means)}</p>
+      <div class="meta">${st.cmd ? `<span class="cmd">${esc(st.cmd)}</span>` : ''}${st.writes ? `<span class="writes">寫出 ${esc(st.writes)}</span>` : ''}</div></li>`).join('');
+    $('sHuman').innerHTML = s.human.map(h => `<li>${esc(h)}</li>`).join('');
+    $('sFiles').innerHTML = s.files.map(([p, d]) => `<div class="file"><span aria-hidden="true">📄</span><code>${esc(p)}</code><span>${esc(d)}</span></div>`).join('');
+    $('sGates').innerHTML = s.gates.map(g => `<li>${esc(g)}</li>`).join('');
+    try { history.replaceState(null, '', '#stage-' + n); } catch (_) {}
+  }
+  function stop() { clearInterval(timer); timer = null; $('play').textContent = '▶ 播放全流程'; $('play').setAttribute('aria-pressed', 'false'); }
+  $('play').addEventListener('click', () => {
+    if (timer) return stop();
+    $('play').textContent = '❚❚ 暫停'; $('play').setAttribute('aria-pressed', 'true');
+    if (cur >= end) show(0);
+    timer = setInterval(() => cur >= end ? stop() : show(cur + 1), 2600);
+  });
+  $('prev').addEventListener('click', () => { stop(); show(Math.max(0, cur - 1)); });
+  $('next').addEventListener('click', () => { stop(); show(Math.min(7, cur + 1)); });
+  addEventListener('resize', () => show(cur));
+
+  // 一關的一圈
+  const R = 118, cx = 160, cy = 160, nodes = $('cycleNodes');
+  const pt = i => { const a = -Math.PI / 2 + i * 2 * Math.PI / D.cycle.length; return [cx + R * Math.cos(a), cy + R * Math.sin(a)]; };
+  D.cycle.forEach((c, i) => {
+    const [x, y] = pt(i);
+    nodes.insertAdjacentHTML('beforeend', `<circle cx="${x}" cy="${y}" r="15" fill="var(--panel)" stroke="var(--acc)" stroke-width="2"/><text x="${x}" y="${y + 4.5}" text-anchor="middle" font-size="13" font-weight="700" fill="var(--tx)">${i + 1}</text>`);
+  });
+  $('cycleList').innerHTML = D.cycle.map(([cmd, t, d]) => `<li><b>${esc(t)}</b>　<code>${esc(cmd)}</code><br>${esc(d)}</li>`).join('');
+  let ci = 0;
+  const tick = () => {
+    const [x, y] = pt(ci); const dot = $('cycleDot'); dot.setAttribute('cx', x); dot.setAttribute('cy', y);
+    $('cycleList').querySelectorAll('li').forEach((li, i) => li.classList.toggle('on', i === ci));
+    ci = (ci + 1) % D.cycle.length;
+  };
+  tick();
+  if (!matchMedia('(prefers-reduced-motion:reduce)').matches) setInterval(tick, 1800);
+
+  $('loops').innerHTML = D.loops.map(l => `<div class="loop"><h3>${esc(l.name)}</h3><p>${esc(l.body)}</p><div class="path">${esc(l.path)}</div></div>`).join('');
+  $('stops').innerHTML = D.stops.map(r => `<tr><td>${esc(r[0])}</td><td>${esc(r[1])}</td><td>${esc(r[2])}</td></tr>`).join('');
+  $('cmds').innerHTML = D.commands.map(([c, st, d]) => `<div class="cmdcard"><span class="cmd">h3d ${esc(c)}</span><p>${esc(d)}</p><span class="st">${st < 0 ? '每一關都用' : '主要在階段 ' + st + '　' + D.stages[st].name}</span></div>`).join('');
+  $('ver').textContent = D.version;
+
+  const m = /^#stage-(\d)$/.exec(location.hash);
+  show(m ? Math.min(7, +m[1]) : 0);
+})();
+</script>
+</body></html>

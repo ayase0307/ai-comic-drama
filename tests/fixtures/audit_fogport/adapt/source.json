@@ -1,0 +1,14 @@
+{
+  "work_title": "霧港奇譚",
+  "segment_id": "seg-01",
+  "genre_mode": "mystery_thriller",
+  "is_incomplete": false,
+  "known_contradictions": [],
+  "must_keep": ["U01", "U02", "U03"],
+  "story_units": [
+    {"unit_id": "U01", "summary": "林霧在燈塔等霧", "expected_grade": "MUST_KEEP", "exposition_needs": ["起因", "經過", "結果"]},
+    {"unit_id": "U02", "summary": "霧鯨出現，林霧搖鈴安撫", "expected_grade": "MUST_KEEP", "exposition_needs": ["起因", "經過", "結果"]},
+    {"unit_id": "U03", "summary": "天亮霧散，老周交出銀鱗", "expected_grade": "MUST_KEEP", "exposition_needs": ["起因", "經過", "結果", "時地"]}
+  ],
+  "foreshadowing": []
+}

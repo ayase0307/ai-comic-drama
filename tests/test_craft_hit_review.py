@@ -37,14 +37,32 @@ class CraftPanelTest(unittest.TestCase):
         import build_stage_review as bsr
         with tempfile.TemporaryDirectory() as tmp:
             p = Path(tmp)
-            self.assertEqual(bsr.craft_lens_panel(p, 0), "")
+            hint = bsr.craft_lens_panel(p, 0)  # 沒報告時列出可跑的 lens 指令，不再整塊消失
+            self.assertIn("hit_review.py", hint)
+            self.assertIn("還沒有 lens 報告", hint)
+            self.assertEqual(bsr.craft_lens_panel(p, 5), "")  # 階段 5 沒有 lens
             (p / "review" / "craft").mkdir(parents=True)
             (p / "review" / "craft" / "stage-0-hit-ep01.md").write_text("# 測試報告\n\n內容ZZZ", encoding="utf-8")
             html_out = bsr.craft_lens_panel(p, 0)
             self.assertIn("不擋關", html_out)
             self.assertIn("ZZZ", html_out)
-            self.assertEqual(bsr.craft_lens_panel(p, 3), "")
+            self.assertIn("mckee_review.py", bsr.craft_lens_panel(p, 3))
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FirstLineTimestampTest(unittest.TestCase):
+    def test_no_timestamp_is_info_not_pass(self):
+        from craft import hit_review as hr
+        ep = {"scenes": [{"estimated_duration_seconds": 30, "dialogue": [{"text": "你來了"}]}]}
+        res = hr.review_stage3(ep)
+        hook = [r for r in res if r[1] == "開場鉤子"][0]
+        self.assertEqual(hook[0], "ℹ️")
+
+    def test_timestamp_still_judged(self):
+        from craft import hit_review as hr
+        ep = {"scenes": [{"estimated_duration_seconds": 30, "dialogue": [{"text": "x", "start": 2.0}]}]}
+        hook = [r for r in hr.review_stage3(ep) if r[1] == "開場鉤子"][0]
+        self.assertEqual(hook[0], "✅")

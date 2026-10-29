@@ -50,8 +50,11 @@ CN_NUM_MAP = {
     "十一": 11, "十二": 12, "十三": 13, "十四": 14, "十五": 15,
     "十六": 16, "十七": 17, "十八": 18, "十九": 19, "二十": 20,
     "三十": 30, "四十": 40, "五十": 50, "六十": 60, "七十": 70,
-    "八十": 80, "九十": 90, "百": 100
+    "八十": 80, "九十": 90, "百": 100, "千": 1000
 }
+
+# 章號／集號允許的中文數字字元（含「零／〇／千」，例如「第一百零五章」「第一千零一章」）
+CN_DIGITS = "一二兩三四五六七八九十百千零〇"
 
 
 def parse_cn_number(s: str) -> Optional[int]:
@@ -61,7 +64,7 @@ def parse_cn_number(s: str) -> Optional[int]:
         return int(s)
 
     # 提取第X集/章中的數字部分
-    m = re.search(r"第?([一二兩三四五六七八九十百\d]+)[集卷部章回節]?", s)
+    m = re.search(rf"第?([{CN_DIGITS}\d]+)[集卷部章回節]?", s)
     if not m:
         return None
     core = m.group(1)
@@ -78,10 +81,17 @@ def parse_cn_number(s: str) -> Optional[int]:
         val = CN_NUM_MAP.get(ch)
         if val is None:
             return None
+        if val == 0:
+            continue  # 「一百零五」的零只是佔位
         if val == 10:
             if curr == 0:
                 curr = 1
             total += curr * 10
+            curr = 0
+        elif val == 1000:
+            if curr == 0:
+                curr = 1
+            total += curr * 1000
             curr = 0
         elif val == 100:
             if curr == 0:
@@ -183,7 +193,9 @@ class NovelChapter:
 
 
 # 純文字章名：行首「第N章」，後面可接空白／全形空白／tab 與 ≤30 字章名；排除對白與長句
-PLAIN_CHAPTER_RE = re.compile(r"^第([一二兩三四五六七八九十百零〇\d]+)[章回](?:[\s\u3000]+[^「」“”。]{0,30})?$")
+PLAIN_CHAPTER_RE = re.compile(rf"^第([{CN_DIGITS}\d]+)[章回](?:[\s\u3000]+[^「」“”。]{{0,30}})?$")
+# 目錄區裡章名之間常夾的卷名行（「第一卷 起」）或「目錄」字樣，不算內文
+_TOC_FILLER_RE = re.compile(rf"^(目錄|目次|第[{CN_DIGITS}\d]+[卷集部].{{0,30}})$")
 PLAIN_SPECIAL_RE = re.compile(r"^(楔子|序章|序|尾聲|後記|番外.{0,20})$")
 
 
@@ -204,19 +216,19 @@ def scan_novel_structure(lines: List[str]) -> List[NovelChapter]:
         s = line.strip()
 
         # 比對集/卷：## 第一集 或 # 第一集
-        m_vol = re.match(r"^#{1,2}\s+(第[一二三四五六七八九十百\d]+[集卷部])(?:\s+.*)?$", s)
+        m_vol = re.match(rf"^#{{1,2}}\s+(第[{CN_DIGITS}\d]+[集卷部])(?:\s+.*)?$", s)
         if m_vol:
             raw_title = m_vol.group(1).strip()
             v_num = parse_cn_number(raw_title) or (current_vol_num + 1)
             raw_nodes.append((line_no, "vol", v_num, raw_title))
             continue
 
-        # 比對章節：### 第一章 如你所願 或 # 後記 / 序章
-        m_ch = re.match(r"^#{2,3}\s+(第[一二三四五六七八九十百\d]+[章回節].*?)(?:\s+\{[^}]*\})?$", s)
+        # 比對章節：### 第一章 如你所願、# 第一章（只有章、沒有集的 Markdown 常用 H1）或 # 後記 / 序章
+        m_ch = re.match(rf"^#{{1,3}}\s+(第[{CN_DIGITS}\d]+[章回節].*?)(?:\s+\{{[^}}]*\}})?$", s)
         if m_ch:
             raw_title = re.sub(r"\{#[^}]*\}", "", m_ch.group(1)).strip()
             # 嘗試抓章號
-            m_cnum = re.search(r"第([一二三四五六七八九十百\d]+)[章回節]", raw_title)
+            m_cnum = re.search(rf"第([{CN_DIGITS}\d]+)[章回節]", raw_title)
             c_num = parse_cn_number(m_cnum.group(1)) if m_cnum else len(raw_nodes) + 1
             raw_nodes.append((line_no, "ch", c_num, raw_title))
             continue
@@ -247,10 +259,17 @@ def scan_novel_structure(lines: List[str]) -> List[NovelChapter]:
             plain_lines.add(line_no)
             continue
 
-    # 純文字檔開頭常有目錄（一串連續章名、底下沒有內文）：下一個標題就在 3 行內的純文字章名視為目錄項，丟掉
+    # 純文字檔開頭常有目錄（一串連續章名、底下沒有內文）：純文字章名到下一個標題之間沒有任何內文
+    # （只有空行或卷名行）就視為目錄項，丟掉。以前用「下一個標題在 3 行內」判斷，會把只有一兩行內文的短章
+    # （例如楔子後第一章很短）誤當目錄丟掉。
+    def _no_body_between(start: int, end: int) -> bool:
+        between = [lines[k].strip() for k in range(start, end - 1)]  # 1-based 行號 → start..end-2 的 index
+        return all(not t or _TOC_FILLER_RE.match(t) for t in between)
+
     raw_nodes = [
         node for i, node in enumerate(raw_nodes)
-        if not (node[0] in plain_lines and i + 1 < len(raw_nodes) and raw_nodes[i + 1][0] - node[0] <= 3)
+        if not (node[0] in plain_lines and i + 1 < len(raw_nodes)
+                and _no_body_between(node[0], raw_nodes[i + 1][0]))
     ]
 
     # 組裝起訖行號
@@ -276,7 +295,9 @@ def scan_novel_structure(lines: List[str]) -> List[NovelChapter]:
 def analyze_chapter_metrics(cleaned_lines: List[str]) -> Dict[str, Any]:
     """計算清洗後章節的文字與對白指標。"""
     # 略過第一行章節標題
-    body_lines = cleaned_lines[1:] if cleaned_lines and cleaned_lines[0].startswith("#") else cleaned_lines
+    first = cleaned_lines[0].strip() if cleaned_lines else ""
+    is_heading = first.startswith("#") or bool(PLAIN_CHAPTER_RE.match(first) or PLAIN_SPECIAL_RE.match(first))
+    body_lines = cleaned_lines[1:] if is_heading else cleaned_lines
     full_text = "\n".join(body_lines)
 
     total_chars = len(normalize_speech(full_text))
@@ -326,6 +347,26 @@ def main() -> int:
 
     target_vol = parse_cn_number(args.volume) if args.volume else None
     target_ch = parse_cn_number(args.chapter) if args.chapter else None
+    if args.volume and target_vol is None:
+        print(f"[錯誤] 看不懂集／卷號：{args.volume!r}（請寫 1 或「第一集」）", file=sys.stderr)
+        return 1
+    if args.chapter and target_ch is None:
+        print(f"[錯誤] 看不懂章號：{args.chapter!r}（請寫 1 或「第一章」）", file=sys.stderr)
+        return 1
+
+    # 只給 --chapter 沒給 --volume：只有章、沒有集卷的小說最常見。全書只有一個章號相符就直接用；
+    # 多集都有同號章節才要求補 --volume（以前一律落到「請使用 --list」的提示，看不出缺了什麼）。
+    if not args.list and target_ch is not None and target_vol is None:
+        vols = sorted({c.volume_num for c in chapters if c.chapter_num == target_ch})
+        if len(vols) == 1:
+            target_vol = vols[0]
+        elif not vols:
+            print(f"[錯誤] 找不到第 {target_ch} 章；請先用 --list 查看目錄", file=sys.stderr)
+            return 1
+        else:
+            print(f"[錯誤] 第 {target_ch} 章在多個集／卷都有（{', '.join(map(str, vols))}），請加 --volume 指定",
+                  file=sys.stderr)
+            return 1
 
     # 1. 處理 --list 目錄清單
     if args.list:

@@ -32,20 +32,36 @@ def main(argv: List[str] | None = None) -> int:
     ap.add_argument("--grid", help="COLSxROWS，例如 3x1 把整張切成等分格")
     ap.add_argument("--cell", help="只輸出 --grid 的第幾格（1 起算，逗號可多個）")
     ap.add_argument("--box", help="x0,y0,x1,y1（0~1 比例），例如 0.05,0.0,0.35,0.5")
+    ap.add_argument("--px", help="x0,y0,x1,y1 像素座標，例如 0,0,950,910（2560×1440 標準板頭部特寫格）")
     ap.add_argument("--prefix", default=None)
     args = ap.parse_args(argv)
-    if bool(args.grid) == bool(args.box):
-        print("需指定 --grid 或 --box 其中之一", file=sys.stderr)
+    if sum(bool(v) for v in (args.grid, args.box, args.px)) != 1:
+        print("需指定 --grid、--box、--px 其中之一", file=sys.stderr)
         return 2
-    out_dir = (args.out_dir or args.root / "tmp" / "crops").resolve()
-    if "images" in out_dir.relative_to(out_dir.anchor).parts[-1:]:
+    root = args.root.resolve()
+    out_dir = args.out_dir or root / "tmp" / "crops"
+    if not out_dir.is_absolute():
+        out_dir = root / out_dir  # 相對路徑以專案根目錄解析（h3d 慣例），不看目前工作目錄
+    out_dir = out_dir.resolve()
+    try:
+        under_images = out_dir.relative_to(root).parts[:1] == ("images",)
+    except ValueError:
+        under_images = False
+    if under_images or out_dir.name == "images":
         print("輸出不可放在 images/ 內（會使階段 2 快照失效）", file=sys.stderr)
         return 2
+    if not args.image.is_absolute() and not args.image.exists() and (root / args.image).exists():
+        args.image = root / args.image
     try:
         with Image.open(args.image) as im:
             im.load()
             w, h = im.size
-            if args.box:
+            if args.px:
+                x0, y0, x1, y1 = (int(round(float(v))) for v in args.px.split(","))
+                if not (0 <= x0 < x1 <= w and 0 <= y0 < y1 <= h):
+                    raise ValueError(f"--px 超出圖片範圍 {w}×{h} 或 x0>=x1／y0>=y1")
+                boxes = [(x0, y0, x1, y1)]
+            elif args.box:
                 boxes = [ratio_box(w, h, tuple(float(v) for v in args.box.split(",")))]  # type: ignore[arg-type]
             else:
                 cols, rows = (int(v) for v in args.grid.lower().split("x"))

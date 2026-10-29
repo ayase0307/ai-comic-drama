@@ -31,7 +31,30 @@ CHAR_HEADING = re.compile(r"^(\d+\s*[.、]|角色|人物)|歲|岁|主角|反派|
 Finding = Tuple[str, str, str]
 
 
+_V4_CHAR_SECTIONS = re.compile(r"^##\s*(二、核心角色|三、重要配角)[^\n]*$(.*?)(?=^##\s|\Z)", re.M | re.S)
+
+
+def split_v4_characters(md: str) -> List[Tuple[str, str]]:
+    """init 產生的《角色設定 v4》格式：角色是「## 二、核心角色／## 三、重要配角」底下的 `### 角色名`。
+
+    舊的 split_sections 只認標題含編號／歲數／主角等字樣，v4 的 `### 林霧` 一個都認不到，
+    反而把「三、重要配角」這個章節標題當成角色檢查。"""
+    out: List[Tuple[str, str]] = []
+    for sec in _V4_CHAR_SECTIONS.finditer(md):
+        label, body = sec.group(1), sec.group(2)
+        heads = list(re.finditer(r"^###\s+(.+)$", body, re.M))
+        for i, h in enumerate(heads):
+            end = heads[i + 1].start() if i + 1 < len(heads) else len(body)
+            title = h.group(1).strip()
+            # 反派標記也看所在章節與角色總覽不到的「定位」列，所以把章節名附在標題後面供 VILLAIN_MARKERS 比對
+            out.append((f"{title}（{label[2:]}）", body[h.end():end]))
+    return out
+
+
 def split_sections(md: str) -> List[Tuple[str, str]]:
+    v4 = split_v4_characters(md)
+    if v4:
+        return v4
     sections: List[Tuple[str, str]] = []
     title, buf = None, []
     for line in md.splitlines():
@@ -55,7 +78,7 @@ def has_any(text: str, keys: List[str]) -> bool:
 def review_stage2(bible: Path) -> List[Finding]:
     if not bible.exists():
         return [("⚠️", "輸入", f"找不到角色文件 {bible}，略過")]
-    sections = split_sections(bible.read_text(encoding="utf-8"))
+    sections = split_sections(bible.read_text(encoding="utf-8-sig"))
     if not sections:
         return [("⚠️", "輸入", "沒有辨識到角色段落（標題需含編號、歲數或角色定位）")]
     out: List[Finding] = []
@@ -117,7 +140,7 @@ def run(project_dir: Path, stage: int, episode: str, bible: Optional[Path] = Non
         findings = review_stage2(bible or default_bible(project_dir))
     else:
         hp = handoff or project_dir / f"handoff-{episode.lower()}.json"
-        findings = (review_stage3(json.loads(hp.read_text(encoding="utf-8")), episode) if hp.exists()
+        findings = (review_stage3(json.loads(hp.read_text(encoding="utf-8-sig")), episode) if hp.exists()
                     else [("⚠️", "輸入", f"找不到 {hp.name}，略過")])
     target = out or project_dir / "review" / "craft" / f"stage-{stage}-{LENS}-{episode.lower()}.md"
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -131,10 +154,10 @@ def self_test() -> bool:
         (p / "assets.md").write_text(
             "## 1. 主角甲（20歲）\n黑髮、藍袍。\n## 2. 反派乙（30歲）\n動機：奪權。弱點：怕水。過去：棄子。\n## 共用風格\n無\n",
             encoding="utf-8")
-        t2 = run(p, 2, "EP01").read_text(encoding="utf-8")
+        t2 = run(p, 2, "EP01").read_text(encoding="utf-8-sig")
         h = {"episodes": [{"episode_id": "EP01", "scenes": [{"protagonist_charge": c} for c in "---+"]}]}
         (p / "handoff-ep01.json").write_text(json.dumps(h), encoding="utf-8")
-        t3 = run(p, 3, "EP01").read_text(encoding="utf-8")
+        t3 = run(p, 3, "EP01").read_text(encoding="utf-8-sig")
         ok = ("主角甲（20歲）：只有外觀描述" in t2 and "反派乙（30歲）：動機、弱點、過去都有" in t2
               and "沒寫他貫徹的哲學" in t2 and "共用風格" not in t2
               and "淨值 -2" in t3 and "最多連續 3 場" in t3)

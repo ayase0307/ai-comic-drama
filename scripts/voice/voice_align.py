@@ -34,7 +34,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
-ASR_JUNK = ("以下是繁體", "點贊", "訂閱", "小鈴鐺", "字幕", "打賞")
+ASR_JUNK = ("以下是繁體", "點贊", "訂閱", "小鈴鐺", "字幕", "打賞", "詞曲", "作詞", "作曲", "索兰娅", "索蘭婭", "請不吝", "感謝收看", "謝謝觀看")
 DEFAULT_DUCK_DB = -22.0
 DEFAULT_LUFS = -16.0
 DEFAULT_GAP = 0.15
@@ -46,9 +46,32 @@ def norm(text: str) -> str:
     return re.sub(r"[^\u4e00-\u9fff]", "", str(text or ""))
 
 
+def _load_pinyin():
+    try:
+        from pypinyin import lazy_pinyin  # type: ignore
+        return lambda t: lazy_pinyin(t, errors="ignore")
+    except Exception:  # 沒裝 pypinyin → 退回逐字
+        return None
+
+
+_PINYIN = _load_pinyin()
+
+
+def tokens(text: str) -> List[str]:
+    """對位用 token：有 pypinyin 時用無聲調拼音（「幹／干」「屁／匹」同音視為相同），否則逐字。"""
+    chars = norm(text)
+    if _PINYIN is None or not chars:
+        return list(chars)
+    try:
+        out = _PINYIN(chars)
+    except Exception:
+        return list(chars)
+    return out if len(out) == len(chars) else list(chars)
+
+
 def overlap(a: str, b: str) -> float:
-    a, b = norm(a), norm(b)
-    return sum(1 for c in a if c in b) / max(1, len(a))
+    ta, tb = tokens(a), set(tokens(b))
+    return sum(1 for c in ta if c in tb) / max(1, len(ta))
 
 
 # ------------------------------------------------------------------ 讀專案
@@ -90,6 +113,40 @@ def ffprobe_duration(path: Path) -> Optional[float]:
 
 
 # ------------------------------------------------------------------ 1. ASR
+ASR_SEG_TIMEOUT = 120.0
+
+
+def _transcribe_guarded(model: Any, audio: Any, prompt: str, timeout: float) -> Tuple[List[Any], bool]:
+    """逐段逾時：先用原設定（vad_filter=False），超時改 VAD＋不接前文重試（#165）。回傳 (片段, 是否重試過)。"""
+    import threading
+
+    def attempt(**kw: Any) -> Optional[List[Any]]:
+        box: Dict[str, Any] = {}
+
+        def work() -> None:
+            try:
+                res, _ = model.transcribe(audio, language="zh", word_timestamps=True, initial_prompt=prompt, **kw)
+                box["r"] = list(res)
+            except Exception as exc:  # noqa: BLE001
+                box["e"] = exc
+        t = threading.Thread(target=work, daemon=True)
+        t.start()
+        t.join(timeout)
+        if t.is_alive():
+            return None
+        if "e" in box:
+            raise box["e"]
+        return box["r"]
+
+    first = attempt(vad_filter=False)
+    if first is not None:
+        return first, False
+    second = attempt(vad_filter=True, condition_on_previous_text=False)
+    if second is None:
+        raise RuntimeError(f"ASR 逾時（{timeout:.0f}s ×2，含 VAD 重試）；請檢查該段音訊或換較小模型")
+    return second, True
+
+
 def run_asr(root: Path, segments: Iterable[str], asr: Dict[str, Any], *, model_size: str = "small",
             device: str = "cpu", compute_type: str = "int8", out_path: Optional[Path] = None,
             prompt: str = "以下是繁體中文的古風對白。") -> Dict[str, Any]:
@@ -109,8 +166,9 @@ def run_asr(root: Path, segments: Iterable[str], asr: Dict[str, Any], *, model_s
         pcm = subprocess.run(["ffmpeg", "-v", "error", "-i", str(video), "-f", "s16le", "-ac", "1", "-ar", "16000", "-"],
                              capture_output=True, check=True).stdout
         audio = np.frombuffer(pcm, np.int16).astype(np.float32) / 32768
-        result, _ = model.transcribe(audio, language="zh", word_timestamps=True, vad_filter=False,
-                                     initial_prompt=prompt)
+        result, retried = _transcribe_guarded(model, audio, prompt, ASR_SEG_TIMEOUT)
+        if retried:
+            print(f"[voice align] {seg}：ASR 逾時，已改 VAD 重試", file=sys.stderr)
         asr[seg] = [{"start": round(x.start, 2), "end": round(x.end, 2), "text": x.text,
                      "words": [[round(w.start, 2), round(w.end, 2), w.word] for w in (x.words or [])]}
                     for x in result]
@@ -146,10 +204,10 @@ def place(manifest: Dict[str, Dict[str, Any]], lines: Dict[str, List[Dict[str, A
             if manifest[k]["line"] not in seg_lines:
                 seg_lines.append(manifest[k]["line"])
         on = [(i, l) for i, l in enumerate(seg_lines) if l not in vo_lines]
-        ref, ref_idx = "", []
+        ref, ref_idx = [], []
         for i, l in on:
-            for c in norm(l):
-                ref += c
+            for c in tokens(l):
+                ref.append(c)
                 ref_idx.append(i)
         words: List[List[Any]] = []
         rogue: List[Tuple[float, float, str]] = []
@@ -167,10 +225,10 @@ def place(manifest: Dict[str, Dict[str, Any]], lines: Dict[str, List[Dict[str, A
                 rogue.append((keep[0][0], keep[-1][1], text))  # 聽不出是哪句畫內台詞＝亂語
             else:
                 words.extend(keep)
-        hyp, hyp_idx = "", []
+        hyp, hyp_idx = [], []
         for wi, w in enumerate(words):
-            for c in norm(w[2]):
-                hyp += c
+            for c in tokens(w[2]):
+                hyp.append(c)
                 hyp_idx.append(wi)
         wline: List[Optional[int]] = [None] * len(words)
         for block in difflib.SequenceMatcher(None, hyp, ref, autojunk=False).get_matching_blocks():
@@ -223,6 +281,28 @@ def place(manifest: Dict[str, Dict[str, Any]], lines: Dict[str, List[Dict[str, A
         for k in keys:
             result[k]["mutes"] = merged
     return result, sorted(set(need_next))
+
+
+def silent_lines(manifest: Dict[str, Dict[str, Any]], lines: Dict[str, List[Dict[str, Any]]],
+                 asr: Dict[str, List[Dict[str, Any]]], threshold: float = 0.4) -> List[Dict[str, Any]]:
+    """#164：時間表有字幕、也沒有畫外配音檔，ASR 又聽不到的句＝片內沒聲（例如改稿清空畫外句但影片沒重跑）。
+
+    只檢查已有 ASR 的段；回傳 [{segment, line, coverage}]。
+    """
+    voiced = {(m["segment"], m["line"]) for m in manifest.values()}
+    out: List[Dict[str, Any]] = []
+    for seg, items in lines.items():
+        if seg not in asr:
+            continue
+        heard = "".join(str(c.get("text", "")) for c in _clean_chunks(asr[seg]))
+        for item in items:
+            text = item["text"]
+            if (seg, text) in voiced or len(norm(text)) < 2:
+                continue
+            cov = overlap(text, heard)
+            if cov < threshold:
+                out.append({"segment": seg, "line": text, "coverage": round(cov, 2)})
+    return out
 
 
 def merge_intervals(items: Iterable[Sequence[float]], join_gap: float = 0.05) -> List[List[float]]:
@@ -339,6 +419,7 @@ def align(root: Path, *, steps: Sequence[str] = ("asr", "place", "duck", "loudno
             item["final"] = dst.relative_to(root).as_posix()
             item["final_dur"] = round(ffprobe_duration(dst) or float(manifest[key].get("dur") or 0) / float(item.get("tempo") or 1), 2)
         placement_path.write_text(json.dumps(placement, ensure_ascii=False, indent=1), encoding="utf-8")
+    report["silent_lines"] = silent_lines(manifest, timeline_lines(root), asr)
     report["placed"] = len(placement)
     report["warnings"] = [f"{k}：{v['note']}" for k, v in placement.items() if "⚠" in str(v.get("note"))]
     return report
@@ -375,6 +456,9 @@ def main(argv: Optional[List[str]] = None) -> int:
               f"（{', '.join(report['muted_segments'][:8])}）")
         for w in report["warnings"]:
             print(f"⚠️ {w}")
+        for sl in report.get("silent_lines", []):
+            print(f"⚠️ 片內沒聲的句（字幕有、配音檔沒有、ASR 也聽不到）：{sl['segment']}「{sl['line']}」；"
+                  "可能改稿後影片沒重跑")
         if report.get("need_next_asr"):
             print(f"⚠️ 最後一句要溢入下一段，但這些段沒有 ASR：{', '.join(report['need_next_asr'])}")
     return 0

@@ -156,8 +156,9 @@ class OffscreenH3CompilerTests(unittest.TestCase):
         self.assertIn("off-screen from above the ridge, " + BIRD_VOICE + ": <d>", prompt)
 
     def test_cli_default_is_short_offscreen_h3(self):
-        src = (ROOT / "scripts" / "storyboard" / "compile_layer2_to_h3.py").read_text(encoding="utf-8")
-        self.assertIn("default=DEFAULT_NARRATION_POLICY, choices=list(NARRATION_POLICIES)", src)
+        # 沒給旗標、也沒有 dialogue_policy 定案時，解析結果就是 short-offscreen-h3
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(compiler.resolve_narration_policy(None, Path(tmp)), "short-offscreen-h3")
 
 
 class VoiceLintTests(unittest.TestCase):
@@ -208,6 +209,7 @@ class VoiceLintTests(unittest.TestCase):
             (root / "images").mkdir()
             (root / "images" / "scene.png").write_bytes(b"x")
             seg = {"segment_id": "EP01-S01", "reference_images": [{"path": "images/scene.png", "type": "scene"}],
+                   "segment_end_state": {"planned_final_state": {"pose": "standing"}},
                    "h3_prompt": self._prompt("[Shot 1] A MS. First his head turns as he speaks, then he looks down.")}
             (root / "segments-ep01.json").write_text(json.dumps({"segments": [seg]}), encoding="utf-8")
             self.assertEqual(ps.stage_validation_errors(root, 5), [])

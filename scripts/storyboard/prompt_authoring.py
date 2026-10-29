@@ -21,6 +21,14 @@
   W40 空泛氣氛詞：cinematic、dramatic、tense atmosphere 這類詞在同一句沒有任何可見線索。
   W33 同段零星重複句（可能是刻意的連戲／防混臉錨）。
   W39 八成以上是固定鏡（運鏡屬階段 4 決定，只提醒）。
+
+Foyege 導演法併入（PR-F2，D40–D46；來源 Foyege、H3 0 實測，所以全部只警告不擋）：
+  W41 台詞鏡的視線句沒寫螢幕方向：有 <d> 的鏡寫了「看誰」，卻沒寫往畫面哪一側（frame left／off-screen right…）。
+      「整段完全沒有視線句」由 `h3d staging` D07 判斷；兩者共用 staging_lint.find_gaze，同一個問題只報一次。
+  W42 subject_definitions 寫了位置或姿態：映射層只管「誰是哪張圖」，站位與姿態寫在鏡頭內。
+  W43 寫實畫風的全身／遠景鏡寫毛孔、絨毛：景別裝不下這種細節（守富 9/16 定版皮膚段本身豁免，不受影響）。
+  W44 Performance 只有情緒詞或 AU 代碼：刪掉情緒詞後沒有可見線索；AU 代碼只當中文規劃用語，不進英文提示詞。
+  W45 中段鏡重列全場站位：第 2 鏡以後同一句把 ≥3 個主體各配一個世界位置（by the door、at the head of the table…）。
 """
 from __future__ import annotations
 
@@ -105,6 +113,10 @@ COMPILER_BOILERPLATE = [
     re.compile(r"is the visible speaking character", re.I),
     re.compile(r"the final second holds still before the cut", re.I),
     re.compile(r"<d>", re.I),
+    # PR-R5：REMIX 三欄的編譯器固定句（每段最後一鏡都有，跨段重複不算套句）
+    re.compile(r"^Style lock for every shot:", re.I),
+    re.compile(r"stay plain and unmarked, with no lettering", re.I),
+    re.compile(r"<(?:Picture|Video)\s*\d+> is ", re.I),
 ]
 
 STATIC_HEAD = re.compile(r"\b(holds a steady static shot|holds a static shot|static shot|locked[- ]off|stays static|remains static)\b", re.I)
@@ -132,6 +144,175 @@ VISUAL_CUE = re.compile(
     r"smoke|dust|rain|fog|frame (?:left|right|centre|center)|foreground|background|face|head|back|wall|floor)\b",
     re.IGNORECASE,
 )
+
+# ---------------------------------------------------------------------------
+# W41–W45（Foyege 導演法，PR-F2；全部只警告）
+# ---------------------------------------------------------------------------
+_DIALOGUE_IN_SHOT = re.compile(r"<d>|\(S\d+\)\s+(?:says|continues|asks|replies)", re.I)
+# 螢幕方向：staging_lint.SIDE_MARKER 之外，再收 off-screen left、camera left、lower-left corner 這類寫法
+SCREEN_DIRECTION_EXTRA = re.compile(
+    r"\boff[- ]?screen[- ](?:left|right)\b|\b(?:camera|lens)[- ](?:left|right)\b"
+    r"|\b(?:lower|upper|bottom|top)[- ](?:left|right)\b|\b(?:left|right)\s+(?:third|half|side)\s+of\s+(?:the\s+)?frame\b"
+    r"|\b(?:toward|towards|to)\s+(?:the\s+)?(?:left|right)\s+(?:of\s+(?:the\s+)?)?(?:frame|screen)\b", re.I)
+
+# W42：映射層（subject_definitions）裡的位置／姿態詞
+MAPPING_POSITION = re.compile(
+    r"\b(?:frame|screen)[- ](?:left|right|centre|center)\b|\b(?:on|to)\s+the\s+(?:far\s+)?(?:left|right)\b"
+    r"|\bin\s+the\s+(?:foreground|background|centre|center)\b|\b(?:left|right)\s+of\s+(?:the\s+)?frame\b"
+    r"|\bleft\s+to\s+right\b|\b(?:left|right)most\b", re.I)
+MAPPING_POSE = re.compile(
+    r"\b(?:seated|sitting|sits|kneeling|kneels|crouching|crouches|squatting|lying\s+(?:on|down|in)|"
+    r"leaning\s+(?:on|against)|standing\s+(?:at|by|on|in|near|beside|behind|before|next|with)|stands\s+\w+)\b", re.I)
+# 編譯器自己寫的固定句（不是 agent 寫的站位）
+MAPPING_BOILERPLATE = re.compile(
+    r"they stay in the background as a group|a full-body back-view reference", re.I)
+
+# W43：寫實畫風才檢查；全身／遠景鏡寫毛孔、絨毛
+REALISTIC_STYLE = re.compile(
+    r"\bphoto[- ]?realistic\b|\bphotoreal\w*\b|\blive[- ]action\b|\bsemi[- ]realistic\b|\br34l1sm\b"
+    r"|\brealistic skin\b|\bKodak Portra\b", re.I)
+WIDE_SHOT_HEAD = re.compile(
+    r"\b(?:EWS|ELS|VLS|WS|LS|FS)\b|\b(?:extreme\s+)?(?:wide|long|full)[- ]shot\b|\bfull[- ]body\s+shot\b"
+    r"|\bestablishing\s+shot\b", re.I)
+PORE_WORDS = re.compile(
+    r"\bpores?\b|\bvellus\b|\bpeach[- ]fuzz\b|\bskin\s+(?:micro-?)?texture\b|\bmicro-?texture\b"
+    r"|\bsubsurface\s+scattering\b|\bfine\s+facial\s+hair\b", re.I)
+# 守富 2026-09-16 定版皮膚段（references/h3/skin-realism-block.md）：整段照抄，不受 W43 影響
+LOCKED_SKIN_BLOCK = re.compile(
+    r"photorealistic skin with visible pores and natural micro-texture.*?(?:silver-halide grain\.?|$)", re.I | re.S)
+
+# W44：Performance 只有情緒詞或 AU 代碼
+AU_CODE = re.compile(r"\bAU\s?\d{1,2}[A-E]?\b(?:\s*\+\s*\d{1,2}[A-E]?)*")
+EMOTION_WORDS = re.compile(
+    r"\b(?:angry|anger|furious|rage|enraged|sad|sadness|sorrowful|grief(?:-stricken)?|heartbroken|devastated|"
+    r"shocked|surprised|astonished|stunned|scared|afraid|frightened|terrified|fearful|nervous|anxious|worried|"
+    r"happy|joyful|delighted|excited|upset|hurt|jealous|desperate|hopeless|determined|confident|ashamed|guilty|"
+    r"embarrassed|disgusted|contemptuous|resentful|emotional|sorrow|despair|panicked|relieved)\b", re.I)
+PERFORMANCE_CUE = re.compile(
+    r"\b(?:eyes?|eyelids?|lids?|lashes|brows?|eyebrows?|forehead|gaze|glance\w*|blinks?|blinking|stares?|"
+    r"mouth|lips?|jaw|chin|cheeks?|nostrils?|nose|throat|swallow\w*|teeth|tongue|neck|shoulders?|chest|breath\w*|"
+    r"exhale\w*|inhale\w*|sigh\w*|hands?|fingers?|knuckles?|fists?|palms?|wrists?|arms?|head|spine|back|knees?|"
+    r"feet|foot|steps?|voice|tears?|nods?|tremb\w*|shak\w*|clench\w*|press\w*|tighten\w*|lowers?|lifts?|raises?)\b",
+    re.I)
+
+# W45：中段鏡重列全場站位（世界位置錨點；畫面左右屬 h3d staging D08 的範圍，這裡不算）
+WORLD_POSITION = re.compile(
+    r"\b(?:at|by|near|beside|behind|against|next\s+to|in\s+front\s+of|across\s+from|opposite)\s+the\s+"
+    r"(?:(?:head|foot|end|edge|corner|far\s+end)\s+of\s+the\s+)?[a-z][\w-]*", re.I)
+SUBJECT_TOKEN = re.compile(r"<(?:Subject|Video)\s*\d+>", re.I)
+
+
+def _staging():
+    """延遲匯入 staging_lint（D07 的視線判斷與 SIDE_MARKER），避免循環匯入。"""
+    try:
+        import staging_lint  # type: ignore
+    except ImportError:  # pragma: no cover - 套件匯入路徑
+        from . import staging_lint  # type: ignore
+    return staging_lint
+
+
+def subject_definitions_block(prompt: str) -> str:
+    m = re.search(r"subject_definitions:(.*?)(?:\n\s*\n[a-z_]+:|\Z)", prompt, re.S | re.I)
+    return m.group(1) if m else ""
+
+
+# REMIX 介紹句「<Video N> is 誰, 外觀.」（PR-R5；場景的 <Picture N> is the location 不算映射層角色句）
+REMIX_INTRO = re.compile(r"<(?:Video|Picture)\s*\d+>\s+is\s+(?!the location\b)[^.]*\.", re.I)
+# REMIX 第 1 鏡：介紹句之後由編譯器接「The shot opens on a …」
+REMIX_SHOT_OPEN = re.compile(r"\bThe shot opens on an?\b")
+
+
+def _mapping_lines(prompt: str) -> List[str]:
+    lines = [l for l in subject_definitions_block(prompt).splitlines() if re.search(r"<Subject\s*\d+>", l)]
+    if not lines and re.search(r"integrated_multimodal_description:", prompt, re.I):
+        lines = [m.group(0) for m in REMIX_INTRO.finditer(detailed_description(prompt))]
+    return lines
+
+
+def _strip_remix_intro(shot: str) -> str:
+    """REMIX 第 1 鏡開頭的場景句＋介紹句是映射層（同 Ref2VA 的 subject_definitions），不算鏡內撰寫內容。"""
+    m = REMIX_SHOT_OPEN.search(shot)
+    if m and re.search(r"<(?:Video|Picture)\s*\d+>\s+is\b", shot[:m.start()]):
+        lead = re.match(r"\s*\[Shot\s+\d+\]\s*", shot)
+        return (lead.group(0) if lead else "") + shot[m.start():]
+    return shot
+
+
+def audit_mapping_layer(prompt: str) -> List[str]:
+    """W42：subject_definitions（REMIX：<Video N> 介紹句）只寫「誰是哪張圖／哪個包」，不寫位置或姿態。"""
+    out: List[str] = []
+    for line in _mapping_lines(prompt):
+        text = MAPPING_BOILERPLATE.sub(" ", line)
+        m = MAPPING_POSITION.search(text) or MAPPING_POSE.search(text)
+        if m:
+            tag = re.search(r"<(?:Subject|Video|Picture)\s*\d+>", line).group(0)
+            out.append(f"[W42: 映射層寫了位置或姿態] subject_definitions 的 {tag} 出現「{m.group(0)}」；"
+                       "這一層只寫身份對應（誰是哪張圖），站位、坐站姿態寫進各鏡的 Motion／Camera，"
+                       "否則換機位後模型會照映射層硬套（來源 Foyege 三層空間協議，H3 0 實測）。")
+    return out
+
+
+def _foyege_shot_warnings(idx: int, head: str, shot: str, parts: Dict[str, str], realistic: bool) -> List[str]:
+    """W41、W43、W44、W45：單鏡的 Foyege 警告。"""
+    out: List[str] = []
+    tag = f"[Shot {idx}]"
+    st = _staging()
+
+    # W41 台詞鏡：有視線句但沒寫螢幕方向（沒有視線句＝D07 的範圍，這裡不報）
+    if _DIALOGUE_IN_SHOT.search(shot):
+        acting = re.sub(r"<d>.*?</d>", lambda m: " " * len(m.group(0)), shot, flags=re.S)
+        gazes = list(st.iter_gaze(acting))
+        gaze = gazes[0] if gazes else None
+
+        def _directed(m: "re.Match[str]") -> bool:
+            # 視線所在的那一句（或該鏡 Camera 節的朝向句）要有螢幕方向；別句的 sun from frame right 不算
+            start = max(acting.rfind(".", 0, m.start()), acting.rfind(";", 0, m.start())) + 1
+            ends = [i for i in (acting.find(".", m.end()), acting.find(";", m.end())) if i != -1]
+            sent = acting[start:min(ends) if ends else len(acting)]
+            return bool(st.SIDE_MARKER.search(sent) or SCREEN_DIRECTION_EXTRA.search(sent))
+
+        camera_dir = parts.get("Camera", "")
+        camera_ok = bool(re.search(r"\b(?:fac\w*|look\w*|eyes?|gaze)\b", camera_dir, re.I)
+                         and (st.SIDE_MARKER.search(camera_dir) or SCREEN_DIRECTION_EXTRA.search(camera_dir)))
+        if gaze is not None and not camera_ok and not any(_directed(m) for m in gazes):
+            out.append(f"[W41: 台詞鏡視線沒寫螢幕方向] {tag} 寫了「{gaze.group(0).strip()}」，卻沒寫視線往畫面哪一側"
+                       "（toward frame left／off-screen right）；正反打兩人要一左一右，過肩前景寫在哪個角"
+                       "（her shoulder in the lower-left corner）。整段沒有視線句由 h3d staging D07 報（來源 Foyege，H3 0 實測）。")
+
+    # W43 寫實畫風的全身／遠景鏡寫毛孔
+    if realistic and WIDE_SHOT_HEAD.search(head):
+        body = LOCKED_SKIN_BLOCK.sub(" ", shot[len(head):] if shot.startswith(head) else shot)
+        m = PORE_WORDS.search(body)
+        if m:
+            out.append(f"[W43: 遠景寫膚質] {tag} 是全身／遠景，卻寫了「{m.group(0)}」；這個景別看不到毛孔絨毛，"
+                       "字數留給姿態與動作。定版皮膚段不受影響（來源 Foyege 景別決定膚質字數，H3 0 實測）。")
+
+    # W44 Performance 只有情緒詞或 AU 代碼
+    perf = parts.get("Performance", "")
+    if perf:
+        au = AU_CODE.search(perf)
+        if au:
+            out.append(f"[W44: Performance 寫了 AU 代碼] {tag} 出現「{au.group(0)}」；AU 只當階段 4 中文規劃用語，"
+                       "英文提示詞寫成自然語言（brows pull together and down），T1 實測前不寫代碼"
+                       "（acting-and-emotion-library §0；來源 Foyege，H3 0 實測）。")
+        else:
+            emo = EMOTION_WORDS.search(perf)
+            if emo and not PERFORMANCE_CUE.search(perf):
+                out.append(f"[W44: Performance 只有情緒詞] {tag} 只寫「{emo.group(0)}」這類情緒詞，沒有眼、嘴、呼吸、手等可見線索；"
+                           "刪掉情緒詞後要還看得出觸發、壓住或放出、程度（acting-and-emotion-library §0）。")
+
+    # W45 中段鏡重列全場站位
+    if idx >= 2 and not WIDE_SHOT_HEAD.search(head):
+        for sent in _sentences(shot[len(head):] if shot.startswith(head) else shot):
+            subjects = {t.replace(" ", "").lower() for t in SUBJECT_TOKEN.findall(sent)}
+            anchors = WORLD_POSITION.findall(sent)
+            if len(subjects) >= 3 and len(anchors) >= 3:
+                out.append(f"[W45: 中段鏡重列全場站位] {tag} 同一句把 {len(subjects)} 個主體各配了世界位置；"
+                           "全場站位在首鏡或站位附表交代一次，後面的鏡只寫這一鏡的變化（誰動了、往哪裡），"
+                           "畫面左右順序照 h3d staging D08 寫 left to right 即可（來源 Foyege，H3 0 實測）。")
+                break
+    return out
+
 
 SHOT_SPLIT = re.compile(r"(\[Shot\s+\d+\])", re.I)
 PART_LABEL = re.compile(r"\b(Camera|Motion|Performance|Light|Sound):", re.I)
@@ -169,8 +350,12 @@ def _is_boilerplate(sentence: str) -> bool:
 
 
 def detailed_description(prompt: str) -> str:
-    m = re.search(r"detailed_description:(.*?)(?:\n\s*\n[a-z_]+:|\Z)", prompt, re.S | re.I)
-    return m.group(1).strip() if m else prompt
+    """逐鏡描述欄：Ref2VA 的 detailed_description；REMIX 三欄（PR-R5）的 integrated_multimodal_description。"""
+    for section in ("detailed_description", "integrated_multimodal_description"):
+        m = re.search(rf"{section}:(.*?)(?:\n\s*\n[a-z_]+:|\Z)", prompt, re.S | re.I)
+        if m:
+            return m.group(1).strip()
+    return prompt
 
 
 def split_shots(prompt: str) -> List[str]:
@@ -231,9 +416,13 @@ def audit_segment(prompt: str, authored_shots: Optional[Sequence[Dict[str, Any]]
     aligned = len(authored) == len(shots)
     seen_in_segment: Dict[str, List[int]] = defaultdict(list)
     static_flags: List[bool] = []
+    warnings.extend(audit_mapping_layer(prompt))
+    realistic = bool(REALISTIC_STYLE.search(prompt))
 
     for idx, shot in enumerate(shots, start=1):
         a = authored[idx - 1] if aligned else None
+        if idx == 1:
+            shot = _strip_remix_intro(shot)
         head, parts = split_parts(shot)
         tag = f"[Shot {idx}]"
         is_static = bool(STATIC_HEAD.search(head) or re.match(r"\s*(static|locked[- ]off)\b", parts.get("Camera", ""), re.I))
@@ -278,6 +467,8 @@ def audit_segment(prompt: str, authored_shots: Optional[Sequence[Dict[str, Any]]
                 warnings.append(f"[W40: 空泛氣氛詞] {tag} 「{mw.group(0)}」所在的句子沒有任何可見線索；"
                                 "改寫成模型畫得出來的東西（光從哪來、誰的手在做什麼），或刪掉。")
                 break
+
+        warnings.extend(_foyege_shot_warnings(idx, head, shot, parts, realistic))
 
         sents = [s for s in _sentences(shot) if not _is_boilerplate(s)]
         prohib = [s for s in sents if PROHIBITIVE.search(s) and CONTROL_WORDS.search(s)]
@@ -357,6 +548,8 @@ def audit_subject_coverage(seg: Dict[str, Any]) -> List[str]:
     """E40：畫面實體沒掛進影片參考圖；E41：有掛但該鏡提示詞沒點名（<Subject N>）。"""
     sid = str(seg.get("segment_id") or "")
     prompt = seg.get("h3_prompt") or seg.get("prompt") or ""
+    if isinstance(seg.get("refmods"), list):
+        return _audit_remix_coverage(seg, sid, prompt)
     bound = {str(r.get("id")) for r in (seg.get("reference_images") or []) if isinstance(r, dict)}
     pic_of = {str(r.get("id")): n for n, r in enumerate(seg.get("reference_images") or [], start=1) if isinstance(r, dict)}
     subj_of_pic = {int(p): f"<Subject {k}>" for k, p in re.findall(r"<Subject (\d+)> is the [^\n]*?<Picture (\d+)>", prompt)}
@@ -376,6 +569,45 @@ def audit_subject_coverage(seg: Dict[str, Any]) -> List[str]:
                            f"請在 five_part_en 用 {{{ent}}} 點名並寫出位置與動作。")
             elif ent not in token and ent in bound:
                 out.append(f"{sid}: [E41: 畫面實體未在提示詞點名] {ent} 有綁參考圖，但 subject_definitions 沒有它的 <Subject N>。")
+    return out
+
+
+def _audit_remix_coverage(seg: Dict[str, Any], sid: str, prompt: str) -> List[str]:
+    """REMIX 版 E40／E41（PR-R5）：畫面實體要有包（refmods）或帶原話的豁免；有包就要在該鏡點名（英文名）。
+
+    名字取自介紹句「<Video N> is 名字, …」（依 refmods label 對回資產 id）。
+    """
+    refs = [r for r in seg.get("refmods") or [] if isinstance(r, dict) and r.get("id")]
+    bound = {str(r["id"]) for r in refs}
+    waived = {str(w.get("id")) for w in seg.get("pack_waivers") or []
+              if isinstance(w, dict) and w.get("id") and str(w.get("quote") or "").strip()}
+    det = detailed_description(prompt)
+    label_to_id = {str(r.get("label") or "").replace(" ", ""): str(r["id"]) for r in refs}
+    name_of: Dict[str, str] = {}
+    for m in re.finditer(r"<(Video|Picture)\s*(\d+)>\s+is\s+([^,.;]+)", det):
+        aid = label_to_id.get(f"<{m.group(1)}{m.group(2)}>")
+        if aid and not m.group(3).strip().lower().startswith("the location"):
+            name_of[aid] = m.group(3).strip()
+    parts = re.split(r"\[Shot (\d+)\]", det)
+    blocks = {int(parts[j]): parts[j + 1] for j in range(1, len(parts) - 1, 2)}
+    out: List[str] = []
+    for n, shot in enumerate(seg.get("shots") or [], start=1):
+        shot_id = shot.get("shot_id") or f"#{n}"
+        for ent in shot_entities(shot):
+            if ent in waived:
+                continue
+            if ent not in bound:
+                out.append(f"{sid}: [E40: 畫面實體未綁參考包] {shot_id} 的分鏡／character_ids 有 {ent}，但 refmods 沒有它的包；"
+                           f"建包寫進 assets/character-packs.json 後重跑 h3d bind，或確定不入鏡就寫進 offscreen_subject_ids，"
+                           f"或在計畫表 waivers 附使用者原話。")
+                continue
+            name = name_of.get(ent)
+            block = _strip_remix_intro(f"[Shot {n}]" + blocks.get(n, "")) if blocks else ""
+            if name and blocks and not re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", block, re.I):
+                out.append(f"{sid}: [E41: 畫面實體未在提示詞點名] {shot_id} 有 {ent}（{name}），但 [Shot {n}] 沒寫到它；"
+                           f"請在 five_part_en 用 {{{ent}}} 點名並寫出位置與動作。")
+            elif not name and ent in bound:
+                out.append(f"{sid}: [E41: 畫面實體未在提示詞點名] {ent} 有包，但介紹句沒有「<Video N> is 名字」。")
     return out
 
 

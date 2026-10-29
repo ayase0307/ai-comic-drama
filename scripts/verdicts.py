@@ -265,7 +265,13 @@ def classify(root: Path, qa_report: Optional[Dict[str, Any]] = None,
             if not current:
                 vp = root / "videos" / f"{sid}.mp4"
                 current = _sha256(vp) if vp.is_file() else None
-            stale = bool(current) and str(current).lower().removeprefix("sha256:") != verdict["video_sha256"]
+            want = str(verdict["video_sha256"]).lower().removeprefix("sha256:")
+            stale = bool(current) and str(current).lower().removeprefix("sha256:") != want
+            if stale:
+                # 技術 QA 報告可能比影片舊；以磁碟上實際檔案的 sha 為準，只比 sha、不看 mtime（#147）
+                vp = root / "videos" / f"{sid}.mp4"
+                if vp.is_file():
+                    stale = _sha256(vp).lower().removeprefix("sha256:") != want
         if not verdict or stale:
             if set(soft) & rerun_on:
                 hit = sorted(set(soft) & rerun_on)
@@ -300,8 +306,47 @@ def classify(root: Path, qa_report: Optional[Dict[str, Any]] = None,
     return {"policy": policy, "policy_is_decided": policy_is_decided, "counts": counts, "segments": rows}
 
 
+def accept_all(root: Path, quote: str) -> List[str]:
+    """使用者整批接受現有段：把「已有結論、非技術硬錯誤」的 warn／被政策判重跑的段，逐段轉成 user warn。"""
+    if not quote or not quote.strip():
+        raise VerdictError("--quote 必填（貼使用者原話）")
+    root = Path(root)
+    report = classify(root)
+    data = load(root)
+    done: List[str] = []
+    for sid, row in report["segments"].items():
+        old = data["segments"].get(sid)
+        if not old or row.get("stale") or row["effective"] not in ("warn", "fail"):
+            continue
+        if row.get("source") in ("qa", "user"):
+            continue
+        entry = dict(old)
+        entry.update(verdict="warn" if old.get("verdict") != "pass" else "pass",
+                     reason=f"使用者整批接受：{quote.strip()}（原：{old.get('reason', '')}）",
+                     decided_by="user",
+                     decided_at=datetime.now().astimezone().isoformat(timespec="seconds"))
+        data["segments"][sid] = entry
+        done.append(sid)
+    if done:
+        save(root, data)
+    return done
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "accept-all":
+        ap = argparse.ArgumentParser(prog="h3d verdict accept-all",
+                                     description="使用者整批接受現有段：把 warn／政策判重跑的段轉成 user warn")
+        ap.add_argument("--quote", required=True, help="使用者原話")
+        ap.add_argument("--root", type=Path, default=Path("."))
+        a = ap.parse_args(argv[1:])
+        try:
+            done = accept_all(a.root.expanduser().resolve(), a.quote)
+        except (VerdictError, decisions_mod.DecisionError) as exc:
+            print(f"❌ {exc}", file=sys.stderr)
+            return 2
+        print(f"✅ 已轉 {len(done)} 段為使用者接受：{'、'.join(done) or '（無）'}")
+        return 0
     if argv and argv[0] == "import":
         import verdict_import
         return verdict_import.main(argv[1:])

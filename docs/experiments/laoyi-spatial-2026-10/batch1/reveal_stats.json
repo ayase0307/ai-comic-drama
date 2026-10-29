@@ -1,0 +1,169 @@
+{
+ "wenxi": {
+  "costume_drift": {
+   "by_group": {
+    "A": 2,
+    "B": 2,
+    "C": 2
+   },
+   "items": [
+    "LY-WA-s01a-t1(CCDE)",
+    "LY-WA-s01a-t2(LBG6)",
+    "LY-WB-s01a-t1(PEDN)",
+    "LY-WB-s01a-t2(TPTS)",
+    "LY-WC-s01a-t1(JL52)",
+    "LY-WC-s01a-t2(NJZ2)"
+   ]
+  },
+  "scene_drift": {
+   "by_group": {
+    "E": 6,
+    "D": 5
+   },
+   "items": [
+    "LY-WD-s01b-t1(4G3D)",
+    "LY-WD-s01b-t2(958V)",
+    "LY-WD-s01c-t2(RMTS)",
+    "LY-WD-s01d-t1(3YUJ)",
+    "LY-WD-s01d-t2(6HAP)",
+    "LY-WE-s01b-t1(9S86)",
+    "LY-WE-s01b-t2(R97Q)",
+    "LY-WE-s01c-t1(6QTJ)",
+    "LY-WE-s01c-t2(8BDM)",
+    "LY-WE-s01d-t1(C63M)",
+    "LY-WE-s01d-t2(MBG9)"
+   ]
+  },
+  "black_button_chef": {
+   "by_group": {
+    "E": 2,
+    "D": 2
+   },
+   "items": [
+    "LY-WD-s01b-t1(4G3D)",
+    "LY-WD-s01b-t2(958V)",
+    "LY-WE-s01b-t1(9S86)",
+    "LY-WE-s01b-t2(R97Q)"
+   ]
+  },
+  "set_wall": {
+   "by_group": {
+    "E": 2,
+    "D": 2
+   },
+   "items": [
+    "LY-WD-s01c-t1(REHE)",
+    "LY-WD-s01c-t2(RMTS)",
+    "LY-WE-s01c-t1(6QTJ)",
+    "LY-WE-s01c-t2(8BDM)"
+   ]
+  }
+ },
+ "combat": {
+  "hair_spiky": {
+   "by_group": {
+    "E": 4,
+    "D": 6
+   },
+   "items": [
+    "LY-CD-s02b-t1(MHDN)",
+    "LY-CD-s02b-t2(899G)",
+    "LY-CD-s02c-t1(VJWA)",
+    "LY-CD-s02c-t2(3WFN)",
+    "LY-CD-s02d-t1(3R2Z)",
+    "LY-CD-s02d-t2(XUXV)",
+    "LY-CE-s02b-t1(DJHT)",
+    "LY-CE-s02b-t2(HEJN)",
+    "LY-CE-s02d-t1(WJDW)",
+    "LY-CE-s02d-t2(SNL2)"
+   ]
+  },
+  "no_knockback": {
+   "by_group": {
+    "E": 1,
+    "D": 1,
+    "A": 2,
+    "C": 2,
+    "B": 2
+   },
+   "items": [
+    "LY-CA-s02b-t1(JX2J)",
+    "LY-CA-s02b-t2(F66B)",
+    "LY-CB-s02b-t1(CAKZ)",
+    "LY-CB-s02b-t2(VGRP)",
+    "LY-CC-s02b-t1(LLBX)",
+    "LY-CC-s02b-t2(NME2)",
+    "LY-CD-s02b-t1(MHDN)",
+    "LY-CE-s02b-t1(DJHT)"
+   ]
+  },
+  "landmark_miss": {
+   "by_group": {
+    "A": 2,
+    "C": 2,
+    "B": 1
+   },
+   "items": [
+    "LY-CA-s02b-t1(JX2J)",
+    "LY-CA-s02c-t1(6G9K)",
+    "LY-CB-s02b-t1(CAKZ)",
+    "LY-CC-s02b-t1(LLBX)",
+    "LY-CC-s02c-t1(EAW8)"
+   ]
+  },
+  "ref_leak(場景消失/包背景外洩)": {
+   "by_group": {
+    "B": 2,
+    "A": 1,
+    "C": 1
+   },
+   "items": [
+    "LY-CA-s02c-t2(APTX)",
+    "LY-CB-s02c-t1(YDR3)",
+    "LY-CB-s02c-t2(FUL2)",
+    "LY-CC-s02c-t2(ZRY2)"
+   ]
+  },
+  "empty_hand": {
+   "by_group": {
+    "B": 2,
+    "E": 1,
+    "A": 2,
+    "C": 2
+   },
+   "items": [
+    "LY-CA-s02c-t1(6G9K)",
+    "LY-CA-s02c-t2(APTX)",
+    "LY-CB-s02c-t1(YDR3)",
+    "LY-CB-s02c-t2(FUL2)",
+    "LY-CC-s02c-t1(EAW8)",
+    "LY-CC-s02c-t2(ZRY2)",
+    "LY-CE-s02c-t1(XVR4)"
+   ]
+  },
+  "clip_through": {
+   "by_group": {
+    "B": 1,
+    "A": 1,
+    "D": 1,
+    "E": 1
+   },
+   "items": [
+    "LY-CA-s02d-t1(XCAR)",
+    "LY-CB-s02d-t1(HYRX)",
+    "LY-CD-s02d-t1(3R2Z)",
+    "LY-CE-s02d-t2(SNL2)"
+   ]
+  },
+  "body_break": {
+   "by_group": {
+    "C": 1,
+    "D": 1
+   },
+   "items": [
+    "LY-CC-s02d-t1(53L4)",
+    "LY-CD-s02d-t1(3R2Z)"
+   ]
+  }
+ }
+}

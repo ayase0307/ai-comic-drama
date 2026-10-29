@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Read-only, offline inventory of dependencies by production capability.
+"""Read-only inventory of dependencies by production capability.
 
-This command reports executable/package presence only. It never checks a service,
-network endpoint, account, token, model entitlement, or generation capability.
+Dependencies: executable/package presence only. Image generation: the same
+detector as `h3d imagegen --detect` (scripts/image_backends.py) — Codex CLI on
+PATH plus whether CODEX_HOME/auth.json holds credentials (values never read out),
+a short local TCP/HTTP status probe of the configured FreeVideo/ComfyUI endpoints
+(no token), Grok as an agent-declared tool, and hand-drawn upload. It never
+generates, spends money, calls a paid/external API, or checks model entitlement.
 """
 from __future__ import annotations
 
@@ -13,7 +17,11 @@ import json
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import image_backends  # noqa: E402
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -43,11 +51,23 @@ def _package_version(name: str) -> dict[str, Any]:
         return {"available": False, "version": None}
 
 
+def generation_report() -> dict[str, Any]:
+    """生圖能力：與 h3d imagegen --detect 同一個偵測模組；影片生成（FreeVideo／H3）仍由 h3d doctor／probe 判定。"""
+    backends = image_backends.detect()
+    usable = [b["id"] for b in backends if b["selectable"] and b["available"] is True]
+    return {
+        "status": "checked",
+        "image_backends": backends,
+        "available": usable,
+        "note": ("生圖後端由使用者選，不自行預設（h3d imagegen --set）；偵測不生圖、不花錢、不連外部付費 API、不讀 token 值。"
+                 "影片生成服務未在此檢查（用 h3d doctor／h3d probe）。"),
+    }
+
+
 def build_report() -> dict[str, Any]:
     python_ok = sys.version_info >= (3, 10)
     pillow = _package_version("Pillow")
     numpy = _package_version("numpy")
-    resvg = _package_version("resvg-py")
     opencv = _package_version("opencv-python-headless")
     if not opencv["available"]:
         opencv = _package_version("opencv-python")
@@ -64,17 +84,15 @@ def build_report() -> dict[str, Any]:
 
     return {
         "schema_version": 1,
-        "inspection": "local executable/package presence only; no network, service, token, account, or model checks",
+        "inspection": ("local executable/package presence; image backends via image_backends.detect() "
+                       "(local endpoint status probe only; no generation, no paid/external API, no token values)"),
         "runtime": {"python": sys.version.split()[0], "minimum": "3.10", "available": python_ok},
-        "dependencies": {"Pillow": pillow, "numpy": numpy, "resvg-py": resvg, "opencv": opencv, "ffmpeg": ffmpeg, "ffprobe": ffprobe},
+        "dependencies": {"Pillow": pillow, "numpy": numpy, "opencv": opencv, "ffmpeg": ffmpeg, "ffprobe": ffprobe},
         "capabilities": [
             capability("企劃與文本改編", ["Python >= 3.10", "Python standard library"], python_ok,
                        "此能力不需要 jsonschema；專案含標準庫 schema validator。"),
             capability("構圖與圖片檔檢查", ["Python >= 3.10", "Pillow"], python_ok and pillow["available"],
                        "此結果只代表本機圖片工具依賴可用，不代表圖片已生成或已審核。"),
-            capability("免生圖 SVG 構圖分鏡總覽圖（選用）", ["Python >= 3.10", "Pillow", "numpy", "resvg-py"],
-                       python_ok and pillow["available"] and numpy["available"] and resvg["available"],
-                       "svg_storyboard_grid.py 用程式算構圖，不呼叫生圖 API；缺依賴時改用 Qwen 分鏡總覽圖或手繪。"),
             capability("影片片段技術審查", ["ffmpeg", "ffprobe"], ffmpeg["available"] and ffprobe["available"],
                        "需提供本機影片；本檢查不產生影片。"),
             capability("動態 QA 與後製變速（選用）", ["opencv-python-headless", "numpy", "ffmpeg", "ffprobe"],
@@ -83,28 +101,28 @@ def build_report() -> dict[str, Any]:
             capability("影片組裝與交付驗證", ["ffmpeg", "ffprobe"], ffmpeg["available"] and ffprobe["available"],
                        "需提供本機片段；實際輸出仍須通過交付 manifest 與解碼檢查。"),
         ],
-        "generation": {
-            "status": "not_checked",
-            "note": "內建生成能力、Codex CLI 模型權限與選配 FreeVideo 服務不由離線依賴盤點判定；未連線、未讀取 token。",
-        },
+        "generation": generation_report(),
     }
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="按製作能力盤點本機依賴（唯讀、離線）")
+    parser = argparse.ArgumentParser(description="按製作能力盤點本機依賴與可用生圖工具（唯讀、不生圖）")
     parser.add_argument("--json", action="store_true", help="輸出機器可讀 JSON")
     args = parser.parse_args()
     report = build_report()
     if args.json:
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return 0
-    print("本機依賴盤點（只檢查套件與執行檔；未連線服務或讀取 token）")
+    print("本機依賴盤點（套件與執行檔；生圖工具只做本機狀態探測，不生圖、不讀 token 值）")
     for dependency, details in report["dependencies"].items():
         value = details["version"] if details["available"] else "未安裝/不可用"
         print(f"- {dependency}: {value}")
     for item in report["capabilities"]:
         print(f"- {item['name']}: {'可用' if item['status'] == 'ready' else '缺依賴'} — {item['note']}")
-    print(f"- 圖像/影片生成服務: 未檢查 — {report['generation']['note']}")
+    print("- 生圖工具（與 h3d imagegen --detect 相同偵測）：")
+    for row in report["generation"]["image_backends"]:
+        print(f"    {image_backends._row_line(row)}")
+    print(f"  {report['generation']['note']}")
     return 0
 
 

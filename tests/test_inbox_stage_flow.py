@@ -14,6 +14,7 @@ for extra in (SCRIPTS, SCRIPTS / "review", SCRIPTS / "storyboard"):
     sys.path.insert(0, str(extra))
 
 import build_stage_review as review  # noqa: E402
+import decisions  # noqa: E402
 import inbox  # noqa: E402
 import next_step  # noqa: E402
 import project_state as ps  # noqa: E402
@@ -115,6 +116,7 @@ class InboxStageCardTests(_Project):
     def test_stage2_approval_card_embeds_sheets_and_flags_flaws(self):
         self._manifest("Agent 自檢通過（有瑕疵）→ 待老大看臉")
         self.set_stage(2, "awaiting_user_approval")
+        ps.mark_awaiting_review(self.root, ps.load_state(self.root), 2)  # 核准卡只在審核快照有效時出現
         card = next(c for c in inbox.build_cards(self.root)["open"] if c["id"] == "D2-approve")
         self.assertNotIn("沒有例外", card["recommendation"])
         self.assertIn("瑕疵", card["recommendation"])
@@ -122,6 +124,23 @@ class InboxStageCardTests(_Project):
         model = inbox.collect(self.root, strips="none")
         approve = next(c for c in model["cards"] if c["id"] == "D2-approve")
         self.assertEqual(len(approve["evidence_b64"]), 2)
+
+    def test_stage1_event_coverage_becomes_card_not_plain_approval(self):
+        (self.root / "adapt").mkdir(exist_ok=True)
+        (self.root / "adapt" / "source.json").write_text(json.dumps({"story_units": [
+            {"unit_id": "U1", "summary": "上島", "expected_grade": "KEEP_IF_POSSIBLE"},
+            {"unit_id": "U2", "summary": "遇獸", "expected_grade": "KEEP_IF_POSSIBLE"}]}), encoding="utf-8")
+        (self.root / "handoff-ep01.json").write_text(json.dumps({"episodes": [
+            {"episode_id": "EP01", "scenes": [{"scene_id": "S01", "source_refs": ["U1"]}]}]}), encoding="utf-8")
+        self.set_stage(1, "awaiting_user_approval")
+        ps.mark_awaiting_review(self.root, ps.load_state(self.root), 1)
+        cards = inbox.build_cards(self.root)["open"]
+        ids = [c["id"] for c in cards]
+        self.assertIn("D1-event-coverage", ids)
+        self.assertNotIn("D1-approve", ids, "有待決事件時不能出「沒有例外，建議通過」")
+        card = next(c for c in cards if c["id"] == "D1-event-coverage")
+        self.assertIn("U1", card["finding"])
+        self.assertTrue(card["if_ignored"])
 
     def _segments(self, refs):
         (self.root / "segments-ep01.json").write_text(json.dumps({"segments": [
@@ -164,13 +183,25 @@ class NextStepCommandTests(_Project):
 
     def test_stage4_with_layer2_substitutes_episode(self):
         self.layer("EP02-S01-a", [{"shot_id": "SH01"}])
-        command, _ = next_step.stage4_producer(self.root, ["EP02-S01-a/SH01: 缺少有效且對應的構圖 PNG"])
-        self.assertIn("sketch --root . --episode EP02", command)
+        # 構圖工具由使用者選（storyboard_engine）；選 Codex 且偵測可用時才給 Codex 分鏡指令。
+        decisions.decide(self.root, "storyboard_engine", "codex", "分鏡用 Codex")
+        rows = [{"id": "codex", "label": "Codex", "stages": [2, 4], "selectable": True, "available": True,
+                 "status": "available", "reason": "ok"}]
+        with mock.patch.object(next_step.image_backends, "detect", return_value=rows):
+            command, _ = next_step.stage4_producer(self.root, ["EP02-S01-a/SH01: 缺少有效且對應的構圖 PNG"])
+        self.assertIn("codex_storyboard_panels.py", command)
+        self.assertIn("--root . --episode EP02", command)
+        self.assertIn("--model ", command, "Codex 分鏡 --model 必填，指令要帶出來")
+        self.assertNotIn(" sketch ", command, "h3d sketch 已移除")
 
     def test_stage5_compile_command_is_complete(self):
+        import hashlib
         self.layer("EP01-S01-a", [{"shot_id": "SH01"}])
+        layer2 = self.root / "layer2" / "layer2-EP01-S01-a.json"
         (self.root / "video-bible.json").write_text("{}", encoding="utf-8")
-        (self.root / "video-bindings.json").write_text("{}", encoding="utf-8")
+        (self.root / "video-bindings.json").write_text(json.dumps({"segments": [{
+            "segment_id": "EP01-S01-a", "source_layer2_path": "layer2/layer2-EP01-S01-a.json",
+            "source_sha256": hashlib.sha256(layer2.read_bytes()).hexdigest()}]}), encoding="utf-8")
         command, _ = next_step.stage5_producer(self.root, [])
         for part in ('--layer2 "layer2/layer2-EP01-*.json"', "--episode EP01", "--bible video-bible.json",
                      "--bindings video-bindings.json", "--output-md prompts-ep01.md",

@@ -33,6 +33,18 @@ class DepsTests(unittest.TestCase):
         old = time.time() - 7200
         os.utime(self.video, (old, old))
 
+    def test_appearance_change_marks_kept_segment_stale(self):
+        write_json(self.layer2, {"segment_id": "EP01-S01", "character_ids": ["C-worm"]})
+        bible = self.root / "video-bible.json"
+        write_json(bible, {"characters": [{"id": "C-worm", "visual_prompt_en": "round-mouth worm"}]})
+        write_json(self.segments, [{"segment_id": "EP01-S01", "h3_prompt": "x"}])
+        deps.record(self.root)
+        _, stale = self._reasons()
+        self.assertNotIn("appearance_changed", stale.get("EP01-S01", []))
+        write_json(bible, {"characters": [{"id": "C-worm", "visual_prompt_en": "snake"}]})
+        _, stale = self._reasons()
+        self.assertIn("appearance_changed", stale.get("EP01-S01", []))
+
     def _reasons(self):
         report = deps.status(self.root)
         stale = {item["segment_id"]: item["reasons"] for item in report["stale"]}

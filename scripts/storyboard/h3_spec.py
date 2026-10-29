@@ -33,6 +33,21 @@ MAX_SUPPORTED_FRAMES = 362
 
 ROUNDING_MODES = ("floor", "round", "ceil")
 
+# 伺服器端「秒數 → 影格」的取整方向依 provider 而定（PR-R1，video_backend）：
+#   - freevideo（Ref2VA，VDN-H3）：往上取到 17n+5（2026-10-19 實測 11.542s → 294 幀）。
+#   - remix（REMIX Studio＋RefMod 角色包，Singularity ref2va V1.3 int8）：往下取
+#     （measured：5.5s → 124 幀＝5.17s，三人測試 job 1026155645-b9e8）。
+#     秒數 2–10.125s 為家機指南（docs）；frames 區間 56–243 是「≥2s 的最小量子」到
+#     10.125s×24=243 換算而來（推定），2s 往下取會得 39 幀，伺服器是否接受未驗證。
+# 編譯器送的是 frames/24 的精確值（IEEE754 下 n/24*24 == n，對 22–362 全部量子成立），
+# 所以兩種取整方向都會落在同一個量子；取整方向只影響「手寫秒數」時的預估。
+DEFAULT_PROVIDER = "freevideo"
+PROVIDER_FRAME_SPECS: Dict[str, Dict[str, Any]] = {
+    "freevideo": {"min_frames": MIN_SUPPORTED_FRAMES, "max_frames": MAX_SUPPORTED_FRAMES,
+                  "server_rounding": "ceil", "source": "measured"},
+    "remix": {"min_frames": 56, "max_frames": 243, "server_rounding": "floor", "source": "measured"},
+}
+
 
 def _check_rounding(rounding: str) -> str:
     if rounding not in ROUNDING_MODES:
@@ -141,8 +156,36 @@ def wire_seconds(frames: int) -> float:
     return seconds_for_frames(frames)
 
 
-def in_supported_range(frames: int) -> bool:
-    return MIN_SUPPORTED_FRAMES <= int(frames) <= MAX_SUPPORTED_FRAMES
+def provider_spec(provider: str = DEFAULT_PROVIDER) -> Dict[str, Any]:
+    """provider 的影格規格；未知 provider 丟 ValueError（不假裝知道）。"""
+    key = str(provider or DEFAULT_PROVIDER).strip().lower()
+    if key not in PROVIDER_FRAME_SPECS:
+        raise ValueError(f"unknown provider: {provider!r} (expected one of {tuple(PROVIDER_FRAME_SPECS)})")
+    return PROVIDER_FRAME_SPECS[key]
+
+
+def server_rounding(provider: str = DEFAULT_PROVIDER) -> str:
+    """伺服器把請求秒數取到 17n+5 的方向：freevideo=ceil、remix=floor。"""
+    return provider_spec(provider)["server_rounding"]
+
+
+def server_frames(seconds: float, provider: str = DEFAULT_PROVIDER) -> int:
+    """預估伺服器收到 `seconds` 後實際產出的影格數（依 provider 往上或往下取量子）。
+
+    容許 1e-6 的浮點誤差，讓 wire_seconds(n) 送出的精確值永遠回到 n。
+    """
+    seconds = float(seconds)
+    if not math.isfinite(seconds) or seconds <= 0:
+        raise ValueError("seconds must be a finite number > 0")
+    raw = seconds * FPS
+    if server_rounding(provider) == "floor":
+        return quantize_down(int(math.floor(raw + 1e-6)))
+    return quantize_up(int(math.ceil(raw - 1e-6)))
+
+
+def in_supported_range(frames: int, provider: str = DEFAULT_PROVIDER) -> bool:
+    spec = provider_spec(provider)
+    return spec["min_frames"] <= int(frames) <= spec["max_frames"]
 
 
 def plan(seconds: float, rounding: str = "floor") -> Dict[str, Any]:

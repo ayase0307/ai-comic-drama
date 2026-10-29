@@ -185,6 +185,12 @@ def _image_size(project_root: pathlib.Path, rel_path: str) -> Optional[Tuple[int
         return None
 
 
+def looks_like_multi_view_board(project_root: pathlib.Path, rel_path: str) -> bool:
+    """E20 的判準：≥1600×900 且寬高比 ≥1.5 視為四視圖／表情板（綁定產生器共用）。"""
+    size = _image_size(project_root, rel_path)
+    return bool(size) and size[0] >= 1600 and size[1] >= 900 and size[0] / max(size[1], 1) >= 1.5
+
+
 # 群眾／路人類描述：這些人沒有參考圖，H3 會用唯一一張臉的造型去補，
 # 造成背景長出穿同款衣服的複製人（本專案 EP01-S01-a 實測：火山島上長出整群白襯衫學生）。
 _CROWD_CUES = (
@@ -201,8 +207,353 @@ _NON_IDENTIFIABLE_CUES = (
 )
 
 
+# ---------- video_backend＝remix（PR-R3） ----------
+VIDEO_BACKENDS = ("ref2va", "remix")
+REMIX_REQUIRED_SECTIONS = ["integrated_multimodal_description", "overall_soundscape", "non_diegetic_music"]
+REMIX_DETAIL_SECTION = "integrated_multimodal_description"
+# 照 ch02 refcheck 的 UNBOUND 詞：remix 一段能放多人，裸寫的人群字眼更容易長出沒綁包的陌生人
+REMIX_EXTRA_CROWD_PATTERNS = (r"\bstudents\b", r"\bpeople\b", r"\bclassmates\b", r"\bothers\b")
+# 「as tall as the others」這類比例錨不是人群
+_REMIX_CROWD_EXEMPT = r"\bas\s+\w+\s+as\s+the\s+others\b|\bthan\s+the\s+others\b|\bthe\s+others'"
+PACK_TAGS = ("Picture", "Video")
+
+
+def resolve_backend(seg_data: Dict[str, Any], project_root: Optional[Path] = None,
+                    backend: Optional[str] = None) -> str:
+    """順序：明確參數 > 段落 metadata.video_backend > 段落帶 refmods > decisions.json > ref2va。"""
+    if backend in VIDEO_BACKENDS:
+        return backend
+    meta = (seg_data.get("metadata") or {}) if isinstance(seg_data, dict) else {}
+    if meta.get("video_backend") in VIDEO_BACKENDS:
+        return meta["video_backend"]
+    if isinstance(seg_data, dict) and seg_data.get("video_backend") in VIDEO_BACKENDS:
+        return seg_data["video_backend"]
+    if isinstance(seg_data, dict) and "refmods" in seg_data:
+        return "remix"
+    if project_root is not None:
+        decisions_mod = _decisions_module()
+        if decisions_mod is not None:
+            return decisions_mod.video_backend(Path(project_root))
+    return "ref2va"
+
+
+def _decisions_module():
+    scripts_dir = str(pathlib.Path(__file__).resolve().parent.parent)
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
+    try:
+        import decisions as decisions_mod  # noqa: WPS433
+    except ImportError:  # pragma: no cover
+        return None
+    return decisions_mod
+
+
+def _section_body(prompt_text: str, section: str) -> str:
+    match = re.search(rf"{section}:(.*?)(?:\n\n[a-z_]+:|\Z)", prompt_text, re.DOTALL)
+    return match.group(1) if match else ""
+
+
+def _norm_words(text: str) -> str:
+    return re.sub(r"\s+", " ", str(text or "")).strip().lower()
+
+
+def _segment_named_ids(seg_data: Dict[str, Any]) -> List[str]:
+    """段落裡「在畫面上的具名角色」：段層／逐鏡 visual_subject_ids、character_ids、unanchored_in_frame_characters。"""
+    found: List[str] = []
+    hidden = set(str(x) for x in (seg_data.get("no_visual_reference_ids") or []))
+
+    def add(values: Any) -> None:
+        for value in values or []:
+            cid = value.get("id") if isinstance(value, dict) else value
+            if cid and str(cid) not in found:
+                found.append(str(cid))
+
+    add(seg_data.get("visual_subject_ids"))
+    add(seg_data.get("unanchored_in_frame_characters"))
+    for shot in seg_data.get("shots") or []:
+        if not isinstance(shot, dict):
+            continue
+        hidden.update(str(x) for x in (shot.get("no_visual_reference_ids") or []))
+        add(shot.get("visual_subject_ids") or shot.get("character_ids"))
+    return [cid for cid in found if cid not in hidden and not cid.upper().startswith(("NARRATOR", "VO-", "N-"))]
+
+
+def audit_remix(seg_data: Dict[str, Any], project_root: Optional[Path] = None,
+                strict: bool = False) -> Dict[str, Any]:
+    """video_backend＝remix 的模式 A 審查（PR-R3）。
+
+    跳過（Ref2VA 專屬，在 REMIX 上不是誤擋就是沒意義）：E19（改 E50）、E20、E26、E27、
+    混臉／單段多張角色圖警告、<Subject k>↔<Picture k+1> 序對、圖 ≤9／總 ≤12、主角前 5 名。
+    保留：E21（擴大人群 cue）、E22–E25、E43／E44、E28。
+    新增：E50（具名角色沒有包：在場名單＋PR-R4 refcheck 的提示詞文字比對）、
+    E52（<Picture N>／<Video N> 各自編號對 refmods tag、每包都要被引用）、E53（場景包第一）、
+    E54（包數，依 providers/remix.json 顯存分級）、E55（提示詞開頭＝風格錨）、
+    D06–D14 站位／視線閘門（PR-R6，staging_lint.py；預設警告）。
+    """
+    errors: List[str] = []
+    warnings: List[str] = []
+    refmods = seg_data.get("refmods")
+    if refmods is None:
+        refmods = []
+    if not isinstance(refmods, list):
+        return {"passed": False, "errors": ["[E52: refmods 格式] refmods 必須是陣列"], "warnings": warnings,
+                "backend": "remix", "total_references": 0, "character_references": 0}
+    prompt_text = extract_prompt_from_seg(seg_data)
+    decisions_mod = _decisions_module() if project_root is not None else None
+
+    # ---------- E50（最小版）：具名角色沒有對應包 ----------
+    waivers = [w for w in (seg_data.get("pack_waivers") or []) if isinstance(w, dict)]
+    for w in waivers:
+        if not str(w.get("quote") or "").strip():
+            errors.append(f"[E50: 豁免缺原話] pack_waivers 的 {w.get('id') or w.get('pack')} 沒有使用者原話 quote；沒有原話不能豁免")
+    waived = {str(w.get("id")) for w in waivers if w.get("id") and str(w.get("quote") or "").strip()}
+    covered = {str(r.get("id")) for r in refmods if isinstance(r, dict) and r.get("id")}
+    missing = [cid for cid in _segment_named_ids(seg_data) if cid not in covered and cid not in waived]
+    if missing:
+        errors.append(
+            f"[E50: 具名角色沒有包] {', '.join(missing)} 在畫面上，refmods 卻沒有他們的包。"
+            f"REMIX 會照文字自由發揮（ch02：沒綁包的巨蟒、銀槍都漂了）。請建包加進 refmods，"
+            f"或移出畫面，或寫 pack_waivers 並附使用者原話。")
+
+    # ---------- E50（文字比對，PR-R4 refcheck）：提示詞寫到的具名資產沒有包 ----------
+    # 詞表來自專案的 bible.json／character-packs.json 的 name_en／aliases_en；沒寫英文名就沒有詞，行為同 R3。
+    # E51（人群字眼）不在這裡重複：audit 的 E21 已擋同一類問題；完整報表跑 `h3d refcheck`。
+    if project_root is not None:
+        try:
+            import refcheck as refcheck_mod
+        except ImportError:  # pragma: no cover
+            refcheck_mod = None
+        if refcheck_mod is not None:
+            plan = refcheck_mod.load_pack_plan(Path(project_root))
+            lexicon = refcheck_mod.load_lexicon(Path(project_root), plan)
+            if lexicon:
+                anchors = [a for a in [decisions_mod.style_anchor(Path(project_root)) if decisions_mod else None] if a]
+                rc = refcheck_mod.check_segment(seg_data, lexicon, "remix", plan, anchors, include_presence=False)
+                already = set(missing) | waived
+                text_missing = [m for m in rc["missing"] if m.split("（", 1)[0] not in already]
+                if text_missing:
+                    errors.append(f"[E50: 具名資產沒有包] 提示詞寫到 {'；'.join(text_missing)}，refmods 卻沒有對應的包"
+                                  f"（refcheck 文字比對）。建包加進 refmods，或從提示詞拿掉，或寫 pack_waivers 並附使用者原話")
+
+    # ---------- D06–D14：站位／視線／運鏡閘門（PR-R6；預設警告，staging_gate=strict 時 D06–D08 擋） ----------
+    try:
+        import staging_lint as staging_mod
+    except ImportError:  # pragma: no cover
+        staging_mod = None
+    if staging_mod is not None and prompt_text:
+        lex = None
+        if project_root is not None:
+            try:
+                import refcheck as refcheck_mod
+                lex = refcheck_mod.load_lexicon(Path(project_root))
+            except ImportError:  # pragma: no cover
+                lex = None
+        staging_errors, staging_warnings = staging_mod.split_findings(
+            staging_mod.lint_segment(seg_data, "remix", lexicon=lex,
+                                     strict=staging_mod.project_strict(project_root),
+                                     root=Path(project_root) if project_root is not None else None))
+        errors.extend(staging_errors)
+        warnings.extend(staging_warnings)
+
+    # ---------- E52：refmods 結構與 <Picture N>／<Video N> 對帳 ----------
+    counters = {"Picture": 0, "Video": 0}
+    labels: List[Tuple[str, int, str]] = []
+    seen_packs: set = set()
+    for index, ref in enumerate(refmods):
+        if not isinstance(ref, dict) or not str(ref.get("pack") or "").strip():
+            errors.append(f"[E52: refmods 缺包名] refmods[{index}] 必須是含 pack 的物件")
+            continue
+        pack = str(ref["pack"]).strip()
+        if pack in seen_packs:
+            errors.append(f"[E52: 重複的包] {pack} 在 refmods 出現兩次")
+        seen_packs.add(pack)
+        tag = ref.get("tag")
+        if tag not in PACK_TAGS:
+            errors.append(f"[E52: tag 不明] 包 {pack} 的 tag={tag!r}；只能是 Picture（單圖包）或 Video（多圖包），"
+                          f"請以建包回讀為準")
+            continue
+        counters[tag] += 1
+        label = f"<{tag} {counters[tag]}>"
+        labels.append((tag, counters[tag], pack))
+        if ref.get("label") and ref["label"] != label:
+            errors.append(f"[E52: 標籤順序錯] 包 {pack} 標成 {ref['label']}，依 refmods 順序應為 {label}")
+    if prompt_text:
+        used = {"Picture": set(int(m) for m in re.findall(r"<Picture\s*(\d+)>", prompt_text)),
+                "Video": set(int(m) for m in re.findall(r"<Video\s*(\d+)>", prompt_text))}
+        for tag in PACK_TAGS:
+            for n in sorted(used[tag]):
+                if n > counters[tag] or n < 1:
+                    errors.append(f"[E52: 標籤沒有對應的包] 提示詞引用 <{tag} {n}>，但 refmods 只有 {counters[tag]} 個 "
+                                  f"{tag} 包（{'伺服器會回 warning' if tag == 'Picture' else 'FeiHou 多寫一個 <Video N> 會直接報錯'}）")
+        for tag, n, pack in labels:
+            if n not in used[tag]:
+                errors.append(f"[E52: 包沒有被引用] 包 {pack}（<{tag} {n}>）掛了卻沒有在提示詞引用；"
+                              f"每個包都要寫一句「<{tag} {n}> is …」")
+        if re.search(r"<Subject\s*\d+>", prompt_text):
+            warnings.append("[W: remix 六段式寫法] 提示詞含 <Subject N>：那是 Ref2VA 寫法，在 REMIX 上沒測過；"
+                            "remix 用 <Picture N>（場景）／<Video N>（演員、生物、多圖道具）")
+
+    # ---------- E53：場景包第一 ----------
+    kinds = [str(r.get("kind") or "") for r in refmods if isinstance(r, dict)]
+    if "scene" in kinds and kinds and kinds[0] != "scene":
+        errors.append("[E53: 場景包不在第一] refmods 有場景包卻不是第一個；順序決定標籤編號，場景包要放第一、演員接著、生物／道具最後")
+    if kinds.count("scene") > 1:
+        warnings.append(f"[W: 多個場景包] refmods 有 {kinds.count('scene')} 個場景包，未驗證過")
+
+    # ---------- E54：包數（providers/remix.json 顯存分級） ----------
+    try:
+        try:
+            import provider_caps
+        except ImportError:  # pragma: no cover
+            from . import provider_caps
+        caps = provider_caps.load_caps("remix")
+        cap = decisions_mod.remix_pack_cap(Path(project_root)) if decisions_mod is not None else None
+        vram = (seg_data.get("metadata") or {}).get("vram")
+        for level, message in provider_caps.pack_count_findings(caps, len(refmods), vram=vram, project_cap=cap):
+            (errors if level == "error" else warnings).append(f"[E54: 包數] {message.replace('[包數] ', '')}")
+    except Exception as exc:  # 能力表壞掉不能靜默
+        errors.append(f"[E54: 包數] 無法載入 providers/remix.json：{exc}")
+
+    if prompt_text:
+        # ---------- E21–E25、E43／E44（與 ref2va 共用） ----------
+        has_extras = any(isinstance(r, dict) and r.get("kind") == "extras" for r in refmods)
+        _prompt_role_checks(prompt_text, seg_data, [], strict, errors, warnings,
+                            detail_section=REMIX_DETAIL_SECTION, has_extras_ref=has_extras,
+                            extra_crowd_patterns=REMIX_EXTRA_CROWD_PATTERNS)
+
+        # ---------- E55：提示詞開頭必須是風格錨（remix 沒有 negative 欄位） ----------
+        style_value = (seg_data.get("metadata") or {}).get("style_key") or (
+            style_rules.project_style(project_root) if project_root else "")
+        anchor = (seg_data.get("metadata") or {}).get("style_anchor_en")
+        if not anchor and decisions_mod is not None:
+            anchor = decisions_mod.style_anchor(Path(project_root))
+        if not anchor and style_rules.is_style14(style_value):
+            anchor = style_rules.VIDEO_ANCHOR
+        body = _section_body(prompt_text, REMIX_DETAIL_SECTION) or prompt_text
+        if not anchor:
+            errors.append("[E55: 沒有風格錨] remix 沒有 negative 欄位，提示詞開頭的風格錨是唯一防線；"
+                          "請先 `h3d decide style_anchor \"<英文錨句>\" --quote \"<使用者原話>\"`"
+                          "（照抄 live-action／photorealistic 會變真人劇，ch02 VOID-live 實例）")
+        elif not _norm_words(body).startswith(_norm_words(anchor)):
+            errors.append(f"[E55: 提示詞開頭不是風格錨] {REMIX_DETAIL_SECTION} 必須以定案錨句開頭："
+                          f"{anchor[:120]}{'…' if len(anchor) > 120 else ''}")
+
+    # ---------- E28：14 號風格 ----------
+    style_value = (seg_data.get("metadata") or {}).get("style_key") or (
+        style_rules.project_style(project_root) if project_root else "")
+    if style_rules.is_style14(style_value):
+        errors.extend(style_rules.segment_errors(seg_data, prompt_text, backend="remix"))
+
+    return {
+        "passed": not errors,
+        "errors": errors,
+        "warnings": warnings,
+        "backend": "remix",
+        "total_references": len(refmods),
+        "character_references": sum(1 for r in refmods if isinstance(r, dict) and r.get("kind") == "actor"),
+    }
+
+
+def _prompt_role_checks(prompt_text: str, seg_data: Dict[str, Any], ref_images: List[Any], strict: bool,
+                        errors: List[str], warnings: List[str], detail_section: str = "detailed_description",
+                        has_extras_ref: Optional[bool] = None,
+                        extra_crowd_patterns: Tuple[str, ...] = ()) -> None:
+    """E21–E25＋E43／E44：兩個 backend 共用的提示詞門禁（PR-R3 從 audit_refs_and_subjects 抽出，ref2va 行為不變）。
+
+    remix 時 detail_section=integrated_multimodal_description、群演錨定看 refmods，
+    並用 extra_crowd_patterns 擴大人群 cue（students／people／classmates／others）。
+    """
+    # ---------- E21：無參考圖的群眾／路人 ----------
+    detail_match = re.search(rf"{detail_section}:(.*?)(?:\n\n[a-z_]+:|\Z)", prompt_text, re.DOTALL)
+    detail_body = detail_match.group(1) if detail_match else prompt_text
+    # 逐鏡判斷：同一鏡裡若出現沒有參考圖的人群，而這一鏡沒有任何
+    # 「不可辨識／失焦／剪影」的寫法，就是會被補成複製臉的風險。
+    # 逐鏡而非逐句：避免中英混排的同一段內容被拆成兩半而誤判。
+    # 定律一第④條：人群有自己的群演參考圖（type=extras）時，人群已被錨定，不算 E21。
+    if has_extras_ref is None:
+        has_extras_ref = any(isinstance(r, dict) and r.get("type") == "extras" and str(r.get("path") or "").strip()
+                             for r in (ref_images if isinstance(ref_images, list) else []))
+    for block in ([] if has_extras_ref else re.split(r"(?=\[Shot \d+\])", detail_body)):
+        if not block.strip():
+            continue
+        low = block.lower()
+        hits = [cue for cue in _CROWD_CUES if cue in low]
+        if not hits and extra_crowd_patterns:
+            scrubbed = re.sub(_REMIX_CROWD_EXEMPT, " ", low)
+            hits = [m.group(0) for pat in extra_crowd_patterns for m in [re.search(pat, scrubbed)] if m]
+        if not hits:
+            continue
+        if any(nc in low for nc in _NON_IDENTIFIABLE_CUES):
+            # 這一鏡已明確寫成不可辨識／失焦／剪影的人群：可接受，不會被補成複製臉
+            continue
+        errors.append(
+            f"[E21: 無參考圖的群眾／路人] detailed_description 出現「{hits[0]}」這類沒有參考圖的人群描述。"
+            f"H3 沒有第二個身分可用，會把唯一一張臉的造型套給他們，造成背景出現穿同款衣服的複製人。"
+            f"處理方式：把人群移出畫面、改寫成不可辨識的失焦剪影、或改走「分鏡圖 → I2V」把人群畫進首幀。"
+        )
+        break
+
+    # ---------- E22：說話人必須有官方 (Sx) 綁定 ----------
+    if "<d>" in prompt_text and not re.search(r"\(S\d+\)", prompt_text):
+        errors.append(
+            "[E22: 缺少說話人代號] 提示詞含 <d> 台詞但沒有任何 (S1) 形式的說話人代號。"
+            "官方 base 指南 §4.4 要求發聲者（含畫外音）都要有穩定 (Sx) 代號；"
+            "缺了綁定，H3 會把聲音掛到畫面上唯一的那張臉上，長出複製人。"
+        )
+
+    # ---------- E22b：<Subject k> 的代號必須是 (Sk)（#66） ----------
+    for _m in re.finditer(r"<Subject (\d+)> \(S(\d+)\)", prompt_text):
+        if _m.group(1) != _m.group(2):
+            errors.append(
+                f"[E22: 說話者代號不一致] <Subject {_m.group(1)}> 被標成 (S{_m.group(2)})；"
+                f"Subject k 的代號必須是 (Sk)，否則聲音會掛錯人。")
+            break
+
+    # ---------- E23：畫外音必須用官方句式並說明嘴閉合 ----------
+    if re.search(r"off-screen voiceover|off-screen voice over", prompt_text.lower()):
+        if "lips remain completely closed" not in prompt_text.lower():
+            errors.append(
+                "[E23: 畫外音缺嘴閉合聲明] 提示詞寫了 off-screen voiceover，"
+                "但沒有在 <d> 之後說明嘴唇保持閉合。官方要求："
+                "Immediately after every voiceover <d> block, state that the on-screen character's lips remain closed."
+            )
+
+    # ---------- E24：外部化的台詞不得同時寫進 <d>（任何政策） ----------
+    # external 全部外部化；short-offscreen-h3 只外部化長句。進了 external_narration 的句子
+    # 若仍以 <d> 出現，H3 會念一次、階段 7 又混一次。
+    # 預設與 compile_layer2_to_h3.DEFAULT_NARRATION_POLICY 一致（短畫外句交給 H3）。
+    narration_policy = str((seg_data.get("metadata") or {}).get("narration_policy") or "short-offscreen-h3")
+    external_narration = seg_data.get("external_narration") or []
+    if narration_policy in ("external", "short-offscreen-h3") and external_narration:
+        for entry in external_narration:
+            line = str(entry.get("line") or "").strip()
+            if line and f"<d>[{entry.get('language') or 'Chinese'}] {line}</d>" in prompt_text:
+                errors.append(
+                    f"[E24: 旁白政策衝突] narration_policy={narration_policy}，這句已列入外部 TTS，"
+                    f"卻仍以 <d> 出現在提示詞中：{line!r}。外部化的句子只在階段 7 混入，H3 這鏡只出環境音。"
+                )
+
+    # ---------- E43／E44：畫外句聲音 lint（strict 才擋） ----------
+    _voice = voice_lint.voice_lint(prompt_text, strict=strict)
+    errors.extend(_voice["errors"])
+    warnings.extend(_voice["warnings"])
+
+    # ---------- E25：overall_soundscape 不得重複台詞 ----------
+    sound_match = re.search(r"overall_soundscape:(.*?)(?:\n\n[a-z_]+:|\Z)", prompt_text, re.DOTALL)
+    sound_body = (sound_match.group(1) if sound_match else "").strip()
+    if sound_body:
+        for line in re.findall(r"<d>\[[^\]]*\]\s*(.*?)\s*</d>", prompt_text):
+            if line and len(line) >= 4 and line in sound_body:
+                errors.append(
+                    f"[E25: 環境音重複台詞] overall_soundscape 內重複了台詞 {line!r}。"
+                    f"官方 §4.6：對白只寫在 detailed_description 的 <d> 區塊，"
+                    f"環境音欄只留環境與動作音，否則 H3 會在環境音軌再念一次。"
+                )
+                break
+
+
 def audit_refs_and_subjects(seg_data: Dict[str, Any], project_root: Optional[Path] = None,
-                            strict: bool = False) -> Dict[str, Any]:
+                            strict: bool = False, backend: Optional[str] = None) -> Dict[str, Any]:
     """模式 A 審查：
     1. 檢查 reference_images 與 subject_definitions / retention_analysis 的對應關係。
     2. 驗證 <Picture 1> 為場景，<Subject k> 嚴格對應 <Picture k+1>。
@@ -211,7 +562,10 @@ def audit_refs_and_subjects(seg_data: Dict[str, Any], project_root: Optional[Pat
     5. E19–E26：複製人防線、官方 (Sx) 綁定、旁白外部化與環境音欄位分工。
     6. E43／E44（voice_lint）：有說話動詞卻沒 <d>、畫外句同鏡張嘴。strict=True（h3d next、
        新核准）才算錯誤，否則只警告，已核准的舊內容不回溯擋。
+    7. backend（PR-R3）：resolve_backend() 判定為 remix 時改走 audit_remix()；ref2va 行為完全不變。
     """
+    if resolve_backend(seg_data, project_root, backend) == "remix":
+        return audit_remix(seg_data, project_root=project_root, strict=strict)
     errors: List[str] = []
     warnings: List[str] = []
     passed = True
@@ -253,11 +607,8 @@ def audit_refs_and_subjects(seg_data: Dict[str, Any], project_root: Optional[Pat
         path = str(ref.get("path") or "")
         if not path or project_root is None:
             continue
-        size = _image_size(project_root, path)
-        if not size:
-            continue
-        width, height = size
-        if width >= 1600 and height >= 900 and width / max(height, 1) >= 1.5:
+        if looks_like_multi_view_board(project_root, path):
+            width, height = _image_size(project_root, path)
             errors.append(
                 f"[E20: 疑似多視圖板] 角色參考圖 {path} 尺寸 {width}×{height} 像四視圖／表情板，"
                 f"影片模型會把版面複製進成片（本專案 2026-10-19 實測背景長出多個同款角色）。"
@@ -279,7 +630,8 @@ def audit_refs_and_subjects(seg_data: Dict[str, Any], project_root: Optional[Pat
 
     char_refs = [r for r in ref_images if isinstance(r, dict) and r.get("type") in ("character", "role", "actor")]
     if len(char_refs) > 1:
-        face_refs = [r for r in char_refs if r.get("reference_view") != "non_face"]
+        # 整板查表只准用於不露臉的身份錨點（編譯器強制），和 non_face 一樣不算可辨識人臉。
+        face_refs = [r for r in char_refs if r.get("reference_view") not in ("non_face", "panel")]
         if len(face_refs) > 1:
             warnings.append(
                 f"[W: 混臉風險] 同段掛載了 {len(face_refs)} 張「可辨識人臉」角色參考圖！"
@@ -351,88 +703,7 @@ def audit_refs_and_subjects(seg_data: Dict[str, Any], project_root: Optional[Pat
         else:
             warnings.append("[W] 提示詞中缺少 subject_definitions 區塊，無法執行逐條序對對帳。")
 
-        # ---------- E21：無參考圖的群眾／路人 ----------
-        detail_match = re.search(r"detailed_description:(.*?)(?:\n\n[a-z_]+:|\Z)", prompt_text, re.DOTALL)
-        detail_body = detail_match.group(1) if detail_match else prompt_text
-        # 逐鏡判斷：同一鏡裡若出現沒有參考圖的人群，而這一鏡沒有任何
-        # 「不可辨識／失焦／剪影」的寫法，就是會被補成複製臉的風險。
-        # 逐鏡而非逐句：避免中英混排的同一段內容被拆成兩半而誤判。
-        # 定律一第④條：人群有自己的群演參考圖（type=extras）時，人群已被錨定，不算 E21。
-        has_extras_ref = any(isinstance(r, dict) and r.get("type") == "extras" and str(r.get("path") or "").strip()
-                             for r in (ref_images if isinstance(ref_images, list) else []))
-        for block in ([] if has_extras_ref else re.split(r"(?=\[Shot \d+\])", detail_body)):
-            if not block.strip():
-                continue
-            low = block.lower()
-            hits = [cue for cue in _CROWD_CUES if cue in low]
-            if not hits:
-                continue
-            if any(nc in low for nc in _NON_IDENTIFIABLE_CUES):
-                # 這一鏡已明確寫成不可辨識／失焦／剪影的人群：可接受，不會被補成複製臉
-                continue
-            errors.append(
-                f"[E21: 無參考圖的群眾／路人] detailed_description 出現「{hits[0]}」這類沒有參考圖的人群描述。"
-                f"H3 沒有第二個身分可用，會把唯一一張臉的造型套給他們，造成背景出現穿同款衣服的複製人。"
-                f"處理方式：把人群移出畫面、改寫成不可辨識的失焦剪影、或改走「分鏡圖 → I2V」把人群畫進首幀。"
-            )
-            break
-
-        # ---------- E22：說話人必須有官方 (Sx) 綁定 ----------
-        if "<d>" in prompt_text and not re.search(r"\(S\d+\)", prompt_text):
-            errors.append(
-                "[E22: 缺少說話人代號] 提示詞含 <d> 台詞但沒有任何 (S1) 形式的說話人代號。"
-                "官方 base 指南 §4.4 要求發聲者（含畫外音）都要有穩定 (Sx) 代號；"
-                "缺了綁定，H3 會把聲音掛到畫面上唯一的那張臉上，長出複製人。"
-            )
-
-        # ---------- E22b：<Subject k> 的代號必須是 (Sk)（#66） ----------
-        for _m in re.finditer(r"<Subject (\d+)> \(S(\d+)\)", prompt_text):
-            if _m.group(1) != _m.group(2):
-                errors.append(
-                    f"[E22: 說話者代號不一致] <Subject {_m.group(1)}> 被標成 (S{_m.group(2)})；"
-                    f"Subject k 的代號必須是 (Sk)，否則聲音會掛錯人。")
-                break
-
-        # ---------- E23：畫外音必須用官方句式並說明嘴閉合 ----------
-        if re.search(r"off-screen voiceover|off-screen voice over", prompt_text.lower()):
-            if "lips remain completely closed" not in prompt_text.lower():
-                errors.append(
-                    "[E23: 畫外音缺嘴閉合聲明] 提示詞寫了 off-screen voiceover，"
-                    "但沒有在 <d> 之後說明嘴唇保持閉合。官方要求："
-                    "Immediately after every voiceover <d> block, state that the on-screen character's lips remain closed."
-                )
-
-        # ---------- E24：外部化的台詞不得同時寫進 <d>（任何政策） ----------
-        # external 全部外部化；short-offscreen-h3 只外部化長句。進了 external_narration 的句子
-        # 若仍以 <d> 出現，H3 會念一次、階段 7 又混一次。
-        narration_policy = str((seg_data.get("metadata") or {}).get("narration_policy") or "external")
-        external_narration = seg_data.get("external_narration") or []
-        if narration_policy in ("external", "short-offscreen-h3") and external_narration:
-            for entry in external_narration:
-                line = str(entry.get("line") or "").strip()
-                if line and f"<d>[{entry.get('language') or 'Chinese'}] {line}</d>" in prompt_text:
-                    errors.append(
-                        f"[E24: 旁白政策衝突] narration_policy={narration_policy}，這句已列入外部 TTS，"
-                        f"卻仍以 <d> 出現在提示詞中：{line!r}。外部化的句子只在階段 7 混入，H3 這鏡只出環境音。"
-                    )
-
-        # ---------- E43／E44：畫外句聲音 lint（strict 才擋） ----------
-        _voice = voice_lint.voice_lint(prompt_text, strict=strict)
-        errors.extend(_voice["errors"])
-        warnings.extend(_voice["warnings"])
-
-        # ---------- E25：overall_soundscape 不得重複台詞 ----------
-        sound_match = re.search(r"overall_soundscape:(.*?)(?:\n\n[a-z_]+:|\Z)", prompt_text, re.DOTALL)
-        sound_body = (sound_match.group(1) if sound_match else "").strip()
-        if sound_body:
-            for line in re.findall(r"<d>\[[^\]]*\]\s*(.*?)\s*</d>", prompt_text):
-                if line and len(line) >= 4 and line in sound_body:
-                    errors.append(
-                        f"[E25: 環境音重複台詞] overall_soundscape 內重複了台詞 {line!r}。"
-                        f"官方 §4.6：對白只寫在 detailed_description 的 <d> 區塊，"
-                        f"環境音欄只留環境與動作音，否則 H3 會在環境音軌再念一次。"
-                    )
-                    break
+        _prompt_role_checks(prompt_text, seg_data, ref_images, strict, errors, warnings)
 
     # ---------- E26：身份錨點必須真的掛上自己的參考圖 ----------
     for ref in ref_images:
@@ -559,10 +830,17 @@ def lint_h3_prompt(
     nominal_duration: float = 7.0,
     rounding_mode: str = "floor",
     authored_shots: Optional[List[Dict[str, Any]]] = None,
+    backend: str = "ref2va",
 ) -> Dict[str, Any]:
     """對 H3 分段提示詞執行 17 條確定性工程自檢。
     支援 5–10 秒短分段與 15 秒段，動態計算 FreeVideo 取整有效秒數 D。
+
+    backend=remix（PR-R3）：必填區塊改為 REMIX 三欄（integrated_multimodal_description／
+    overall_soundscape／non_diegetic_music），逐鏡檢查讀 integrated_multimodal_description；其餘規則照用。
     """
+    remix = backend == "remix"
+    required_sections = REMIX_REQUIRED_SECTIONS if remix else REQUIRED_SECTIONS
+    detail_section = REMIX_DETAIL_SECTION if remix else "detailed_description"
     errors: List[str] = []
     warnings: List[str] = []
 
@@ -589,7 +867,7 @@ def lint_h3_prompt(
     # 規則 1 (E): 6 大必填區塊缺漏檢查
     # --------------------------------------------------------------------------
     missing_sections = []
-    for sec in REQUIRED_SECTIONS:
+    for sec in required_sections:
         # 匹配 sec: 開頭的區塊
         if not re.search(rf"\b{sec}:", clean_prompt, re.IGNORECASE):
             missing_sections.append(sec)
@@ -597,7 +875,7 @@ def lint_h3_prompt(
         errors.append(f"[E1: 必填區塊缺漏] 缺少以下必填區塊標籤: {', '.join(missing_sections)}")
 
     # 提取 detailed_description 內容以供進一步檢查
-    det_match = re.search(r"detailed_description:(.*?)(?:\n\n[a-z_]+:|\Z)", clean_prompt, re.DOTALL | re.IGNORECASE)
+    det_match = re.search(rf"{detail_section}:(.*?)(?:\n\n[a-z_]+:|\Z)", clean_prompt, re.DOTALL | re.IGNORECASE)
     detailed_desc = det_match.group(1).strip() if det_match else clean_prompt
 
     # --------------------------------------------------------------------------
@@ -639,9 +917,11 @@ def lint_h3_prompt(
                     clean_prompt,
                     re.IGNORECASE,
                 )
-                if not declared:
+                if not declared and not remix:
                     raise ValueError("prompt summary does not state effective and target durations")
-                declared_effective, declared_target = map(float, declared.groups())
+                # REMIX 三欄沒有 summary 欄（PR-R5）：時長以 authored 時間軸＋切點時間戳對帳
+                declared_effective, declared_target = (map(float, declared.groups()) if declared
+                                                       else (eff_d, nominal_duration))
                 if abs(declared_target - nominal_duration) > 1e-3 or abs(declared_effective - eff_d) > 1e-3:
                     raise ValueError(
                         f"prompt summary duration {declared_target:.3f}s target/{declared_effective:.3f}s effective "
@@ -856,6 +1136,8 @@ def lint_h3_prompt(
         r"\bhead\s+thrusts?\s+back\b",
         r"\bdrives?\b.{0,100}\binto\s+(?:the\s+)?(?:.{0,40}\s+)?(?:wall|ground|floor)\b",
         r"\bdrops?\s+to\s+(?:the\s+)?(?:ground|floor)\b",
+        r"\bsnaps?\s+back\b", r"\bsnapped\s+back\b", r"\bkinks?(?:ed|ing)?\b",
+        r"\bconvuls(?:es?|ed|ing|ion)\b", r"\bwrithes?\b|\bwrithing\b",
     )
     executed_combat_desc = detailed_desc
     non_executed_combat_patterns = (
@@ -871,6 +1153,8 @@ def lint_h3_prompt(
         r"\bswings?\s+(?:open|shut|closed|gently|slowly|back\s+and\s+forth)\b",
         r"\b(?:door|gate|shutter|lamp|lantern|curtain|sign)s?\s+(?:\w+\s+)?swing(?:s|ing)?\b",
         r"\b(?:clock|bell)s?\s+strikes?\b",
+        # 生物甩頭／轉頸本身不是打擊（#154）；真要打擊會寫 whips its tail／whips at him，仍照常檢查
+        r"\bwhips?\s+(?:its|his|her|their)\s+(?:head|neck)\b(?!\s+(?:into|against|at)\b)",
     )
     for pattern in non_executed_combat_patterns:
         executed_combat_desc = re.sub(pattern, "", executed_combat_desc, flags=re.IGNORECASE)
@@ -916,6 +1200,17 @@ def lint_h3_prompt(
             f"使用者可放行）。若要壓縮，依序會犧牲：① Camera 開頭重複的焦段／距離子句（標頭已有）、"
             f"② 逐鏡 Sound 只留第一個子句（其餘只剩 overall_soundscape）、③ Performance／Light 的細節字；"
             f"保留完整版的風險（文字與參考圖搶臉、後段細節被忽略）皆未驗證。"
+        )
+    # #59：超過密度上限時，提示每鏡扣掉編譯器固定字後的可寫字數
+    if word_count > max_words and word_count <= SOFT_WORD_SUGGESTION:
+        _n_shots = max(1, len(shot_motions))
+        _fixed = 30 + 12 * _n_shots  # 估：光線句／外部 TTS 句＋每鏡 header、Expression／Blocking 標頭
+        _per_shot = max(0, (max_words - _fixed) // _n_shots)
+        details["w11_per_shot_budget"] = _per_shot
+        warnings.append(
+            f"[W11: 超過密度上限] detailed_description {word_count} 英文字，高於 33.1×時長 = {max_words}；"
+            f"扣掉編譯器固定字（估約 {_fixed} 字）後，{_n_shots} 鏡每鏡約剩 {_per_shot} 字可寫動作與走位。"
+            f"優先縮短開頭光線句，其次精簡各鏡 Light／Sound。（估算值，僅供參考）"
         )
     details["prompt_char_count"] = len(clean_prompt)
     if len(clean_prompt) > HARD_CHAR_LIMIT:
@@ -1168,6 +1463,10 @@ def main():
     parser.add_argument("--lint-h3", metavar="FILE_OR_DIR", help="對指定分段 JSON 或提示詞文本執行 17 條 H3 確定性自檢")
     parser.add_argument("--duration", type=float, default=7.0, help="分段目標名義秒數（預設: 7.0s）")
     parser.add_argument("--rounding", choices=["floor", "round", "ceil"], default="floor", help="17n+5 取整模式；JSON分段優先採 metadata.rounding_mode")
+    parser.add_argument("--backend", choices=list(VIDEO_BACKENDS), default=None,
+                        help="影片生成路線；預設依段落 metadata.video_backend／refmods，再看 --project-root 的 decisions.json，最後 ref2va")
+    parser.add_argument("--project-root", type=pathlib.Path, default=None,
+                        help="專案根目錄（讀 decisions.json 的 video_backend／remix_pack_cap／style_anchor）；預設為檔案所在目錄")
 
     args = parser.parse_args()
 
@@ -1276,7 +1575,8 @@ def main():
                         f.write("\n")
                     print(f"  🔧 已自動覆寫修復 reference_images 與 subject_definitions！")
 
-                refs_res = audit_refs_and_subjects(seg_data, project_root=p.parent, strict=args.strict)
+                refs_res = audit_refs_and_subjects(seg_data, project_root=args.project_root or p.parent,
+                                                   strict=args.strict, backend=args.backend)
                 if refs_res["passed"]:
                     print(f"  [PASS] 參考圖與主體定義序對稽核通過 ({seg_id_label})")
                 else:
@@ -1292,7 +1592,9 @@ def main():
                 prompt_str = extract_prompt_from_seg(seg_data)
                 dur = float(seg_data.get("metadata", {}).get("target_duration_sec", args.duration))
                 rounding_mode = (seg_data.get("metadata", {}) or {}).get("rounding_mode", args.rounding)
-                lint_res = lint_h3_prompt(prompt_str, nominal_duration=dur, rounding_mode=rounding_mode, authored_shots=seg_data.get("shots"))
+                lint_backend = resolve_backend(seg_data, args.project_root or p.parent, args.backend)
+                lint_res = lint_h3_prompt(prompt_str, nominal_duration=dur, rounding_mode=rounding_mode,
+                                          authored_shots=seg_data.get("shots"), backend=lint_backend)
                 if lint_res["passed"]:
                     print(f"  [PASS] H3 提示詞 17 條自檢通過 ({seg_id_label}: 名義 {dur}s -> 真實有效 {lint_res['details']['effective_duration_sec']}s)")
                 else:

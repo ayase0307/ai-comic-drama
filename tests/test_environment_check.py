@@ -13,15 +13,23 @@ import check_environment
 
 class EnvironmentCheckTests(unittest.TestCase):
     def test_report_is_layered_and_does_not_treat_jsonschema_as_a_dependency(self):
+        fake_rows = [{"id": "codex", "label": "Codex", "stages": [2, 4], "selectable": True, "available": True,
+                      "status": "available", "reason": "x", "commands": {}},
+                     {"id": "manual", "label": "手繪", "stages": [2, 4], "selectable": True, "available": True,
+                      "status": "available", "reason": "y", "commands": {}}]
         with patch.object(check_environment, "_command_version", return_value={"available": False, "version": None}), \
-             patch.object(check_environment, "_package_version", return_value={"available": False, "version": None}):
+             patch.object(check_environment, "_package_version", return_value={"available": False, "version": None}), \
+             patch.object(check_environment.image_backends, "detect", return_value=fake_rows) as detect:
             report = check_environment.build_report()
+        detect.assert_called_once()  # 生圖能力列與 h3d imagegen --detect 用同一個偵測模組
         self.assertEqual([item["name"] for item in report["capabilities"]], [
-            "企劃與文本改編", "構圖與圖片檔檢查", "免生圖 SVG 構圖分鏡總覽圖（選用）", "影片片段技術審查", "動態 QA 與後製變速（選用）", "影片組裝與交付驗證",
+            "企劃與文本改編", "構圖與圖片檔檢查", "影片片段技術審查", "動態 QA 與後製變速（選用）", "影片組裝與交付驗證",
         ])
         self.assertNotIn("jsonschema", report["dependencies"])
-        self.assertEqual(report["generation"]["status"], "not_checked")
-        self.assertIn("未連線", report["generation"]["note"])
+        self.assertEqual(report["generation"]["status"], "checked")
+        self.assertEqual(report["generation"]["available"], ["codex", "manual"])
+        self.assertIn("不自行預設", report["generation"]["note"])
+        self.assertIn("不生圖", report["generation"]["note"])
 
     def test_json_cli_emits_parseable_offline_report(self):
         result = subprocess.run([sys.executable, str(ROOT / "scripts" / "check_environment.py"), "--json"],
@@ -30,7 +38,9 @@ class EnvironmentCheckTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         report = json.loads(result.stdout)
         self.assertIn("capabilities", report)
-        self.assertIn("no network", report["inspection"])
+        self.assertIn("no generation", report["inspection"])
+        self.assertIn("no paid/external API", report["inspection"])
+        self.assertTrue(any(b["id"] == "manual" and b["available"] for b in report["generation"]["image_backends"]))
 
     def test_json_cli_writes_utf8_chinese_without_python_utf8_environment(self):
         env = os.environ.copy()

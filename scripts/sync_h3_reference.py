@@ -28,7 +28,36 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 H3_DIR = ROOT / "references" / "h3"
 MANIFEST_PATH = H3_DIR / "UPSTREAM.json"
-DEFAULT_CLONE = Path(r"E:\MinimaxH3\h3-video-prompting")
+DEFAULT_CLONE = Path(r"E:\MinimaxH3\h3-video-prompting")  # 作者家機路徑（保留相容）
+UPSTREAM_ENV = "AICD_H3_UPSTREAM"
+
+
+def upstream_candidates() -> list[Path]:
+    """上游 clone 的搜尋順序（未給 --upstream 時）。
+
+    1. 環境變數 AICD_H3_UPSTREAM；
+    2. 作者家機 E:/MinimaxH3/h3-video-prompting（只在 Windows 才是絕對路徑）；
+    3. 與本 repo 同層的 ../h3-video-prompting（一般人 clone 兩個 repo 的位置）。
+    """
+    import os
+
+    candidates: list[Path] = []
+    env = os.environ.get(UPSTREAM_ENV, "").strip()
+    if env:
+        candidates.append(Path(env).expanduser())
+    if DEFAULT_CLONE.is_absolute():
+        candidates.append(DEFAULT_CLONE)
+    candidates.append(ROOT.parent / "h3-video-prompting")
+    return candidates
+
+
+def resolve_upstream(explicit: Path | None) -> tuple[Path | None, list[Path]]:
+    """回傳 (找到的上游 clone, 試過的路徑)。explicit 有給就只看它。"""
+    tried = [explicit] if explicit is not None else upstream_candidates()
+    for candidate in tried:
+        if candidate.is_dir():
+            return candidate, tried
+    return None, tried
 
 
 def normalize(data: bytes) -> bytes:
@@ -161,18 +190,23 @@ def cmd_write_manifest(upstream: Path) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="同步 references/h3 與上游 h3-video-prompting")
-    parser.add_argument("--upstream", type=Path, default=DEFAULT_CLONE,
-                        help="上游 clone 路徑（預設本機 E:\\MinimaxH3\\h3-video-prompting）")
+    parser.add_argument("--upstream", type=Path, default=None,
+                        help=f"上游 clone 路徑（未給時依序找 ${UPSTREAM_ENV}、E:\\MinimaxH3\\h3-video-prompting、"
+                             "與本 repo 同層的 ../h3-video-prompting）")
     parser.add_argument("--check", action="store_true", help="只檢查漂移（CI／日常用）")
     parser.add_argument("--sync", action="store_true", help="補上落後與缺漏的檔案")
     parser.add_argument("--write-manifest", action="store_true", help="同步後更新 UPSTREAM.json")
     args = parser.parse_args(argv)
 
-    if not args.upstream.is_dir():
-        print(f"❌ 上游 clone 不存在：{args.upstream}\n"
-              f"   git clone https://github.com/ayase0307/h3-video-prompting {args.upstream}",
+    upstream, tried = resolve_upstream(args.upstream)
+    if upstream is None:
+        suggestion = args.upstream or (ROOT.parent / "h3-video-prompting")
+        print("❌ 找不到上游 clone；試過：" + "、".join(str(p) for p in tried) + "\n"
+              f"   git clone https://github.com/ayase0307/h3-video-prompting \"{suggestion}\"\n"
+              f"   或用 --upstream <路徑>／環境變數 {UPSTREAM_ENV} 指定",
               file=sys.stderr)
         return 2
+    args.upstream = upstream
 
     if args.check:
         return cmd_check(args.upstream)

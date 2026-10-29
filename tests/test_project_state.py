@@ -111,7 +111,7 @@ class ProjectStateTests(unittest.TestCase):
 
         segments = self.root / "segments-ep01.json"
         segments.write_text(json.dumps({"segments": [{
-            "segment_id": "EP01-S01", "reference_images": [{"path": "images/character.png"}]
+            "segment_id": "EP01-S01", "segment_end_state": {"planned_final_state": {"pose": "standing"}}, "reference_images": [{"path": "images/character.png"}]
         }]}), encoding="utf-8")
 
         video = self.root / "videos" / "EP01-S01.mp4"

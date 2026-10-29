@@ -6,6 +6,10 @@
 
 階段狀態只記錄於 `review/project-state.json`，每次核准綁定輸入 hash，修改後必須重審。stage 4 review 核准是 H3 compiler 前置條件；實際 submit 要求 stage 5 核准。QA 技術通過不會自動成為人工核准。
 
+**每個階段的斷點都是同一套做法**：產物齊了先跑 `build_stage_review.py --project-dir . --stage N` 綁定審核快照（同時寫出 `review/stage-N-*.html` 除錯頁），再用 `h3d inbox --root .` 產生決策收件匣 `review/inbox.html` 交給使用者並停下；使用者回覆「通過」後才 `--approve-stage N`。階段 0、2 把舊頁當附錄一起給（要人看設定與臉）。
+
+- 審查頁規格（版面順序、卡片欄位、禁止事項）：`references/review-page-spec.md`。
+
 ---
 
 ## 階段 0：定調（Intake）
@@ -21,8 +25,9 @@
 | 畫風 | **預設推 14 號「古風寫實厚塗・電影感」（`xianxia-cinematic-semireal`，附樣圖）**，使用者可改選 `references/styles.md` 任一套（整部只用一套）；角色設定板選項 `xianxia-cinematic-semireal`／`master`（3D 漫劇寫實厚塗）／`semi-real`（UE5 半寫實）／styles 編號，寫入 `assets.md` 的 `style_index`，並 `h3d decide style` 定案 |
 | `aspect_ratio` | 9:16（預設）／16:9／1:1 |
 | 語言與聲音形式 | 旁白解說／角色對白／混合／默片字幕 |
-| 台詞政策（需要改寫或估算時） | `① 原文逐字保留` / `② 只留重點句` / `③ 影視化改寫` / `④ 無台詞純旁白`；已在 brief 中交代則沿用 |
+| 台詞政策（需要改寫或估算時） | `① 原文逐字保留` / `② 只留重點句` / `③ 影視化改寫` / `④ 無台詞純旁白`；已在 brief 中交代則沿用。定案寫入 `h3d decide dialogue_policy`：④ 無台詞純旁白 → 編譯時等同 `--narration-policy external`；①②③ 只決定原著對白保留量，不改編譯政策（沿用預設 `short-offscreen-h3`）；無法辨識的值 `h3d next` 會報錯 |
 | 交付深度 | 只到分鏡／到設定圖／到分鏡圖／到影片 |
+| 交付範圍（`delivery_scope`，選填） | `h3d decide delivery_scope <預設值> --quote "<使用者原話>"`：`script-only`（終點階段 3）／`storyboard-only`（4）／`prompts-only`（5）／`full`（7，沒定案就是全流程）；另可加 `no_image`（階段 2 改檢文字設定卡，不要求設定圖檔）、`no_video`（終點壓到 5，不送件）、`trial_segments`／`max_segments`（只送指定段）。值可直接給 JSON 物件，例如 `'{"end_stage": 4, "no_image": true}'`。`h3d next` 到終點階段就回報 done。 |
 
 ### 階段 0 按需求選用的台詞與體量檢查
 
@@ -89,11 +94,12 @@ python scripts/init_project.py my-drama --title "我的漫劇"
      ```bash
      python scripts/adapt/validate_character_bible.py --bible-md adapt/character-bible.md --bible-json adapt/bible.json
      ```
-   - **產出階段 1 HTML 審核頁並停下**：
+   - **綁定階段 1 審核快照、交收件匣並停下**：
      ```bash
-     python scripts/build_stage_review.py --stage 1
+     python scripts/build_stage_review.py --project-dir . --stage 1
+     h3d inbox --root .
      ```
-     Agent 必須主動停下，提示使用者查閱 `review/stage-1-adaptation.html`，取得核准後才可進入階段 2！
+     Agent 必須主動停下，把 `review/inbox.html` 交給使用者，取得核准後才可進入階段 2；`review/stage-1-adaptation.html` 只作除錯／對帳。
 2. **全文解析與故事地圖**：logline、主衝突、因果鏈、時間線、人物關係、世界規則、伏筆、原著內部矛盾（列出，不私自掩蓋）。長篇分批讀，不假裝讀完沒看過的章節。模板 `adapt/templates/source-analysis.md`。
 3. **保留分級＋交代需求**：每個事件標 `MUST_KEEP`／`KEEP_IF_POSSIBLE`／`MERGE`／`COMPRESS`／`REMOVE`／`REORDER`，記原文引用與理由；並在 `source.json` 每個事件標要交代的要素（`exposition_needs`，省略＝起因、經過、結果；`needs_motivation`、`time_place_shift`）。依事件估總長：
    ```bash
@@ -105,7 +111,7 @@ python scripts/init_project.py my-drama --title "我的漫劇"
    ```bash
    python scripts/adapt/event_coverage.py --project-dir . --out adapt/event-coverage.md
    ```
-   被壓縮（compressed）、被跳過（skipped）、交代不全（partial）、未標註（unverified）的事件會出現在 `review/stage-1-adaptation.html` 的「事件交代完整性」表，**由使用者逐條決定**補鏡頭或接受；MUST_KEEP 事件完全沒交代（missing）時結束碼 2。
+   被壓縮（compressed）、被跳過（skipped）、交代不全（partial）、未標註（unverified）的事件會在收件匣出一張「事件交代」決策卡（明細在 `review/stage-1-adaptation.html` 的「事件交代完整性」表），**由使用者決定**補鏡頭或接受；MUST_KEEP 事件完全沒交代（missing）時結束碼 2。
 7. **（使用者要求分集時）跨集驗收**：原著單章拆成多集時（如 1 章拆為 Ep01–Ep03），支援單集驗收與多集合併全章驗收：
    ```bash
    # 單集過濾驗收：
@@ -134,23 +140,25 @@ python scripts/init_project.py my-drama --title "我的漫劇"
    - 填寫每段分鏡與提示詞的演員表時，**嚴格按「這一場誰是主角/核心」排序**，而非按誰先想到或人類先於生物。
    - 生物（巨蟒、白獸等）在誕生、威脅或主戰場次往往是核心，必須排在第一位（`subject 1`），避免被 H3 參考圖上限或注意力機制稀釋擠掉。
 5. **核心資產生圖工具詢問與跨章節鎖定鐵律**：
-   - **詢問指定工具（推薦 Codex CLI）**：在出核心資產圖前，必須詢問使用者指定生圖工具（推薦本機 Codex CLI 或使用者授權之工具）。
+   - **偵測後詢問，不自行預設**：出核心資產圖前先跑 `h3d imagegen --detect --stage 2 --root .`（`h3d next` 缺 `design_engine` 時也會帶出偵測結果），把偵測到可用的工具（Codex CLI／Grok GenerateImage／手繪上傳；不可用的附原因）交給使用者選，**只偵測到一個可用也要問**；使用者回覆後 `h3d imagegen --set <後端> --stage 2 --quote "<使用者原話>" --root .` 寫進 `design_engine`。選了但之後不可用時 `h3d next` 會警告並重新詢問（`references/tooling.md` §2.4.1）。
    - **跨章節工具選擇**：若使用者要求跨章節風格一致，記錄已選工具及可重用的風格參考；依每個工具實際能力安排工作，不強制使用特定引擎。
    - Qwen、手繪或其他可用圖像工具可依任務製作設定圖或分鏡構圖圖；同一張圖是否可用於後續生成依目標模型能力判斷。
 6. **組裝角色設定板提示詞再生圖**：角色卡填好 `設定板描述`、`背面特徵`（`init_project.py` 範本已含），**問風格的方式（P0）**：依題材從 `references/styles.md`「角色設定板預設風格」的推薦挑 2–3 個，附上樣圖（`assets/styles/sheet-*.jpg`）與一句話差別，一次問一個問題；**全片風格鎖與設定板風格合併成同一個選擇**，不要分開問。預設推 14 號「古風寫實厚塗・電影感」；沒有選定時 `export_asset_prompts.py` 會用 14 號並在 stderr 提醒，開工前仍要讓使用者確認。
    **風格要在階段 0 與使用者確認後**寫進「風格錨點」區的 `style_index`：`14`／`xianxia-cinematic-semireal`（**預設**，古風寫實厚塗・電影感）／`master`（母版 3D 漫劇寫實厚塗，偏插畫感）／`semi-real`（UE5 半寫實東亞，更接近真人質感）／`1`–`11`（`styles.md` 編號）。沒寫時匯出用預設 14 號並提醒，開工前仍先問。選 14 號時每段都要綁設定圖或場景圖（audit E28）。然後：
    ```bash
    python scripts/storyboard/export_asset_prompts.py --assets-md assets.md --out-json images/asset_prompts.json --out-md images/asset_prompts.md
-   python scripts/storyboard/run_codex_asset_gen.py --prompts images/asset_prompts.json --output-dir images
+   # 使用者選 codex 時（design_engine=codex）；選 grok 時匯出會另產 images/grok-manifest.json，選手繪則請使用者上傳到登記路徑
+   python scripts/storyboard/run_codex_asset_gen.py --prompts images/asset_prompts.json --output-dir images --model <使用者指定模型>
    ```
    角色提示詞用 ai-image-prompt 四視圖母版（構圖不改、含防呆句）；`--style <選項>` 可臨時覆蓋 `style_index`。舊版匯出檔（缺 `template` 標記）runner 會警告，需重跑匯出。
-7. **產出階段 2 HTML 並排審核頁面與斷點停下（P0 鐵律）**：
+7. **綁定階段 2 審核快照、交收件匣與附錄並停下（P0 鐵律）**：
    - 生成資產圖後，**必須執行**：
      ```bash
-     python scripts/build_stage_review.py --stage 2
+     python scripts/build_stage_review.py --project-dir . --stage 2
+     h3d inbox --root .
      ```
-   - 產出 `review/stage-2-assets.html`：**左側展示角色設定表格（姓名、年齡、外貌、服裝、武器、原著行號依據），右側展示生成的設定圖（支援全螢幕 Lightbox 放大，缺圖紅框攔截警示）**。
-   - **Agent 必須立即停下**，提示使用者打開 `review/stage-2-assets.html` 進行外貌與畫風審核，確認每位角色臉型、服裝無誤後，使用者發出明確核准指令方可進入階段 3！嚴禁未經確認私自往下推進！
+   - `review/inbox.html` 的「階段 2 等你核准」卡內嵌本批設定圖；`review/stage-2-assets.html` 是**附錄**（左側角色設定表格、右側設定圖，可全螢幕放大，缺圖紅框），階段 2 永遠要人看臉，所以兩者一起給。
+   - **Agent 必須立即停下**，請使用者確認每位角色臉型、服裝無誤，使用者發出明確核准指令方可進入階段 3！嚴禁未經確認私自往下推進！
 
 ---
 
@@ -272,22 +280,27 @@ python scripts/storyboard/handoff_to_skeleton.py handoff-ep01.json --out-dir lay
 python scripts/storyboard/validate_storyboard.py --file layer2/layer2-EP01-*.json --handoff handoff-ep01.json
 python scripts/storyboard/layer2_to_table.py layer2/layer2-EP01-*.json --check --md storyboard-ep01.md --timeline timeline-plan-ep01.csv
 
-# 3. 可選：若 Qwen 圖像工具已可用，生成黑白鉛筆分鏡總覽圖構圖
-python scripts/storyboard/qwen_storyboard_grid.py --layer2 layer2/layer2-EP01-S01-a.json --generate-all --assemble-grid
-# 使用者指定 Codex 生分鏡圖時（每鏡綁定已核准參考圖，模型必填）：
+# 3. 構圖：生圖工具由使用者選，不自行預設。先偵測、把可用的（不可用的附原因）交給使用者選，只有一個可用也要問
+python scripts/h3d.py imagegen --detect --stage 4 --root .
+python scripts/h3d.py imagegen --set <codex|qwen|manual> --stage 4 --quote "<使用者原話>" --root .   # 寫進 storyboard_engine
+#   codex：Codex 分鏡，每鏡綁定已核准參考圖，--model 必填（使用者指定的模型）；單鏡重畫 --shots EP01-S03-a-SH02
 python scripts/storyboard/codex_storyboard_panels.py --root . --episode EP01 --model <使用者指定模型> --parallel 3
-# 單鏡重畫：--shots EP01-S03-a-SH02
-
-# 若 Qwen 不可用，可用手繪或其他已授權的圖像工具提供對應 shot 的 PNG，並在 Layer 2 設定 sketch_file
+#   qwen：經本機 FreeVideo 的 Qwen-Image 黑白鉛筆分鏡總覽圖
+python scripts/storyboard/qwen_storyboard_grid.py --layer2 layer2/layer2-EP01-S01-a.json --generate-all --assemble-grid
+#   manual：使用者手繪或其他已授權工具提供對應 shot 的 PNG，並在 Layer 2 設定 sketch_file
+# 已選的工具之後不可用時，h3d next 會警告並重新詢問
 
 # 4. 單鏡修改與重抽（若構圖不佳，微調秒數或重新繪製）
 python scripts/storyboard/patch_shot.py --file layer2/layer2-EP01-S01-a.json --shot SH03 --shot-size CU --duration 3.5 --absorb-from SH04
 python scripts/storyboard/qwen_storyboard_grid.py --layer2 layer2/layer2-EP01-S01-a.json --redraw-shot SH03 --assemble-grid
 
-# 5. 產出 stage 4 HTML review；只有使用者確認後才記錄核准
+# 5. 綁定 stage 4 審核快照、交收件匣並停下；只有使用者確認後才記錄核准
 python scripts/build_stage_review.py --project-dir . --stage 4
+h3d inbox --root .
 python scripts/build_stage_review.py --project-dir . --approve-stage 4
 ```
+
+> **自動建議：母片底四格構圖板（W46，只建議）**：分鏡定稿後跑 `python scripts/h3d.py staging --root . --layer2`（階段 4 審核頁也會列在「💡 自動建議」）。室內固定場景、已驗收場景母片、≥2 名角色有固定座位／站位、段內有近景或特寫（景別看不到門洞／桌位這類定位結構）、有台詞的文戲段，會建議把該段構圖改成「以場景母片為底重畫的四格構圖板」；武戲、單人、戶外與判不了的段不建議。採用時照 `references/storyboard/spatial-consistency.md` §3：板一律以已驗收母片為底重畫＋店感鎖，整板當參考須 `reference_view: "panel"`＋`panel_label_en`。證據是方向性（老易實驗 D′ 15/16 vs 單用母片 6/8，未達 +25 門檻），所以不擋核准、不改預設編譯；逐鏡 panel＋grid 總覽仍是給人審的，不因建議而改送件流程。
 
 > **stage 4 審核門**：要進入 H3 編譯，每鏡須有對應的有效分鏡總覽圖／單格 PNG，並通過人工 review。圖可由 Qwen、手繪或其他工具製作，需遵循相同 shot 對應與 hash 審核。文字分鏡 draft 可以先交付，不必生成圖或影片。
 
@@ -318,12 +331,12 @@ python scripts/storyboard/compile_layer2_to_h3.py \
 > **段落選填欄位**：`asset_refs.primary_character`（指定綁圖主角）、`metadata.mood_en` / `music_en` / `soundscape_en`（英文摘要、配樂、音效）。
 > **畫風**：取自 `style_lock.anchor`，其次 `assets.md` 的 `style_anchor`，不再寫死 live-action。寫實皮膚 LoRA 只在寫實風格才掛；LoRA 只在含 `Combat_Impact` 鏡頭的段落推導。
 > **旁白**：`speaker` 為旁白／V.O. 時寫成 off-screen narrator，永不成為參考圖主體。
-1. **`subject_definitions`**：定義參考素材與角色對應標籤（`<Picture 1>` 場景圖、`<Picture 2>` 核心角色圖）。嚴格落實**防混臉單圖排序（一段一張角色圖）**，同場其他次要角色轉為純外觀文字描述，防止多角色特徵平均化。
+1. **`subject_definitions`**：定義參考素材與角色對應標籤（`<Picture 1>` 場景圖、`<Picture 2>` 核心角色圖）。Ref2VA 預設**防混臉單圖排序**（只為 `face_subject_ids` 掛臉部參考圖，沒有綁定時 `--max-char-refs` 預設 1），同場其他次要角色轉為純外觀文字描述。「一段一張臉」已不是通則（D3）：新流程用 remix 角色卡維持多人一致，見 `references/consistency.md` §7.1。
 2. **`summary`**：整段秒數、情境氛圍與核心戲劇主旨概述。
 3. **`retention_analysis`**：精確聲明各參考圖的繼承層級（如「保留 Picture 2 面部五官與服裝，服裝顏色嚴格依照設定圖」）。
 4. **`detailed_description`**：`[Shot 1]` ～ `[Shot N]` 逐鏡細節，整合焦距物距、光源名詞映射、官方運鏡詞多樣化子句（**杜絕重複運鏡句與語法錯誤**）、動作力學三要素與角色表情，台詞精確封裝於 `<d>角色：台詞</d>`。**徹底消滅「Then the motion transitions smoothly.」等罐頭廢話**。
 5. **`overall_soundscape`**：環境音效、動作打擊音、喘息與擬音（Foley）。
-6. **`non_diegetic_music`**：非附隨性配樂、BGM 風格與情緒走向。
+6. **`non_diegetic_music`**：非附隨性配樂、BGM 風格與情緒走向。**同一場戲有多段時一律寫 `N/A`**，配樂到後製統一鋪；相鄰段各寫配樂會被 `--check` 的 C4 提醒（見 `references/edit/manju-editing-playbook.md` §8.1）。
 
 ### 5.2 服裝狀態機（`wardrobe_states`）解析
 編譯器依 Layer 2 `asset_refs.characters[].costume_id` 綁定服裝圖，來源為 `bible.json` 的 `wardrobe_states`，或 `assets.md` 角色卡的：
@@ -667,7 +680,7 @@ ffmpeg -i final_ep01.mp4 -af loudnorm=I=-23:TP=-1.5:LRA=11:measured_I=-23.1:meas
 python scripts/storyboard/tts_doctor.py
 python scripts/storyboard/tts_doctor.py --json
 
-# 2. 組裝：--audio-mode auto 逐段裁決（畫內對白留 H3 口型、旁白由外部 TTS 產生）
+# 2. 組裝：--audio-mode auto 逐段裁決（畫內對白留 H3 口型、長旁白由外部 TTS 產生，短畫外句由 H3 念）
 python scripts/storyboard/assemble_episode.py \
   --segments segments-ep01.json \
   --videos-dir videos/ \

@@ -1,0 +1,13 @@
+{
+  "project_id": "fogport",
+  "style_mode": "mystery_thriller",
+  "irreversible_states": ["destroyed", "dead"],
+  "characters": [
+    {"character_id": "C-linwu", "canonical_name": "林霧", "aliases": ["小姐"], "role": "star", "reference_image": "images/C-linwu_W01_sheet_v1.png"},
+    {"character_id": "C-laozhou", "canonical_name": "老周", "aliases": ["守塔人"], "role": "planet", "reference_image": "images/C-laozhou_W01_sheet_v1.png"},
+    {"character_id": "CREATURE-fogwhale", "canonical_name": "霧鯨", "aliases": [], "role": "creature", "reference_image": "images/CREATURE-fogwhale_sheet_v1.png"}
+  ],
+  "props": [{"prop_id": "P-bell", "name": "銅鈴", "initial_state": "intact", "description": "掌心大小的銅鈴"},
+            {"prop_id": "P-scale", "name": "銀鱗", "initial_state": "intact", "description": "霧鯨留下的銀色鱗片"}],
+  "locations": [{"location_id": "S-lighthouse", "name": "燈塔", "description": "海邊石砌燈塔，夜霧"}]
+}
