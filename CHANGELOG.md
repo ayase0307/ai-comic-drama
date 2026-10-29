@@ -7,6 +7,7 @@
 `h3d next` 會讀這份檔案：專案版本章比目前技能舊時，列出中間各版標題提醒重驗。
 
 ## [未發布]
+- 無廢片生成（疊在 #116 上）：`style_lock.tail_freeze_hold` 預設改 false（`compile` 沒寫時不加、`handoff_to_skeleton` 產 false），不再生成每段末 1 秒要剪掉的靜止；`pacing_gate` 新 WARN：有人聲鏡比例 <80%（爆款 Work_01／Work_08 幾乎每鏡有人聲，反應鏡用 L-cut 或旁白）、提示詞含末 1 秒靜止句。舊專案檔案裡明寫 true 的照舊。
 
 ## [0.10.0] - 2026-10-28
 

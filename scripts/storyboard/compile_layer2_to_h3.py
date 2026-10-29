@@ -2405,7 +2405,7 @@ def compile_segment_h3(
     if previous_end_state and not carry_text:
         notes.append("同場景前一段的 segment_end_state 沒有英文終態，未帶入本段第 1 鏡；請在前段 en_overlay.end_state_en 補英文")
     det_lines = [det_header]
-    tail_hold = style_lock.get("tail_freeze_hold", True)
+    tail_hold = style_lock.get("tail_freeze_hold", False)  # v2 無廢片：預設不生成要剪掉的末 1 秒靜止
     final_shot_start = float(shots[-1].get("start_time", 0))
     final_second_start = max(final_shot_start, eff_d - 1.0)
     final_second_has_dialogue = False
