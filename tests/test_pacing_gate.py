@@ -27,3 +27,14 @@ def test_slow_and_long_line_fail():
 def test_sparse_dialogue_warns():
     r = run(seg([{"text": "一二三四五", "start": 0.2, "end": 1.4}], dur=6.0))
     assert "空跑" in r.stdout and r.returncode == 0
+
+def test_role_rates():
+    sys.path.insert(0, str(GATE.parents[1] / "adapt"))
+    sys.path.insert(0, str(GATE.parent))
+    import estimate_duration as ed, handoff_to_skeleton as h
+    assert ed.speaker_rate("沈凡", {"沈凡"}) == 4.0
+    assert ed.speaker_rate("狄韻") == 4.5
+    assert ed.speaker_rate("狄韻(VO)") == 5.5
+    assert h.dialogue_seconds("一二三四五六七八", "male_lead") == 2.3
+    assert h.dialogue_seconds("一二三四五六七八九", "female") == 2.3
+    assert h.dialogue_seconds("字" * 11, audio_type="narration") == 2.3

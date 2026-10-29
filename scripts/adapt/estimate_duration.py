@@ -63,6 +63,21 @@ GENRE_SPEECH_RATES: Dict[str, Tuple[float, float]] = {
     "healing_literary": (3.8, 4.5),
 }
 
+# v2 依角色估時（出處 references/pacing-dialogue-evidence.md）
+ROLE_CHARS_PER_SEC: Dict[str, float] = {"male_lead": 4.0, "female": 4.5, "narration": 5.5}
+_NARRATION_MARKS = ("VO", "V.O", "O.S", "旁白", "內心", "OS")
+
+
+def speaker_rate(speaker: str, male_leads: Optional[set] = None) -> float:
+    """男主（--male-lead 指定）4.0；旁白／畫外／內心 5.5；其餘 4.5。"""
+    sp = speaker or ""
+    if any(m in sp.upper() for m in _NARRATION_MARKS):
+        return ROLE_CHARS_PER_SEC["narration"]
+    if male_leads and any(n and n in sp for n in male_leads):
+        return ROLE_CHARS_PER_SEC["male_lead"]
+    return ROLE_CHARS_PER_SEC["female"]
+
+
 _ASCII_PUNCT = frozenset(string.punctuation)
 
 
@@ -92,6 +107,7 @@ def estimate_script_duration(
     target_seconds: Optional[float] = None,
     h3_mode: bool = False,
     series_format: str = LONGFORM,
+    male_leads: Optional[set] = None,
 ) -> Dict[str, Any]:
     """計算劇本每場與總體時長區間，並檢查單句 TTS 字數限制與 H3 實戰台詞預算。"""
     parsed = parse_and_validate_script(script_text)
@@ -104,6 +120,7 @@ def estimate_script_duration(
     total_min = 0.0
     total_max = 0.0
     total_spoken_chars = 0
+    h3_speech_raw = 0.0
     max_single_line_chars = 0
 
     for sc in parsed["scenes"]:
@@ -120,6 +137,7 @@ def estimate_script_duration(
             c_count = count_spoken_chars(dlg["text"])
             sc_chars += c_count
             total_spoken_chars += c_count
+            h3_speech_raw += c_count / speaker_rate(dlg.get("speaker", ""), male_leads)
             if c_count > max_single_line_chars:
                 max_single_line_chars = c_count
 
@@ -180,7 +198,7 @@ def estimate_script_duration(
     mid_seconds = round((total_min + total_max) / 2.0, 1)
 
     # H3 實戰台詞預算指標計算
-    h3_speech_seconds = round(total_spoken_chars / 4.5, 1)
+    h3_speech_seconds = round(h3_speech_raw, 1)  # v2：依角色語速（男主 4.0／女角 4.5／旁白 5.5）
     base_dur = target_seconds if (target_seconds and target_seconds > 0) else mid_seconds
     h3_speech_ratio = round(h3_speech_seconds / base_dur, 3) if base_dur > 0 else 0.0
 
@@ -534,6 +552,8 @@ def main() -> int:
                         help="目標秒數：短劇模式＝單集目標（省略用 90s）；長篇模式＝整部目標（選填，不給就不做預算比對）")
     parser.add_argument("--h3", action="store_true", help="開啟 H3 漫劇台詞預算嚴格檢查（4字/秒、單句≤15字、說話秒數佔比≤60%%）")
     parser.add_argument("--h3-strict", action="store_true", dest="h3", help="同 --h3")
+    parser.add_argument("--male-lead", action="append", default=[], dest="male_leads",
+                        help="男主角色名（可重複）；其台詞以 4.0 字/秒估時，其餘 4.5、旁白 5.5")
     parser.add_argument("--json", action="store_true", help="輸出 JSON 格式")
     args = parser.parse_args()
 
@@ -655,6 +675,7 @@ def main() -> int:
     # 2. 劇本模式
     res = estimate_script_duration(
         file_text,
+        male_leads=set(args.male_leads) or None,
         genre_mode=args.genre,
         target_seconds=args.target_seconds,
         h3_mode=args.h3,
