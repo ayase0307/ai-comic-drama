@@ -38,3 +38,13 @@ def test_role_rates():
     assert h.dialogue_seconds("一二三四五六七八", "male_lead") == 2.3
     assert h.dialogue_seconds("一二三四五六七八九", "female") == 2.3
     assert h.dialogue_seconds("字" * 11, audio_type="narration") == 2.3
+
+def test_slow_variants_fail():
+    ok = [{"text": "字" * 10, "start": 0.2, "end": 2.6}]
+    for p in ["The camera pushes in at slow speed", "she turns SLOWLY", "Slow Motion impact",
+              "鏡頭緩慢推近", "镜头缓缓推近", "她慢慢轉身"]:
+        r = run(seg(ok, prompt=p))
+        assert r.returncode == 1 and "慢詞" in r.stdout, p
+    s = seg(ok, prompt="鏡頭緩慢推近"); s["allow_slow"] = True
+    assert run(s).returncode == 0
+    assert run(seg(ok, prompt="at fast speed, snaps")).returncode == 0

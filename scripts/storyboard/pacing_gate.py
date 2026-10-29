@@ -10,7 +10,7 @@
   "lines":[{"text","start","end","cut_start":false,"beat_pause":false}],
   "shots":[{"start","end","has_dialogue":bool}]}]}
 
-FAIL：句間空隙 >1.5s（beat_pause 亦不得超過）；提示詞含 slow（allow_slow 例外）；單句 >35 字。
+FAIL：句間空隙 >1.5s（beat_pause 亦不得超過）；提示詞含 slow／緩／缓／慢（含運鏡 at slow speed；allow_slow 例外）；單句 >35 字。
 WARN：句間空隙 >1.0s（beat_pause 0.6–1.2s 例外）；切鏡後 >0.5s 才開口；
       對話段整段密度 <2.8 或 >3.9 字/s（目標 3.0–3.6）；每 15s 開口 <6 次（等比折算、下限 3）；
       無台詞鏡 >5s；連續無台詞 >10s。
@@ -23,7 +23,8 @@ ONSET_MAX = 0.5
 LINE_HARD_MAX = 35
 DENSITY_LOW, DENSITY_HIGH, ONSETS_PER_15 = 2.8, 3.9, 6
 SILENT_SHOT_MAX, SILENT_RUN_MAX = 5.0, 10.0
-SLOW_RE = re.compile(r"\bslow", re.I)
+# 英文 slow/slowly/slow motion/at slow speed（含運鏡速度）與中文 緩/缓/慢 一律擋
+SLOW_RE = re.compile(r"\bslow|[緩缓慢]", re.I)
 
 
 def chars(t):
@@ -33,7 +34,7 @@ def chars(t):
 def check(seg):
     f, w, sid = [], [], seg.get("id", "?")
     if SLOW_RE.search(seg.get("prompt", "")) and not seg.get("allow_slow"):
-        f.append(f"{sid} 提示詞含 slow")
+        f.append(f"{sid} 提示詞含慢詞 {SLOW_RE.search(seg.get('prompt', '')).group(0)}")
     lines = sorted(seg.get("lines", []), key=lambda l: l["start"])
     for a, b in zip(lines, lines[1:]):
         gap = round(b["start"] - a["end"], 2)
