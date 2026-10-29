@@ -108,7 +108,7 @@ VAGUE_CARRY = re.compile(
 # 走位／越軸理由：後一鏡有寫就不報 D20／D24
 BLOCKING_CHANGE = re.compile(
     r"走位|走到|走向|走出|走進|走過|繞到|繞過|繞著|繞|換位|移到|移向|越軸|過軸|軸上|中性鏡|轉身|起身|交換位置|互換"
-    r"|經過|穿過|跨過|跨到|跨步|向[東西南北]|往[東西南北左右前後]|朝[東西南北]走|退到|退後|後退|倒退|退開|退向"
+    r"|經過|穿過|跨過|跨到|跨步|(?<![轉看望朝面])向[東西南北]|往[東西南北左右前後]|朝[東西南北]走|退到|退後|後退|倒退|退開|退向"
     r"|跑到|跑向|衝到|衝向|撲向|滾到|滑到|被.{0,4}(?:打飛|撞飛|甩飛)"
     r"|\bwalks?\b|\bcross(?:es|ing)?\b|\bcircles?\b|\bmoves? (?:to|toward|around|behind|past)\b|\bsteps? (?:to|around|behind|past|back)\b"
     r"|\bswap(?:s|ped)?\b|\btrade places\b|\bturns? around\b|\bon[- ]axis\b|\bneutral (?:shot|angle)\b|\baxis\b"
@@ -879,6 +879,54 @@ def lint_seam_positions(prev: Dict[str, Any], seg: Dict[str, Any]) -> List[Findi
             if f["code"] in ("D23", "D24")]
 
 
+def lint_reverse_history(seg: Dict[str, Any], prev: Optional[Dict[str, Any]] = None,
+                         scene_shots: Optional[List[Tuple[str, Dict[str, Any]]]] = None) -> List[Finding]:
+    """D24（不相鄰）：本段每一鏡和「同場更早、共同角色 ≥2 人、都有方位角」的最近一鏡比（不限相鄰；相鄰的由
+    _lint_positions_pair 處理）。方位角差 >90° 而左右順序沒換、中間也沒寫走位 → D24。
+    scene_shots：同場更早各段的 (段號, 鏡)；沒給就只用 prev 的鏡。"""
+    if not transition_planned(seg):
+        return []
+    history: List[Tuple[str, Dict[str, Any]]] = list(scene_shots) if scene_shots is not None else \
+        [(_sid(prev), s) for s in _shots(prev)] if prev is not None else []
+    shots = _shots(seg)
+    out: List[Finding] = []
+    for idx, b in enumerate(shots):
+        pb = {str(p["id"]): p for p in shot_positions(b)}
+        if len(pb) < 2 or azimuth(b) is None:
+            continue
+        pool = [(_sid(seg), k, s) for k, s in enumerate(shots[:idx])][::-1] + \
+               [(sid, None, s) for sid, s in history][::-1]
+        between = [b]
+        for pos_i, (sid, k, a) in enumerate(pool):
+            pa = {str(p["id"]): p for p in shot_positions(a)}
+            shared = [x for x in pa if x in pb]
+            oa, ob = _order(pa, shared), _order(pb, shared)
+            if len(oa) < 2 or len(ob) < 2 or azimuth(a) is None:
+                between.append(a)
+                continue
+            if pos_i == 0 and (k is not None or (idx == 0 and prev is not None and seam_in(seg))):
+                break  # 相鄰的一對已由 _lint_positions_pair／lint_seam_positions 檢查
+            ang = angle_diff(a, b)
+            # 走位理由：本鏡的動機／blocking／motion，或中間各鏡裡「共同角色」自己的 positions[].move
+            moved = bool(BLOCKING_CHANGE.search(_blocking_text(b, pb, shared))) or any(
+                BLOCKING_CHANGE.search(str(p.get("move") or "")) for s in between[1:] for p in shot_positions(s)
+                if str(p["id"]) in shared)
+            world = any(pa[x].get("world") and pb[x].get("world") and _norm_value(pa[x]["world"]) != _norm_value(pb[x]["world"])
+                        for x in shared)
+            if ang is not None and ang > 90 and oa == ob and not moved and not world:
+                ref = f"{sid} {a.get('shot_id') or ''}".strip()
+                out.append(_f("D24", seg, f"和同場較早的 {ref}（方位角 {azimuth(a):.0f}°）比，本鏡方位角 {azimuth(b):.0f}°（差 {ang:.0f}°），"
+                                          f"共同角色左到右仍是 {', '.join(ob)}；反打時畫面左右要互換，或寫出誰走位換了邊",
+                              idx + 1, "shot"))
+            break
+    return out
+
+
+def record_scene_shots(history: List[Tuple[str, Dict[str, Any]]], seg: Dict[str, Any]) -> None:
+    """把本段的鏡記進同場歷史（D24 不相鄰比對用）。"""
+    history.extend((_sid(seg), s) for s in _shots(seg))
+
+
 def lint_background_anchor(seg: Dict[str, Any]) -> List[Finding]:
     """D21（建議）：多人鏡 positions 缺 background_anchor。逐鏡 positions 一律看；段層 positions 只在已啟用時看。"""
     out: List[Finding] = []
@@ -902,9 +950,11 @@ def lint_background_anchor(seg: Dict[str, Any]) -> List[Finding]:
 
 
 def lint_segment(seg: Dict[str, Any], prev: Optional[Dict[str, Any]] = None,
-                 seen_beats: Optional[Dict[str, str]] = None) -> List[Finding]:
+                 seen_beats: Optional[Dict[str, str]] = None,
+                 scene_shots: Optional[List[Tuple[str, Dict[str, Any]]]] = None) -> List[Finding]:
     """單段（含與 prev 的段縫）。prev＝同場前一段；沒有就只查段內與 entry_state 本身。
-    seen_beats：同場更早各段新做過的 beat → 段號（D22 事件帳跨多段比對用；呼叫端累積）。"""
+    seen_beats：同場更早各段新做過的 beat → 段號（D22 事件帳跨多段比對用；呼叫端累積）。
+    scene_shots：同場更早各段的 (段號, 鏡)（D24 不相鄰比對用；呼叫端用 record_scene_shots 累積）。"""
     out: List[Finding] = []
     if prev is not None:
         out += lint_cut_seam(prev, seg)
@@ -918,6 +968,7 @@ def lint_segment(seg: Dict[str, Any], prev: Optional[Dict[str, Any]] = None,
             out.append(_f("D22", seg, f"事件帳 beats_new 的 {', '.join(dup)} 已在 {', '.join(sorted({seen_beats[b] for b in dup}))} 新做過",
                           1, "seam"))
     out += lint_within(seg)
+    out += lint_reverse_history(seg, prev, scene_shots if prev is not None or scene_shots else None)
     out += lint_background_anchor(seg)
     return out
 
@@ -944,14 +995,18 @@ def lint_sequence(segments: Iterable[Dict[str, Any]], waived_of=None) -> List[Di
     rows = []
     prev = None
     beats_by_scene: Dict[str, Dict[str, str]] = {}
+    shots_by_scene: Dict[str, List[Tuple[str, Dict[str, Any]]]] = {}
     for seg in segments:
         same = same_scene(prev, seg)
         key = scene_key(seg) or ""
         if not same:
             beats_by_scene.pop(key, None)
+            shots_by_scene.pop(key, None)
         seen = beats_by_scene.setdefault(key, {})
-        found = lint_segment(seg, prev if same else None, seen)
+        history = shots_by_scene.setdefault(key, [])
+        found = lint_segment(seg, prev if same else None, seen, history)
         record_beats(seen, seg)
+        record_scene_shots(history, seg)
         if waived_of is not None:
             waived = waived_of(seg)
             found = [f for f in found if f["code"] not in waived]

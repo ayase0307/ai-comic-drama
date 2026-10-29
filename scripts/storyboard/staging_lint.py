@@ -395,6 +395,7 @@ def lint_segments(segments: List[Dict[str, Any]], backend_of, lexicon=None, stri
     prev = None
     board_ctx = board_advisor.load_context(root)
     beats_by_scene: Dict[str, Dict[str, str]] = {}
+    shots_by_scene: Dict[str, List[Tuple[str, Dict[str, Any]]]] = {}
     for seg in segments:
         same_scene = prev is not None and (not seg.get("scene_id") or not prev.get("scene_id")
                                            or seg.get("scene_id") == prev.get("scene_id"))
@@ -407,9 +408,12 @@ def lint_segments(segments: List[Dict[str, Any]], backend_of, lexicon=None, stri
         key = transition_lint.scene_key(seg) or ""
         if not t_same:
             beats_by_scene.pop(key, None)
+            shots_by_scene.pop(key, None)
         seen = beats_by_scene.setdefault(key, {})
-        findings += transition_findings(seg, prev if t_same else None, seen)
+        history = shots_by_scene.setdefault(key, [])
+        findings += transition_findings(seg, prev if t_same else None, seen, history)
         transition_lint.record_beats(seen, seg)
+        transition_lint.record_scene_shots(history, seg)
         rows.append({"segment_id": seg.get("segment_id"), "backend": backend, "findings": findings,
                      "ok": not any(f["level"] == "error" for f in findings)})
         prev = seg
@@ -417,10 +421,11 @@ def lint_segments(segments: List[Dict[str, Any]], backend_of, lexicon=None, stri
 
 
 def transition_findings(seg: Dict[str, Any], prev: Optional[Dict[str, Any]] = None,
-                        seen_beats: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
+                        seen_beats: Optional[Dict[str, str]] = None,
+                        scene_shots: Optional[List[Tuple[str, Dict[str, Any]]]] = None) -> List[Dict[str, Any]]:
     """D15–D24（鏡間銜接與佔位延續，transition_lint.py）：D21 只建議、其餘警告，strict 不升級；沿用 staging_waivers。"""
     waived, _ = _waived_codes(seg)
-    return [f for f in transition_lint.lint_segment(seg, prev, seen_beats) if f["code"] not in waived]
+    return [f for f in transition_lint.lint_segment(seg, prev, seen_beats, scene_shots) if f["code"] not in waived]
 
 
 def project_strict(root: Optional[Path]) -> bool:

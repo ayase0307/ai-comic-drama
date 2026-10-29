@@ -316,7 +316,7 @@ python scripts/h3d.py staging --root . --layer2 [--explain]   # 階段 4：只�
 | D21 | 多人鏡 `positions` 有人沒寫 `background_anchor` | **建議**（💡，不算警告數） | 建議 | **C**（manju-laoli 背景錨點鎖）；T1 回溯命中率 20%，只是欄位完整度 |
 | D22 | 重演／狀態倒退：事件帳 `beats_new` 的 beat 在同場已新做過、同時在 `beats_done`、上段新做的沒進本段 `beats_done`；上段已完成的一次性事件（站起、坐下、倒地、落地、吞咬、破牆、撞翻、打飛、脫手、奔出）本段首鏡又演（中英關鍵詞，寫成「已／仍／still／already」狀態不報）；入口退回事件前、回原點；段內相鄰鏡同理（match_action／insert 不查） | 警告 | 警告 | **D**（waoowaoo／Toonflow 共識）；T1 盲判 7/18 問題屬此類（觀察） |
 | D23 | 朝向和站位矛盾：`facing` 寫畫左／畫右又指名看 X（`toward`），X 卻在另一邊；方位角差 <90° 時同一人朝向左右對調且沒寫轉身／回頭 | 警告 | 警告 | **A/B**（視線方向） |
-| D24 | 反打沒換邊：相鄰鏡（含同場段縫）方位角差 >90°，共同角色（≥2 人）左右順序沒換、沒寫走位 | 警告 | 警告 | **A/B**（180° 規則） |
+| D24 | 反打沒換邊：相鄰鏡（含同場段縫），以及和同場較早、共同角色 ≥2 人的最近一鏡（不限相鄰）比，方位角差 >90°，左右順序沒換、沒寫走位 | 警告 | 警告 | **A/B**（180° 規則） |
 | W46 | 建議改用「以場景母片為底重畫的四格構圖板」：不是武戲（無 `Combat_Impact`、無自動 `h3_loras`、動作欄無打鬥詞）＋綁已驗收場景母片＋室內（`metadata.interior` 或 handoff `setting.interior`／`int_ext`）＋≥2 名具名角色＋有固定座位／站位（`positions`、`anchor_objects`、blocking 座位詞）＋段內有 MCU／CU／ECU／OTS_CU＋有台詞＋場景參考尚未宣告 `reference_view: panel`；任一判不了就不建議（`scripts/storyboard/board_advisor.py`，規則表 `RULES` 可擴充） | **建議**（💡，不擋送件、不擋核准、不改預設編譯） | 建議（strict 不升級） | 方向性：老易實驗第二批 D′ 15/16 vs 單用母片 A′ 6/8，座位錯／換牆／漂移 0，近景 S01-c 只有 D′ 拉對；未達 +25 門檻；武戲無證據（`spatial-consistency.md` §3） |
 
 - **「每鏡剛好 1 個運鏡句」「鏡長 ≥2 s」不重做**：`--lint-h3` 的 E6（缺運鏡）、E14（同鏡重複運鏡句）、E4（切點間隔／首末鏡 <2 s）早就是錯誤，兩個 backend 共用；衝擊幀串段的短鏡例外照 h3-combat-impact。

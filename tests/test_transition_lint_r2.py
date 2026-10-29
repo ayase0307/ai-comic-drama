@@ -311,8 +311,32 @@ class D24ReverseTests(unittest.TestCase):
         prev = seg("S01-a", [shot("a1", "MS", ("C1", "C2"), az=0, pos=[P("C1", 1), P("C2", 2)])])
         nxt = seg("S01-b", [shot("b1", "CU", ("C1", "C2"), az=170, pos=[P("C1", 1), P("C2", 2)])], seam_in="cut")
         self.assertEqual(codes(tl.lint_segment(nxt, prev)), ["D24"])
-        nxt["seam_in"] = None
-        self.assertNotIn("D24", codes(tl.lint_segment(nxt, prev)))
+        nxt["scene_id"] = "S02"  # 換場就不比
+        self.assertNotIn("D24", codes(tl.lint_sequence([prev, nxt])[1]["findings"]))
+
+
+class D24HistoryTests(unittest.TestCase):
+    """反打沒換邊也比「同場較早、共同角色 ≥2 人」的最近一鏡（不限相鄰）：T2 的 180° 反打沒換邊就是隔了幾鏡。"""
+
+    def test_non_adjacent_reverse_within_segment(self):
+        a = shot("SH1", "MS", ("C1", "C2"), az=0, pos=[P("C1", 1), P("C2", 2)])
+        b = shot("SH2", "CU", ("C3",), az=40, cut="hard", start=3, end=6, pos=[P("C3", 1)])
+        c = shot("SH3", "MS", ("C1", "C2"), az=180, cut="hard", start=6, end=9, pos=[P("C1", 1), P("C2", 2)])
+        found = tl.lint_segment(seg("S", [a, b, c]))
+        self.assertEqual(codes(found), ["D24"])
+        self.assertIn("同場較早", found[0]["message"])
+        c["positions"] = [P("C2", 1), P("C1", 2)]
+        self.assertEqual(tl.lint_segment(seg("S", [a, b, c])), [])
+
+    def test_non_adjacent_reverse_across_segments_and_turn_is_not_a_move(self):
+        s1 = seg("S01-a", [shot("a1", "MS", ("C1", "C2"), az=80, pos=[P("C1", 1), P("C2", 2)])], seam_in="cut")
+        s2 = seg("S01-b", [shot("b1", "CU", ("C3",), az=135, pos=[P("C3", 1, move="向東經過 C1")])], seam_in="cut")
+        s3 = seg("S01-c", [shot("c1", "MS", ("C1", "C2"), az=180, blocking="C1 與 C2 同時轉向西側轉角",
+                                pos=[P("C1", 1), P("C2", 2)])], seam_in="cut")
+        rows = tl.lint_sequence([s1, s2, s3])
+        self.assertEqual(codes(rows[2]["findings"]), ["D24"])  # C3 的走位不算 C1／C2 換邊；「轉向西」只是轉身
+        s3["shots"][0]["positions"][0]["move"] = "C1 繞到 C2 另一側"
+        self.assertEqual(tl.lint_sequence([s1, s2, s3])[2]["findings"], [])
 
 
 class BackwardCompatR2Tests(unittest.TestCase):

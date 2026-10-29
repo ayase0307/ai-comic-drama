@@ -3472,13 +3472,16 @@ def main() -> int:
             if prev_view is not None and not transition_lint.same_scene(prev_view, view):
                 prev_view = None
             seen: Dict[str, str] = {}
+            history: List[Any] = []
             for earlier in ordered_by_scene.get(str(trans_scene.get(sid) or ""), []):
                 if earlier == sid:
                     break
-                if earlier != prev_sid and _view(earlier):
-                    transition_lint.record_beats(seen, _view(earlier))
+                if _view(earlier):
+                    if earlier != prev_sid:
+                        transition_lint.record_beats(seen, _view(earlier))
+                    transition_lint.record_scene_shots(history, _view(earlier))
             waived = transition_lint.waived_codes(view)
-            for f in transition_lint.lint_segment(view, prev_view, seen):
+            for f in transition_lint.lint_segment(view, prev_view, seen, history if prev_view is not None else None):
                 if f["code"] in waived:
                     continue
                 (transition_suggestions if f["level"] == "suggestion" else transition_warnings).append(f["message"])

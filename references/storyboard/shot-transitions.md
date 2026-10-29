@@ -197,7 +197,7 @@ python scripts/h3d.py seamcheck --root <專案> [--segments segments-ep05.json] 
 | D21 | 多人鏡 positions 有人沒寫 `background_anchor`（**建議**，level＝suggestion，不算警告數） | 有逐鏡 `positions`；段層 positions 只在已規劃時 | C |
 | D22 | 重演／狀態倒退：事件帳 beat 重複、上段已完成的事件本段又演、入口退回事件之前、回原點 | 段落已規劃銜接*；段縫要上一段同場 | D |
 | D23 | 朝向和站位矛盾：「朝畫左看 X」而 X 在畫右；角度差 <90° 時同一人朝向左右對調且沒寫轉身／回頭 | 有逐鏡 `positions`（含 `facing`） | A/B |
-| D24 | 反打沒換邊：相鄰鏡（含同場段縫）方位角差 >90°，共同角色（≥2 人）左右順序沒換、沒寫走位 | 兩鏡都有 `positions` 與 `azimuth_deg` | A/B |
+| D24 | 反打沒換邊：相鄰鏡（含同場段縫），以及和同場較早、共同角色 ≥2 人的最近一鏡（不限相鄰）比，方位角差 >90°，左右順序沒換、沒寫走位（共同角色自己的 `positions[].move` 或本鏡 blocking；「轉向西」這類轉身不算走位） | 兩鏡都有 `positions` 與 `azimuth_deg` | A/B |
 
 \* 「已規劃銜接」＝段落有 `seam_in`／`entry_state`／`exit_state`／`beats_done`／`beats_new`，或任一鏡有 `cut_in.type`／`positions`／`beats_new`。**舊專案沒有這些欄位時 D15–D24 一條都不報**（對《噩盡島》ejindao 38 段、ch02 EP05 r5 18 段、golden EP01 實跑皆 0）。
 
