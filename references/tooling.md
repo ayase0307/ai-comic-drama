@@ -32,7 +32,7 @@ python scripts/h3d.py status --root . # 全局狀態（階段／依賴／送件�
 | `collect` | 只把「已完成但沒下載」的工作收回來；影片已在但帳本仍記進行中的段，只查一次服務端並更新帳本 | 批次中斷後 |
 | `resume` | collect 後補送未產出的段；collect 有失敗／漂移就停，處置後用 `--resume-past-failures` 續送其餘缺片段（漂移段要 `submit --segment-id` 明確重送） | 中斷後續跑 |
 | `qa` | 影片驗收＋**證據分級** | 拿到影片後 |
-| `assemble` | 配音、字幕、響度（整片 loudnorm，預設 EBU R128 −23 LUFS／TP −1.5）、拼接；`--output` 預設 `<videos-dir>/final-<集數>.mp4` | 交付前 |
+| `assemble` | 配音、字幕、響度（段層以對白為錨對齊各段對白電平＋整片兩遍 loudnorm，預設 EBU R128 −23 LUFS／TP −1.5；報告列逐段 LUFS／TP，段間對白落差 > 6 LU 出 W49）、拼接；`--output` 預設 `<videos-dir>/final-<集數>.mp4` | 交付前 |
 | `deps` | segment 級依賴帳本（`--record`／`--status`） | 改動後查「哪幾段要重跑」 |
 | `catalog` | 失敗目錄（`--list`／`--check`／`--acks`／`--prune-acks`） | 想知道「這句為什麼會被擋」 |
 | `ack` | 記錄「我接受這條警告」的憑證 | 確認是誤報、但不想改稿時 |
@@ -488,6 +488,16 @@ LoRA 沒裝 → error，附「拿掉 LoRA」與相近的已安裝名稱；多帶
 
 - plan → `edit/full-plan.json`：每段影片（有 `voice/muted/` 就用壓過原聲的版本）、字幕（畫內台詞對齊 ASR 實際時間，對不到沿用分鏡；畫外台詞跟配音）、配音起點、`episode_starts`、`total`。
 - build：Concat headless MCP（`concat.exe --mcp headless`）建**單一全集專案**：T1 影片（`clips_add_sequence`）、T2 字幕（`captions_add`）、T3 畫外音（`clip_add trackId=T3`）；專案已存在就停下不覆蓋。
+
+**`h3d assemble` 的響度（段層對白錨定＋整片兩遍 loudnorm，`scripts/storyboard/dialogue_loudness.py`）**
+
+- 預設開：每段量對白區段（`speech_window`→鏡頭時間→整段 gated integrated）響度，固定增益對齊有對白段的中位數（±12 dB）；無台詞段增益 0（比錨點響 >6 LU 才壓）；增益後峰值超門檻的段過 192 kHz `alimiter`。增益套在 PCM 串接路徑上，音畫同長。整片接兩遍 loudnorm（`measured_*`＋`linear=true`）、AAC 256k、48 kHz。完整理由與坑見 `pipeline.md` §7.4。
+- 旗標：`--no-dialogue-align`（只量測不套）、`--dialogue-anchor <LUFS>`、`--dialogue-max-gain <dB>`、`--loudness-spread-warn <LU>`（預設 6）。
+- 報告：`delivery-*.md`「響度」段與 manifest `loudness`（`dialogue_align`、`film`、`film_loudnorm.normalization_type`、`segments[]` 處理前後 LUFS／TP／增益／旗標、`spread`）；manifest `warnings[]`。
+
+| 代碼 | 規則 | 嚴重度 | 證據 |
+|---|---|---|---|
+| W49 | 成片段間對白電平落差（有對白段在成片內量到的對白區段 LUFS，最大－最小）> `--loudness-spread-warn`（預設 6 LU）；訊息點名最響與最小的段。常見原因：增益被 ±12 dB 上限或 TP 保護截住（報告旗標 `clamped_boost`／`clamped_cut`／`tp_capped`）、`speech_window` 與 H3 實際開口差很多、或用了 `--no-dialogue-align` | 警告（不擋交付；`h3d assemble` 印出並寫進 manifest `warnings`） | measured：《噩盡島》EP01 重跑 30 段，原組裝（整片單遍 loudnorm）段間仍差 13.53 LU（對白區段 13.73 LU）；對白錨定後 0.48 LU（`--target-lufs -16`） |
 
 ## 2.8 階段 6 動態 QA 與後製變速（h3d motion／h3d ramp）
 
