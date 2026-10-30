@@ -18,7 +18,7 @@ SCRIPT = """第1集｜測試
 
 class EstimateVoTests(unittest.TestCase):
     def test_voiceover_not_counted_as_h3_speech(self):
-        r = ed.estimate_script_duration(SCRIPT, genre_mode="drama", h3_mode=True)
+        r = ed.estimate_script_duration(SCRIPT, genre_mode="drama", h3_mode=True, male_leads={"沈洛年"})
         self.assertGreater(r["voiceover_chars_excluded"], 0)
         self.assertEqual(r["h3_speech_seconds"], round(ed.count_spoken_chars("你來了。") / 4.0, 1))
 

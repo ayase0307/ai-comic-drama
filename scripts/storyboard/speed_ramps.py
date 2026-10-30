@@ -42,6 +42,9 @@ DEFAULT_RULES: Dict[str, Any] = {
     "float": [1.8, 2.0],       # 騰空水平飄浮（光流抓不到，人工標）
     "impact": 1.0,
     "dialogue": 1.0,
+    "talk_tail": 2.0,          # v2：最後一句說完、主體動作<峰值20%且≥0.5s → 剪到0.3s或2×
+    "talk_tail_keep_s": 0.3,
+    "general": [1.1, 1.3],     # v2：非對嘴鏡整段可加速；對嘴特寫≤1.1
     "max_speed": 3.0,
     "protect_corr_min": 0.98,  # 台詞保護區變速前後音訊相關係數下限
 }
