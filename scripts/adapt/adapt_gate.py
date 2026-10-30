@@ -14,7 +14,9 @@ adapt_gate.py — 台詞優先改編自檢門（dialogue-first adaptation gate�
   G13 分集斷點：集尾有 `<!-- episode-end: 「原著錨點」 | 理由 -->`；錨點 2–30 字、在原著段落逐字出現，理由非空
   G12 原著出處範圍已填（`<!-- source: 卷X Ln-Lm -->`）
   G10 內容安全：全員成年、不性化（關鍵詞掃描＋人物表聲明）
-警告（WARN）：平均行長 >13、旁白／內心 VO >30%、補寫台詞數（記帳）、無結尾鉤子旁白檢查。
+警告（WARN）：平均行長 >13、旁白／內心 VO >30%、補寫台詞數（記帳）、無結尾鉤子旁白檢查、
+  刻意停頓每集 >3 處、建立鏡每場 >1 處。
+備註（NOTE，不影響狀態）：--source-text 略過的疑似專有名詞引號；原著對白全保留時密度 3.6–3.9（可接受）。
 僅使用 Python 標準庫。
 """
 from __future__ import annotations
@@ -36,6 +38,8 @@ from dialogue_budget import (  # noqa: E402
 QUOTE_RE = re.compile(r"「([^「」]+)」")
 COVERAGE_MIN_RATIO = 0.85  # 允許脫水（拆句、去語助詞），不允許刪句
 DENSITY_FAIL = (2.8, 3.9)
+PAUSE_PER_EPISODE_MAX = 3      # references/adapt/dialogue-first-adaptation.md：刻意停頓每集 ≤3 處
+ESTABLISH_PER_SCENE_MAX = 1    # 建立鏡每場 ≤1 處
 SILENCE_WARN, SILENCE_FAIL = 5.0, 10.0
 # 內容安全：未成年描寫或性化描寫的關鍵詞（命中即 FAIL，需人工改寫後重跑）
 MINOR_TERMS = ("未成年", "幼女", "蘿莉", "女童", "男童", "小學生", "國中生", "初中生", "高中生", "童顏")
@@ -47,9 +51,33 @@ def normalize(text: str) -> str:
     return "".join(ch for ch in text if speech_chars(ch))
 
 
-def source_quotes(novel_text: str) -> List[str]:
-    """從原著段落抽出所有「」內台詞（巢狀引號以外層為單位）。"""
-    return [q.strip() for q in QUOTE_RE.findall(novel_text) if normalize(q)]
+# v118 #7：「」也用來標專有名詞（旅館名、招式名…）。沒有句讀、不在段首或冒號後、後面也沒接說話動詞的
+# 引號視為名詞，不算台詞（例：「蛙仙大旅社」）。不確定時用 --source-quotes 給人工清單。
+_SENTENCE_PUNCT_RE = re.compile(r"[。！？!?…,，、～~—.；;：:]")
+_SPEECH_LEAD_RE = re.compile(r"(?:[：:]\s*|^\s*|\n\s*)$")
+_SPEECH_TAIL_RE = re.compile(r"^\s*(?:他|她|我|你|牠|它)?(?:說|道|問|喊|叫|答|笑|嘆|嚷)")
+
+
+def _is_dialogue_quote(text: str, start: int, end: int, body: str) -> bool:
+    if _SENTENCE_PUNCT_RE.search(body):
+        return True
+    if _SPEECH_LEAD_RE.search(text[max(0, start - 8):start]):
+        return True
+    return bool(_SPEECH_TAIL_RE.match(text[end:end + 4]))
+
+
+def source_quotes(novel_text: str, skipped: Optional[List[str]] = None) -> List[str]:
+    """從原著段落抽出「」內台詞（巢狀引號以外層為單位）；疑似專有名詞的引號放進 skipped。"""
+    out: List[str] = []
+    for m in QUOTE_RE.finditer(novel_text):
+        q = m.group(1).strip()
+        if not normalize(q):
+            continue
+        if _is_dialogue_quote(novel_text, m.start(), m.end(), q):
+            out.append(q)
+        elif skipped is not None:
+            skipped.append(q)
+    return out
 
 
 def coverage(quotes: List[str], script: Script) -> Dict[str, object]:
@@ -79,19 +107,37 @@ def run_gate(script_text: str, novel_text: Optional[str] = None, quotes: Optiona
     fails: List[str] = []
     warns: List[str] = []
 
+    skipped_terms: List[str] = []
     if quotes is None and novel_text is not None:
-        quotes = source_quotes(novel_text)
+        quotes = source_quotes(novel_text, skipped_terms)
     cov = coverage(quotes, sc) if quotes is not None else None
     if cov is None:
         fails.append("G1 未提供原著段落／台詞清單，無法核對對白覆蓋（--source-text 或 --source-quotes）")
     elif cov["missing"]:
         fails.append(f"G1 原著對白覆蓋 {cov['covered']}/{cov['total']}，缺：" + "｜".join(cov["missing"][:5]))
 
+    notes: List[str] = []
+    if skipped_terms:
+        notes.append("G1 「」內疑似專有名詞、未計入原著對白：" + "、".join(skipped_terms[:8])
+                     + "（若其實是台詞，改用 --source-quotes）")
     d = st["density"]
+    full_source = bool(cov) and not cov["missing"] and cov["total"] > 0
     if d < DENSITY_FAIL[0] or d > DENSITY_FAIL[1]:
         fails.append(f"G3 密度 {d} 字/秒 超出 {DENSITY_FAIL[0]}–{DENSITY_FAIL[1]}（目標 {DENSITY_MIN}–{DENSITY_MAX}）")
+    elif d > DENSITY_MAX and full_source:
+        # v118 #8：原著對白全保留時密度偏高（≤3.9）是台詞優先的結果；不刪原著對白、也不為壓密度多加停頓秒數
+        notes.append(f"G3 密度 {d} 字/秒 高於目標 {DENSITY_MAX}，但原著對白全保留且未超過 {DENSITY_FAIL[1]}：可接受，"
+                     "不刪原著對白、不為壓密度多加停頓／建立秒數")
     elif d < DENSITY_MIN or d > DENSITY_MAX:
         warns.append(f"G3 密度 {d} 字/秒 不在目標 {DENSITY_MIN}–{DENSITY_MAX}")
+    for ep_i, ep in enumerate(split_episodes(sc), start=1):
+        pauses = [ln for s in ep for ln in s.lines if ln.kind == "action" and ln.note == "停頓"]
+        if len(pauses) > PAUSE_PER_EPISODE_MAX:
+            warns.append(f"G3 第 {ep_i} 集刻意停頓 {len(pauses)} 處 > {PAUSE_PER_EPISODE_MAX}（每集上限；多的改成和說話並行）")
+        for s in ep:
+            est = [ln for ln in s.lines if ln.kind == "action" and ln.note == "建立"]
+            if len(est) > ESTABLISH_PER_SCENE_MAX:
+                warns.append(f"G3 L{s.lineno} 本場建立鏡 {len(est)} 處 > {ESTABLISH_PER_SCENE_MAX}（每場上限）")
 
     for s in sc.scenes:
         m = HEADING_RE.match(s.heading)
@@ -139,6 +185,7 @@ def run_gate(script_text: str, novel_text: Optional[str] = None, quotes: Optiona
 
     info = {"target_seconds": target_seconds, "seconds": st["seconds"]} if target_seconds else None
     return {"status": "FAIL" if fails else ("WARN" if warns else "PASS"), "fails": fails, "warns": warns,
+            "notes": notes,
             "stats": st, "breaks": sc.breaks, "length_info": info, "coverage": cov, "sources": sc.sources,
             "invented": [ln.raw for s in sc.scenes for ln in s.dialogue if ln.invented]}
 
@@ -163,6 +210,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             print("  FAIL", f)
         for w in res["warns"]:
             print("  WARN", w)
+        for n in res.get("notes") or []:
+            print("  NOTE", n)
     return 1 if res["fails"] else 0
 
 

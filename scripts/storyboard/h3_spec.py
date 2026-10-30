@@ -33,6 +33,13 @@ MAX_SUPPORTED_FRAMES = 362
 
 ROUNDING_MODES = ("floor", "round", "ceil")
 
+# 鏡長下限（v118 規則衝突 #1／E4）：
+#   MIN_SHOT_SEC＝#116 說話窗口下限（字數÷角色語速＋0.3 s，最低 1.2 s），低於它是硬錯誤；
+#   SHOT_SOFT_MIN_SEC＝上游 H3 指南「shot ≥ 2 s」（切點誤差約 0.12 s，inferred），
+#   1.2–2.0 s 的鏡只出提醒、不擋（未在 H3 實測）。首切點、相鄰切點、末切點留白都用同一組數字。
+MIN_SHOT_SEC = 1.2
+SHOT_SOFT_MIN_SEC = 2.0
+
 # 伺服器端「秒數 → 影格」的取整方向依 provider 而定（PR-R1，video_backend）：
 #   - freevideo（Ref2VA，VDN-H3）：往上取到 17n+5（2026-10-19 實測 11.542s → 294 幀）。
 #   - remix（REMIX Studio＋RefMod 角色包，Singularity ref2va V1.3 int8）：往下取
