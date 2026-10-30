@@ -33,6 +33,9 @@ MAX_SUPPORTED_FRAMES = 362
 
 ROUNDING_MODES = ("floor", "round", "ceil")
 
+# 秒數換幀時的吸附容差（幀）：0.05 幀 ≈ 2 ms，遠小於 1 幀，足以吸收 3–4 位小數的手寫秒數誤差（SB-2）。
+FRAME_SNAP_TOL = 0.05
+
 # 鏡長下限（v118 規則衝突 #1／E4）：
 #   MIN_SHOT_SEC＝#116 說話窗口下限（字數÷角色語速＋0.3 s，最低 1.2 s），低於它是硬錯誤；
 #   SHOT_SOFT_MIN_SEC＝上游 H3 指南「shot ≥ 2 s」（切點誤差約 0.12 s，inferred），
@@ -130,7 +133,13 @@ def frames_for(seconds: float, rounding: str = "floor") -> int:
     seconds = float(seconds)
     if seconds <= 0:
         raise ValueError("seconds must be > 0")
-    raw_steps = (seconds * FPS - FRAME_QUANTUM_OFFSET) / FRAME_QUANTUM_STEP
+    raw_frames = seconds * FPS
+    # SB-2：手寫秒數常是幀數÷24 的 4 位小數（107 幀寫 4.4583 s → 106.9992 幀），直接 floor 會整整少一個
+    # 量子（90 幀）；離整數幀不到 FRAME_SNAP_TOL 就先吸附到該整數幀再取整（ceil 方向同理，107.0008 不會跳到 124）。
+    nearest = round(raw_frames)
+    if abs(raw_frames - nearest) < FRAME_SNAP_TOL:
+        raw_frames = float(nearest)
+    raw_steps = (raw_frames - FRAME_QUANTUM_OFFSET) / FRAME_QUANTUM_STEP
     if rounding == "ceil":
         steps = max(1, math.ceil(raw_steps))
     elif rounding == "round":
