@@ -35,7 +35,9 @@ import h3_spec  # noqa: E402
 from shot_intent import cross_segment_intent_errors, segment_intent_errors, shot_intent_errors  # noqa: E402
 
 BEAT_TYPES = ("Expository_Fast", "Suspense_Delay", "Dramatic_Core", "Combat_Impact", "Reaction_OTS")
-PACING_PROFILES = ("Slow_Cinematic", "Standard_Narrative", "Fast_ShortDrama")
+# Fast_Dialogue（EP01 findings #6）：快節奏對話（#116 角色語速、#120 1.2 s 鏡長下限），長篇模式的文戲用它，
+# 不必借 Fast_ShortDrama（那是直式短劇／高燃打鬥）。只是 enum 標籤，不改任何門檻。
+PACING_PROFILES = ("Slow_Cinematic", "Standard_Narrative", "Fast_ShortDrama", "Fast_Dialogue")
 _CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 
 if sys.platform.startswith("win"):
@@ -273,10 +275,13 @@ def load_handoff_dialogues(handoff: dict) -> dict:
 
 
 SHOT_SIZES = ("ELS", "LS", "MLS", "MS", "MCU", "CU", "ECU", "OTS_MS", "OTS_CU")
+CLOSE_SHOT_SIZES = ("MS", "MCU", "CU", "ECU", "OTS_MS", "OTS_CU")  # 6e：中景以內的主鏡
 SHOT_SIZE_ALIASES = {"WS": "LS", "EWS": "ELS", "XLS": "ELS", "MWS": "MLS", "OTS": "OTS_MS 或 OTS_CU", "XCU": "ECU", "BCU": "ECU"}
 
 
-def validate_storyboard_data(data: dict, original_script_dialogues: list = None) -> dict:
+def validate_storyboard_data(data: dict, original_script_dialogues: list = None, ref_ids: set = None,
+                             voice_only_ids: set = None) -> dict:
+    """ref_ids：有參考包或設定圖的角色 id（load_reference_ids 由專案根目錄讀）；給了才跑 6e。"""
     format_errors = layer2_format_errors(data)
     if format_errors:
         return {"passed": False, "errors": format_errors, "warnings": [], "checks_passed": []}
@@ -458,6 +463,19 @@ def validate_storyboard_data(data: dict, original_script_dialogues: list = None)
         is_back_or_partial = any(
             k in combined_visual.lower() for k in ["背影", "剪影", "失焦", "局部", "畫外音", "back view", "silhouette", "blurred"]
         )
+        # Check 6e（SB-4）：改以角色表／包清單比對——character_ids 裡沒有參考包也沒有設定圖的角色佔 MS 以上主鏡
+        # （關鍵字清單擋不到「導遊」這類配角；REMIX refcheck E50 要到階段 5 才擋）。只警告：階段 4 時包可能還沒建。
+        if ref_ids is not None and shot_size in CLOSE_SHOT_SIZES and not is_back_or_partial:
+            _hidden_ids = set(str(x) for x in (s.get("no_visual_reference_ids") or [])) \
+                | set(str(x) for x in ((data.get("asset_refs") or {}).get("no_visual_reference_ids") or []))
+            _unref = [c for c in (s.get("character_ids") or [])
+                      if c and "旁白" not in str(c) and not str(c).upper().startswith(("NARRATOR", "VO-", "N-"))
+                      and c not in ref_ids and c not in (voice_only_ids or set()) and c not in _hidden_ids]
+            if _unref:
+                warnings.append(
+                    f"[{sid} 6e 無參考包角色主鏡] {'、'.join(map(str, _unref))} 沒有角色包／設定圖，卻在 {shot_size} 主鏡；"
+                    f"H3／REMIX 會照文字自由發揮、每段長得不一樣。進階段 5 前補階段 2 設定圖或 ejin3／REMIX 包"
+                    f"（assets/character-packs.json），或改背影／失焦／畫外音。")
         if has_npc_victim and not has_protagonist_or_creature and not is_back_or_partial and shot_size in ("MS", "MCU", "CU", "ECU"):
             errors.append(
                 f"[{sid} 無參考圖路人主鏡畫風漂移攔截] 鏡頭以無設定圖之路人（如幼童/婦人）作為 {shot_size} 正面主體，"
@@ -816,6 +834,68 @@ def _segment_anchor_names(data: dict) -> list:
     return names
 
 
+def find_project_root(path) -> "Path | None":
+    """從 layer2 檔往上找專案根目錄（有 adapt/bible.json、assets/character-packs.json 或 assets.md）。"""
+    p = Path(path).resolve()
+    for cand in [p.parent, *p.parents][:4]:
+        if (cand / "adapt" / "bible.json").is_file() or (cand / "assets" / "character-packs.json").is_file() \
+                or (cand / "assets.md").is_file():
+            return cand
+    return None
+
+
+def load_reference_ids(root) -> tuple:
+    """(ref_ids, voice_only_ids)：有參考包或設定圖的角色、只聞其聲的角色。找不到任何角色表回 (None, set())。
+
+    參考來源：assets/character-packs.json 的 packs、bible.json 角色的 reference_image／image_path／ref_img、
+    assets.md `### <ID>` 區塊裡的 images/*.png、images/ref/<id>_front.png（Codex 構圖用的正面裁切）。"""
+    if root is None:
+        return None, set()
+    root = Path(root)
+    ref_ids, voice_only, found = set(), set(), False
+    packs_path = root / "assets" / "character-packs.json"
+    if packs_path.is_file():
+        found = True
+        try:
+            packs = json.loads(packs_path.read_text(encoding="utf-8-sig")).get("packs") or {}
+        except (OSError, ValueError, AttributeError):
+            packs = {}
+        for pid, rec in (packs.items() if isinstance(packs, dict) else []):
+            if isinstance(rec, dict) and (rec.get("voice_only") or rec.get("no_visual_reference")):
+                voice_only.add(str(pid))
+            else:
+                ref_ids.add(str(pid))
+    bible_path = root / "adapt" / "bible.json"
+    if bible_path.is_file():
+        found = True
+        try:
+            bible = json.loads(bible_path.read_text(encoding="utf-8-sig"))
+        except (OSError, ValueError):
+            bible = {}
+        chars = bible.get("characters") or [] if isinstance(bible, dict) else []
+        for rec in (chars.values() if isinstance(chars, dict) else chars):
+            if not isinstance(rec, dict):
+                continue
+            cid = str(rec.get("id") or rec.get("character_id") or "")
+            if not cid:
+                continue
+            if rec.get("voice_only") or rec.get("no_visual_reference"):
+                voice_only.add(cid)
+            if any(rec.get(k) for k in ("reference_image", "image_path", "ref_img")):
+                ref_ids.add(cid)
+    assets_md = root / "assets.md"
+    if assets_md.is_file():
+        found = True
+        for m in re.finditer(r"^###\s+([A-Z]+-[A-Za-z0-9_-]+)(.*?)(?=^#{2,3}\s|\Z)",
+                             assets_md.read_text(encoding="utf-8"), re.M | re.S):
+            if re.search(r"images/[A-Za-z0-9_./-]+\.png", m.group(2)):
+                ref_ids.add(m.group(1))
+    ref_dir = root / "images" / "ref"
+    if ref_dir.is_dir():
+        ref_ids.update(p.name[:-len("_front.png")] for p in ref_dir.glob("*_front.png"))
+    return (ref_ids if found else None), voice_only
+
+
 def check_segment_seams(datas: list) -> list:
     """D05：同一場景相鄰兩段（依段序）的接縫提醒；只警告、不影響 passed。"""
     by_scene: dict = {}
@@ -838,6 +918,7 @@ def main():
                         help="handoff JSON（多集專案可給多個或萬用字元，如 handoff-ep*.json）；提供時核對各場景台詞與劇本逐字一致（段落自動依段序合併）")
     parser.add_argument("--scene", help="搭配 --handoff，只核對指定場景，例如 EP01-S01")
     parser.add_argument("--demo", action="store_true", help="執行內建合規與防呆攔截雙向回歸測試")
+    parser.add_argument("--root", help="專案根目錄（6e 讀角色包／設定圖清單）；不給時從第一個 layer2 檔往上找")
     args = parser.parse_args()
 
     if args.demo or not args.file:
@@ -884,7 +965,10 @@ def main():
         sys.exit(1)
 
     try:
-        files = {path: validate_storyboard_data(data) for path, data in zip(args.file, datas)}
+        root = args.root or (find_project_root(args.file[0]) if args.file else None)
+        ref_ids, voice_only_ids = load_reference_ids(root)
+        files = {path: validate_storyboard_data(data, ref_ids=ref_ids, voice_only_ids=voice_only_ids)
+                 for path, data in zip(args.file, datas)}
         dialogue = check_dialogue_groups(datas, handoff, args.scene) if handoff is not None else {}
         cross_slop = check_cross_segment_slop(datas)
     except Exception as exc:  # 最後防線：未預期的資料異常只印錯誤訊息，不噴 traceback

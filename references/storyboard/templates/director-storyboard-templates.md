@@ -9,7 +9,7 @@
 ### 1. 跨切片場記握手與 9 欄全景分鏡表（適合多鏡頭序列統籌）
 
 ```markdown
-- **場次與切片**：`[Scene_ID / Clip_ID]` ｜ **總時長**：`[12.0s]` ｜ **畫幅**：`[16:9 / 9:16]` ｜ **節奏檔位**：`[Slow_Cinematic / Standard / Fast_ShortDrama]`
+- **場次與切片**：`[Scene_ID / Clip_ID]` ｜ **總時長**：`[12.0s]` ｜ **畫幅**：`[16:9 / 9:16]` ｜ **節奏檔位**：`[Slow_Cinematic / Standard / Fast_ShortDrama / Fast_Dialogue]`
 - **跨組握手協議**：`[SEAMLESS_CONTINUATION (同場動作順接 + J/L-Cut) / HARD_CUT_ESTABLISH (時空跳躍硬切重置)]`
 - **上段實測尾態承接 (Observed End State)**：`[人物於實體參照物之位置 | 不可逆道具/傷痕狀態 | 待續溢出台詞]`
 - **全域色卡與光影鎖定**：`[聯動 lighting-color-palette-card 五層 HEX 色階與主光源方向]`

@@ -16,6 +16,7 @@
     E50 具名資產沒有包：提示詞命中某資產的詞、或段落在場名單（visual_subject_ids…）有它，
         refmods 卻沒有它的包（看 id，或計畫表登記的包名／服裝變體包名）。
     E50 豁免缺原話：pack_waivers 沒有 quote（使用者原話）不算豁免。
+    bible／計畫表標 `voice_only` 或 `no_visual_reference` 的角色只聞其聲、不需要包：提示詞寫到名字或在場名單有他都不報 E50。
     E51 未綁包的人群字眼：students／crowd／people／classmates／others／bystanders 等，
         段落沒有 kind=extras 的包、句中也沒有不可辨識寫法（失焦／剪影）→ REMIX 會長出沒綁包的陌生人。
         「as tall as the others」這類比例錨、「no other people／without other people」否定句不算（肯定句 other people 照報）。
@@ -134,6 +135,9 @@ def load_lexicon(root: Optional[Path], pack_plan: Optional[Dict[str, Any]] = Non
     def entry(asset_id: str, rec: Dict[str, Any], default_kind: str) -> Dict[str, Any]:
         item = lex.setdefault(asset_id, {"kind": _kind_of(asset_id, rec, default_kind), "terms": [],
                                          "regexes": [], "packs": set(), "label": asset_id})
+        if rec.get("voice_only") or rec.get("no_visual_reference"):
+            # EP01 findings #5：只聞其聲的角色不需要參考包（畫面上沒有他），不報 E50
+            item["voice_only"] = True
         name = rec.get("name") or rec.get("canonical_name")
         if name and item["label"] == asset_id:
             item["label"] = str(name)
@@ -303,6 +307,8 @@ def check_segment(seg: Dict[str, Any], lexicon: Dict[str, Dict[str, Any]], backe
         missing.append(f"{asset_id}（{item.get('label', asset_id)}，{why}；要 {want}）")
 
     for asset_id, item in lexicon.items():
+        if item.get("voice_only"):
+            continue  # 只聞其聲：提示詞寫到名字（畫外音說話人）也不需要包
         for rx in item["regexes"]:
             m = rx.search(body)
             if m:
@@ -311,6 +317,8 @@ def check_segment(seg: Dict[str, Any], lexicon: Dict[str, Dict[str, Any]], backe
                 break
     if include_presence:
         for asset_id in _named_ids(seg):
+            if (lexicon.get(asset_id) or {}).get("voice_only"):
+                continue
             if asset_id in lexicon and not lexicon[asset_id]["regexes"]:
                 no_terms.append(asset_id)
             elif asset_id not in lexicon:

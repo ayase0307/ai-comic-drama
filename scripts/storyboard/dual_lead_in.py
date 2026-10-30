@@ -62,6 +62,28 @@ def has_dialogue(shot: Dict[str, Any]) -> bool:
     return dlg.get("has_dialogue") is True or bool(_line_of(shot))
 
 
+def has_onscreen_dialogue(shot: Dict[str, Any]) -> bool:
+    """這鏡有沒有畫內對話（看得到嘴在說）：主句或 extra_lines 任一句不是旁白／畫外／內心 VO。
+
+    EP01 findings #7：純內心 VO 段沒有對戲的人在畫外等著接話，W47 不該建議引子。"""
+    if not has_dialogue(shot):
+        return False
+    try:
+        from dialogue_density import is_voiceover_line
+    except ImportError:  # pragma: no cover - 套件匯入路徑
+        from .dialogue_density import is_voiceover_line
+    dlg = shot.get("dialogue_and_audio") or {}
+    if not dlg:
+        return True  # 舊格式只有 subtitle／line_verbatim：維持原判斷
+    if dlg.get("voice_only") is not True and not is_voiceover_line(dlg) and _line_of(shot):
+        return True
+    for ex in dlg.get("extra_lines") or []:
+        if isinstance(ex, dict) and str(ex.get("line_verbatim") or "").strip() \
+                and ex.get("voice_only") is not True and not is_voiceover_line(ex):
+            return True
+    return False
+
+
 def marked(seg: Dict[str, Any]) -> bool:
     return any(s.get("dual_lead_in") is True for s in _shots(seg))
 
@@ -248,7 +270,7 @@ def suggest(seg: Dict[str, Any], prev: Optional[Dict[str, Any]] = None) -> Optio
     """回傳建議訊息或 None。條件（全部符合才建議）：
     同場上一段存在、本段段縫不是同機位續接（seam_in≠cont，且上一段末鏡不是同主體同景別）、不是武戲、
     本段第 1 鏡是單人且 MS 或更近、
-    本段有台詞、本段＋同場上一段合計 ≥2 名具名角色、還沒標 dual_lead_in。"""
+    本段有畫內台詞（純旁白／內心 VO 段不算）、本段＋同場上一段合計 ≥2 名具名角色、還沒標 dual_lead_in。"""
     shots = _shots(seg)
     if not shots or marked(seg) or not _same_scene(seg, prev):
         return None
@@ -260,8 +282,8 @@ def suggest(seg: Dict[str, Any], prev: Optional[Dict[str, Any]] = None) -> Optio
     ids = _ids(first)
     if len(ids) != 1 or not _is_close(_size(first)):
         return None
-    if not any(has_dialogue(s) for s in shots):
-        return None
+    if not any(has_onscreen_dialogue(s) for s in shots):
+        return None  # 沒有畫內對話（純內心／旁白 VO 段）：沒有畫外對戲的人，不建議引子
     prev_shots = _shots(prev)
     if prev_shots and _ids(prev_shots[-1]) == ids and _size(prev_shots[-1]) == _size(first):
         return None  # 同主體同景別接過來＝同一顆鏡頭拆兩段（續接），不是硬切

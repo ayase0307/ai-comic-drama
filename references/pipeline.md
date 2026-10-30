@@ -376,7 +376,7 @@ H3 的聲音與畫面在同一次 forward 生成，輸出是**單一 32 kHz 立�
   - 聲線描述放 `<d>` **外面**（`offscreen_voice_en`，沒有就用 `voice_4d_spec_en`）；`<d>` 裡只放逐字台詞。
   - 只對**露臉者**寫嘴閉合（stage5 `show` 為 face／profile 的 Subject；沒有 `show` 時看 `character_ids`／`lips_closed_lock`）；畫面沒有臉時 V.O. 寫 `no face is on screen`，O.S. 不寫閉嘴句。
   - 同鏡的 Expression 不可寫 mouth open／gasping／lips parted（#123）：H3 會讓露臉者跟著開口，像他在說那句畫外台詞。改寫 `lips pressed tightly shut`。
-  - 短句 ≤18 字（實測 ≤15 字；16–18 字留 H3、只在 `compile_notes` 提醒）、鏡長留夠（約每秒 4 字＋起音）。同鏡接話用 `dialogue_and_audio.extra_lines[]`（每句 `speaker`、`line_verbatim`、`speech_window`、`voice_4d_spec_en`），編譯器逐句給 `<d>`，前一位說話人寫閉嘴。
+  - 短句 ≤18 字（實測 ≤15 字；16–18 字留 H3、只在 `compile_notes` 提醒）、鏡長留夠（約每秒 4 字＋起音）。同鏡接話用 `dialogue_and_audio.extra_lines[]`（每句 `speaker`、`line_verbatim`、`speech_window`、`voice_4d_spec_en`），編譯器逐句給 `<d>`，前一位說話人寫閉嘴。接話句是內心 VO／畫外音（`offscreen_form: voiceover|offscreen`、`audio_type`、`voice_only`，或說話人在 bible 標 `voice_only`）時，照主句同一套畫外句式（`offscreen_voice_en`／`offscreen_where_en`），不寫成「X answers」畫內對嘴；閉唇句只給看得到臉的人，不給只聞其聲的說話人。
 - **外部化的句子不得在提示詞裡寫「某人在說話」**（#122）：舊版 external 會寫 `X speaks off-screen over this shot` 卻不給字，H3 會在該鏡自編亂語或不發聲（噩盡島 stage6 音訊稽核）。現在外部化的鏡只寫畫面角色閉嘴與 `the shot carries only the location ambience`，台詞只在 `external_narration[]`。
 
 **限制（寫在這裡，選政策時要知道）**：

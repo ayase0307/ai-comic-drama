@@ -319,7 +319,16 @@ def audit_remix(seg_data: Dict[str, Any], project_root: Optional[Path] = None,
             errors.append(f"[E50: 豁免缺原話] pack_waivers 的 {w.get('id') or w.get('pack')} 沒有使用者原話 quote；沒有原話不能豁免")
     waived = {str(w.get("id")) for w in waivers if w.get("id") and str(w.get("quote") or "").strip()}
     covered = {str(r.get("id")) for r in refmods if isinstance(r, dict) and r.get("id")}
-    missing = [cid for cid in _segment_named_ids(seg_data) if cid not in covered and cid not in waived]
+    # EP01 findings #5：bible／計畫表標 voice_only／no_visual_reference 的角色只聞其聲，不需要包
+    voice_only_ids: set = set()
+    if project_root is not None:
+        try:
+            import refcheck as _rc
+            voice_only_ids = {aid for aid, it in _rc.load_lexicon(Path(project_root)).items() if it.get("voice_only")}
+        except ImportError:  # pragma: no cover
+            pass
+    missing = [cid for cid in _segment_named_ids(seg_data)
+               if cid not in covered and cid not in waived and cid not in voice_only_ids]
     if missing:
         errors.append(
             f"[E50: 具名角色沒有包] {', '.join(missing)} 在畫面上，refmods 卻沒有他們的包。"

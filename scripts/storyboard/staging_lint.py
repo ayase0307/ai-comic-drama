@@ -28,7 +28,7 @@
   W46 建議改用母片底四格構圖板（level＝suggestion，永遠不擋、strict 也不升級）：室內固定場景、已驗收母片、≥2 角色有固定
       座位／站位、段內有近景、文戲時建議改用「以場景母片為底重畫的四格構圖板」；武戲、單人、戶外不建議。
       條件與證據見 `board_advisor.py`、`references/storyboard/spatial-consistency.md` §3（方向性、未達 +25 門檻）。
-  W47 建議加雙人引子（level＝suggestion，永遠不擋）：同場段縫硬切、第 1 鏡是單人 MS 或更近、有台詞、有畫外對戲角色，
+  W47 建議加雙人引子（level＝suggestion，永遠不擋）：同場段縫硬切、第 1 鏡是單人 MS 或更近、有畫內台詞（純內心／旁白 VO 段不算）、有畫外對戲角色，
       建議先拍 2.0 s 雙人鏡（shots[0].dual_lead_in=true），組裝自動剪掉。T4 實測 0/12 跑位重演（measured，一場戲）；
       條件與寫法見 `dual_lead_in.py`、`references/storyboard/spatial-consistency.md` §7。
   W48 雙人引子格式不符（警告）：標了 dual_lead_in，但不在第 1 鏡、不是兩人、短於 2 s、有台詞或後面的時間沒往後挪。

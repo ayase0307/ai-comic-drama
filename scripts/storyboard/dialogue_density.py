@@ -8,6 +8,9 @@
   短句之間的動作必須和說話重疊，不可另外佔秒數。
 - 每個切點各自量「切鏡後多久開口」：> 0.5 秒 → FAIL（切點時已有句子在講 = 0）。
   只看有台詞的鏡頭；無台詞鏡頭由蒙太奇額度管。
+- 短句鏡（SB-3）：整鏡只有 ≤4 字的台詞（「哎！」「如你所願。」）時，分母只算它需要的長度
+  max(h3_spec.MIN_SHOT_SEC, 字數÷4＋0.5 s)（0.5＝切鏡後開口上限），多出的秒數不算進密度、另出 WARN
+  建議把鏡縮到該長度或和上一鏡併鏡；不同說話人仍不同鏡。
 刻意的靜場戲可在 metadata.density_exempt_reason 寫明理由，D2 降為 WARN（D1/D3/D4 不豁免）。
 時間檢查需要 dialogue_and_audio.line_timecodes（段內相對秒數）；沒有時只做密度檢查。
 雙人引子（shots[0].dual_lead_in，spatial-consistency.md §7）組裝時剪掉，D1–D4 先拿掉它、時間整段前移再算。
@@ -17,6 +20,11 @@ from __future__ import annotations
 from typing import Any, Dict, List, Tuple
 
 from speech_utils import count_speech_chars
+
+try:
+    import h3_spec
+except ImportError:  # pragma: no cover - 套件匯入路徑
+    from . import h3_spec
 
 try:
     import dual_lead_in
@@ -30,6 +38,8 @@ GAP_MAX = 0.9
 BEAT_PAUSE_MIN, BEAT_PAUSE_MAX = 0.6, 1.2
 CUT_ONSET_MAX = 0.5
 _EPS = 0.011
+SHORT_LINE_MAX_CHARS = 4      # SB-3：1–4 字的短句
+SHORT_LINE_RATE = 4.0         # 最慢的角色語速（男主 4.0，#116），估得寬
 
 # v118 規則衝突 #4／#5／#10：舊閘門（4.2 字/秒、說話 >60%、單句 >15 字）改成和 #116／#118 同一套數字。
 ONSCREEN_RATE_WARN, ONSCREEN_RATE_MAX = 4.5, 4.7  # 畫內：女角估時 4.5；正臉對嘴上限 4.7（#116）
@@ -64,6 +74,18 @@ def shot_lines(dlg: Dict[str, Any]) -> List[str]:
     out += [str((x or {}).get("line_verbatim") or "").strip() for x in (dlg.get("extra_lines") or [])
             if isinstance(x, dict)]
     return [t for t in out if t]
+
+
+def short_line_need(n_chars: int) -> float:
+    """短句鏡需要的長度：max(MIN_SHOT_SEC, 字數÷4＋切鏡後開口上限 0.5 s)。"""
+    return max(h3_spec.MIN_SHOT_SEC, n_chars / SHORT_LINE_RATE + CUT_ONSET_MAX)
+
+
+def short_line_excess(shot_len: float, n_chars: int) -> float:
+    """整鏡只有 ≤4 字台詞時，超出需要長度的秒數（不計入密度分母）；其他鏡 0。"""
+    if n_chars <= 0 or n_chars > SHORT_LINE_MAX_CHARS:
+        return 0.0
+    return max(0.0, shot_len - short_line_need(n_chars))
 
 
 def _dlg(shot: Dict[str, Any]) -> Dict[str, Any]:
@@ -110,14 +132,28 @@ def check_dialogue_density(data: Dict[str, Any]) -> Tuple[List[str], List[str]]:
         tail += _span(s)[1] - _span(s)[0]
     allowance = min(MONTAGE_ALLOWANCE_SEC, lead + tail)
     chars = sum(count_speech_chars(t) for s in talking for t in shot_lines(_dlg(s)))
-    denom = max(total - allowance, 0.1)
+    # SB-3：≤4 字短句鏡只算它需要的長度（多出的另出 WARN，不讓短句把整段拖成 D2 FAIL）
+    short_excess = 0.0
+    for s in talking:
+        n = sum(count_speech_chars(t) for t in shot_lines(_dlg(s)))
+        a, b = _span(s)
+        extra = short_line_excess(b - a, n)
+        if extra > _EPS:
+            short_excess += extra
+            warnings.append(
+                f"[D2 短句鏡偏長] {s.get('shot_id', '?')} 只有 {n} 字卻佔 {b - a:.2f}s；"
+                f"縮到 {short_line_need(n):.2f}s（≥{h3_spec.MIN_SHOT_SEC:g}s）或和上一鏡併鏡；"
+                f"多出的 {extra:.2f}s 不計入密度分母")
+    denom = max(total - allowance - short_excess, 0.1)
     dens = chars / denom
     meta = data.get("metadata") or {}
     exempt = (meta.get("density_exempt_reason") or "").strip()
     if dens < DENSITY_MIN - 1e-9:
         (warnings if exempt else errors).append(
             f"[D2 台詞密度過低] {seg} {chars} 字 / {denom:.2f}s = {dens:.2f} 字/秒 < {DENSITY_MIN}"
-            f"（已扣蒙太奇額度 {allowance:.2f}s）；動作要和說話重疊，不要另外佔秒數。"
+            f"（已扣蒙太奇額度 {allowance:.2f}s"
+            + (f"、短句鏡多出 {short_excess:.2f}s" if short_excess else "")
+            + "）；動作要和說話重疊，不要另外佔秒數。"
             + (f"（豁免：{exempt}）" if exempt else ""))
     elif dens > DENSITY_WARN_MAX:
         warnings.append(f"[D2 台詞密度偏高] {seg} {dens:.2f} 字/秒 > {DENSITY_WARN_MAX}")

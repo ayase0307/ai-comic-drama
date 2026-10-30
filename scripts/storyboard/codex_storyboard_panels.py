@@ -12,6 +12,13 @@
 每鏡自動綁定已核准的參考圖：角色正面裁切（images/ref/<id>_front.png，退回設定板）、
 異獸設定圖、段落場景母版，順序即 <Picture N>。
 
+構圖提示詞兩條寫法（v118 EP01 實測 SB-5／SB-6）：
+  - 左右一律是觀眾視角：「畫左／畫右／畫面左」改寫成「畫面左側（觀眾視角）」，並加一句英文說明
+    （Codex 會把「畫左」當成角色自己的左手邊：74 張裡 6 張中近景臉朝反方向）。
+  - 只寫當下畫面存在的東西：已消失／已毀的物件寫在 `spatial_blocking.absent_objects`（或段層
+    `metadata.absent_objects`），構圖文字裡提到它的子句拿掉、改寫成「畫面中沒有：…」；鏡層
+    `scene_master_disabled: true` 不附場景母版（母版有完整的物件會被畫回來，同 validate #46）。
+
 用法：
   python scripts/storyboard/codex_storyboard_panels.py --root <專案> --episode EP01 --model gpt-6-luna --parallel 3
   python scripts/storyboard/codex_storyboard_panels.py --root <專案> --shots EP01-S03-a-SH02 --model gpt-6-luna --force
@@ -107,6 +114,39 @@ def scene_ref(root: pathlib.Path, scene_id: str, assets: Dict[str, Dict[str, str
     return None
 
 
+_SIDE_RE = re.compile(r"畫(?:面)?\s*(左|右)(?:側|邊|方)?(?![側邊方]?（觀眾視角）)")
+VIEWER_SIDE_EN = ("Left and right: every 'left' or 'right' in this prompt is the viewer's left or right of the image "
+                  "(the image's left edge is the viewer's left-hand side), never the character's own left or right hand.")
+VIEWER_FACE_EN = ("Face direction is given from the viewer's side too: a face turned toward the image's left side "
+                  "means the nose points at the image's left edge.")
+
+
+def viewer_side_text(text: str) -> str:
+    """「畫左／畫右／畫面左邊」→「畫面左側（觀眾視角）」；已標過的不重複。"""
+    return _SIDE_RE.sub(lambda m: f"畫面{m.group(1)}側（觀眾視角）", str(text or ""))
+
+
+def absent_objects(shot: Dict[str, Any], seg: Dict[str, Any]) -> List[str]:
+    """這一鏡畫面上已經不存在的物件（鏡層 spatial_blocking.absent_objects／absent_objects＋段層 metadata.absent_objects）。"""
+    out: List[str] = []
+    blk = shot.get("spatial_blocking") or {}
+    for value in (blk.get("absent_objects"), shot.get("absent_objects"), (seg.get("metadata") or {}).get("absent_objects")):
+        for item in (value if isinstance(value, list) else [value] if value else []):
+            text = str(item or "").strip()
+            if text and text not in out:
+                out.append(text)
+    return out
+
+
+def drop_absent(text: str, gone: List[str]) -> str:
+    """構圖文字裡提到已消失物件的子句整句拿掉（只寫當下存在的東西）。"""
+    if not gone or not text:
+        return text
+    parts = re.split(r"(?<=[，,。；;])", text)
+    kept = [p for p in parts if not any(g in p for g in gone)]
+    return "".join(kept).strip("，,；; ")
+
+
 def build_panel_prompt(shot: Dict[str, Any], seg: Dict[str, Any], subjects: List[str],
                        assets: Dict[str, Dict[str, str]], ref_labels: List[Tuple[str, str]]) -> str:
     cam = shot.get("camera_optics") or {}
@@ -141,12 +181,20 @@ def build_panel_prompt(shot: Dict[str, Any], seg: Dict[str, Any], subjects: List
             lines.append(f"Exactly {len(people)} person(s) may be visible ({named}); nobody else, no background figures.")
     else:
         lines.append("No people in frame (hands only if the action names them).")
-    lines.append(f"Framing: {cam.get('shot_size', '')} {cam.get('focal_length', '')}, camera {five.get('camera') or blk.get('blocking_desc_en', '')}")
-    lines.append(f"Composition (zh): {blk.get('blocking_desc', '')}")
+    gone = absent_objects(shot, seg)
+    lines.append(f"Framing: {cam.get('shot_size', '')} {cam.get('focal_length', '')}, camera "
+                 f"{drop_absent(five.get('camera') or blk.get('blocking_desc_en', ''), gone)}")
+    lines.append(f"Composition (zh): {viewer_side_text(drop_absent(blk.get('blocking_desc', ''), gone))}")
+    lines.append(VIEWER_SIDE_EN)
+    if str(cam.get("shot_size") or "").upper() in ("MS", "MCU", "CU", "ECU", "OTS_MS", "OTS_CU"):
+        lines.append(VIEWER_FACE_EN)
+    if gone:
+        lines.append(f"畫面中沒有：{'、'.join(gone)}。Not in this frame (already gone at this moment): {', '.join(gone)}; "
+                     f"do not draw them anywhere, not even small in the sky or background.")
     if act.get("action_stages_en"):
-        lines.append(f"Moment to depict (start of the action): {act['action_stages_en'][0]}.")
+        lines.append(f"Moment to depict (start of the action): {drop_absent(act['action_stages_en'][0], gone)}.")
     if five.get("performance"):
-        lines.append(f"Performance: {five['performance']}")
+        lines.append(f"Performance: {drop_absent(five['performance'], gone)}")
     light = five.get("light") or style.get("lighting_lock_line") or ""
     if light:
         lines.append(f"Light: {light}")
@@ -154,6 +202,8 @@ def build_panel_prompt(shot: Dict[str, Any], seg: Dict[str, Any], subjects: List
         # 插入鏡：人物只以框到的身體部位出現，避免草圖畫出整張臉而與意圖／提示詞不符
         lines.append("Insert close-up: show only the body parts the framing names; no faces and no heads in frame.")
     neg = NEGATIVE.replace("no extra people, ", "no duplicated faces, ") if extras else NEGATIVE
+    if gone:
+        neg = neg + ", " + ", ".join(f"no {g}" for g in gone)
     lines.append(f"Avoid: {neg}; {style.get('negative', '')}".rstrip("; "))
     # 五小節裡的 {C-id}／{CREATURE-id}／{EXTRAS-id} 換成素材名稱，草圖提示詞不得留下佔位符
     return re.sub(r"\{((?:C|CREATURE|EXTRAS)-[A-Za-z0-9_-]+)\}",
@@ -181,7 +231,8 @@ def plan(root: pathlib.Path, files: List[pathlib.Path], keywords_path: Optional[
             for a in subjects:
                 rp = ref_image_for(root, a, assets)
                 (refs.append((f"{assets.get(a, {}).get('name') or a} ({a})", str(rp))) if rp else missing.append(a))
-            sp = scene_ref(root, scene_id, assets) if scene_id else None
+            # 鏡層 scene_master_disabled：物件已毀／已消失的鏡不附場景母版（母版會把它畫回來，validate #46）
+            sp = scene_ref(root, scene_id, assets) if scene_id and not shot.get("scene_master_disabled") else None
             if sp:
                 refs.append((f"scene {assets.get(scene_id, {}).get('name') or scene_id} ({scene_id})", str(sp)))
             jobs.append(dict(file=f, segment=seg.get("segment_id") or f.stem[len("layer2-"):], index=idx,
