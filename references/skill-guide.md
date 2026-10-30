@@ -60,8 +60,8 @@
 
 | 階段 | 做什麼 | 產出與驗證門禁 | HTML 審核介面 |
 |---|---|---|---|
-| 0 定調 | 鎖定題材、載體、畫風錨、比例、**台詞政策（4選1）與體量反推秒數門禁**（`estimate_duration.py --novel`、`init_project.py`） | `project.md`、`adapt/source.json`、`adapt/bible.json` | `review/stage-0-intake.html` |
-| 1 改編 | 小說目錄清洗（`extract_chapter.py`）、**角色設定 v4 十一大章節**（`validate_character_bible.py`）、保留分級、**事件交代完整性**（`event_coverage.py`）、段落架構（預設長篇不分集） | `adapt/character-bible.md`、故事地圖、`series-outline` | `review/stage-1-adaptation.html` |
+| 0 定調 | 鎖定題材、載體、畫風錨、比例、**台詞政策固定「原著對白優先」（不詢問）**與體量反推（`estimate_duration.py --novel`、`init_project.py`） | `project.md`、`adapt/source.json`、`adapt/bible.json` | `review/stage-0-intake.html` |
+| 1 改編 | 小說目錄清洗（`extract_chapter.py`）、**角色設定 v4 十一大章節**（`validate_character_bible.py`）、保留分級、**事件交代完整性**（`event_coverage.py`）、**台詞優先改寫與依台詞預算分集**（`dialogue_budget.py`、`adapt_gate.py`）、段落架構（預設長篇不分集） | `adapt/character-bible.md`、故事地圖、`series-outline` | `review/stage-1-adaptation.html` |
 | 2 資產與設定圖 | 故事聖經→`assets.md`、**生圖工具詢問推薦（Codex CLI）與跨章節鎖定**、**生物純底設定圖**、**演員表主角優先排序** | `assets.md`、`images/` 設定板、**缺圖紅框攔截** | `review/stage-2-assets.html`（表格與圖片左右並排對照） |
 | 3 漫劇劇本 | 場景化改寫、時長與台詞預算審計（`estimate_duration.py --h3`）、HTML 註解元數據注入、交接 JSON、人工審核鎖（`sync_script.py`） | `script-ep01.md`、`handoff-ep01.json`、`adaptation-diff.md` | `review/stage-3-script.html` |
 | 4 導演分鏡 | 依內容編排分段、焦距物距與動作；需要構圖審核時用使用者選的生圖工具（`h3d imagegen`：Codex 分鏡、Qwen 分鏡總覽圖、手繪或其他圖像工具） | `layer2/*.json`、`storyboard-ep01.md`、選用的對應 PNG | `review/stage-4-storyboard.html`（進 H3 編譯前需對應圖與人工核准） |
@@ -231,8 +231,10 @@ H3 的聲音與畫面在同一次 forward 生成，輸出是**單一 32 kHz 立�
   - `example-fight-10s.md`、`example-spec-to-prompt-10s.md`、`example-seedance-to-h3.md` — 完整改寫範例。
   - `community-sources.md` — 規則來源與可信度。
 - `references/prompt-playbook.md` — 圖像／影片提示詞撰寫手冊（景別、運鏡、光線、風格鎖、負面提示詞）。
-- `scripts/init_project.py` — 一鍵建立專案骨架與模板檔，自動初始化 `adapt/source.json`、`adapt/bible.json` 與 `project.md` 兩大門禁欄位（台詞政策與體量秒數反推）。
+- `scripts/init_project.py` — 一鍵建立專案骨架與模板檔，自動初始化 `adapt/source.json`、`adapt/bible.json` 與 `project.md` 兩大欄位（台詞政策固定值與體量秒數反推）。
 - `scripts/adapt/extract_chapter.py` — 小說大檔目錄掃描（`--list`）、單章抽取（`--volume`、`--chapter`）與 Pandoc 6 重自動清洗工具。
+- `scripts/adapt/dialogue_budget.py` — 台詞優先估時（男主 4.0／女角 4.5／旁白 5.5 字/秒＋0.3 s 句間＋停頓＋建立鏡）、密度 3.0–3.6 字/秒（速率，集長不設限）、`--split` 依 `episode-end` 斷點（原著錨點＋理由）列出各集；`adapt_gate.py` G13 檢查斷點。
+- `scripts/adapt/adapt_gate.py` — 改編自檢門：原著對白覆蓋 100%、密度 3.0–3.6、單行 ≤35、連續無台詞 ≤10 s、場次標題、片長、出處範圍、內容安全（規格 `references/adapt/dialogue-first-adaptation.md`）。
 - `scripts/adapt/estimate_duration.py` — Unicode P 類別統一計字、`--novel` 階段 0 體量反推門禁（四大台詞政策試算）與 `--h3` 實戰台詞預算審計（4字/秒、單句 ≤15 字警告、說話時長佔比 ≤60% 警告）。
 - `scripts/adapt/sync_script.py` — 人工審核鎖定、從零建立 handoff、多場景自動擴展、劇本 HTML 註解元數據（`<!-- source / must_keep / change -->`）自動解析注入與 `--prune-extra` 未鎖定多餘場景修剪工具。
 - `scripts/adapt/compare_adaptation.py` — 原著與改編差異比對，支援 `--episode` 單集過濾驗收與多檔合併（`--handoff`、`--script` 傳多檔）全章總體驗收，連動 `--h3`。

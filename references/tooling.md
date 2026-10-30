@@ -386,7 +386,7 @@ python scripts/h3d.py compile --layer2 layer2/ --bible video-bible.json --bindin
 ## 2.5 使用者定案與逐段結論（decisions.json／verdicts.json）
 
 - `decisions.json`（專案根目錄，格式 `references/schemas/decisions.schema.json`）：每條定案含 `id`、一句話 `rule`、`value`、`source`（使用者原話＋日期）、適用 `stages`。重新定案時舊值進 `history`。
-  `h3d next` 會在需要的階段前要求定案存在（畫風／比例／設定圖生圖工具→階段 2、台詞政策→3、驗收政策→6、剪輯方式→7；階段 4 構圖工具 `storyboard_engine` 只在缺構圖時才問，見 §2.4.1）。
+  `h3d next` 會在需要的階段前要求定案存在（畫風／比例／設定圖生圖工具→階段 2、驗收政策→6、剪輯方式→7；階段 4 構圖工具 `storyboard_engine` 只在缺構圖時才問，見 §2.4.1）。
 - `acceptance_policy` 的值是 `{rerun_on: [...], accept: [...]}`，只能用固定問題代碼：
   `extra_person` 多出人、`burned_subtitle` 燒字幕、`face_mix` 混臉／同框露臉、`wardrobe_wrong` 服裝錯、`style_shift` 畫風突變、`composition_broken` 構圖嚴重問題、`grid_leak` 分鏡總覽圖殘留、`paper_text` 紙面出字、`aged_face` 人物稍老、`low_chroma` 低彩度、`color_jump` 色調跳躍、`no_audio` 缺音軌、`other`。
   `h3d decide acceptance_policy recommended --quote "照建議"` 會寫入建議值（前七項重跑；紙面出字、人物稍老、低彩度、色調跳躍可接受）。

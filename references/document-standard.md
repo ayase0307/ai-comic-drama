@@ -74,7 +74,7 @@
 
 | 階段 | 文件 | 誰寫 | 本體章節（依序） |
 |---|---|---|---|
-| 0 | `project.md` | Agent（`init_project.py` 模板） | 作品方向 → 成片形式 → 畫風與比例 → 台詞政策 → 體量估算 → 待定項目 |
+| 0 | `project.md` | Agent（`init_project.py` 模板） | 作品方向 → 成片形式 → 畫風與比例 → 台詞政策（固定「原著對白優先」） → 體量估算 → 待定項目 |
 | 1 | `adapt/character-bible.md` | Agent | 角色總表（表格：名字｜功能｜一句話動機）→ 各角色十一章（`character-bible-v4.md`） |
 | 1 | `adapt/series-outline.md` | Agent | 主線一段話 → 改編方案比較（表格）→ 事件交代地圖（表格：事件｜起因→經過→結果｜處置）→ 段落架構 |
 | 2 | `assets.md` | Agent | 風格錨 → 角色卡 → 場景卡 → 道具／生物卡 → 音色（卡片欄位照原模板） |
