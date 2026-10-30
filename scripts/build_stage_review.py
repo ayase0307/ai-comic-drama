@@ -1589,7 +1589,7 @@ def build_stage_0(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
     kpis.append(("成片形式", "短劇短集（使用者選擇）" if fmt == SHORT else "長篇漫劇（預設）", "gold"))
     checklist = [
         f"已確認成片形式：{SERIES_FORMAT_LABELS[fmt]}（短劇短集只在使用者明確要求時啟用）",
-        "已確認台詞政策（① 100%保留 / ② 只留重點句 / ③ 改寫影視對白 / ④ 純旁白）",
+        "台詞政策固定為「原著對白優先」（不詢問；references/adapt/dialogue-first-adaptation.md）",
         "已鎖定全劇唯一畫風錨點（style_anchor）與畫面比例（aspect_ratio）",
     ]
     html_out = wrap_studio_html(
@@ -1645,7 +1645,7 @@ def build_stage_1(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
     if coverage is not None:
         coverage_html = (
             '<section class="section-panel" id="event-coverage">'
-            '<h2 class="md-h2">🧩 事件交代完整性（請逐條決定被壓縮／跳過／交代不全的事件）</h2>'
+            '<h2 class="md-h2">🧩 事件交代完整性（紀錄：缺漏事件由 Agent 依原著自動補回，不需決定）</h2>'
             f'{render_markdown_block(render_event_coverage_md(coverage).split(chr(10), 2)[-1])}'
             '</section>'
         )
@@ -1656,7 +1656,7 @@ def build_stage_1(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
     ]
     if coverage is not None:
         pending = len(coverage["needs_decision"])
-        kpis.append(("事件交代待決定", f"{pending} / {coverage['event_count']} 個事件",
+        kpis.append(("事件交代待補回", f"{pending} / {coverage['event_count']} 個事件",
                      "rose" if coverage["must_keep_missing"] else ("gold" if pending else "emerald")))
     toc_entries: List[Tuple[int, str, str]] = []
     doc_html = render_markdown_block(md_text, fold=True, toc=toc_entries, id_prefix="bible")
@@ -1670,7 +1670,7 @@ def build_stage_1(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
         "已跨章節查證所有登場角色的真實中文姓名（如瑪蓮、奇雅、賴一心），無自創英文代號或張冠李戴",
         "每位角色的「視覺與服裝狀態機」已明確區分不同日夜/場次的服裝設定圖路徑",
         "原著事件保留分級與成片形式已確認無誤（預設長篇漫劇整部一支連續長片；只有使用者要求才分集，且依完整劇情單元切）",
-        "已逐條檢視「事件交代完整性」表：每個關鍵事件都交代了起因→經過→結果（含動機、時地轉換）；被壓縮／跳過／交代不全的事件已由使用者決定補鏡頭或接受",
+        "已逐條檢視「事件交代完整性」表：每個關鍵事件都交代了起因→經過→結果（含動機、時地轉換）；被壓縮／跳過／交代不全的事件已由 Agent 依原著補回",
     ]
     html_out = wrap_studio_html(
         project_dir, 1, state,

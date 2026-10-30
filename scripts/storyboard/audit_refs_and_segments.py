@@ -132,6 +132,12 @@ SOFT_WORD_SUGGESTION = 700  # shot-five-part.md：未實測的建議值
 HARD_CHAR_LIMIT = 7000  # hosted API 送件硬上限
 
 
+# W13（v118 #5）：與 dialogue_density.LINE_SUGGEST_MAX／SPEECH_SHARE_WARN、#116 預設語速同值
+W13_LINE_SUGGEST_MAX = 18
+W13_SPEECH_SHARE_WARN = 0.90
+W13_CHARS_PER_SEC = 4.5
+
+
 def frames_for(s: float, rounding: str = "floor") -> int:
     """計算 FreeVideo / MiniMax H3 遵循的 17n+5 幀數規格。
 
@@ -979,7 +985,7 @@ def lint_h3_prompt(
         errors.append(f"[E3: 首鏡時間戳違規] [Shot 1] 嚴禁帶 At 時間戳（語法強制由第一格自動開場）: '{shot1_match.group(0)}'")
 
     # --------------------------------------------------------------------------
-    # 規則 4 (E): 切點數 = N-1、嚴格遞增、相鄰 >=2s、取整後 D - 末切點 >= 2s
+    # 規則 4 (E): 切點數 = N-1、嚴格遞增、相鄰 >=1.2s、取整後 D - 末切點 >=1.2s（<2s 警告）
     # --------------------------------------------------------------------------
     cut_timestamps: List[float] = []
     for h in shot_headers[1:]:
@@ -997,26 +1003,22 @@ def lint_h3_prompt(
                 f"實際解析到 {len(cut_timestamps)} 個！"
             )
         else:
-            # 首切點 >= 2.0s
-            if cut_timestamps[0] < 2.0:
-                errors.append(f"[E4: 首切點太短] 首個切點時間為 {cut_timestamps[0]:.2f}s < 2.0s，第 1 鏡曝光不足！")
-
-            # 嚴格遞增且相鄰切點差 >= 2.0s
+            # v118 #1／#12：首切點、相鄰切點、取整後末切點留白都 >= h3_spec.MIN_SHOT_SEC（1.2 s，#116 說話窗口下限）
+            # 才算合規；1.2–2.0 s 只警告（上游 H3 指南 shot ≥ 2 s，未實測）。
+            hard, soft = h3_spec.MIN_SHOT_SEC, h3_spec.SHOT_SOFT_MIN_SEC
+            spans = [("首切點", cut_timestamps[0])]
             for i in range(len(cut_timestamps) - 1):
-                diff = cut_timestamps[i + 1] - cut_timestamps[i]
-                if diff < 1.999:  # 容許微小浮點誤差
-                    errors.append(
-                        f"[E4: 切點間隔過短] 切點 {cut_timestamps[i]:.2f}s 到 {cut_timestamps[i+1]:.2f}s 間隔僅 {diff:.2f}s (<2.0s)！"
-                    )
-
-            # 末切點留白：D - 末切點 >= 2.0s (抓出 7.0s 取整為 6.583s 後末切點 5.0s 的崩潰 Bug)
+                spans.append((f"切點 {cut_timestamps[i]:.2f}s→{cut_timestamps[i+1]:.2f}s",
+                              cut_timestamps[i + 1] - cut_timestamps[i]))
             last_cut = cut_timestamps[-1]
-            tail_room = eff_d - last_cut
-            if tail_room < 1.999:
-                errors.append(
-                    f"[E4: 末切點空間不足（隱藏Bug攔截）] 取整後真實秒數 D={eff_d:.3f}s，末切點為 {last_cut:.3f}s，"
-                    f"收尾剩餘僅 {tail_room:.3f}s (<2.0s)！請將末切點提前或縮減鏡頭數。"
-                )
+            spans.append((f"末切點 {last_cut:.3f}s 到取整後 D={eff_d:.3f}s", eff_d - last_cut))
+            for label, span in spans:
+                if span < hard - 0.001:  # 容許微小浮點誤差
+                    kind = "末切點空間不足（隱藏Bug攔截）" if label.startswith("末切點") else (
+                        "首切點太短" if label == "首切點" else "切點間隔過短")
+                    errors.append(f"[E4: {kind}] {label} 僅 {span:.3f}s (<{hard}s)！請挪切點或縮減鏡頭數。")
+                elif span < soft - 0.001:
+                    warnings.append(f"[W:E4 短鏡] {label} 為 {span:.3f}s（≥{hard}s 合規；<{soft}s 未在 H3 實測，出片後核對切點）")
 
     # --------------------------------------------------------------------------
     # 規則 5 (E): 禁用運鏡詞攔截
@@ -1231,7 +1233,8 @@ def lint_h3_prompt(
             )
 
     # --------------------------------------------------------------------------
-    # 規則 13 (W): 台詞密度與語速警告 (4 字/秒法則與 60% 片長上限)
+    # 規則 13 (W): 單句長度與說話佔比（v118 #5：和 #116／#118 一致——單句建議 ≤18 字；
+    #             說話佔片長目標 75–90%，>90% 才警告；估時 4.5 字/秒＝#116 預設角色語速）
     # --------------------------------------------------------------------------
     dialogue_matches = re.findall(r"<d>(?:\[[A-Za-z]+\])?(.*?)</d>", clean_prompt, re.DOTALL)
     total_dlg_chars = 0
@@ -1239,21 +1242,21 @@ def lint_h3_prompt(
         # 去除標點符號計算中文字數
         clean_chinese = re.findall(r"[\u4e00-\u9fff]", dlg_text)
         total_dlg_chars += len(clean_chinese)
-        if len(clean_chinese) > 15:
+        if len(clean_chinese) > W13_LINE_SUGGEST_MAX:
             warnings.append(
-                f"[W13: 單句過長] 台詞單句長度達 {len(clean_chinese)} 字 (>15字)，容易造成 H3 加速嘴瓢！"
+                f"[W13: 單句過長] 台詞單句長度達 {len(clean_chinese)} 字 (>{W13_LINE_SUGGEST_MAX}字)，容易造成 H3 加速嘴瓢！"
             )
 
     details["total_dialogue_chars"] = total_dlg_chars
     if total_dlg_chars > 0:
-        speech_sec = total_dlg_chars / 4.0
+        speech_sec = total_dlg_chars / W13_CHARS_PER_SEC
         details["estimated_speech_seconds"] = round(speech_sec, 2)
         speech_ratio = speech_sec / max(eff_d, 0.5)
         details["speech_ratio"] = round(speech_ratio, 3)
-        if speech_ratio > 0.60:
+        if speech_ratio > W13_SPEECH_SHARE_WARN:
             warnings.append(
-                f"[W13: 台詞佔比過載] 台詞預估耗時 {speech_sec:.1f}s ({total_dlg_chars}字 / 4字/秒)，"
-                f"佔真實時長 {eff_d:.1f}s 之 {speech_ratio:.1%} (>60%)，角色表演將缺乏氣口與留白！"
+                f"[W13: 台詞佔比過載] 台詞預估耗時 {speech_sec:.1f}s ({total_dlg_chars}字 / {W13_CHARS_PER_SEC}字/秒)，"
+                f"佔真實時長 {eff_d:.1f}s 之 {speech_ratio:.1%} (>{W13_SPEECH_SHARE_WARN:.0%}，目標 75–90%)。"
             )
 
     passed = len(errors) == 0
@@ -1273,7 +1276,7 @@ def lint_h3_prompt(
 def run_self_tests() -> bool:
     """執行模式 C 內建自檢回歸測試：
     案例 1: 正常 7.0s 分段提示詞（全部通過，0 錯誤）
-    案例 2: 7.0s 因 17n+5 取整為 6.58s 導致末切點 5.0s 違規案例（精準攔截末切點不足 2.0s）
+    案例 2: 7.0s 因 17n+5 取整為 6.58s 導致末切點 5.5s 違規案例（精準攔截末切點不足 1.2s）
     案例 3: 含 orbit、no blood 與缺光源名詞的違規案例（精準攔截並警告）
     案例 4: subject_definitions 與 reference_images 順序脫節案例（精準攔截並修復）
     """
@@ -1319,7 +1322,7 @@ A soft piano melody begins at 00:03.000.
         print("  ✅ 成功通過合規分段檢查！")
 
     # --------------------------------------------------------------------------
-    # 測試案例 2: 7.0s 取整為 6.583s 後末切點 5.0s 空間不足案例
+    # 測試案例 2: 7.0s 取整為 6.583s 後末切點 5.5s 空間不足（<1.2s）案例
     # --------------------------------------------------------------------------
     flawed_cut_prompt = """subject_definitions:
 <Picture 1> is the establishing plate.
@@ -1334,7 +1337,7 @@ retention_analysis:
 detailed_description:
 Live-action cinematic, illuminated by soft dusk sunlight.
 [Shot 1] Medium shot, first she moves then the camera trucks left.
-[Shot 2] At 00:05.000, close up shot, first she looks then as the camera holds a static shot.
+[Shot 2] At 00:05.500, close up shot, first she looks then as the camera holds a static shot.
 
 overall_soundscape:
 Wind blows.
@@ -1344,7 +1347,7 @@ N/A
 """
     res2 = lint_h3_prompt(flawed_cut_prompt, nominal_duration=7.0, rounding_mode="floor")
     has_tail_err = any("末切點空間不足" in e or "E4" in e for e in res2["errors"])
-    print(f"\n[Test 2] 7.0s 經 17n+5 取整為 6.58s 後末切點 5.0s 空間不足隱藏 Bug 攔截:")
+    print(f"\n[Test 2] 7.0s 經 17n+5 取整為 6.58s 後末切點 5.5s 空間不足（<1.2s）隱藏 Bug 攔截:")
     print(f"  - 通過狀態: {res2['passed']} (預期: False)")
     print(f"  - 攔截末切點錯誤: {has_tail_err} (預期: True)")
     if not res2["passed"] and has_tail_err:

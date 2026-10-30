@@ -53,7 +53,7 @@ PROJECT_TEMPLATE = """# {title}
 - source_type：<小說／網文／故事梗概／劇本>
 - source_rights：<原著版權來源與授權說明，未確認就寫 unconfirmed 與待辦>
 - 風格錨點 ID：STYLE-<slug>（對應 assets.md 的 style_anchor 行）
-- 台詞政策：<① 100%逐字保留／② 只留重點句／③ 全改影視對白／④ 無台詞純旁白>
+- 台詞政策：原著對白優先（固定預設，不詢問；references/adapt/dialogue-first-adaptation.md）
 - 原文體量反推試算：<原著對白字數 ÷ 4 × 1.6 = 預估總秒數，例：300 字 ÷ 4 × 1.6 = 120 秒（約 2 分鐘）；長篇再用 estimate_duration.py --events 依事件交代需求估總長>
 
 ## 一句話賣點
@@ -64,7 +64,7 @@ PROJECT_TEMPLATE = """# {title}
 
 LONGFORM_PLAN = """## 事件清單與段落規劃（長篇漫劇：整部一支連續長片）
 > 每個原著關鍵事件都要交代起因 → 經過 → 結果（需要時加人物動機、時間地點轉換）；不以秒數壓縮事件。
-> 階段 1 用 `scripts/adapt/event_coverage.py` 逐條對帳，被壓縮或跳過的事件交使用者決定。
+> 階段 1 用 `scripts/adapt/event_coverage.py` 逐條對帳，被壓縮或跳過的事件由 Agent 依原著補回（不詢問）。
 
 | # | 原著事件 | 起因 | 經過 | 結果 | 動機／時地交代 |
 |---|---|---|---|---|---|

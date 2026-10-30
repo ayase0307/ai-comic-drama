@@ -39,8 +39,13 @@ HANDOFF_SCHEMA = ROOT / "references/adapt/templates/handoff.schema.json"
 
 DEFAULT_MAX_SHOTS = 3
 DEFAULT_MAX_SEGMENT_SEC = 10.0
-CHARS_PER_SEC = 4.0
-MIN_DIALOGUE_SEC = 2.5
+CHARS_PER_SEC = 4.5  # 預設（女角）
+# v2 依角色估時（出處 references/pacing-dialogue-evidence.md）：
+# 男主 4.0（Work_01 3.8–4.2、Work_08 3.6–4.0）；女角 4.5（Work_01 4.5–5.0）；旁白 5.5（Work_01 5.2–5.8）
+ROLE_CHARS_PER_SEC = {"male_lead": 4.0, "female": 4.5, "narration": 5.5}
+NARRATION_AUDIO_TYPES = {"narration", "voiceover", "vo", "inner"}
+MIN_DIALOGUE_SEC = 1.2  # v2：實際窗口＝字數/CHARS_PER_SEC＋DIALOGUE_PAD_SEC，下限 1.2
+DIALOGUE_PAD_SEC = 0.3
 MAX_SHOT_SEC = 15.0  # H3 單鏡上限
 ACTION_SHOT_SEC = 2.5
 ASPECT_MAP = {"9:16": "9:16", "16:9": "16:9", "other": "16:9"}
@@ -199,9 +204,17 @@ def segment_sort_key(segment_id: str) -> tuple:
     return (m.group(1), len(m.group(2)), m.group(2)) if m else (segment_id, 0, "")
 
 
-def dialogue_seconds(text: str) -> float:
-    """對白鏡秒數 = 字數 ÷ 4.0，至少 2.5 秒（確保 H3 窗口足夠）。"""
-    return round(max(MIN_DIALOGUE_SEC, count_speech_chars(text) / CHARS_PER_SEC), 2)
+def role_rate(role: str | None = None, audio_type: str | None = None) -> float:
+    """依 voice_role／audio_type 取估時語速；未知角色用預設 4.5。"""
+    if (audio_type or "").lower() in NARRATION_AUDIO_TYPES:
+        return ROLE_CHARS_PER_SEC["narration"]
+    return ROLE_CHARS_PER_SEC.get((role or "").lower(), CHARS_PER_SEC)
+
+
+def dialogue_seconds(text: str, role: str | None = None, audio_type: str | None = None) -> float:
+    """對白鏡秒數 = 字數 ÷ 角色語速 ＋ 0.3 秒，至少 1.2 秒（v2；男主 4.0／女角 4.5／旁白 5.5）。"""
+    rate = role_rate(role, audio_type)
+    return round(max(MIN_DIALOGUE_SEC, count_speech_chars(text) / rate + DIALOGUE_PAD_SEC), 2)
 
 
 def split_long_line(text: str, max_sec: float = MAX_SHOT_SEC) -> list[str]:
@@ -250,7 +263,7 @@ def build_items(scene: dict, max_sec: float = DEFAULT_MAX_SEGMENT_SEC) -> list[d
                 "text": piece,
                 "note": line.get("delivery_note", ""),
                 "audio_type": line.get("audio_type", "dialogue"),
-                "duration": dialogue_seconds(piece),
+                "duration": dialogue_seconds(piece, line.get("voice_role"), line.get("audio_type")),
             })
     return items
 
@@ -449,7 +462,7 @@ def build_layer2(handoff: dict, scene: dict, seg_id: str, chunk: list[dict],
                 "blocking": f"{TODO}：站位錨點（主體與實體家具之相對空間坐標）",
                 "texture": f"{TODO}：材質錨點（服裝布料、皮膚質感與環境材質）",
             },
-            "tail_freeze_hold": True,
+            "tail_freeze_hold": False,
         },
         "asset_refs": build_asset_refs(scene, char_map),
         "metadata": {
