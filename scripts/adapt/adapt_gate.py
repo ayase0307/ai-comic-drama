@@ -15,7 +15,11 @@ adapt_gate.py — 台詞優先改編自檢門（dialogue-first adaptation gate�
   G12 原著出處範圍已填（`<!-- source: 卷X Ln-Lm -->`）
   G10 內容安全：全員成年、不性化（關鍵詞掃描＋人物表聲明）
 警告（WARN）：平均行長 >13、旁白／內心 VO >30%、補寫台詞數（記帳）、無結尾鉤子旁白檢查、
-  刻意停頓每集 >3 處、建立鏡每場 >1 處。
+  刻意停頓每集 >3 處、建立鏡每場 >1 處；
+  G14 原著無台詞動作 beat（一個【動作】標記＝一個主要動作；啟發式，只警告）：
+    G14a 單一【動作】行描述 ≥3 個主要動作 → 拆成多行（咬／甩／落喉三行）；
+    G14b 有 --source-text 時，劇本兩句相鄰台詞在原著之間的敘述有 ≥2 個動作子句、劇本這兩句之間卻沒有【動作】行
+         （或原著 ≥3 個動作子句且超過【動作】行數兩倍）→ 列出原著片段。「」內文字與劇本說話人名先拿掉，避免專有名詞誤報。
 備註（NOTE，不影響狀態）：--source-text 略過的疑似專有名詞引號；原著對白全保留時密度 3.6–3.9（可接受）；
   分鏡後預估片長（和分鏡閘門同一套數字，見 dialogue_budget.storyboard_estimate；含可選【動作】鏡）。
 僅使用 Python 標準庫。
@@ -32,9 +36,10 @@ from typing import Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from dialogue_budget import (  # noqa: E402
-    ANCHOR_LEN, DENSITY_MAX, DENSITY_MIN, HEADING_RE, LINE_HARD_MAX, LINE_TARGET, MIN_SHOT_SEC,
+    ACTION_MARK_RE, ANCHOR_LEN, DENSITY_MAX, DENSITY_MIN, HEADING_RE, LINE_HARD_MAX, LINE_TARGET, MIN_SHOT_SEC,
     SPACE_WORDS, TIME_WORDS, VO_MAX_SHARE, Script, parse_script, split_episodes, scene_stats, speech_chars,
 )
+import action_marks  # noqa: E402  （dialogue_budget 已把 scripts/storyboard 加進 sys.path）
 
 QUOTE_RE = re.compile(r"「([^「」]+)」")
 COVERAGE_MIN_RATIO = 0.85  # 允許脫水（拆句、去語助詞），不允許刪句
@@ -79,6 +84,81 @@ def source_quotes(novel_text: str, skipped: Optional[List[str]] = None) -> List[
         elif skipped is not None:
             skipped.append(q)
     return out
+
+
+def source_quote_spans(novel_text: str) -> List[tuple]:
+    """原著台詞引號 [(start, end, 內文)]（和 source_quotes 同一判斷，專有名詞引號不算）。"""
+    out = []
+    for m in QUOTE_RE.finditer(novel_text):
+        q = m.group(1).strip()
+        if normalize(q) and _is_dialogue_quote(novel_text, m.start(), m.end(), q):
+            out.append((m.start(), m.end(), q))
+    return out
+
+
+def _quote_index(line_text: str, spans: List[tuple], start: int) -> Optional[int]:
+    """劇本台詞對到原著第幾個引號（先從 start 往後找，找不到再從頭找）；對不上回 None。"""
+    nl = normalize(line_text)
+    if len(nl) < 2:
+        return None
+    order = list(range(start, len(spans))) + list(range(0, start))
+    for k in order:
+        nq = normalize(spans[k][2])
+        if nl in nq or (len(nq) >= 2 and nq in nl):
+            return k
+    for k in order:
+        nq = normalize(spans[k][2])
+        if nq and SequenceMatcher(None, nl, nq, autojunk=False).ratio() >= COVERAGE_MIN_RATIO:
+            return k
+    return None
+
+
+G14_LIST_MAX = 8
+
+
+def action_beat_warnings(script: Script, novel_text: Optional[str]) -> List[str]:
+    """G14：原著無台詞動作 beat 要標【動作】、一個標記一個主要動作（啟發式，只警告）。"""
+    names = sorted({ln.speaker for s in script.scenes for ln in s.dialogue if ln.speaker})
+    found: List[str] = []
+    for s in script.scenes:
+        for ln in s.lines:
+            if ln.kind == "action" and ACTION_MARK_RE.search(ln.raw):
+                for piece in action_marks.split_marked_line(ln.raw.lstrip("△").strip()):
+                    cl = action_marks.action_clauses(piece["text"], names)
+                    if len(cl) >= action_marks.SPLIT_MIN_ACTIONS:
+                        found.append(f"G14a L{ln.lineno} 一個【動作】標記描述 {len(cl)} 個主要動作（{'／'.join(cl[:4])}）："
+                                     "一個標記＝一個主要動作，拆成多行（例：咬／甩／落喉三行），否則分鏡只給一鏡的秒數")
+    if novel_text:
+        spans = source_quote_spans(novel_text)
+        for s in script.scenes:
+            prev = None  # (上一句台詞行號, 對到的原著引號 index)
+            marks_since = 0
+            pos = 0
+            for ln in s.lines:
+                if ln.kind == "action":
+                    marks_since += len(ACTION_MARK_RE.findall(ln.raw))
+                    continue
+                if ln.invented:
+                    continue
+                k = _quote_index(ln.text, spans, pos) if spans else None
+                if k is None:
+                    continue
+                if prev is not None and k > prev[1]:
+                    a_end, b_start = spans[prev[1]][1], spans[k][0]
+                    between = novel_text[a_end:b_start]
+                    cl = action_marks.action_clauses(between, names)
+                    # 沒標任何【動作】且原著 ≥2 個動作子句；或有標，但原著動作子句 ≥3 且超過標記數兩倍（多半是多步動作塞一行）
+                    if (len(cl) >= 2 and marks_since == 0) or (len(cl) >= action_marks.SPLIT_MIN_ACTIONS
+                                                                and 0 < marks_since and len(cl) > 2 * marks_since):
+                        found.append(
+                            f"G14b L{prev[0]}–L{ln.lineno} 兩句台詞之間原著有 {len(cl)} 個動作子句（"
+                            + "／".join(c[:12] for c in cl[:4]) + ("…" if len(cl) > 4 else "")
+                            + f"），劇本只有 {marks_since} 行【動作】：原著無台詞動作 beat 每個主要動作標一行 "
+                              "`△【動作】…`（必要時給秒數 `△【動作2.5】…`）；確認那些是和說話並行的小動作可忽略")
+                prev, marks_since, pos = (ln.lineno, k), 0, k
+    if len(found) > G14_LIST_MAX:
+        found = found[:G14_LIST_MAX] + [f"G14 另有 {len(found) - G14_LIST_MAX} 處同類提醒（未逐條列出，請逐場檢查）"]
+    return found
 
 
 def coverage(quotes: List[str], script: Script) -> Dict[str, object]:
@@ -188,6 +268,7 @@ def run_gate(script_text: str, novel_text: Optional[str] = None, quotes: Optiona
         last = next((ln for s in reversed(ep) for ln in reversed(s.dialogue)), None)
         if last and last.is_vo and HOOK_NARRATION_RE.search(last.text):
             fails.append(f"G9 L{last.lineno} 集尾加了鉤子旁白：{last.text}")
+    warns += action_beat_warnings(sc, novel_text)
     if st["invented_lines"]:
         warns.append(f"記帳：補寫台詞 {st['invented_lines']} 行（須寫入 adaptation-diff.md）")
 

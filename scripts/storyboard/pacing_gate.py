@@ -21,6 +21,10 @@ WARN：句間空隙 >1.0s（beat_pause 0.6–1.2s 例外）；切鏡後 >0.5s �
         原著無台詞動作鏡標 `source_action: true` 不計入分母（無台詞鏡 >5s、連續 >10s 照常警告）；
       提示詞含末 1 秒靜止句（tail_freeze_hold；無廢片原則：不生成要剪掉的秒數。唯一例外是 E3 雙人引子，見下）。
 
+原著無台詞動作鏡（劇本【動作】標記，Layer 2 `source_action: true`）：比照雙人引子，台詞類檢查（句間空隙、切鏡後開口、
+密度、開口次數、有人聲鏡比例）先拿掉它、其後時間前移、duration 扣掉再算（`action_marks.strip_pacing`），
+不逼為了過閘去砍動作；無台詞鏡 >5s、連續無台詞 >10s 仍照含動作鏡的時間軸警告。
+
 雙人引子（spatial-consistency.md §7）：shots[0] 標 `dual_lead_in: true` 時，那一鏡組裝會剪掉、不是成片，
 上面所有檢查（密度、有人聲鏡比例、切鏡後開口、無台詞鏡／連續無台詞、開口次數）都先拿掉它、時間與 duration
 整段扣掉引子秒數再算（`dual_lead_in.strip_pacing`）。
@@ -30,6 +34,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import dual_lead_in  # noqa: E402
+import action_marks  # noqa: E402
 from dialogue_density import short_line_excess  # noqa: E402
 
 GAP_WARN, GAP_FAIL = 1.0, 1.5
@@ -103,6 +108,8 @@ def _voiced_ratio_shots(shots):
 
 def check(seg):
     seg = dual_lead_in.strip_pacing(seg)  # 引子組裝時剪掉，不計入任何節奏數字
+    all_shots = seg.get("shots", [])  # 含原著動作鏡：無台詞鏡／連續無台詞照常警告
+    seg = action_marks.strip_pacing(seg)  # 原著無台詞動作鏡不計入台詞類檢查
     f, w, sid = [], [], seg.get("id", "?")
     hit = speech_slow(seg.get("prompt", ""))
     if hit and not seg.get("allow_slow"):
@@ -146,7 +153,7 @@ def check(seg):
         if len(lines) < need:
             w.append(f"{sid} 開口 {len(lines)} 次 <{need}")
     run = 0.0
-    for s in seg.get("shots", []):
+    for s in all_shots:
         dur = s["end"] - s["start"]
         if s.get("has_dialogue"):
             run = 0.0
@@ -157,12 +164,12 @@ def check(seg):
         if run > SILENT_RUN_MAX:
             w.append(f"{sid} 連續無台詞 {run:.1f}s >{SILENT_RUN_MAX}s")
             run = 0.0
-    if shots:
+    if all_shots:
         # v118 #9：原著無台詞動作鏡（source_action:true）不計入分母，不逼補台詞
-        counted = _voiced_ratio_shots(shots)
+        counted = _voiced_ratio_shots(all_shots)
         voiced = sum(1 for s in counted if s.get("has_dialogue"))
         if counted and voiced / len(counted) < VOICED_SHOT_MIN:
-            exempt = len(shots) - len(counted)
+            exempt = len(all_shots) - len(counted)
             w.append(f"{sid} 有人聲鏡 {voiced}/{len(counted)} <{VOICED_SHOT_MIN:.0%}"
                      + (f"（已豁免原著動作鏡 {exempt} 個）" if exempt else "")
                      + "（反應鏡用 L-cut 延續台詞或補旁白）")

@@ -151,7 +151,7 @@ graph TD
 - **測試案例與驗收評估報告**：[`tests/test-cases.md`](./tests/test-cases.md) 與 [`tests/evaluation-results.md`](./tests/evaluation-results.md)
 - **高清晰教學關鍵影格資產**：`assets/keyframes/`（未收錄於本 repo，見上游 `E:\MinimaxH3\影片分鏡大師\cinematic-director-storyboard\assets\keyframes\`）
 
-## 台詞密度閘門（validate_storyboard，D1–D4，FAIL）
+## 台詞密度閘門（validate_storyboard，D1–D6，FAIL）
 
 漫劇以台詞推進，分鏡階段就要把節奏鎖住（數字與 PR #116 `pacing_gate` 一致，但這裡升為 FAIL）：
 
@@ -163,3 +163,18 @@ graph TD
 | D4 | 每個切點各自量開口時間 ≤ 0.5 秒（切點時句子還在講算 0）|
 
 時間檢查讀 `dialogue_and_audio.line_timecodes`（`[{speaker,text,start,end,beat_pause}]`，段內相對秒數）。刻意的靜場戲在 `metadata.density_exempt_reason` 寫理由，只有 D2 降為 WARN。
+
+### 原著無台詞動作鏡（劇本【動作】標記）
+
+劇本 `△【動作】…`／`△【動作2.5】…`（`references/adapt/dialogue-first-adaptation.md` §3）在分鏡裡是**獨立一鏡**：`source_action: true`、`action_mark: {text, seconds}`（`handoff_to_skeleton.py` 自動寫），鏡長＝標記秒數（未給 2.0 s，最短 `h3_spec.MIN_SHOT_SEC` 1.2 s）。它是原著要求的畫面時間，所以：
+
+- **D1–D4 不計動作鏡**：先拿掉動作鏡、其後時間整段前移再算（`action_marks.strip_layer2`，比照雙人引子）；整段都是動作鏡時 D1 不適用。動作鏡前後兩句台詞不算句間空隙、不吃蒙太奇額度、不拉低密度——不要為了過閘去砍動作。
+- `pacing_gate` 的句間空隙、切鏡後開口、密度、開口次數、有人聲鏡比例 ≥80% 也不計（`action_marks.strip_pacing`）；無台詞鏡 >5 s、連續無台詞 >10 s 照常 WARN。
+- 編譯器末鏡是動作鏡時不做 tail-fit 往下取整（不截短動作），17n+5 照舊往上取。時長守恆照含動作鏡算。audit W13 說話佔比的分母含動作鏡（只會讓佔比變低，不會逼砍動作），不另處理。
+
+| 代碼 | 規則 | 級別 |
+|---|---|---|
+| D5 | 劇本【動作】標記在分鏡裡遺失或被合併：同場劇本標記數（handoff `action_beats`）≠ 分鏡動作鏡數（帶 `--handoff` 才比）；一鏡的 `action_mark` 含 ≥2 個標記；動作鏡短於標記秒數 −0.05 s（被截短） | FAIL |
+| D6 | 無台詞鏡的動作描述（`action_mark.text` 與 `shot_intent.story_beat` 取動作較多者）含 ≥3 個主要動作，且鏡長 < 1.5 s × 動作數 → 要求拆鏡；< 2.0 s × 動作數 → 提醒。沒標【動作】的舊無台詞鏡只看 `story_beat`、最多 WARN | FAIL／WARN |
+
+「主要動作」依子句數（標點與「然後／接著／隨即」切開，含動作動詞的子句算一個；「」內文字與段內角色名先拿掉），規則在 `scripts/storyboard/action_marks.py`。吞鳥鏡：咬／甩／落喉三鏡約 7 s 通過；擠成一鏡 2.2 s → D6 FAIL（2.2 < 4.5），帶 handoff 再加 D5 FAIL（劇本 3 個、分鏡 1 個）。

@@ -15,8 +15,9 @@ dialogue_budget.py — 台詞優先（dialogue-first）片長估算與依台詞�
 - 一般動作行（△）與說話並行，不另計時間；只有標記的動作行計時：
   △【停頓0.8】…   刻意停頓（0.6–1.2 s，每集最多 3 處）
   △【建立2.0】…   無聲建立鏡（≤2.5 s，每場最多 1 處）
-  △【動作】… 或 △【動作2.5】…   原著無台詞的動作鏡（巨鳥、爆炸、墜坡；可選）：只進「分鏡後預估片長」
-                  （未給秒數用 ACTION_DEFAULT_SEC 2.0 s，最短 MIN_SHOT_SEC），不算台詞、不進 L，所以不影響 G3 密度／G7。
+  △【動作】… 或 △【動作2.5】…   原著無台詞的動作 beat（巨鳥、爆炸、墜坡；原著有就必標，一個標記＝一個主要動作，
+                  多步動作拆多行）：只進「分鏡後預估片長」（未給秒數用 ACTION_DEFAULT_SEC 2.0 s，最短 MIN_SHOT_SEC），
+                  不算台詞、不進 L，所以不影響 G3 密度／G7。分鏡骨架把每個標記排成獨立一鏡、鏡長＝標記秒數（validate D5／D6）。
 - 密度 D = 可發聲字數 ÷ L，目標 3.0–3.6 字/秒（是速率，不是每集字數額度）。
 - 分集＝分鏡斷點（ArcReel 式，見 adaptation-evidence.md）：單集**沒有長度上下限**，最後全部串成一支。
   斷點選在自然的故事點（換場、揭曉、轉折），可落在任何一句之後，以註解記錄：
@@ -54,8 +55,6 @@ HEADING_LOOSE_RE = re.compile(r"^\d+-\d+\s+\S")
 DIALOGUE_RE = re.compile(r"^(?P<speaker>[^：△（()\s<]{1,12})(?:[（(](?P<note>[^）)]*)[）)])?：(?P<text>.+)$")
 COMMENT_RE = re.compile(r"<!--(.*?)-->", re.S)
 MARK_RE = re.compile(r"【(停頓|建立)\s*([\d.]+)?\s*(?:s|秒)?】")
-ACTION_MARK_RE = re.compile(r"【動作\s*([\d.]+)?\s*(?:s|秒)?】")
-ACTION_DEFAULT_SEC = 2.0  # 【動作】未給秒數時的分鏡鏡長
 BREAK_RE = re.compile(r"episode-end\s*[:：]\s*「(?P<anchor>[^」]*)」\s*[|｜]\s*(?P<reason>.*)$", re.S)
 SENTENCE_END_RE = re.compile(r"[。！？!?…；;]+")
 ANCHOR_LEN = (2, 30)  # ArcReel end_anchor 10–30 字元；中文原著句短，下限放到 2
@@ -81,6 +80,12 @@ try:
     QUANTUM_SEC = _h3.FRAME_QUANTUM_STEP / _h3.FPS
 except ImportError:  # pragma: no cover - 單獨拷出 adapt/ 使用時
     MIN_SHOT_SEC, QUANTUM_SEC = 1.2, 17 / 24
+# 【動作】標記的單一來源：scripts/storyboard/action_marks.py（分鏡骨架、validate D5／D6 共用）
+try:
+    from action_marks import ACTION_DEFAULT_SEC, ACTION_MARK_RE  # noqa: E402
+except ImportError:  # pragma: no cover - 單獨拷出 adapt/ 使用時
+    ACTION_MARK_RE = re.compile(r"【動作\s*([\d.]+)?\s*(?:s|秒)?】")
+    ACTION_DEFAULT_SEC = 2.0  # 【動作】未給秒數時的分鏡鏡長
 SEGMENT_MAX_SEC = 10.0  # 同 handoff_to_skeleton.DEFAULT_MAX_SEGMENT_SEC
 
 

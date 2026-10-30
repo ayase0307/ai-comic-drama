@@ -315,6 +315,7 @@ python scripts/h3d.py staging --root . --layer2 [--explain]   # 階段 4：只�
 - **嚴重度為什麼保守**：證據只有一個專案一集；D08 回測誤報率高、D06／D07 抓得到的只是失敗抽的一部分；其餘規則沒有對照組。專案要擋就 `h3d decide staging_gate strict`（只升 D06–D08，inferred 規則 strict 也只警告）。
 - **豁免**：段落 `metadata.staging_waivers: [{"code": "D06", "reason": "…", "quote": "<使用者原話>"}]`（例如刻意讓角色對鏡頭說話）；沒有 `quote` 不算豁免，另列「豁免缺原話」。
 - **remix audit 會帶上**：`audit_refs_and_segments.py --audit-refs` 的 remix 分支把 D06–D14 併進 warnings（strict 時 D06–D08 進 errors）；**ref2va 的 audit 輸出不變**，ref2va 專案請另跑 `h3d staging`。
+- **原著無台詞動作鏡（劇本【動作】標記）**：`handoff_to_skeleton.py` 每個標記獨立一鏡（`source_action`／`action_mark`，鏡長＝標記秒數，fit 不壓縮、裝不下另開段）；`validate_storyboard` **D5**（FAIL：標記數對不上／一鏡多標記／被截短）、**D6**（無台詞鏡 ≥3 個主要動作：< 1.5 s×動作數 FAIL、< 2.0 s×動作數 WARN；未標記的舊鏡最多 WARN）；D1–D4、`pacing_gate` 台詞類檢查不計動作鏡；編譯器末鏡是動作鏡時不 tail-fit。改編端 `adapt_gate` **G14a／G14b**（WARN）。全文 `references/storyboard/cinematic-director.md` 台詞密度閘門、`references/adapt/dialogue-first-adaptation.md` §3。
 - **W47／W48 出現在哪**：`h3d staging`（W47 💡、W48 ⚠️，逐段比同場上一段）與 `--layer2` 階段 4 模式（摘要另計「雙人引子建議 N 段」「格式不符 N 項」）；**審核頁的「💡 自動建議」區塊目前只列 W46**。不採用寫 `staging_waivers`（code W47＋原話）。標了引子後，節奏／密度閘門（`pacing_gate`、validate D1–D4、說話佔比、段長提醒、audit W13）都把引子那一鏡排除、段長扣掉引子秒數再算；組裝自動剪（`spatial-consistency.md` §7）。
 - **W46 出現在哪**：`h3d staging`（💡，摘要另計「建議 N」）、`--layer2` 階段 4 模式、階段 4 審核頁與階段 5 審核頁的「💡 自動建議」區塊（兩個 backend 都列）、remix audit 的 warnings。不採用寫 `staging_waivers`（code W46＋原話）。
 - 角色名來源：`<Video N>／<Subject N> is 名字,` 介紹句、refmods 的 `display_name`、專案詞表（同 refcheck）。D10 只比相鄰且同 `scene_id` 的兩段。
