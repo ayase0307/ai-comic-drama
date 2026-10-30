@@ -2266,26 +2266,49 @@ def build_stage_4(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
     return len(errors) == 0, errors, html_out
 
 
-def board_suggestion_panel(suggestions: List[str]) -> str:
-    """W46 構圖板自動建議區塊（階段 4、5 審核頁共用；只建議、不擋核准）。"""
-    if not suggestions:
-        return ""
-    items = "".join(f"<li>{html.escape(n)}</li>" for n in suggestions)
-    return ('<section class="section-panel"><h2>💡 自動建議：改用母片底四格構圖板（W46，只建議）</h2>'
-            '<p>來源：h3d staging W46（<code>scripts/storyboard/board_advisor.py</code>）；規則見 '
+# 審核頁「自動建議」區塊要列的 staging 代碼：W46 構圖板、W47 建議加雙人引子（suggestion）、W48 引子格式不符（warning）
+STAGING_ADVISORY_CODES = ("W46", "W47", "W48")
+_ADVISORY_NOTES = {
+    "W46": ('<p><b>W46 改用母片底四格構圖板</b>：來源 <code>scripts/storyboard/board_advisor.py</code>；規則見 '
             '<code>references/storyboard/spatial-consistency.md</code> §3。證據是方向性（老易實驗第二批 D′ 15/16 vs '
             '單用母片 6/8，未達 +25 門檻；武戲沒有證據）。採用時板一律以已驗收母片為底重畫並寫店感鎖；整板當參考須 '
-            '<code>reference_view: "panel"</code>＋<code>panel_label_en</code>。不採用請寫 staging_waivers（W46＋原話）。'
-            '不擋核准、不改預設編譯。</p><ul>' + items + '</ul></section>')
+            '<code>reference_view: "panel"</code>＋<code>panel_label_en</code>。不採用請寫 staging_waivers（W46＋原話）。</p>'),
+    "W47": ('<p><b>W47 建議加雙人引子</b>：來源 <code>scripts/storyboard/dual_lead_in.py</code>；規則見 '
+            '<code>references/storyboard/spatial-consistency.md</code> §7（段縫硬切到單人近景前先拍 2 s 雙人鏡，組裝剪掉；'
+            '小樣本實測，只建議）。不採用請寫 staging_waivers（W47＋原話）。</p>'),
+    "W48": ('<p><b>W48 雙人引子格式不符</b>（警告）：標了 <code>dual_lead_in</code> 但不在第 1 鏡、不是兩人、短於 2 s、'
+            '有台詞或後面的時間沒往後挪；<code>h3d assemble</code> 會擋，送件前要改好（§7）。</p>'),
+}
+
+
+def board_suggestion_panel(suggestions: List[str]) -> str:
+    """staging 自動建議區塊（階段 4、5 審核頁共用）：W46 構圖板、W47 雙人引子建議、W48 引子格式警告全部列出；不擋核准。"""
+    if not suggestions:
+        return ""
+    found = [c for c in STAGING_ADVISORY_CODES if any(f"[{c}" in n for n in suggestions)] or ["W46"]
+    items = "".join(f"<li>{html.escape(n)}</li>" for n in suggestions)
+    return (f'<section class="section-panel"><h2>💡 自動建議與 staging 提醒（{"／".join(found)}，不擋核准）</h2>'
+            '<p>來源：h3d staging（<code>scripts/storyboard/staging_lint.py</code>）。只建議、不改預設編譯；'
+            '逐段回到該鏡意圖判斷要不要採用。</p>'
+            + "".join(_ADVISORY_NOTES[c] for c in found) + '<ul>' + items + '</ul></section>')
 
 
 def stage4_board_suggestions(project_dir: Path, l2_files: List[Path]) -> List[str]:
+    """階段 4（未編譯）審核頁的 staging 建議：W46 構圖板＋W47 雙人引子建議＋W48 引子格式（和 `h3d staging --layer2` 同一份）。"""
+    out: List[str] = []
     try:
         import board_advisor  # noqa: E402
-        return [f"{r['segment_id']}: {r['message']}" for r in board_advisor.advise_layer2_files(project_dir, l2_files)
+        out += [f"{r['segment_id']}: {r['message']}" for r in board_advisor.advise_layer2_files(project_dir, l2_files)
                 if r.get("hit")]
     except Exception as exc:  # 建議器自身出錯不擋審核頁
-        return [f"構圖板建議執行失敗：{exc}"]
+        out.append(f"構圖板建議執行失敗：{exc}")
+    try:
+        import staging_lint  # noqa: E402
+        out += [f"{r['segment_id']}: {r['message']}" for r in staging_lint._lead_in_layer2(project_dir, l2_files)
+                if r.get("hit")]
+    except Exception as exc:  # 同上：檢查器出錯不擋審核頁，但要讓人看到
+        out.append(f"雙人引子檢查執行失敗：{exc}")
+    return out
 
 
 def stage5_ref2va_advisory(project_dir: Path, seg_files: List[Path],
@@ -2326,11 +2349,13 @@ def stage5_ref2va_advisory(project_dir: Path, seg_files: List[Path],
             sid = str(row.get("segment_id"))
             if only is not None and sid not in only:
                 continue
-            # W46 構圖板建議兩個 backend 都列（remix 的 D06–D14 已在 audit 內跑過，這裡只補建議）
-            suggestions.extend(f"{sid}: {m}" for m in staging_mod.suggestions_of(row["findings"]))
+            # W46／W47／W48 兩個 backend 都列進自動建議區（remix 的 D06–D14 已在 audit 內跑過，這裡只補建議）
+            advisory = [f for f in row["findings"]
+                        if f.get("code") in STAGING_ADVISORY_CODES or f["level"] == "suggestion"]
+            suggestions.extend(f"{sid}: {f['message']}" for f in advisory)
             if row.get("backend") != "ref2va":
                 continue
-            plain = [f for f in row["findings"] if f["level"] != "suggestion"]
+            plain = [f for f in row["findings"] if f not in advisory]
             errs, warns = staging_mod.split_findings(plain)
             errors.extend(f"{sid}: {e}" for e in errs)
             notes.extend(f"{sid}: {w}" for w in warns)

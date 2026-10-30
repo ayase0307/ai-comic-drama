@@ -233,7 +233,7 @@ H3 的聲音與畫面在同一次 forward 生成，輸出是**單一 32 kHz 立�
 - `references/prompt-playbook.md` — 圖像／影片提示詞撰寫手冊（景別、運鏡、光線、風格鎖、負面提示詞）。
 - `scripts/init_project.py` — 一鍵建立專案骨架與模板檔，自動初始化 `adapt/source.json`、`adapt/bible.json` 與 `project.md` 兩大欄位（台詞政策固定值與體量秒數反推）。
 - `scripts/adapt/extract_chapter.py` — 小說大檔目錄掃描（`--list`）、單章抽取（`--volume`、`--chapter`）與 Pandoc 6 重自動清洗工具。
-- `scripts/adapt/dialogue_budget.py` — 台詞優先估時（男主 4.0／女角 4.5／旁白 5.5 字/秒＋0.3 s 句間＋停頓＋建立鏡）、密度 3.0–3.6 字/秒（速率，集長不設限）、`--split` 依 `episode-end` 斷點（原著錨點＋理由）列出各集；`adapt_gate.py` G13 檢查斷點。
+- `scripts/adapt/dialogue_budget.py` — 台詞優先估時（男主 4.0／女角 4.5／旁白 5.5 字/秒＋0.3 s 句間＋停頓＋建立鏡；可選 `△【動作N】` 原著無台詞動作鏡只進分鏡後預估片長、不進 G3）、密度 3.0–3.6 字/秒（速率，集長不設限）、`--split` 依 `episode-end` 斷點（原著錨點＋理由）列出各集；`adapt_gate.py` G13 檢查斷點。
 - `scripts/adapt/adapt_gate.py` — 改編自檢門：原著對白覆蓋 100%、密度 3.0–3.6、單行 ≤35、連續無台詞 ≤10 s、場次標題、片長、出處範圍、內容安全（規格 `references/adapt/dialogue-first-adaptation.md`）。
 - `scripts/adapt/estimate_duration.py` — Unicode P 類別統一計字、`--novel` 階段 0 體量反推門禁（四大台詞政策試算）與 `--h3` 實戰台詞預算審計（角色語速、單句 ≤18 字建議、說話時長佔比 >90% 警告）。
 - `scripts/adapt/sync_script.py` — 人工審核鎖定、從零建立 handoff、多場景自動擴展、劇本 HTML 註解元數據（`<!-- source / must_keep / change -->`）自動解析注入與 `--prune-extra` 未鎖定多餘場景修剪工具。

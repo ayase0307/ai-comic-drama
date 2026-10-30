@@ -123,6 +123,7 @@ Layer 2 每鏡新增必填欄位 `shot_intent`（audience、story_beat、pov、e
 
 **骨架與構圖的 ID／比例**：
 - `handoff_to_skeleton.py handoff-epXX.json --out-dir layer2 [--bible adapt/bible.json]`：用聖經的 `canonical_name`／`name`／`aliases`（及 ID 本身）把 handoff 的中文名對到聖經 ID（`C-`／`S-`／`P-`）；沒給 `--bible` 時自動找 `<handoff 所在目錄>/adapt/bible.json`，`--bible none` 關閉。查不到的名稱退回雜湊 ID 並逐一警告——不補 `aliases` 的話 `h3d bind` 會判成「未在 bible.json 登記」。
+  - `--force` 重建既有段時保留構圖綁定（`sketch_file`／`sketch_sha256`／`sketch_status`／`sketch_prompt`／`sketch_generation`／`sketch_qc`）：以 shot_id 對應，構圖檔目前的 sha256 仍等於 `sketch_sha256` 才保留，圖換過、檔案不見或沒記 sha256 的鏡不保留（照常重綁／重審）。專案自己的重建腳本可直接呼叫 `scripts/storyboard/sketch_bindings.py` 的 `carry_over(old, new, roots)`。
 - 階段 4 構圖（用使用者選的生圖工具：`storyboard_engine`，見 §2.4.1；Codex 分鏡 `codex_storyboard_panels.py` 的 `--model` 必填）依每段 Layer 2 `metadata.aspect_ratio` 出圖（未填退回 16:9）。構圖必須和成片同比例，否則審核者會誤判景別與走位；手繪或其他工具補圖時同樣照該段比例。`h3d sketch` 已移除，執行只會印替代指令並 exit 2；既有專案已回寫的 `sketch_file` 仍有效。
 
 ## 2.3 階段 5 英文層（stage5 binding 的 en_overlay）
