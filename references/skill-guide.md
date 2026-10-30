@@ -162,7 +162,7 @@
 #### 定案 5【台詞字數預算與動作力學三要素】（✅ 已驗證有效）
 > **使用者原話（台詞）**：「這個台詞字數明顯超過秒數限制，變成加速講話，你應該要精簡台詞」  
 > **使用者原話（動作）**：「蛇的動作明顯不足且不自然，像是玩具，比方說他被打應該要強烈掙扎及反抗、攻擊的時候要有環境特效（揚起灰塵或是風切等等），戰鬥要有強烈的打擊感及環境/視覺特效」
-- **台詞預算（v2，事件測試 V1 驗證；出處見 `references/pacing-dialogue-evidence.md`）**：估時依角色：**男主 4.0、女角 4.5、旁白／畫外 5.5 字／秒**（正臉對嘴 ≤4.7），單句建議 ≤18 字、硬上限 35 字，同場兩句空隙 **0.1–0.9 秒**（情緒落點 `beat_pause` 0.6–1.2 秒）、切鏡後 0.5 秒內開口（換場／反轉／情緒落點才留 ≥1 秒），文戲說話佔片長目標 60–75%（>80% WARN）、動作戲 ≤40%；對話段整段密度（字數÷片長）目標 3.0–3.6 字／秒，<2.8 或 >3.9 WARN；每 15 秒開口 <6 次 WARN；無台詞鏡 >5 秒、連續無台詞 >10 秒 WARN。**硬門禁**：句間 >1.5 秒、單句 >35 字、提示詞含 `slow` → FAIL（`pacing_gate.py`）。提示詞保留動作鏈＋逐句時間錨點寫法；猛烈動作拍不排台詞（喘息放 `overall_soundscape`）。
+- **台詞預算（v2，事件測試 V1 驗證；出處見 `references/pacing-dialogue-evidence.md`）**：估時依角色：**男主 4.0、女角 4.5、旁白／畫外 5.5 字／秒**（正臉對嘴 ≤4.7），單句建議 ≤18 字、硬上限 35 字，同場兩句空隙 **0.1–0.9 秒**（情緒落點 `beat_pause` 0.6–1.2 秒）、切鏡後 0.5 秒內開口（換場／反轉／情緒落點才留 ≥1 秒），文戲說話佔片長目標 75–90%（>90% WARN）、動作戲 ≤40%；對話段整段密度（字數÷片長）目標 3.0–3.6 字／秒，<2.8 或 >3.9 WARN；每 15 秒開口 <6 次 WARN；無台詞鏡 >5 秒、連續無台詞 >10 秒 WARN。**硬門禁**：句間 >1.5 秒、單句 >35 字、提示詞含 `slow` → FAIL（`pacing_gate.py`）。提示詞保留動作鏈＋逐句時間錨點寫法；猛烈動作拍不排台詞（喘息放 `overall_soundscape`）。
 - **動作力學三要素**：分鏡表「動作」欄必填 **① 施力點（從哪發起）→ ② 傳導路徑（經身體哪裡、肌肉/鱗片變形與重量轉移）→ ③ 受擊反應與環境反饋（退後距離、結構折疊、立刻反擊、揚塵/塵環/風切位移空氣）**。
 
 ---
@@ -182,7 +182,7 @@
 
 ### 7.1 配音分層決策（新增重要規範）
 H3 的聲音與畫面在同一次 forward 生成，輸出是**單一 32 kHz 立體聲混音軌，沒有分軌，也沒有關閉音訊的參數**；H3 內建中文語音實測 ASR 置信度只有 0.43–0.54【社群實測】。因此本專案的規則是：
-- **短畫外句與旁白留 H3，長句才外部 TTS**：`--narration-policy short-offscreen-h3`（預設）把約 ≤15 字的畫外句（O.S.）與旁白（V.O.）用官方句式＋逐字 `<d>` 交給 H3（聲線放 `<d>` 外、露臉者嘴閉合、無臉寫 `no face is on screen`）；長句或需跨段統一聲線的句子移出 `<d>`、於階段 7 由外部 TTS 混入（`external` 政策則全部外部化）。限制：同說話者跨段聲線可能不一致（未量測）、H3 念的句子事後改稿要重跑整段。句式與門禁見 `references/pipeline.md` §5.4。
+- **短畫外句與旁白留 H3，長句才外部 TTS**：`--narration-policy short-offscreen-h3`（預設）把 ≤18 字（實測 ≤15 字）的畫外句（O.S.）與旁白（V.O.）用官方句式＋逐字 `<d>` 交給 H3（聲線放 `<d>` 外、露臉者嘴閉合、無臉寫 `no face is on screen`）；長句或需跨段統一聲線的句子移出 `<d>`、於階段 7 由外部 TTS 混入（`external` 政策則全部外部化）。限制：同說話者跨段聲線可能不一致（未量測）、H3 念的句子事後改稿要重跑整段。句式與門禁見 `references/pipeline.md` §5.4。
 - **畫內有可見嘴的對白保留 H3 內建語音**：`<d>` 標籤留作生成時嘴部開合與時間點的物理錨點；**掛上音色母帶（`<Audio N>`）時，H3 會照母帶音色重新合成**（本機 FreeVideo 送得進音訊參考，但官方只保證「參考音色與語氣」，不鎖輸出音軌與口型）；要每段完全一致或更清晰的聲音時，再用外部 TTS 覆蓋並補 lipsync。
 - **TTS 引擎由 `tts_doctor.py` 盤點後選擇**（`--tts-engine`）：本機 VoiceStudio／OmniVoice 為預設，另有 Fish Audio 與自帶 OpenAI 相容 API；`edge-tts` 自 2026-10-10 起 403 且非商用，只留離線除錯。
 - **TTS 先行（v2）**：MiniMax Speech `speed` 預設 **1.1**（急的角色 1.15–1.2、長輩 1.0），先產音、量實長，鏡頭長＝語音實長＋0.3 秒（**不再 ×1.2**）再生成；整體超過 1.25 倍仍放不下就改寫台詞，避免旁白比鏡頭長而白跑一次 render。
@@ -235,12 +235,12 @@ H3 的聲音與畫面在同一次 forward 生成，輸出是**單一 32 kHz 立�
 - `scripts/adapt/extract_chapter.py` — 小說大檔目錄掃描（`--list`）、單章抽取（`--volume`、`--chapter`）與 Pandoc 6 重自動清洗工具。
 - `scripts/adapt/dialogue_budget.py` — 台詞優先估時（男主 4.0／女角 4.5／旁白 5.5 字/秒＋0.3 s 句間＋停頓＋建立鏡）、密度 3.0–3.6 字/秒（速率，集長不設限）、`--split` 依 `episode-end` 斷點（原著錨點＋理由）列出各集；`adapt_gate.py` G13 檢查斷點。
 - `scripts/adapt/adapt_gate.py` — 改編自檢門：原著對白覆蓋 100%、密度 3.0–3.6、單行 ≤35、連續無台詞 ≤10 s、場次標題、片長、出處範圍、內容安全（規格 `references/adapt/dialogue-first-adaptation.md`）。
-- `scripts/adapt/estimate_duration.py` — Unicode P 類別統一計字、`--novel` 階段 0 體量反推門禁（四大台詞政策試算）與 `--h3` 實戰台詞預算審計（4字/秒、單句 ≤15 字警告、說話時長佔比 ≤60% 警告）。
+- `scripts/adapt/estimate_duration.py` — Unicode P 類別統一計字、`--novel` 階段 0 體量反推門禁（四大台詞政策試算）與 `--h3` 實戰台詞預算審計（角色語速、單句 ≤18 字建議、說話時長佔比 >90% 警告）。
 - `scripts/adapt/sync_script.py` — 人工審核鎖定、從零建立 handoff、多場景自動擴展、劇本 HTML 註解元數據（`<!-- source / must_keep / change -->`）自動解析注入與 `--prune-extra` 未鎖定多餘場景修剪工具。
 - `scripts/adapt/compare_adaptation.py` — 原著與改編差異比對，支援 `--episode` 單集過濾驗收與多檔合併（`--handoff`、`--script` 傳多檔）全章總體驗收，連動 `--h3`。
 - `scripts/adapt/*.py` — 劇本結構、時長、連戲、改編差異完整驗證套件。
 - `scripts/storyboard/handoff_to_skeleton.py` — 交接 JSON → Layer 2 骨架，預設每段 10.0s / 3 鏡（支援 `--max-segment-sec`、`--max-shots`）、統一 4.0 字/秒、窗口 $\ge 2.5s$、動作力學三要素結構模板（施力點 ➔ 傳導路徑 ➔ 受擊反饋）、`INDEPENDENT_REF2VA` 握手與四大連戲錨點（lighting/axis/blocking/texture）。
-- `scripts/storyboard/compile_layer2_to_h3.py` — Layer 2 批次編譯為 H3 官方六段式提示詞（`prompts-epXX.md`）與 FreeVideo 批次分段檔（`segments-epXX.json`），支援防混臉參考圖排序（Ref2VA 預設一段一張角色圖，`--max-char-refs`；新流程改用 remix 角色卡，見 `references/consistency.md` §7.1）、切點時間軸保護（$D - \text{末切點} \ge 2.05s$）、光源名詞映射、官方運鏡詞微交替、LoRA 自動適配、`--narration-policy`（預設 `short-offscreen-h3`：約 ≤15 字的畫外句與旁白留在 `<d>` 由 H3 念，長句才移出；`external`：畫外音／旁白全部移出 `<d>`、寫入 `external_narration` 與 `speaker_ids`，供階段 7 外部 TTS）與 `--check` 雙重對帳。stage5 綁定檔支援 `identity_anchor_ids`（不露臉身份錨點）、`reference_view: "panel"` ＋ `panel_label_en`（**整板查表模式**，缺格位說明即丟 `ValueError`）、`audio_references`（**音色參考 `<Audio N>`** ＋ 固定描述詞 `voice_4d_spec_en`）。
+- `scripts/storyboard/compile_layer2_to_h3.py` — Layer 2 批次編譯為 H3 官方六段式提示詞（`prompts-epXX.md`）與 FreeVideo 批次分段檔（`segments-epXX.json`），支援防混臉參考圖排序（Ref2VA 預設一段一張角色圖，`--max-char-refs`；新流程改用 remix 角色卡，見 `references/consistency.md` §7.1）、切點時間軸保護（每鏡含取整後末鏡 ≥1.2s，<2s 只提醒；對話段末句後收尾就近 0.3s 的 tail-fit 取整）、光源名詞映射、官方運鏡詞微交替、LoRA 自動適配、`--narration-policy`（預設 `short-offscreen-h3`：≤18 字的畫外句與旁白留在 `<d>` 由 H3 念，長句才移出；`external`：畫外音／旁白全部移出 `<d>`、寫入 `external_narration` 與 `speaker_ids`，供階段 7 外部 TTS）與 `--check` 雙重對帳。stage5 綁定檔支援 `identity_anchor_ids`（不露臉身份錨點）、`reference_view: "panel"` ＋ `panel_label_en`（**整板查表模式**，缺格位說明即丟 `ValueError`）、`audio_references`（**音色參考 `<Audio N>`** ＋ 固定描述詞 `voice_4d_spec_en`）。
 - `scripts/storyboard/audit_refs_and_segments.py` — 分段參考圖、主體定義、說話者與字數預算多維程式對帳工具（支援雙重審查：模式 A 序對 + 模式 B 17 條自檢）。
 - `scripts/storyboard/patch_shot.py` — 單鏡局部修改與審核鎖定工具（支援秒數吸收、自動重算時間軸）。
 - `scripts/storyboard/codex_storyboard_panels.py` — Codex CLI 內建生圖的彩色分鏡圖（每鏡一張、每段總覽圖），自動綁定已核准參考圖（角色正面裁切、異獸設定圖、場景母版，依序為 <Picture N>），`--model` 必填；角色關鍵字／逐鏡覆寫放 `staging/codex-panel-refs.json`；回寫 `sketch_file`／`sketch_sha256`／`sketch_generation`（backend=codex）、鎖定鏡不覆蓋。使用者選 `storyboard_engine=codex` 時 `h3d next` 缺構圖給這條；`h3d sketch` 已移除。

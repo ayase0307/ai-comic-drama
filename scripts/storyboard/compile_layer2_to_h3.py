@@ -1146,12 +1146,14 @@ def _assign_speaker_ids(shots: List[Dict[str, Any]]) -> Dict[str, str]:
         dlg = shot.get("dialogue_and_audio", {}) or {}
         if not (dlg.get("has_dialogue") or dlg.get("line_verbatim")):
             continue
-        speaker = dlg.get("speaker")
-        if not speaker:
-            continue
-        key = str(speaker)
-        if key not in ids:
-            ids[key] = f"S{len(ids) + 1}"
+        speakers = [dlg.get("speaker")] + [(ex or {}).get("speaker") for ex in (dlg.get("extra_lines") or [])
+                                           if isinstance(ex, dict)]
+        for speaker in speakers:
+            if not speaker:
+                continue
+            key = str(speaker)
+            if key not in ids:
+                ids[key] = f"S{len(ids) + 1}"
     return ids
 
 
@@ -1198,11 +1200,35 @@ def _strip_dialogue_from_soundscape(foley: str, spoken_lines: List[str]) -> str:
 # 逐句可用 dialogue_and_audio.voice_route = "h3" | "external" 覆寫政策。
 NARRATION_POLICIES = ("short-offscreen-h3", "external", "h3-native")
 DEFAULT_NARRATION_POLICY = "short-offscreen-h3"
-# 實測（噩盡島 EP01 S02-b／S02-d／S03-e，拼音相似度 1.00）都是 ≤15 字的短句；更長的句子未驗證。
-SHORT_OFFSCREEN_MAX_CHARS = 15
+# 實測（噩盡島 EP01 S02-b／S02-d／S03-e，拼音相似度 1.00）都是 ≤15 字的短句。
+# v118 #10：路由上限改用 #116「單句建議 ≤18 字」，16–18 字仍留 H3（不多一道外部 TTS 後處理），
+# 只在 compile_notes 提醒「超過實測範圍」；>18 字才預設外部 TTS。逐句 voice_route 仍可覆寫。
+SHORT_OFFSCREEN_MEASURED_CHARS = 15
+SHORT_OFFSCREEN_MAX_CHARS = 18
 VOICE_ROUTES = ("h3", "external")
 # #123：畫外句同鏡的 Expression 寫張嘴／喘氣，H3 會讓露臉者跟著開口，像他在說話（與 voice_lint E44 同一條）。
 MOUTH_OPEN_RE = voice_lint.MOUTH_OPEN_RE
+
+
+# v118 #3：末句後收尾（#116／#117：最後一句說完留 0.3 s）與 tail-fit 的最小句後留白。
+TAIL_AFTER_LAST_LINE_SEC = 0.3
+TAIL_FIT_MIN_SEC = 0.1
+
+
+def _last_speech_end(shots: List[Dict[str, Any]]) -> Optional[float]:
+    """段內最後一句台詞的結束秒數（speech_window／line_timecodes／extra_lines）；都沒有則 None。"""
+    ends: List[float] = []
+    for shot in shots:
+        dlg = shot.get("dialogue_and_audio", {}) or {}
+        items = [dlg.get("speech_window")] + list(dlg.get("line_timecodes") or [])
+        items += [(x or {}).get("speech_window") for x in (dlg.get("extra_lines") or [])]
+        for w in items:
+            if isinstance(w, dict) and w.get("end") is not None:
+                try:
+                    ends.append(float(w["end"]))
+                except (TypeError, ValueError):
+                    pass
+    return max(ends) if ends else None
 
 
 def _spoken_char_count(line: str) -> int:
@@ -1556,7 +1582,7 @@ def compile_segment_h3(
     否則取臉戲權重（景別越近權重越高）最重的角色。旁白與畫外音永不成為主體。
 
     narration_policy（沒有可見嘴的台詞：畫外 O.S.、旁白／內心獨白 V.O.、背影／遮嘴）：
-      - "short-offscreen-h3"（預設）：≤15 字的短句留給 H3，用官方句式寫逐字 <d>
+      - "short-offscreen-h3"（預設）：≤18 字的短句留給 H3（實測 ≤15 字），用官方句式寫逐字 <d>
         （O.S.：the line is heard from X (Sn) off-screen, <聲線>: <d>…</d>；
         V.O.：X (Sn) says in an off-screen voiceover, <聲線>: <d>…</d>），露臉者寫嘴閉合、
         沒有臉寫 no face is on screen；長句才改外部 TTS（external_narration）。
@@ -1617,6 +1643,24 @@ def compile_segment_h3(
         for shot in shots
     )
     selected_rounding_mode = "ceil" if contains_dialogue else rounding_mode
+    # v118 #3：17n+5 往上取整會把分鏡寫好的「末句後 0.3 s」撐到最多 1.0 s。往下取一格仍能念完末句
+    # （句後 ≥ TAIL_FIT_MIN_SEC）且更接近分鏡原本的句後留白時改往下取：片更短、不多生成，寧可略短不超。
+    # 分鏡刻意寫長的句後留白（例如 1.0 s）照舊往上取，保留作者的停頓。
+    tail_fit_note = None
+    last_speech_end = _last_speech_end(shots)
+    if contains_dialogue and last_speech_end is not None and not metadata.get("disable_tail_fit"):
+        ceil_d = effective_duration(target_dur, rounding="ceil")
+        floor_d = effective_duration(target_dur, rounding="floor")
+        last_start = float(shots[-1].get("start_time", 0) or 0)
+        ceil_tail, floor_tail = ceil_d - last_speech_end, floor_d - last_speech_end
+        authored_tail = max(target_dur - last_speech_end, TAIL_AFTER_LAST_LINE_SEC)
+        if (floor_d < ceil_d and floor_tail >= TAIL_FIT_MIN_SEC - 1e-9
+                and h3_spec.frames_for(target_dur, rounding="floor") >= h3_spec.MIN_SUPPORTED_FRAMES
+                and abs(floor_tail - authored_tail) < abs(ceil_tail - authored_tail)
+                and (len(shots) == 1 or floor_d - last_start >= h3_spec.MIN_SHOT_SEC - 1e-9)):
+            selected_rounding_mode = "floor"
+            tail_fit_note = (f"[tail-fit] 末句結束 {last_speech_end:.3f}s：往上取整句後 {ceil_tail:.3f}s，"
+                             f"往下取整句後 {floor_tail:.3f}s，改往下取（{floor_d:.3f}s）")
     seg_frames = h3_spec.frames_for(target_dur, rounding=selected_rounding_mode)
     eff_d = effective_duration(target_dur, rounding=selected_rounding_mode)
     # Treat authored shot timings as one continuous source timeline, then
@@ -1642,9 +1686,19 @@ def compile_segment_h3(
     if shots[-1]["duration"] < 0.5:
         raise ValueError("effective duration leaves the final shot below 0.5s")
     cuts = [float(shot["end_time"]) for shot in shots[:-1]]
-    if cuts and (cuts[0] < 2.0 or any(b - a < 2.0 for a, b in zip(cuts, cuts[1:])) or eff_d - cuts[-1] < 2.0):
-        raise ValueError("source timeline cannot satisfy H3 cut bounds; revise the storyboard cuts")
+    # v118 #1／E4：鏡長硬下限 1.2 s（#116 說話窗口下限）；1.2–2.0 s 只提醒（上游 H3 指南 ≥2 s，未實測）。
+    spans = ([cuts[0]] + [b - a for a, b in zip(cuts, cuts[1:])] + [eff_d - cuts[-1]]) if cuts else []
+    if spans and min(spans) < h3_spec.MIN_SHOT_SEC - 1e-6:
+        raise ValueError(f"source timeline cannot satisfy H3 cut bounds (shot < {h3_spec.MIN_SHOT_SEC}s after "
+                         f"{h3_spec.FRAME_QUANTUM_STEP}n+{h3_spec.FRAME_QUANTUM_OFFSET} rounding); revise the storyboard cuts")
     notes: List[str] = []
+    if tail_fit_note:
+        notes.append(tail_fit_note)
+    short_spans = [(i + 1, d) for i, d in enumerate(spans) if d < h3_spec.SHOT_SOFT_MIN_SEC - 1e-6]
+    if short_spans:
+        notes.append("[短鏡] " + "、".join(f"Shot {i} {d:.2f}s" for i, d in short_spans)
+                     + f" < {h3_spec.SHOT_SOFT_MIN_SEC:.1f}s（≥{h3_spec.MIN_SHOT_SEC}s 合規；H3 切點誤差約 0.12s，"
+                       "短鏡未實測，出片後核對切點）")
     normalization = layer2_data.get("_normalization") or {}
     for warning in normalization.get("warnings") or []:
         notes.append(f"[normalize] {warning}")
@@ -2586,8 +2640,8 @@ def compile_segment_h3(
                         delivery = delivery[:1].upper() + delivery[1:]
                 speech = f"; {window}{delivery}<d>[Chinese] {line}</d>{lips}"
                 n_chars = _spoken_char_count(line)
-                if n_chars > SHORT_OFFSCREEN_MAX_CHARS:
-                    notes.append(f"{s.get('shot_id')} 畫外句 {n_chars} 字，超過實測範圍（約 ≤{SHORT_OFFSCREEN_MAX_CHARS} 字）；"
+                if n_chars > SHORT_OFFSCREEN_MEASURED_CHARS:
+                    notes.append(f"{s.get('shot_id')} 畫外句 {n_chars} 字，超過實測範圍（約 ≤{SHORT_OFFSCREEN_MEASURED_CHARS} 字）；"
                                  f"H3 可能念不全或亂語，考慮拆鏡或 voice_route=external")
                 try:
                     shot_len = float(s.get("end_time")) - float(s.get("start_time"))
@@ -2625,6 +2679,34 @@ def compile_segment_h3(
                         if c in tag_of and c != spk and remix_kind.get(c) == "actor" and c not in no_visual_ids))
                     if others:
                         speech += f" while {_possessive_list(others)} lips remain completely closed"
+            # v118 #2：同鏡接話。dialogue_and_audio.extra_lines 的每一句接在第一句後各給一個 <d>，
+            # 前一位說話人閉嘴（取代編譯後手動注入第二句；寫法同 pacing-e5 enqueue_fast118 實測）。
+            prev_owner = (tag_of.get(spk) if spk else None) or identity
+            for ex in (dlg.get("extra_lines") or []):
+                if not isinstance(ex, dict):
+                    continue
+                ex_line = str(ex.get("line_verbatim") or "").strip()
+                if not ex_line:
+                    continue
+                ex_spk = ex.get("speaker")
+                ex_identity = _dialogue_speaker_label(ex_spk, registry)
+                if remix and ex_spk:
+                    ex_identity = (remix_names.get(str(ex_spk))
+                                   or _ascii_name((registry.characters.get(ex_spk) or {}).get("name_en")) or ex_identity)
+                ex_tag = tag_of.get(ex_spk) if ex_spk else None
+                ex_id = speaker_ids.get(str(ex_spk)) if ex_spk else None
+                if ex_tag and ex_id:
+                    ex_subject = f"{ex_tag} ({ex_id})"
+                elif ex_id:
+                    ex_subject = f"{ex_identity} ({ex_id})"
+                else:
+                    ex_subject = ex_tag or ex_identity
+                ex_voice = _english_voice_descriptor(ex, notes)
+                ex_voice_txt = f", {ex_voice}," if ex_voice else ""
+                speech += (f". {_speech_window_clause(ex)}Right after that line, {ex_subject}{ex_voice_txt} answers: "
+                           f"<d>[Chinese] {ex_line}</d> while {prev_owner}'s lips remain completely closed")
+                spoken_lines.append(ex_line)
+                prev_owner = ex_tag or ex_identity
         else:
             speech = "; lips stay closed" if lips_closed else ""
 
@@ -2860,7 +2942,7 @@ def compile_segment_h3(
                 "spec": "<scenetrans> 標新場景首鏡、<cutoff> 標段落末鏡（本專案約定，非官方語法）",
             },
             "rounding_mode": selected_rounding_mode,
-            "rounding_reason": "dialogue-preserving" if contains_dialogue else metadata.get("rounding_reason", "configured"),
+            "rounding_reason": ("tail-fit" if tail_fit_note else "dialogue-preserving") if contains_dialogue else metadata.get("rounding_reason", "configured"),
             "shots_count": n_shots,
             "style_lock": effective_style_lock,
             "qa_exclusions": negative,
@@ -3138,7 +3220,7 @@ def main() -> int:
                         help="在提示詞寫入 <scenetrans>／<cutoff> 標記（本專案約定，非官方語法）")
     parser.add_argument(
         "--narration-policy", type=str, default=None, choices=list(NARRATION_POLICIES),
-        help=("畫外音／旁白政策：short-offscreen-h3=短畫外句與旁白（≤15 字）由 H3 用官方句式＋<d> 直接生成，長句才外部 TTS；"
+        help=("畫外音／旁白政策：short-offscreen-h3=短畫外句與旁白（≤18 字）由 H3 用官方句式＋<d> 直接生成，長句才外部 TTS；"
               "external=全部外部 TTS，於階段 7 混入；h3-native=全部留 H3。"
               "省略時讀 <project-root>/decisions.json 的 dialogue_policy，都沒有才用 short-offscreen-h3（預設）；與定案衝突會報錯"),
     )

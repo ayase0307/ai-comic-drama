@@ -26,7 +26,10 @@ from speech_utils import count_speech_chars, normalize_speech  # noqa: E402
 from audit_refs_and_segments import effective_duration  # noqa: E402
 from move_lint import lint_segment_moves  # noqa: E402
 from director_lint import lint_director, lint_segment_seam  # noqa: E402
-from dialogue_density import check_dialogue_density  # noqa: E402
+from dialogue_density import (  # noqa: E402
+    LINE_SUGGEST_MAX, ONSCREEN_RATE_WARN, SPEECH_SHARE_WARN, VO_RATE_WARN,
+    check_dialogue_density, is_voiceover_line, rate_limits, shot_lines,
+)
 from shot_intent import cross_segment_intent_errors, segment_intent_errors, shot_intent_errors  # noqa: E402
 
 BEAT_TYPES = ("Expository_Fast", "Suspense_Delay", "Dramatic_Core", "Combat_Impact", "Reaction_OTS")
@@ -447,20 +450,23 @@ def validate_storyboard_data(data: dict, original_script_dialogues: list = None)
                 f"H3 在缺乏人物參考圖錨定時必然漂移成異質真人實拍風！請改用背影/前景失焦局部，或改拍已綁定參考圖之主角反應特寫。"
             )
 
-        # Check 7: 台詞語速與閉唇鎖檢查 (含 4 字/秒法則與單句長度警告)
+        # Check 7: 台詞語速與閉唇鎖檢查（v118 #4：依畫內／VO 分線，和 #116 角色語速一致）
         if dlg.get("has_dialogue"):
-            line = (dlg.get("line_verbatim") or "").strip()
-            if line:
-                n_chars = count_speech_chars(line)
+            spoken = shot_lines(dlg)
+            if spoken:
+                n_chars = sum(count_speech_chars(t) for t in spoken)
                 cps = n_chars / max(dur, 0.5)
-                if cps > 4.2:
+                rate_warn, rate_max = rate_limits(dlg)
+                kind = "旁白／內心 VO" if is_voiceover_line(dlg) else "畫內對嘴"
+                line = "／".join(spoken)
+                if cps > rate_max + 1e-9:
                     errors.append(
-                        f"[{sid} 語速超載] 台詞「{line}」({n_chars}字 / {dur}s = {cps:.1f}字/秒) 超出語速上限（閘門 4.2 字/秒，建議值 3.8）！"
-                        f"請於氣口切斷並順延至 overflow_dialogue_out。"
+                        f"[{sid} 語速超載] 台詞「{line}」({n_chars}字 / {dur}s = {cps:.1f}字/秒) 超出{kind}上限 {rate_max} 字/秒！"
+                        f"請於氣口切斷並順延至 overflow_dialogue_out，或把鏡長拉到 字數÷語速＋0.3s。"
                     )
-                elif cps > 4.0 or n_chars > 15:
+                elif cps > rate_warn + 1e-9 or max(count_speech_chars(t) for t in spoken) > LINE_SUGGEST_MAX:
                     warnings.append(
-                        f"[{sid}] ⚠️ 台詞超速風險：本鏡 {n_chars} 字僅 {dur} 秒（建議 ≤ 4 字/秒、單句 ≤ 15 字、窗口 ≥ 2.5 秒，否則 H3 會加速念詞）"
+                        f"[{sid}] ⚠️ 台詞超速風險：本鏡 {n_chars} 字 {dur} 秒（{kind}建議 ≤ {rate_warn} 字/秒、單句 ≤ {LINE_SUGGEST_MAX} 字）"
                     )
         else:
             _vis = " ".join(str(x) for x in [expr, *stages, (s.get("visual_description") or "")] if x).lower()
@@ -532,28 +538,28 @@ def validate_storyboard_data(data: dict, original_script_dialogues: list = None)
                 else:
                     seen_vals[val] = sid
 
-    # 整段台詞密度與說話時長比例檢查
-    total_dialogue_chars = sum(
-        count_speech_chars((sh.get("dialogue_and_audio", {}).get("line_verbatim") or ""))
-        for sh in shots
-        if sh.get("dialogue_and_audio", {}).get("has_dialogue")
-    )
-    total_speech_sec = total_dialogue_chars / 4.0
-    if target_dur > 0 and (total_speech_sec / target_dur) > 0.60:
+    # 整段說話時長比例（v118 #5：#118 目標 75–90%，超過 90% 才提醒；依畫內 4.5／VO 5.5 字/秒估）
+    total_speech_sec = 0.0
+    for sh in shots:
+        _d = sh.get("dialogue_and_audio", {}) or {}
+        if _d.get("has_dialogue"):
+            _rate = VO_RATE_WARN if is_voiceover_line(_d) else ONSCREEN_RATE_WARN
+            total_speech_sec += sum(count_speech_chars(t) for t in shot_lines(_d)) / _rate
+    if target_dur > 0 and (total_speech_sec / target_dur) > SPEECH_SHARE_WARN:
         warnings.append(
-            f"⚠️ 台詞密度過高警告：整段總說話預估秒數 ({total_speech_sec:.1f}s / {target_dur:.1f}s = "
-            f"{total_speech_sec / target_dur:.1%}) 超過段落總長 60%，建議保留更多呼吸與反應空間。"
+            f"⚠️ 說話佔比偏高：整段說話預估 {total_speech_sec:.1f}s / {target_dur:.1f}s = "
+            f"{total_speech_sec / target_dur:.1%} > {SPEECH_SHARE_WARN:.0%}（目標 75–90%），檢查句間是否還有 0.1s 以上氣口。"
         )
 
     # 分段時長提醒
     if target_dur > 10.0 or target_dur < 5.0:
         warnings.append(
             f"[分段時長提醒] 本段時長 {target_dur}s：每段建議 2–4 個節拍、7–10 秒（15 秒僅為 H3 單次上限而非硬規則），"
-            f"且每段應為自足開場並具備靜態留白的收尾交接格。"
+            f"且每段應為自足開場；收尾在最後一句說完後 0.3 秒（無廢片，不留靜止尾格）。"
         )
     checks_passed.append(
         "[分段時長設計建議] 每段建議 2–4 個節拍、7–10 秒（15 秒僅為 H3 單次上限而非硬規則），"
-        "且每段應為自足開場並具備靜態留白的收尾交接格。"
+        "且每段應為自足開場；收尾在最後一句說完後 0.3 秒（無廢片，不留靜止尾格）。"
     )
 
     checks_passed.append("[PASS] 單鏡動作 <=5 階段、武戲 90° 防遮擋與遠景五官過濾核對完成")

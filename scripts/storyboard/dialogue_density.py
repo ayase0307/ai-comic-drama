@@ -25,6 +25,40 @@ BEAT_PAUSE_MIN, BEAT_PAUSE_MAX = 0.6, 1.2
 CUT_ONSET_MAX = 0.5
 _EPS = 0.011
 
+# v118 規則衝突 #4／#5／#10：舊閘門（4.2 字/秒、說話 >60%、單句 >15 字）改成和 #116／#118 同一套數字。
+ONSCREEN_RATE_WARN, ONSCREEN_RATE_MAX = 4.5, 4.7  # 畫內：女角估時 4.5；正臉對嘴上限 4.7（#116）
+VO_RATE_WARN, VO_RATE_MAX = 5.5, 5.8              # 旁白／畫外／內心 VO：估時 5.5；Work_01 旁白 5.2–5.8
+LINE_SUGGEST_MAX = 18                              # #116：單句建議 ≤18 字（硬上限 35 由 pacing_gate 管）
+SPEECH_SHARE_WARN = 0.90                           # #118：說話佔片長 75–90%，超過 90% 才提醒
+VO_AUDIO_TYPES = {"narration", "voiceover", "vo", "inner", "offscreen", "os", "o.s.", "v.o."}
+_VO_SPEAKERS = {"旁白", "narrator", "narration", "畫外音", "內心", "v.o.", "vo", "os", "o.s."}
+_VO_SPEC_TERMS = ("voiceover", "v.o", "inner voice", "off-screen", "offscreen", "內心", "畫外", "旁白")
+
+
+def is_voiceover_line(dlg: Dict[str, Any]) -> bool:
+    """這句台詞沒有可見的嘴（旁白／畫外／內心 VO）。"""
+    if str(dlg.get("audio_type") or "").strip().lower() in VO_AUDIO_TYPES:
+        return True
+    if str(dlg.get("offscreen_form") or "").strip().lower() in ("voiceover", "offscreen"):
+        return True
+    if str(dlg.get("speaker") or "").strip().lower() in _VO_SPEAKERS:
+        return True
+    spec = " ".join(str(dlg.get(k) or "") for k in ("voice_4d_spec", "voice_4d_spec_en")).lower()
+    return any(t in spec for t in _VO_SPEC_TERMS)
+
+
+def rate_limits(dlg: Dict[str, Any]) -> Tuple[float, float]:
+    """（WARN 線, FAIL 線）字/秒：畫內對嘴 4.5／4.7，VO 5.5／5.8。"""
+    return (VO_RATE_WARN, VO_RATE_MAX) if is_voiceover_line(dlg) else (ONSCREEN_RATE_WARN, ONSCREEN_RATE_MAX)
+
+
+def shot_lines(dlg: Dict[str, Any]) -> List[str]:
+    """這鏡要念的所有台詞：line_verbatim ＋ extra_lines（同鏡接話，v118 #2）。"""
+    out = [(dlg.get("line_verbatim") or "").strip()]
+    out += [str((x or {}).get("line_verbatim") or "").strip() for x in (dlg.get("extra_lines") or [])
+            if isinstance(x, dict)]
+    return [t for t in out if t]
+
 
 def _dlg(shot: Dict[str, Any]) -> Dict[str, Any]:
     return shot.get("dialogue_and_audio") or {}
@@ -68,7 +102,7 @@ def check_dialogue_density(data: Dict[str, Any]) -> Tuple[List[str], List[str]]:
             break
         tail += _span(s)[1] - _span(s)[0]
     allowance = min(MONTAGE_ALLOWANCE_SEC, lead + tail)
-    chars = sum(count_speech_chars(_dlg(s).get("line_verbatim") or "") for s in talking)
+    chars = sum(count_speech_chars(t) for s in talking for t in shot_lines(_dlg(s)))
     denom = max(total - allowance, 0.1)
     dens = chars / denom
     meta = data.get("metadata") or {}
@@ -83,8 +117,15 @@ def check_dialogue_density(data: Dict[str, Any]) -> Tuple[List[str], List[str]]:
 
     lines = []
     for s in talking:
-        for ln in _dlg(s).get("line_timecodes") or []:
-            lines.append(ln)
+        tc = list(_dlg(s).get("line_timecodes") or [])
+        lines.extend(tc)
+        known = {str(l.get("text") or "").strip() for l in tc}
+        for ex in _dlg(s).get("extra_lines") or []:  # 同鏡接話沒寫進 line_timecodes 時，用它自己的 speech_window
+            w = (ex or {}).get("speech_window") if isinstance(ex, dict) else None
+            text = str((ex or {}).get("line_verbatim") or "").strip() if isinstance(ex, dict) else ""
+            if tc and isinstance(w, dict) and w.get("start") is not None and w.get("end") is not None and text not in known:
+                lines.append({"text": text, "start": w["start"], "end": w["end"],
+                              "beat_pause": bool(ex.get("beat_pause"))})
     if not lines:
         return errors, warnings
     lines.sort(key=lambda l: float(l["start"]))

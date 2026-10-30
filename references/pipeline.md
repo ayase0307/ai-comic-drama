@@ -201,7 +201,7 @@ python scripts/init_project.py my-drama --title "我的漫劇"
 # 1. 結構與格式校驗
 python scripts/adapt/validate_structure.py --script script-ep01.md --handoff handoff-ep01.json
 
-# 2. H3 實戰台詞預算與時長審計（4字/秒、單句≤15字警告、說話佔比≤60%警告）
+# 2. H3 實戰台詞預算與時長審計（角色語速、單句 ≤18 字建議、說話佔比 75–90%，>90% 警告）
 python scripts/adapt/estimate_duration.py --script script-ep01.md --genre xuanhuan_revenge --h3
 # 短劇短集模式（使用者明確選擇）才帶單集目標：--format short --target-seconds 90
 
@@ -248,8 +248,14 @@ python scripts/adapt/compare_adaptation.py --source adapt/source.json --script s
 
 - **台詞預算鐵律**：
   - 估時依角色：**男主 4.0、女角 4.5、旁白／畫外 5.5 字／秒**（對嘴上限 4.7；`estimate_duration.py --male-lead 名字`、分鏡交接 `voice_role`）；單句建議 $\le 18$ 字、硬上限 35 字；說話窗口＝字數÷角色語速＋0.3 秒（最低 1.2 秒）；同場兩句空隙 **0.1–0.9 秒**（情緒落點 `beat_pause` 0.6–1.2 秒），切鏡後 **0.5 秒內開口**。
-  - **文戲說話秒數目標 60–75%，>80% 才 WARN**；對話段整段密度（字數÷片長）目標 **3.0–3.6 字／秒**，<2.8 或 >3.9或每 15 秒開口 <6 次 → WARN；猛烈動作碰撞鏡頭嚴禁排台詞（喘息放 `overall_soundscape`）。
+  - **文戲說話秒數目標 75–90%（#118），>90% 才 WARN**；對話段整段密度（字數÷片長）目標 **3.0–3.6 字／秒**，<2.8 或 >3.9或每 15 秒開口 <6 次 → WARN；猛烈動作碰撞鏡頭嚴禁排台詞（喘息放 `overall_soundscape`）。
   - **無台詞鏡**：單鏡 >5 秒、連續無台詞 >10 秒 → WARN（禁拉伸湊時）。
+  - **v118 實測對齊（舊規則改成和上面一致）**：
+    - 鏡長：每鏡（含首切點、相鄰切點、17n+5 取整後的末鏡）≥1.2 秒合規（`h3_spec.MIN_SHOT_SEC`）；1.2–2.0 秒只在 `compile_notes`／audit `W:E4 短鏡` 提醒（上游 H3 指南 ≥2 秒，未實測）。
+    - 取整收尾：對話段預設往上取 17n+5；若往下取一格仍能念完末句（句後 ≥0.1 秒）且更接近分鏡寫的句後留白（≥0.3 秒），改往下取（`rounding_reason: tail-fit`；`metadata.disable_tail_fit: true` 關閉）。
+    - 同鏡接話：`dialogue_and_audio.extra_lines[]`（`speaker`、`line_verbatim`、`speech_window`、`voice_4d_spec_en`），編譯器逐句給 `<d>`、前一位說話人閉嘴；D2 密度與語速閘門都把接話算進去。
+    - 分鏡語速閘門（validate）：畫內 >4.7 字/秒 FAIL、>4.5 WARN；旁白／內心 VO >5.8 FAIL、>5.5 WARN（以鏡長計；舊 4.2 一律線取消）。
+    - `pacing_gate`：給了 `shots` 時密度分母扣段首／段尾連續無台詞鏡（最多 5 秒，同 D2）；原著無台詞動作鏡標 `source_action: true` 不計入有人聲鏡比例；`beat_pause` 句的切鏡後開口可到 1.2 秒（同 D4）。
   - **硬門禁（FAIL）**：句間空隙 >1.5 秒、單句 >35 字、提示詞含 `slow`（含 `slow motion`、`no slow motion`、`at slow speed`、`slow push`；揭露／定格鏡標 `allow_slow` 例外）。機檢見 `scripts/storyboard/pacing_gate.py`。
   - **提示詞寫法保留**：動作鏈（施力點→傳導→受擊反應）＋逐句時間錨點（`[0.0–1.8s]` 開口時間），正向寫 `real-time speed, natural brisk motion`。
 - **動作力學三要素（分鏡「動作」欄必填）**：
@@ -350,7 +356,7 @@ H3 的聲音與畫面在同一次 forward 生成，輸出是**單一 32 kHz 立�
 
 **三種政策**（只管「沒有可見嘴」的台詞：畫外 O.S.、旁白／內心獨白 V.O.、背影／遮嘴說話；畫內有可見嘴的對白一律留 `<d>`）：
 
-| 政策 | 短句（約 ≤15 字） | 長句 | 什麼時候用 |
+| 政策 | 短句（≤18 字；實測 ≤15 字） | 長句（>18 字） | 什麼時候用 |
 |---|---|---|---|
 | **`short-offscreen-h3`（預設）** | **留 H3**：官方畫外句式＋逐字 `<d>` | 外部 TTS（`external_narration[]`） | 一般漫劇：短畫外句與旁白直接由 H3 念 |
 | `external` | 外部 TTS | 外部 TTS | 長旁白為主、或同一說話者必須跨段完全同一條聲線 |
@@ -369,14 +375,14 @@ H3 的聲音與畫面在同一次 forward 生成，輸出是**單一 32 kHz 立�
   - 聲線描述放 `<d>` **外面**（`offscreen_voice_en`，沒有就用 `voice_4d_spec_en`）；`<d>` 裡只放逐字台詞。
   - 只對**露臉者**寫嘴閉合（stage5 `show` 為 face／profile 的 Subject；沒有 `show` 時看 `character_ids`／`lips_closed_lock`）；畫面沒有臉時 V.O. 寫 `no face is on screen`，O.S. 不寫閉嘴句。
   - 同鏡的 Expression 不可寫 mouth open／gasping／lips parted（#123）：H3 會讓露臉者跟著開口，像他在說那句畫外台詞。改寫 `lips pressed tightly shut`。
-  - 一鏡一句、短句約 ≤15 字、鏡長留夠（約每秒 4 字＋起音）；超過時編譯器只在 `compile_notes` 提醒。
+  - 短句 ≤18 字（實測 ≤15 字；16–18 字留 H3、只在 `compile_notes` 提醒）、鏡長留夠（約每秒 4 字＋起音）。同鏡接話用 `dialogue_and_audio.extra_lines[]`（每句 `speaker`、`line_verbatim`、`speech_window`、`voice_4d_spec_en`），編譯器逐句給 `<d>`，前一位說話人寫閉嘴。
 - **外部化的句子不得在提示詞裡寫「某人在說話」**（#122）：舊版 external 會寫 `X speaks off-screen over this shot` 卻不給字，H3 會在該鏡自編亂語或不發聲（噩盡島 stage6 音訊稽核）。現在外部化的鏡只寫畫面角色閉嘴與 `the shot carries only the location ambience`，台詞只在 `external_narration[]`。
 
 **限制（寫在這裡，選政策時要知道）**：
 
 - **同一說話者跨段的聲線可能不一致**：H3 每段都重新合成，聲線描述只能讓它「聽起來像同一類聲音」；跨段一致性**尚未量測**。需要跨段統一聲線（例如整季同一位旁白）就用 `external` 或逐句 `voice_route=external`，或掛 `<Audio N>` 音色參考。
 - **事後改稿要重跑整段**：H3 念的台詞烤在同一條混音裡，改一個字就要重新生成那一整段影片；外部 TTS 只要重合成那一句。
-- 只驗證過中文、≤15 字的短句；長句未驗證，預設才會把長句交給外部 TTS。
+- 只驗證過中文、≤15 字的短句；16–18 字預設仍留 H3（不多一道外部 TTS），>18 字才預設交給外部 TTS（v118 #10）。
 
 **指令**：
 
@@ -496,7 +502,7 @@ H3-Omni-Transformer *"jointly predicts video and audio latents, which are then d
 | 層 | 什麼時候用 | 怎麼做 | 為什麼 / 壞掉長怎樣 |
 |---|---|---|---|
 | **A. 畫內有可見嘴的對白** | 角色正臉說話、嘴型是重點 | **留給 H3 內建語音**（`<d>` 區塊照寫），當成口型錨點；**掛上音色母帶（`<Audio N>`）時，H3 會照母帶音色重新合成**，這就是跨段「像同一個人」的來源；要每段完全一致或更清晰的聲音時，用外部 TTS 覆蓋 ＋ lipsync（[MuseTalk 1.5](https://github.com/TMElyralab/MuseTalk)） | H3 內建中文語音實測 ASR 置信度只有 0.43–0.54【社群實測】（字音模糊、吞字、偶發 −40 dB 靜音），但嘴型是跟著 `<d>` 走的；音色參考只給音色方向、**不鎖口型**。**壞掉長怎樣**：直接抽掉 H3 音軌，會看到嘴還在動、聲音卻沒了，必須補 lipsync 才對得上 |
-| **B. 畫外音／旁白／內心聲／背影說話** | 旁白解說、內心獨白、背影或遮嘴說話 | **短句（約 ≤15 字）留 H3**：用 §5.4 的 O.S.／V.O. 官方句式＋逐字 `<d>`、露臉者嘴閉合；**長句或需跨段統一聲線才外部 TTS**，於階段 7 混入 | 實測短畫外句與旁白 H3 直接念對（拼音相似度 1.00）。**壞掉長怎樣**：只寫「X speaks off-screen」不給字，H3 自編亂語；長句塞給 H3 可能念不全；H3 念的句子事後改稿要整段重跑 |
+| **B. 畫外音／旁白／內心聲／背影說話** | 旁白解說、內心獨白、背影或遮嘴說話 | **短句（≤18 字，實測 ≤15 字）留 H3**：用 §5.4 的 O.S.／V.O. 官方句式＋逐字 `<d>`、露臉者嘴閉合；**長句或需跨段統一聲線才外部 TTS**，於階段 7 混入 | 實測短畫外句與旁白 H3 直接念對（拼音相似度 1.00）。**壞掉長怎樣**：只寫「X speaks off-screen」不給字，H3 自編亂語；長句塞給 H3 可能念不全；H3 念的句子事後改稿要整段重跑 |
 | **C. 全片外部聲景** | ambience ＋ SFX ＋ TTS ＋ BGM 全部外部重建 | 產出「無內建語音」的 H3 片段，聲場整條自己搭 | **只在要做多語配音版時才需要**：H3 的對白與畫面同批生成、已烤在同一條混音裡，換語言等於要重生成整支影片，之後聲場才能完全外部化。**壞掉長怎樣**：為了「乾淨」而全片外部化卻沒有多語需求，等於多花一輪重建成本卻沒有收益 |
 
 **音色怎麼鎖（同一個 `V-<slug>` 驅動兩條軌道）**：跨片段音色一致**不是**靠影片模型「記住」誰的聲音——社群說的「直出影片、每段聲音都一致且富有感情」，拆開看是**同一份音色被每一句重新合成**：掛音色母帶時是 **H3 自己照 `<Audio N>` 的音色重新發聲**（官方只保證「參考音色與語氣」，原訊號不複製），走外部 TTS 時則是**同一條複製音色重合成每一句**。本專案因此用**同一個 `V-<slug>` 當兩邊的 join key**：

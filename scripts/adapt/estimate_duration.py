@@ -66,6 +66,7 @@ GENRE_SPEECH_RATES: Dict[str, Tuple[float, float]] = {
 
 # v2 依角色估時（出處 references/pacing-dialogue-evidence.md）
 ROLE_CHARS_PER_SEC: Dict[str, float] = {"male_lead": 4.0, "female": 4.5, "narration": 5.5}
+SPEECH_SHARE_WARN = 0.90  # v118 #5：#118 說話佔片長 75–90%（與 dialogue_density.SPEECH_SHARE_WARN 同值）
 _NARRATION_MARKS = ("VO", "V.O", "O.S", "旁白", "內心", "OS")
 
 
@@ -207,16 +208,16 @@ def estimate_script_duration(
     base_dur = target_seconds if (target_seconds and target_seconds > 0) else mid_seconds
     h3_speech_ratio = round(h3_speech_seconds / base_dur, 3) if base_dur > 0 else 0.0
 
-    # v2：文戲說話佔比目標 60–75%；>80% 才 WARN（只警告不擋）；過低也警告
-    if h3_mode and h3_speech_ratio > 0.80:
+    # v118 #5：說話佔比與 #118 一致——目標 75–90%，>90% 才 WARN（只警告不擋）；<60% 也警告
+    if h3_mode and h3_speech_ratio > SPEECH_SHARE_WARN:
         warnings.append(
             f"[H3_SPEECH_RATIO_EXCEEDED] H3 純說話秒數佔比達 {h3_speech_ratio:.1%} "
-            f"({h3_speech_seconds}s/{base_dur}s)，超過 80%（目標 60–75%；建議切反應鏡或插動作拍）"
+            f"({h3_speech_seconds}s/{base_dur}s)，超過 90%（目標 75–90%；檢查句間氣口）"
         )
     elif h3_mode and h3_speech_ratio < 0.60:
         warnings.append(
             f"[H3_SPEECH_RATIO_LOW] H3 純說話秒數佔比僅 {h3_speech_ratio:.1%} "
-            f"({h3_speech_seconds}s/{base_dur}s)，低於目標 60–75%（畫面可能大量無人說話，檢查空白與無台詞鏡）"
+            f"({h3_speech_seconds}s/{base_dur}s)，低於 60%（目標 75–90%；畫面可能大量無人說話，檢查空白與無台詞鏡）"
         )
 
     budget_status = "PASS"
@@ -270,7 +271,7 @@ def estimate_script_duration(
             "speech_seconds": h3_speech_seconds,
             "speech_ratio": h3_speech_ratio,
             "max_line_chars": max_single_line_chars,
-            "passed": (h3_speech_ratio <= 0.80 and max_single_line_chars <= 35),
+            "passed": (h3_speech_ratio <= SPEECH_SHARE_WARN and max_single_line_chars <= 35),
         },
         "scenes": scene_estimates,
         "compression_advice": compression_advice,
