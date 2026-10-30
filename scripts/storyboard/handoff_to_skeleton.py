@@ -16,6 +16,11 @@ references/storyboard/templates/layer2-storyboard.schema.json。
 - 鏡頭語言、動作階段、光線鎖、風格鎖等標 TODO，導演須依情節重寫；
   validate_storyboard.py 與 layer2_to_table.py --check 遇到 TODO 一律失敗。
 - 動作拍的順序為先動作後對白（handoff 未提供兩者的先後關係）。
+- 原著無台詞動作 beat（劇本 `△【動作】…`／`△【動作2.5】…`，見 action_marks.py）：每個標記一定是獨立一鏡，
+  不和別的 △ 合併、不併進台詞鏡；鏡長＝標記秒數（未給 2.0 s，最短 h3_spec.MIN_SHOT_SEC），fit 模式也不壓縮；
+  切段時照算秒數，裝不下就另開段，不截短。handoff 有 script_sequence（sync_script 寫入）時依劇本先後排，
+  沒有時【動作】鏡排在台詞前並警告。鏡上標 `source_action: true` 與 `action_mark: {text, seconds}`，
+  validate D5 依它核對劇本標記數、D1–D4 與 pacing_gate 的台詞類檢查不計它。沒有標記的場行為完全不變。
 - 已存在的檔案不會被覆蓋，除非加 --force。--force 重建時保留既有鏡頭的構圖綁定欄位
   （sketch_file／sketch_sha256／sketch_status／sketch_prompt／sketch_generation／sketch_qc；
   以 shot_id 對應，構圖檔 sha256 仍相符才保留，見 sketch_bindings.py），不必再手動重綁。
@@ -35,6 +40,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from speech_utils import count_speech_chars  # noqa: E402
 import sketch_bindings  # noqa: E402
+import action_marks  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 LAYER2_SCHEMA = ROOT / "references/storyboard/templates/layer2-storyboard.schema.json"
@@ -250,24 +256,82 @@ def merge_beats(beats: list[str]) -> list[dict]:
     return items
 
 
+def _dialogue_items(scene: dict, line: dict, split_threshold: float) -> list[dict]:
+    speech_len = count_speech_chars(line["text"])
+    if speech_len > 15:
+        warn(f"{scene.get('scene_id')} 單句台詞超過 15 字（{speech_len} 字）：「{line['text']}」，建議拆短以符合 H3 實戰台詞預算")
+    return [{
+        "kind": "dialogue",
+        "speaker": line["speaker"],
+        "text": piece,
+        "note": line.get("delivery_note", ""),
+        "audio_type": line.get("audio_type", "dialogue"),
+        "duration": dialogue_seconds(piece, line.get("voice_role"), line.get("audio_type")),
+    } for piece in split_long_line(line["text"], max_sec=split_threshold)]
+
+
+def action_mark_items(text: str) -> list[dict]:
+    """【動作】行 → 每個標記一鏡（一個標記＝一個主要動作），鏡長＝標記秒數，不和其他 △ 合併。"""
+    out = []
+    for piece in action_marks.split_marked_line(text):
+        sec = piece["seconds"]
+        if sec > MAX_SHOT_SEC:
+            raise DialogueOverflowError(f"【動作】鏡 {sec} 秒超過 H3 單鏡 {MAX_SHOT_SEC:.0f} 秒上限，請在劇本拆成多行：{text!r}")
+        out.append({"kind": "action_mark", "text": action_marks.strip_marks(piece["text"]),
+                    "mark_text": piece["text"], "duration": sec})
+    return out
+
+
+def _valid_sequence(seq, n_beats: int, n_dialogue: int) -> bool:
+    if not isinstance(seq, list):
+        return False
+    seen = {("action", i) for i in range(n_beats)} | {("dialogue", i) for i in range(n_dialogue)}
+    got = [(x.get("kind"), x.get("index")) for x in seq if isinstance(x, dict)]
+    return len(got) == len(seq) and sorted(got, key=str) == sorted(seen, key=str)
+
+
 def build_items(scene: dict, max_sec: float = DEFAULT_MAX_SEGMENT_SEC) -> list[dict]:
-    """先動作拍、後對白（對白為必保留項目，動作拍是段落的填充物）。超長對白會切成多個對白鏡。"""
+    """先動作拍、後對白（對白為必保留項目，動作拍是段落的填充物）。超長對白會切成多個對白鏡。
+
+    有【動作】標記的場：每個標記獨立一鏡（鏡長＝標記秒數）；有 script_sequence 時依劇本先後排列。"""
     beats = scene.get("action_beats") or scene.get("storyboard_handoff", {}).get("required_visual_beats") or []
-    items = merge_beats(beats)
     split_threshold = min(max_sec, MAX_SHOT_SEC)
-    for line in scene.get("dialogue", []):
-        speech_len = count_speech_chars(line["text"])
-        if speech_len > 15:
-            warn(f"{scene.get('scene_id')} 單句台詞超過 15 字（{speech_len} 字）：「{line['text']}」，建議拆短以符合 H3 實戰台詞預算")
-        for piece in split_long_line(line["text"], max_sec=split_threshold):
-            items.append({
-                "kind": "dialogue",
-                "speaker": line["speaker"],
-                "text": piece,
-                "note": line.get("delivery_note", ""),
-                "audio_type": line.get("audio_type", "dialogue"),
-                "duration": dialogue_seconds(piece, line.get("voice_role"), line.get("audio_type")),
-            })
+    dialogue = scene.get("dialogue", [])
+    if not any(action_marks.has_mark(b) for b in beats):  # 沒有標記：和以前完全一樣
+        items = merge_beats(beats)
+        for line in dialogue:
+            items += _dialogue_items(scene, line, split_threshold)
+        return items
+
+    seq = scene.get("script_sequence")
+    if not _valid_sequence(seq, len(beats), len(dialogue)):
+        if seq is not None:
+            warn(f"{scene.get('scene_id')} script_sequence 和 action_beats／dialogue 對不上，改用「動作在前、台詞在後」")
+        else:
+            warn(f"{scene.get('scene_id')} 有【動作】標記但 handoff 沒有 script_sequence：【動作】鏡先排在台詞前；"
+                 "重跑 sync_script.py 會依劇本先後排")
+        seq = [{"kind": "action", "index": i} for i in range(len(beats))] + \
+              [{"kind": "dialogue", "index": i} for i in range(len(dialogue))]
+    items: list[dict] = []
+    plain: list[str] = []  # 連續的一般 △：照舊合併成一拍
+
+    def flush() -> None:
+        if plain:
+            items.extend(merge_beats(plain))
+            plain.clear()
+
+    for entry in seq:
+        if entry["kind"] == "action":
+            text = beats[entry["index"]]
+            if action_marks.has_mark(text):
+                flush()
+                items.extend(action_mark_items(text))
+            else:
+                plain.append(text)
+        else:
+            flush()
+            items.extend(_dialogue_items(scene, dialogue[entry["index"]], split_threshold))
+    flush()
     return items
 
 
@@ -359,6 +423,12 @@ def make_shot(item: dict, shot_id: str, start: float, duration: float,
         named = [char_map[c] for c in scene.get("characters", []) if c and c in beat_text]
         character_ids = named or [char_map[c] for c in scene.get("characters", [])]  # 動作文字點名者優先，沒點名才退回全場
 
+    extra: dict = {}
+    if item["kind"] == "action_mark":
+        # 原著無台詞動作鏡：validate D5 核對劇本標記數與鏡長，D1–D4／pacing_gate 台詞類檢查不計它
+        extra = {"source_action": True,
+                 "action_mark": {"text": item.get("mark_text") or item["text"], "seconds": item["duration"]}}
+
     stages_en = [
         f"{TODO}: force origin in English",
         f"{TODO}: transfer path in English",
@@ -406,6 +476,7 @@ def make_shot(item: dict, shot_id: str, start: float, duration: float,
             "observable_expression_en": f"{TODO}: observable expression in English",
         },
         "dialogue_and_audio": audio,
+        **extra,
     }
 
 
@@ -549,6 +620,8 @@ def fit_total_duration(results: list[tuple[str, dict]], target_total: float,
         return notes
 
     def floor_of(sh: dict) -> float:
+        if action_marks.is_action_shot(sh):  # 【動作】鏡：鏡長＝標記秒數，fit 也不壓縮
+            return max(MIN_ACTION_SHOT_SEC, action_marks.required_seconds(sh) or float(sh["duration"]))
         dlg = sh.get("dialogue_and_audio", {})
         if dlg.get("has_dialogue") and dlg.get("line_verbatim"):
             return max(MIN_ACTION_SHOT_SEC, _round_half(count_speech_chars(dlg["line_verbatim"]) / CHARS_PER_SEC + 0.25))
@@ -566,6 +639,8 @@ def fit_total_duration(results: list[tuple[str, dict]], target_total: float,
     flex_tgt = max(0.0, target_total - fixed)
     ratio = (flex_tgt / flex_cur) if flex_cur > 0 else 0.0
     for _, sh in shots:
+        if action_marks.is_action_shot(sh):
+            continue  # 【動作】鏡維持標記秒數（不縮放、不 0.5 s 取整）
         f = floor_of(sh)
         sh["duration"] = min(MAX_SHOT_SEC, max(f, _round_half(f + (float(sh["duration"]) - f) * ratio)))
 
@@ -580,7 +655,8 @@ def fit_total_duration(results: list[tuple[str, dict]], target_total: float,
     # 0.5 秒取整造成的殘差，用最長動作鏡吸收
     diff = _round_half(target_total - sum(sh["duration"] for _, sh in shots))
     if diff:
-        cand = sorted(((seg, sh) for seg, sh in shots if not sh.get("dialogue_and_audio", {}).get("has_dialogue")),
+        cand = sorted(((seg, sh) for seg, sh in shots if not sh.get("dialogue_and_audio", {}).get("has_dialogue")
+                       and not action_marks.is_action_shot(sh)),
                       key=lambda x: -x[1]["duration"]) or list(shots)
         step = 0.5 if diff > 0 else -0.5
         i = 0

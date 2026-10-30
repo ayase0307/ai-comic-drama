@@ -240,7 +240,20 @@
                 "exit_polarity": { "type": "string", "enum": ["+", "-", "mixed"] },
                 "action_beats": {
                   "type": "array",
-                  "items": { "type": "string" }
+                  "items": { "type": "string" },
+                  "description": "劇本 △ 動作行（原樣，含 `【動作】`／`【動作2.5】` 標記）。帶【動作】標記的行＝原著無台詞動作 beat，分鏡骨架排成獨立一鏡、鏡長＝標記秒數（validate D5／D6）。"
+                },
+                "script_sequence": {
+                  "type": "array",
+                  "description": "選填（sync_script 只在有【動作】標記的場寫入）：劇本裡動作行與台詞的先後順序，index 指 action_beats／dialogue 的位置。分鏡骨架靠它把【動作】鏡排回原位。",
+                  "items": {
+                    "type": "object",
+                    "required": ["kind", "index"],
+                    "properties": {
+                      "kind": { "type": "string", "enum": ["action", "dialogue"] },
+                      "index": { "type": "integer", "minimum": 0 }
+                    }
+                  }
                 },
                 "dialogue": {
                   "type": "array",

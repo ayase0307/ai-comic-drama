@@ -233,13 +233,14 @@ H3 的聲音與畫面在同一次 forward 生成，輸出是**單一 32 kHz 立�
 - `references/prompt-playbook.md` — 圖像／影片提示詞撰寫手冊（景別、運鏡、光線、風格鎖、負面提示詞）。
 - `scripts/init_project.py` — 一鍵建立專案骨架與模板檔，自動初始化 `adapt/source.json`、`adapt/bible.json` 與 `project.md` 兩大欄位（台詞政策固定值與體量秒數反推）。
 - `scripts/adapt/extract_chapter.py` — 小說大檔目錄掃描（`--list`）、單章抽取（`--volume`、`--chapter`）與 Pandoc 6 重自動清洗工具。
-- `scripts/adapt/dialogue_budget.py` — 台詞優先估時（男主 4.0／女角 4.5／旁白 5.5 字/秒＋0.3 s 句間＋停頓＋建立鏡；可選 `△【動作N】` 原著無台詞動作鏡只進分鏡後預估片長、不進 G3）、密度 3.0–3.6 字/秒（速率，集長不設限）、`--split` 依 `episode-end` 斷點（原著錨點＋理由）列出各集；`adapt_gate.py` G13 檢查斷點。
+- `scripts/adapt/dialogue_budget.py` — 台詞優先估時（男主 4.0／女角 4.5／旁白 5.5 字/秒＋0.3 s 句間＋停頓＋建立鏡；`△【動作N】` 原著無台詞動作 beat 必標、一個標記一個主要動作，只進分鏡後預估片長、不進 G3；G14 檢查漏標與一行塞多個動作）、密度 3.0–3.6 字/秒（速率，集長不設限）、`--split` 依 `episode-end` 斷點（原著錨點＋理由）列出各集；`adapt_gate.py` G13 檢查斷點。
 - `scripts/adapt/adapt_gate.py` — 改編自檢門：原著對白覆蓋 100%、密度 3.0–3.6、單行 ≤35、連續無台詞 ≤10 s、場次標題、片長、出處範圍、內容安全（規格 `references/adapt/dialogue-first-adaptation.md`）。
 - `scripts/adapt/estimate_duration.py` — Unicode P 類別統一計字、`--novel` 階段 0 體量反推門禁（四大台詞政策試算）與 `--h3` 實戰台詞預算審計（角色語速、單句 ≤18 字建議、說話時長佔比 >90% 警告）。
 - `scripts/adapt/sync_script.py` — 人工審核鎖定、從零建立 handoff、多場景自動擴展、劇本 HTML 註解元數據（`<!-- source / must_keep / change -->`）自動解析注入與 `--prune-extra` 未鎖定多餘場景修剪工具。
 - `scripts/adapt/compare_adaptation.py` — 原著與改編差異比對，支援 `--episode` 單集過濾驗收與多檔合併（`--handoff`、`--script` 傳多檔）全章總體驗收，連動 `--h3`。
 - `scripts/adapt/*.py` — 劇本結構、時長、連戲、改編差異完整驗證套件。
-- `scripts/storyboard/handoff_to_skeleton.py` — 交接 JSON → Layer 2 骨架，預設每段 10.0s / 3 鏡（支援 `--max-segment-sec`、`--max-shots`）、統一 4.0 字/秒、窗口 $\ge 2.5s$、動作力學三要素結構模板（施力點 ➔ 傳導路徑 ➔ 受擊反饋）、`INDEPENDENT_REF2VA` 握手與四大連戲錨點（lighting/axis/blocking/texture）。
+- `scripts/storyboard/handoff_to_skeleton.py` — 交接 JSON → Layer 2 骨架，預設每段 10.0s / 3 鏡（支援 `--max-segment-sec`、`--max-shots`）、統一 4.0 字/秒、窗口 $\ge 2.5s$、動作力學三要素結構模板（施力點 ➔ 傳導路徑 ➔ 受擊反饋）、`INDEPENDENT_REF2VA` 握手與四大連戲錨點（lighting/axis/blocking/texture）；劇本 `△【動作N】` 每個標記獨立一鏡、鏡長＝標記秒數（依 handoff `script_sequence` 排回劇本先後，fit 不壓縮）。
+- `scripts/storyboard/action_marks.py` — 【動作】標記共用規則：標記秒數、主要動作數（子句啟發式）、動作鏡判定、D1–D4／pacing_gate 用的動作鏡剝除、validate D5／D6。
 - `scripts/storyboard/compile_layer2_to_h3.py` — Layer 2 批次編譯為 H3 官方六段式提示詞（`prompts-epXX.md`）與 FreeVideo 批次分段檔（`segments-epXX.json`），支援防混臉參考圖排序（Ref2VA 預設一段一張角色圖，`--max-char-refs`；新流程改用 remix 角色卡，見 `references/consistency.md` §7.1）、切點時間軸保護（每鏡含取整後末鏡 ≥1.2s，<2s 只提醒；對話段末句後收尾就近 0.3s 的 tail-fit 取整）、光源名詞映射、官方運鏡詞微交替、LoRA 自動適配、`--narration-policy`（預設 `short-offscreen-h3`：≤18 字的畫外句與旁白留在 `<d>` 由 H3 念，長句才移出；`external`：畫外音／旁白全部移出 `<d>`、寫入 `external_narration` 與 `speaker_ids`，供階段 7 外部 TTS）與 `--check` 雙重對帳。stage5 綁定檔支援 `identity_anchor_ids`（不露臉身份錨點）、`reference_view: "panel"` ＋ `panel_label_en`（**整板查表模式**，缺格位說明即丟 `ValueError`）、`audio_references`（**音色參考 `<Audio N>`** ＋ 固定描述詞 `voice_4d_spec_en`）。
 - `scripts/storyboard/audit_refs_and_segments.py` — 分段參考圖、主體定義、說話者與字數預算多維程式對帳工具（支援雙重審查：模式 A 序對 + 模式 B 17 條自檢）。
 - `scripts/storyboard/patch_shot.py` — 單鏡局部修改與審核鎖定工具（支援秒數吸收、自動重算時間軸）。
@@ -252,7 +253,7 @@ H3 的聲音與畫面在同一次 forward 生成，輸出是**單一 32 kHz 立�
 - `scripts/storyboard/extract_voice_master.py` — 角色音色母帶（`V-<slug>`）產出工具：`--list` 列出可當母帶的畫內台詞（2–15 秒），再依 Layer 2 的 `speech_window` 從已生成影片切出該句、輸出 48 kHz 單聲道 WAV 與 `.provenance.json` 稽核紀錄，並印出可貼進 stage5 綁定檔的 `audio_references` 片段；母帶是「第一次出場那一句」，之後所有段落掛同一條 `<Audio N>` 達成跨段同聲。
 - `scripts/storyboard/assemble_episode.py` — 階段 7 配音分層、字幕燒錄與成片拼接交付工具（`--audio-mode auto` 逐段裁決：畫內對白留 H3 口型、外部化旁白混外部 TTS；`--tts-engine`／`--tts-config` 選引擎與設定；`adelay ...:all=1`＋`amix ...:normalize=0` 分層混音、每軌 48 kHz；整片 `loudnorm`（`--target-lufs`／`--true-peak`／`--lra`）對齊 EBU R128；Windows 字幕冒號轉義；FFmpeg Concat 無縫拼接成片，附 `--self-test`）。
 - `scripts/storyboard/layer2_to_table.py` — Layer 2 → 人可讀 Markdown 分鏡表與時間線 CSV 匯出工具。
-- `scripts/storyboard/validate_storyboard.py` — 分鏡 Layer 2 JSON 靜態驗證工具。
+- `scripts/storyboard/validate_storyboard.py` — 分鏡 Layer 2 JSON 靜態驗證工具（含台詞密度閘門 D1–D4 與【動作】鏡 D5／D6）。
 - `scripts/storyboard/director_storyboard_assistant.py` — 預設配置與多模型提示詞編譯輔助工具。
 - `scripts/color_qa.py` — 跨鏡頭色彩一致性檢查（同步自上游，用法見 `references/h3/lighting-and-color.md`）。
 

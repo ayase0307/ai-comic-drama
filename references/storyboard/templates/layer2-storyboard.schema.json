@@ -306,6 +306,22 @@
             "type": "boolean",
             "description": "雙人引子（E3，references/storyboard/spatial-consistency.md §7）：只能標在第 1 鏡；兩名角色同框、≥2.0 s、無台詞的固定機位雙人鏡，後面鏡頭與 speech_window 整段往後挪。h3d assemble 自動剪掉這一鏡（片頭到它的 end_time）；h3d staging W47 建議、W48 檢查格式。"
           },
+          "source_action": {
+            "type": "boolean",
+            "description": "原著無台詞動作鏡（劇本 `△【動作】…`／`△【動作2.5】…`，scripts/storyboard/action_marks.py）：handoff_to_skeleton 依標記獨立成鏡時寫入。validate D1–D4 與 pacing_gate 的台詞類檢查（密度、有人聲鏡比例、句間空隙、切鏡後開口、開口次數）不計這一鏡；validate D5 核對劇本標記數、合併與截短。"
+          },
+          "action_mark": {
+            "type": "object",
+            "description": "這一鏡對應的劇本【動作】行：text＝劇本原文（含標記），seconds＝標記秒數（未給 2.0 s，最短 h3_spec.MIN_SHOT_SEC）。鏡長不得短於 seconds（D5）；一鏡只能有一個標記（D5）。",
+            "properties": {
+              "text": {
+                "type": "string"
+              },
+              "seconds": {
+                "type": "number"
+              }
+            }
+          },
           "character_ids": {
             "type": "array",
             "items": {

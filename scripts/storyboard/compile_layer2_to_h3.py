@@ -77,6 +77,7 @@ try:  # 以 scripts/storyboard 為 sys.path 執行（CLI 慣例）
     import continuity_lint
     import voice_lint
     import creature_lint
+    import action_marks
 except ImportError:  # pragma: no cover - 套件匯入路徑
     from . import h3_spec
     from . import normalize as normalize_mod
@@ -85,6 +86,7 @@ except ImportError:  # pragma: no cover - 套件匯入路徑
     from . import continuity_lint
     from . import voice_lint
     from . import creature_lint
+    from . import action_marks
 
 
 # ==============================================================================
@@ -1648,7 +1650,10 @@ def compile_segment_h3(
     # 分鏡刻意寫長的句後留白（例如 1.0 s）照舊往上取，保留作者的停頓。
     tail_fit_note = None
     last_speech_end = _last_speech_end(shots)
-    if contains_dialogue and last_speech_end is not None and not metadata.get("disable_tail_fit"):
+    # 末鏡是原著無台詞動作鏡（【動作】標記）時不做 tail-fit：末句後不是留白而是動作，往下取整會截短動作鏡
+    tail_is_action = action_marks.is_action_shot(shots[-1]) if shots else False
+    if (contains_dialogue and last_speech_end is not None and not metadata.get("disable_tail_fit")
+            and not tail_is_action):
         ceil_d = effective_duration(target_dur, rounding="ceil")
         floor_d = effective_duration(target_dur, rounding="floor")
         last_start = float(shots[-1].get("start_time", 0) or 0)
