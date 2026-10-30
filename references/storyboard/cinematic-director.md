@@ -149,3 +149,16 @@ graph TD
 - **24mm vs 100mm 對比實驗案例庫**：[`examples/focal-length-contrast-case.md`](./examples/focal-length-contrast-case.md)
 - **測試案例與驗收評估報告**：[`tests/test-cases.md`](./tests/test-cases.md) 與 [`tests/evaluation-results.md`](./tests/evaluation-results.md)
 - **高清晰教學關鍵影格資產**：`assets/keyframes/`（未收錄於本 repo，見上游 `E:\MinimaxH3\影片分鏡大師\cinematic-director-storyboard\assets\keyframes\`）
+
+## 台詞密度閘門（validate_storyboard，D1–D4，FAIL）
+
+漫劇以台詞推進，分鏡階段就要把節奏鎖住（數字與 PR #116 `pacing_gate` 一致，但這裡升為 FAIL）：
+
+| 代碼 | 規則 |
+|---|---|
+| D1 | 全段無台詞（建立／蒙太奇）最長 5 秒；更長就壓短，或讓旁白蓋過去 |
+| D2 | 有台詞的段密度 ≥ 3.0 字/秒；段首段尾無台詞鏡頭合計最多扣 5 秒額度；> 3.9 為 WARN |
+| D3 | 句間空隙 ≤ 0.9 秒；短句之間的動作和說話重疊，不另外佔秒數；真的要停頓標 `beat_pause`，0.6–1.2 秒 |
+| D4 | 每個切點各自量開口時間 ≤ 0.5 秒（切點時句子還在講算 0）|
+
+時間檢查讀 `dialogue_and_audio.line_timecodes`（`[{speaker,text,start,end,beat_pause}]`，段內相對秒數）。刻意的靜場戲在 `metadata.density_exempt_reason` 寫理由，只有 D2 降為 WARN。

@@ -23,7 +23,7 @@
      角色的關鍵選擇要交代**動機**；換了時間或地點要有**時地轉換**的建立鏡頭或字卡。
    - 在 `source.json` 的事件上標 `exposition_needs`／`needs_motivation`／`time_place_shift`，在改編稿場景上標 `event_exposition`，
      再跑 `python scripts/adapt/event_coverage.py --project-dir .` 逐條對帳。
-   - 被壓縮（`compressed`）、被跳過（`skipped`）、交代不全（`partial`）或未標註（`unverified`）的事件，**在階段 1 審核頁列給使用者決定**；
+   - 被壓縮（`compressed`）、被跳過（`skipped`）、交代不全（`partial`）或未標註（`unverified`）的事件，**由 Agent 依原著補回並重跑**（不問使用者；台詞規則見 `dialogue-first-adaptation.md`）；
      Agent 不得為了湊片長自行砍掉事件交代。
 
 ---

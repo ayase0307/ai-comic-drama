@@ -243,7 +243,8 @@ class ReviewAndLensTests(unittest.TestCase):
                            capture_output=True, text=True, encoding="utf-8", check=True)
             _ok, _err, html_out = review.build_stage_1(root, ps.load_state(root))
             self.assertIn('id="event-coverage"', html_out)
-            self.assertIn("事件交代待決定", html_out)
+            self.assertIn("事件交代待補回", html_out)
+            self.assertNotIn("事件交代待決定", html_out)
             _ok, _err, html0 = review.build_stage_0(root, ps.load_state(root))
             self.assertIn("長篇漫劇（預設）", html0)
 

@@ -107,7 +107,10 @@ python scripts/adapt/estimate_duration.py --script <path/to/script.md> --genre <
 #    依事件數與交代需求估總片長（不是集數 × 固定秒數）
 python scripts/adapt/estimate_duration.py --events <path/to/source.json>
 
-# 2b. 事件交代完整性（被壓縮／跳過／交代不全的事件列給使用者決定）
+# 2b. 事件交代完整性（被壓縮／跳過／交代不全的事件由 Agent 補回）
+# 2c. 台詞優先：依台詞預算分集＋自檢門（references/adapt/dialogue-first-adaptation.md）
+python scripts/adapt/dialogue_budget.py script/ep01.md --male-lead <男主> --split
+python scripts/adapt/adapt_gate.py script/ep01.md --source-text <本集原著段落> --male-lead <男主>
 python scripts/adapt/event_coverage.py --source <path/to/source.json> --handoff <path/to/handoff*.json> --out adapt/event-coverage.md
 
 # 3. 跨集人物別名、道具流轉與因果債務連戲檢查

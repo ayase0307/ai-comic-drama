@@ -129,7 +129,7 @@ python ../scripts/h3d.py next --root .                          # 目前階段�
 
 **4. 對 Agent 說人話**
 
-> 「幫我把這篇小說改編成長篇漫劇，每個事件都要講清楚，畫風古風寫實厚塗，16:9，台詞只留重點句，做到分鏡圖。」
+> 「幫我把這篇小說改編成長篇漫劇，每個事件都要講清楚，畫風古風寫實厚塗，16:9，做到分鏡圖。」
 
 Agent 會照 `h3d next` 一步步推進，在需要你拍板的地方用 `h3d inbox` 產出決策收件匣；你的定案由 `h3d decide <id> <值> --quote "<你的原話>"` 寫進 `decisions.json`。想只拿文字稿，就定 `delivery_scope`（`script-only`／`storyboard-only`／`prompts-only`／`full`）。
 
@@ -188,7 +188,7 @@ flowchart TB
 
 | 階段 | 做什麼 | 關鍵工具 | 主要產出 |
 |---|---|---|---|
-| **0 定調** | 一次問完題材、畫風、比例、台詞政策；成片形式預設長篇漫劇 | `init_project.py`、`h3d decide` | `project.md`、`decisions.json` |
+| **0 定調** | 一次問完題材、畫風、比例；台詞政策固定「原著對白優先」不詢問；成片形式預設長篇漫劇 | `init_project.py`、`h3d decide` | `project.md`、`decisions.json` |
 | **1 改編** | 保留分級、事件交代完整性（起因→經過→結果）、A/B/C 方案、依事件估總長 | `event_coverage.py`、`estimate_duration.py --events` | 故事地圖、`adapt/source.json` |
 | **2 資產設定圖** | 生圖工具偵測後由你選；主角優先出圖、自檢重生；工具定案後全集鎖定 | `h3d imagegen --detect`／`--set`（寫 `design_engine`） | `assets.md`、角色設定板 |
 | **3 漫劇劇本** | 場景化改寫、台詞預算（4 字/秒、說話 ≤ 60%）、交接 JSON | `estimate_duration.py --h3`、`sync_script.py` | `script-ep01.md`、`handoff-ep01.json` |
@@ -448,7 +448,7 @@ ai-comic-drama/
 | [`AGENTS.md`](AGENTS.md) | 給 Agent 的硬規則（做專案與改 repo） |
 | [`references/tooling.md`](references/tooling.md) | **h3d 全部指令**、四道檢查、能力表、環境變數、錯誤訊息處置 |
 | [`references/skill-guide.md`](references/skill-guide.md) | 核心原則、八階段與審核頁對照、完整腳本清單 |
-| [`references/pipeline.md`](references/pipeline.md) | 各階段詳細流程、台詞政策門禁、體量反推公式、聲音三層決策 |
+| [`references/pipeline.md`](references/pipeline.md) | 各階段詳細流程、台詞優先改編（不詢問）、體量反推公式、聲音三層決策 |
 | [`references/review-page-spec.md`](references/review-page-spec.md) | 決策收件匣規格（含八階段閱讀視圖的六區塊格式） |
 | [`references/prompt-authoring.md`](references/prompt-authoring.md) | 逐鏡撰寫規範（E30–E38、W41–W45） |
 | [`references/adapt/novel-to-manju.md`](references/adapt/novel-to-manju.md) | 小說改編總規範 |
