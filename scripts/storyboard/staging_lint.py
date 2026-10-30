@@ -28,6 +28,10 @@
   W46 建議改用母片底四格構圖板（level＝suggestion，永遠不擋、strict 也不升級）：室內固定場景、已驗收母片、≥2 角色有固定
       座位／站位、段內有近景、文戲時建議改用「以場景母片為底重畫的四格構圖板」；武戲、單人、戶外不建議。
       條件與證據見 `board_advisor.py`、`references/storyboard/spatial-consistency.md` §3（方向性、未達 +25 門檻）。
+  W47 建議加雙人引子（level＝suggestion，永遠不擋）：同場段縫硬切、第 1 鏡是單人 MS 或更近、有台詞、有畫外對戲角色，
+      建議先拍 2.0 s 雙人鏡（shots[0].dual_lead_in=true），組裝自動剪掉。T4 實測 0/12 跑位重演（measured，一場戲）；
+      條件與寫法見 `dual_lead_in.py`、`references/storyboard/spatial-consistency.md` §7。
+  W48 雙人引子格式不符（警告）：標了 dual_lead_in，但不在第 1 鏡、不是兩人、短於 2 s、有台詞或後面的時間沒往後挪。
 
 豁免：段落 `metadata.staging_waivers`（或段層 `staging_waivers`）：[{"code": "D06", "reason": "…", "quote": "<使用者原話>"}]，
 沒有 quote 不算豁免（例如刻意讓角色對鏡頭說話）。
@@ -48,15 +52,17 @@ for _p in (str(HERE), str(HERE.parent)):
 
 import refcheck  # noqa: E402
 import board_advisor  # noqa: E402
+import dual_lead_in  # noqa: E402
 
 VIDEO_BACKENDS = ("ref2va", "remix")
 STRICTABLE = ("D06", "D07", "D08")
 TITLES = {
     "D06": "面向鏡頭", "D07": "對話段缺視線句", "D08": "多人鏡缺左到右站位句", "D09": "站位和 positions 不一致",
     "D10": "跨段站位翻轉", "D11": "多人同步動作", "D12": "慢詞", "D13": "全段固定機位", "D14": "多人段沒有 positions",
+    "W47": "建議加雙人引子", "W48": "雙人引子格式不符",
     **board_advisor.TITLES,
 }
-SUGGESTION_CODES = board_advisor.CODES  # level＝suggestion：只建議，永遠不擋
+SUGGESTION_CODES = tuple(board_advisor.CODES) + ("W47",)  # level＝suggestion：只建議，永遠不擋
 
 _CAM = r"(?:camera|lens|viewer|viewers|audience)"
 FACING_CAMERA = re.compile(
@@ -274,6 +280,13 @@ def lint_segment(seg: Dict[str, Any], backend: str = "ref2va", prev: Optional[Di
         if item["code"] in waived:
             continue
         findings.append({"code": item["code"], "level": "suggestion", "shot": None, "message": item["message"]})
+    # W47／W48 雙人引子：同樣只看結構欄位（spatial-consistency.md §7）
+    for problem in dual_lead_in.check(seg):
+        add("W48", problem, 1)
+    tip = dual_lead_in.suggest(seg, prev)
+    if tip and "W47" not in waived:
+        findings.append({"code": "W47", "level": "suggestion", "shot": 1,
+                         "message": f"[W47: {TITLES['W47']}] {seg_id}：{tip}"})
     if not body.strip():
         return findings
 
@@ -419,6 +432,35 @@ def suggestions_of(findings: List[Dict[str, Any]]) -> List[str]:
     return [f["message"] for f in findings if f["level"] == "suggestion"]
 
 
+def _lead_in_layer2(root: Path, files: Optional[Iterable[Path]] = None) -> List[Dict[str, Any]]:
+    """階段 4：對 layer2/layer2-*.json 依檔名順序跑 W47 建議與 W48 格式檢查（同場才比上一段）。"""
+    paths = list(files) if files is not None else sorted(Path(root, "layer2").glob("layer2-*.json"))
+    out: List[Dict[str, Any]] = []
+    prev = None
+    for path in paths:
+        try:
+            data = json.loads(Path(path).read_text(encoding="utf-8-sig"))
+        except Exception:
+            continue
+        segs = data if isinstance(data, list) else data.get("segments", [data]) if isinstance(data, dict) else []
+        for seg in segs:
+            if not isinstance(seg, dict):
+                continue
+            sid = str(seg.get("segment_id") or seg.get("id") or Path(path).stem)
+            waived, _ = _waived_codes(seg)
+            for problem in dual_lead_in.check(seg):
+                if "W48" not in waived:
+                    out.append({"code": "W48", "level": "warning", "rule": "dual_lead_in_format", "hit": True,
+                                "segment_id": sid, "title": TITLES["W48"],
+                                "message": f"[W48: {TITLES['W48']}] {sid}：{problem}"})
+            tip = dual_lead_in.suggest(seg, prev)
+            if tip and "W47" not in waived:
+                out.append({"code": "W47", "level": "suggestion", "rule": "dual_lead_in", "hit": True,
+                            "segment_id": sid, "title": TITLES["W47"], "message": f"[W47: {TITLES['W47']}] {sid}：{tip}"})
+            prev = seg
+    return out
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -443,15 +485,20 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.layer2 is not None:
         files = refcheck._expand(args.layer2, root) if args.layer2 else None
         advice = board_advisor.advise_layer2_files(root, files, explain=args.explain)
+        advice += _lead_in_layer2(root, files)
         if args.json:
             print(json.dumps(advice, ensure_ascii=False, indent=2))
         else:
             for item in advice:
                 if item["hit"]:
-                    print(f"  💡 {item['message']}")
+                    print(f"  {'⚠️' if item.get('level') == 'warning' else '💡'} {item['message']}")
                 else:
                     print(f"  ·  {item['segment_id']}：不建議（{'；'.join(item.get('misses') or [])}）")
-            print(f"STAGING（Layer 2）：構圖板建議 {sum(1 for i in advice if i['hit'])} 段（只建議，不擋）")
+            n_board = sum(1 for i in advice if i["hit"] and i["code"] not in ("W47", "W48"))
+            n_lead = sum(1 for i in advice if i["code"] == "W47")
+            n_bad = sum(1 for i in advice if i["code"] == "W48")
+            print(f"STAGING（Layer 2）：構圖板建議 {n_board} 段、雙人引子建議 {n_lead} 段（只建議，不擋）"
+                  + (f"；雙人引子格式不符 {n_bad} 項" if n_bad else ""))
         return 0
     files = refcheck._expand(args.segments, root) if args.segments else sorted(root.glob("segments*.json"))
     if not files:

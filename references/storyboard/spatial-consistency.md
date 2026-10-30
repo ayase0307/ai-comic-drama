@@ -1,4 +1,4 @@
-# 空間一致性：場景母片、牆面分配層、構圖板店感鎖
+# 空間一致性：場景母片、牆面分配層、構圖板店感鎖、雙人引子
 
 > 來源：老易空間邏輯實驗 2026-10（第一批 70 支、第二批 86 支，REMIX／H3 本機實測；數據與限制見 `docs/experiments/laoyi-spatial-2026-10/README.md`）。
 > 和 `continuity-ledger.md` §3（三種方位）、§4（站位附表）、`consistency.md` §4（場景主圖、多角度分步生成）搭配使用；本檔只補「場景圖和提示詞怎麼一起鎖住空間」。
@@ -11,6 +11,7 @@
 | §2 牆面分配層 | 文戲 H 88% vs 基準 A′ 75%（+13，未達原定 +25）；換牆 0（但基準也 0）；武戲 H 50% vs A′ 0%（武戲另含動作方向句，非單一變數） | **實測、方向性**；未過門檻 |
 | §3 構圖板以母片為底重畫 | 舊板（自畫風）D／E：座位錯 0 但場景質感漂 11 段次、換牆 4；以新母片為底重畫的 D′：94%（15/16）、座位錯 0、場景漂移 0、換牆 0，難鏡 S01-c 唯一拉對（3/4） | **實測、方向性**；同 seed 比 +25 壓線、全部比 +19，判未過 |
 | §4 只拍生物的鏡頭綁店內實景參考 | 兩批一致：帶任何一張店內實景圖 0/10 外洩（第一批 D／E 0/4、第二批 F／G／I 0/6）；只靠文字或平面線稿會變灰棚（第一批 A／B／C 4/6、第二批 A′／H 3/4） | **實測**，兩批同方向（仍屬小樣本） |
+| §7 雙人引子（段縫硬切到單人近景前先拍 2 s 雙人鏡，組裝剪掉） | PR #115 T4（2026-10-29，REMIX long 480P，同段同種子盲評）：同 3 段（S02／S04／S06）各 2 抽，單支＋進段接點共 12 個樣本，跑位／左右翻、重演、人數錯、需重生都是 **0/12**；同段同種子現流程 4/12（33%）、#115 新流程 5/12（42%）有跑位或重演，需重生單支現流程 3/6、新流程 4/6 | **實測**，小樣本（一場戲、一個後端、每段 2 抽）→ 只建議（W47） |
 | §5 多視角場景表從同一母片逐張派生 | 第二批依此做出的 ①–④ 四張都 7 桌、門窗牆位一致（`consistency_v2_thumb.jpg`）；但「分張場景表」F 組在影片上 +0 | 生圖階段**實測可行**；對影片可用率**未證實** |
 
 共同限制：評分只有 Hark 一人（看關鍵幀接觸表＋密集抽幀）、部分盲評；每組文戲 8 段次，±25 個百分點只等於 2 段次；兩批都**沒有任何一組正式通過原定門檻（≥+25 個百分點）**。以下規則是「改善方向一致、成本低」才採用，不是已證實的定律；有新數據時優先修本檔。
@@ -94,3 +95,64 @@ Wall map: the {長檯} is only on the {west} wall{, 本鏡位置}; the one {開�
 - 什麼時候需要連續運鏡預演：鏡頭要沿路線連續移動、依序揭示多人、遮擋與交接要準。人物靜態說話、轉頭、常規鏡頭用參考圖＋提示詞就夠。
 - **白模渲染影片當 H3 `<Video N>` 運鏡參考：尚未支援、未實測**（T5）。構圖圖照舊只給人審，不送 H3（D19／D32／D34）。
 - 本 repo 目前沒有內建白模工具；世界層座標用 `continuity-ledger.md` §4 站位附表＋§2 牆面分配表，REMIX 段落另有 `positions`（D09／D10）。
+
+## §7 雙人引子：段縫硬切到單人近景前，先拍 2 秒雙人鏡（組裝自動剪掉）
+
+> 來源：PR #115 T4 實測 E3 組（2026-10-29，噩盡島取材的一場自助餐店文戲，沈／賴／葉三人，REMIX 角色包，long 480P，`ejin3_*` 包；資料在該次測試的 `results.json`，盲評代號另存）。外部出處：phileiny/h3-storyboard-skill §七之二④（https://github.com/phileiny/h3-storyboard-skill ，H3 上補引子後一次就對，C 級）。
+> T4 同時測的其他做法（逐鏡站位欄位、背景錨點句、CONT 交接塊、末 1 秒定格、E1 上一段真實末幀）**都沒有改善**：新流程跑位＋重演 18/26（69%）比現流程 16/26（62%）還高、E1 1/8 重演，所以只收這一條。
+
+**問題**：段縫硬切後，本段第 1 鏡直接開在單人近景（正反打的反角、插入鏡後回到人物、切到剛進門的第三人），H3 看不到另一個人在哪，常把單人鏡拍成過肩鏡並多畫一顆錯高度的後腦、把坐地的人改成站在桌後、或換到錯的那面牆（T4 現流程／新流程在 S04、S06 反覆出現）。
+
+**做法**：本段第 1 鏡前面先加一顆 2.0 s 的雙人鏡，兩人都在畫內、站位和本場一致，之後硬切到原本的單人鏡；組裝時把這 2 秒剪掉。引子和本段在**同一次 H3 生成**裡，不需要另外生成任何東西。
+
+### 什麼時候加（`h3d staging` 會用 💡 W47 提醒，全部符合才提醒）
+
+| 條件 | 判斷 |
+|---|---|
+| 同場、不是本場第一段 | 和上一段同 `scene_id`（或 `narrative_scene_id`） |
+| 段縫是硬切 | 不是同一顆鏡頭拆兩段：`seam_in` 不是 `cont`，且上一段最後一鏡和本段第一鏡不是「同主體＋同景別」 |
+| 第 1 鏡是單人近景 | `character_ids` 只有 1 人，景別 MS 或更近（MCU／CU／ECU／OTS） |
+| 有對戲的人在畫外 | 本段後面的鏡頭或上一段裡有另一名具名角色 |
+| 文戲 | 本段至少一句台詞；武戲沒有證據，不建議 |
+
+T4 裡三種接點都有效：正反打換主體（S01 沈 MCU → S02 賴 MCU）、插入鏡後回同一人（S03 賴手 CU → S04 賴 MCU，一鏡到底的單人段）、雙人望門 → 第三人進門（S05 → S06 葉 MCU）。同機位續接（CONT）、第 1 鏡本來就是雙人或全景的段不加。不採用就寫 `staging_waivers`（code W47＋使用者原話）。
+
+### 怎麼寫（Layer 2，階段 4 定分鏡時就加；五小節照 `prompt-authoring.md` 親手寫，不由程式產生）
+
+1. **第 1 鏡＝引子**，標 `"dual_lead_in": true`（只能標在第 1 鏡）。
+2. `character_ids` 剛好兩人：本段第一個單人鏡的主體＋他對戲／視線指向、此刻在畫外的那位（W47 訊息會點名）。兩人的 `positions`／左右要和本場站位附表一致。
+3. **時長 2.0 s**（T4 實測的就是 2.0 s。#120 把編譯器鏡長硬下限降到 1.2 s，但 1.2–2.0 s 仍屬「短鏡未實測」只提醒、H3 切點誤差約 0.12 s，更短的引子沒有證據，所以引子維持 2.0 s；T4 當時原計畫 1.5 s，是被那時的 2 s 編譯下限擋掉才改 2.0 s）。其後每一鏡的 `start_time`／`end_time` 與 `speech_window`（含 `line_timecodes`、`extra_lines[].speech_window`）**整段往後挪 2.0 s**；`metadata.target_duration_sec` 加 2.0，`frames` 由 compile 照 17n+5 向上取（T4：7.29 s／175 幀 → 9.42 s／226 幀，多 51 幀）。
+4. **鏡頭**：雙人 MLS（`medium-wide shot`），28mm、約 5 m，固定機位（`holds a static shot`／locked off），從本場主機位那一側、站立眼高；兩人分別在畫面左三分之一、右三分之一。Camera 句照 §2 寫牆面分配與兩人各自的背景錨點。
+5. **Motion 只寫段開頭當下的姿勢＋一次小的視線交接**，逐人寫、先後分開（staging D11）：「左邊 A 坐在…；右邊 B 站在 A 東邊約兩公尺。先 A 抬頭看向畫右，再 B 低頭看向畫左」。**不演本段或上一段的事件**（不再進門、不再起身、不講台詞），否則就是把重演搬進引子。
+6. **Performance**：`Both hold still for a breath; nobody speaks yet.` 這類；**Sound**：只有環境音。**引子不放台詞、不放 `speech_window`**（會被剪掉；組裝遇到會直接擋）。
+7. 第 2 鏡（原第 1 鏡）照常寫，編譯器會在 2.0 s 處寫成硬切（`At 00:02.000, the shot cuts to …`），不用另外加欄位。
+
+T4 實際送件的引子（S02，REMIX 三欄；牆面分配句略）：
+
+```text
+[Shot 1] … The shot opens on a medium-wide shot (28mm, 5m) of Shen Luonian, as the camera holds a static shot.
+Camera: … Two-shot establishing the two of them from the south side at standing eye height, 28mm from about five metres,
+locked off; Shen Luonian on the left third and Lai Yixin on the right third. Background anchors: behind Shen Luonian is the
+steel steam counter with its glass sneeze guard; behind Lai Yixin is the tall glass door with the orange streetlamp outside.
+Motion: On the left Shen Luonian is sitting on the tiles with his back against the edge of a toppled table top, knees up;
+on the right Lai Yixin stands about two metres east of him. First Shen Luonian looks up toward frame right, then Lai Yixin
+looks down toward frame left, his grin fading.
+Performance: Both hold still for a breath; nobody speaks yet.
+Light: In the opening two-shot the room is under steady white tube light with the orange street glow on the right.
+Sound: Only the steady fluorescent hum fills the quiet room for a breath.
+[Shot 2] At 00:02.000, the shot cuts to a medium close-up (50mm, 2m) of Lai Yixin, …
+```
+
+### 剪掉（不用另外後製）
+
+- 階段 7 `h3d assemble` 讀到第 1 鏡 `dual_lead_in: true`，**自動剪掉片頭到該鏡 `end_time`**，台詞窗與字幕一起前移；後製變速段會先換算時間。成片長度＝段長 − 引子。
+- 格式不對（不在第 1 鏡、不是兩人、短於 2 s、引子裡有台詞、後面的 `speech_window` 沒往後挪）時，`h3d staging` 報 ⚠️ W48，`h3d assemble` 直接擋該段，不會剪錯。
+- 引子那 2 秒仍然要看：它是 QA 判斷「兩人左右／高度有沒有對」最快的一格。
+
+### 成本與限制
+
+- 每段多生成約 2.1 s（T4 每段 7.29 s → 9.42 s，約 +29%）。
+- **這是「無廢片」原則（不生成要剪掉的秒數，`tail_freeze_hold` 預設關）唯一的例外**：引子的 2 秒一定會被剪掉，但 T4 12/12 沒有跑位或重演，而不加引子的段 4/12 要整段重生；多生成 2 秒比整段重生便宜。其他「生成後再剪」的做法（例如末 1 秒定格）照舊不收。
+- 節奏閘門不計引子：`pacing_gate`（密度、有人聲鏡比例 ≥80%、切鏡後開口、開口次數、無台詞鏡）、`validate_storyboard` D1–D4、說話佔比、分段時長提醒、9:16 景別比例、audit W13 說話佔比，都先拿掉引子那一鏡、時間整段前移 2.0 s、段長扣 2.0 s 再算（`dual_lead_in.strip_layer2`／`strip_pacing`）。時長守恆、17n+5 取整、tail-fit 照含引子的生成長度算（末句後留白是相對段尾，與引子無關）。
+- 證據只有一場戲、REMIX、480P long、每段 2 抽；E3 疊在 #115 新流程（背景錨點句）上跑，但新流程單獨跑更差（同段 5/12），所以把改善歸給引子。12 個樣本裡記了 1 次跳接（S06 第 1 抽第 3 鏡後場景／站位略變，判「尚可」、不需重生）。
+- ref2va 後端、武戲、三人以上同框的段沒測；有新數據時優先修本節。

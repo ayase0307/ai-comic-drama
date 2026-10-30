@@ -42,6 +42,11 @@ try:  # 以 scripts/storyboard 為 sys.path 執行（CLI 慣例）
 except ImportError:  # pragma: no cover - 套件匯入路徑
     from . import h3_spec
 
+try:  # 雙人引子 dual_lead_in（spatial-consistency.md §7）：W13 說話佔比以成片（扣掉引子）計
+    import dual_lead_in
+except ImportError:  # pragma: no cover - 套件匯入路徑
+    from . import dual_lead_in
+
 # 確保 Windows 終端輸出 UTF-8
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -1251,12 +1256,18 @@ def lint_h3_prompt(
     if total_dlg_chars > 0:
         speech_sec = total_dlg_chars / W13_CHARS_PER_SEC
         details["estimated_speech_seconds"] = round(speech_sec, 2)
-        speech_ratio = speech_sec / max(eff_d, 0.5)
+        # 雙人引子那幾秒組裝會剪掉、引子裡也不准有台詞：分母用成片長度，否則引子會把過載的段稀釋成合格
+        lead_in_s = dual_lead_in.lead_in_seconds({"shots": authored_shots or []}) if len(authored_shots or []) > 1 else 0.0
+        film_d = eff_d - lead_in_s
+        speech_ratio = speech_sec / max(film_d, 0.5)
         details["speech_ratio"] = round(speech_ratio, 3)
+        if lead_in_s:
+            details["dual_lead_in_sec"] = round(lead_in_s, 3)
         if speech_ratio > W13_SPEECH_SHARE_WARN:
             warnings.append(
                 f"[W13: 台詞佔比過載] 台詞預估耗時 {speech_sec:.1f}s ({total_dlg_chars}字 / {W13_CHARS_PER_SEC}字/秒)，"
-                f"佔真實時長 {eff_d:.1f}s 之 {speech_ratio:.1%} (>{W13_SPEECH_SHARE_WARN:.0%}，目標 75–90%)。"
+                f"佔真實時長 {film_d:.1f}s" + (f"（已扣雙人引子 {lead_in_s:g}s）" if lead_in_s else "")
+                + f" 之 {speech_ratio:.1%} (>{W13_SPEECH_SHARE_WARN:.0%}，目標 75–90%)。"
             )
 
     passed = len(errors) == 0
