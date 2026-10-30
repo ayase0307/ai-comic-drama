@@ -645,7 +645,21 @@ python scripts/storyboard/extract_voice_master.py \
 
 **順序：先做整合響度正規化，再套 true-peak 上限。** 反過來會在壓峰值時把響度又拉回來，最後量到的整合響度就偏了。
 
-**正規化要在整片做，不要逐段做**：逐段正規化會把段與段之間的動態對比壓平（安靜的環境音段被拉成和對白段一樣大），成片聽起來像一條被壓扁的動態線。組裝器的做法是：分段只做混音，**Concat 完再對整條節目做 `loudnorm`**。`--no-loudnorm` 會關掉它（不建議交付時用）。
+**兩層：段層以對白為錨，整片兩遍 loudnorm**（`assemble_episode.py` 預設，`dialogue_loudness.py`）：
+
+1. **段層「以對白為錨」增益**：畫內對白與短旁白保留 H3 原生音，而 H3 每支 clip 各自生成原生音、電平隨機——《噩盡島》EP01 重跑 30 支實測 integrated −9.94～−28.71 LUFS（落差 18.77 LU），只量人聲區段也差 18.82 LU；**整片單遍 loudnorm 之後段與段之間仍差 13.53 LU**，整片 loudnorm 只搬整條平均、修不了段間落差。所以組裝器先在每段 PCM 上：
+   - 只量**對白區段**（`speech_window`；缺了用鏡頭時間；都沒有就用整段 BS.1770 gated integrated＝閘門自動略過靜音的能量偵測）的 integrated loudness；
+   - 錨點＝有對白段人聲響度的**中位數**（`--dialogue-anchor <LUFS>` 可指定），每個有對白的段算一個**固定增益**對齊錨點（±12 dB，`--dialogue-max-gain`），整段一起搬、段內動態不動；
+   - **無台詞段不拉到錨點**（增益 0，保持原本相對電平；只有比錨點響超過 6 LU 時才壓到上限，防爆音 clip 蓋全片）；
+   - TP 保護：增益後預估峰值超過門檻的段在 192 kHz 下過 `alimiter`（門檻＝成片 TP −（整片預估還要拉的增益）− 0.5 dB AAC 餘量，介於 −6～−1 dBTP，讓整片第二遍盡量維持 linear）；需要壓超過 9 dB 就把增益收小（報告標 `tp_capped`）。
+   - `--no-dialogue-align` 關掉（仍量測、列報告）。
+2. **整片兩遍 loudnorm**：第一遍量 PCM，第二遍帶 `measured_*`＋`linear=true`（純增益；所需增益會讓 TP 超標時 loudnorm 自己回退 dynamic，報告會寫實際模式），接 192 kHz `alimiter`（目標 TP −0.5 dB）、`aresample=48000`、`atrim` 回原長，AAC **256k**、`-ar 48000`。`--no-loudnorm` 關掉整片這一層（不建議交付時用）。
+
+**舊規則「不要逐段正規化」仍成立**：逐段各自 loudnorm 到同一目標會把段與段之間的動態對比壓平（安靜的環境音段被拉成和對白段一樣大）。段層對白錨定不是這個：它只讓「對白」在各段一樣大，無台詞段維持相對電平、段內動態不壓。
+
+**組裝報告**（`delivery-*.md`「響度」段、manifest `loudness`）：錨點、整片 I／TP／LRA、逐段處理前後的對白／整段 LUFS 與 TP、增益與旗標、**段間對白電平落差**（最大－最小、相鄰最大）；成片落差 > 6 LU（`--loudness-spread-warn`）出 **W49** 警告（`references/tooling.md`）。EP01 重跑 30 段實測（`--target-lufs -16`）：原成片段間對白落差 13.73 LU（整段 13.53）→ 0.48 LU（整段 1.90），成片 −16.02 LUFS／TP −1.84、第二遍維持 linear，總長不變。
+
+**實作坑（都已處理）**：ffmpeg 原生 aac 在 192k 遇密集低頻會過衝（E1-11 限幅後 PCM −2.49 dBFS → 編 192k 解碼 +0.45 dBFS；256k／320k 無此現象，`-aac_coder twoloop` 無效）→ 段與成片一律 256k；逐段重編 AAC 尾巴會多一個 frame，30 段串接累積 +0.36 s → 增益套在 #168 的 PCM 串接路徑上（每段解 PCM、鎖影片長度再串），成片再 `atrim` 回原長；JuiceFS 上 `-movflags +faststart` 改寫 trailer 會 I/O error → 組裝器不加 faststart（要串流優化就在本機另行 remux）。
 
 **修正後的 ffmpeg 混音鏈**（三個關鍵字都別動）：
 
@@ -702,11 +716,11 @@ python scripts/storyboard/assemble_episode.py --self-test
 - **TTS 落點用 authored `speech_window`**（段內秒），不是 shot 起始時間：合成的語音才會落在畫面實際的嘴型動作上。
 - 外部 `narration-epNN.md` 目前不會被組裝器解析。旁白稿可作為文字交付；要合成旁白時，先轉成組裝器支援的 inline line/narration 欄位，或交給其他剪輯工具處理。`--narration` 目前會明確回報不支援，不代表可讀取該 Markdown。
 - **Windows FFmpeg 冒號轉義**：自動將 Windows 絕對路徑中的磁碟機冒號轉義為 `C\:/...`，避免 FFmpeg 字幕濾鏡語法解析崩潰。
-- **音訊多軌精細混音**：`aresample=48000` → `adelay ...:all=1` → `amix ...:normalize=0:dropout_transition=0`；混完才做整片 `loudnorm`（細節見 §7.4）。
+- **音訊多軌精細混音**：`aresample=48000` → `adelay ...:all=1` → `amix ...:normalize=0:dropout_transition=0`；混完先做段層對白錨定、再做整片兩遍 `loudnorm`（細節見 §7.4）。
 - **無縫拼接**：依據分段時間順序自動生成 Concat 協議列表，一鍵封裝最終交付成片。
 
 ### 7.6 交付檔案清單
-1. **成品影片**（`final/ep01_final.mp4`）：配音、混音、字幕燒錄無縫拼接成片，並已套整片 `loudnorm`。
+1. **成品影片**（`final/ep01_final.mp4`）：配音、混音、字幕燒錄無縫拼接成片，並已套段層對白錨定＋整片兩遍 `loudnorm`。
 2. **旁白與字幕稿**（`narration-ep01.md`）：可獨立交付；組裝器不會直接讀取外部 Markdown 旁白稿。
 3. **剪輯時間線**（`timeline-ep01.csv`）：從編譯後 `segments-ep01.json` 執行 `layer2_to_table.py --timeline`，使用有效片長與量化後末鏡時間。Layer 2 直接匯出的表格只代表企劃名義秒數。
 4. **品質審查報告**（`videos/qa-report.json`）：分段規格、色差與畫風審查報告。
