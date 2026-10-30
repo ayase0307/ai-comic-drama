@@ -6,20 +6,25 @@
 
 寫法（Layer 2；編譯器不用改，引子就是一顆普通的第 1 鏡，五小節照 prompt-authoring 親手寫）：
   shots[0].dual_lead_in = true
-  shots[0] 兩名角色（本段第一個單人鏡的主體＋畫外對戲那位）、≥2.0 s（編譯器每鏡下限）、無台詞、固定機位雙人 MLS
+  shots[0] 兩名角色（本段第一個單人鏡的主體＋畫外對戲那位）、≥2.0 s（T4 實測長度）、無台詞、固定機位雙人 MLS
   後面每一鏡的 start/end 與 speech_window 一起往後挪；段長多 2 s（frames 由 compile 依 17n+5 向上取）
 
-本模組只做三件事：
+本模組：
   lead_in_seconds(seg)      → 要剪掉的秒數（引子鏡的 end_time）；沒標或格式不對＝0
   check(seg)                → 標了 dual_lead_in 但格式不對的問題清單（`h3d staging` W48、`h3d assemble` 直接擋）
   suggest(seg, prev)        → 這段適不適合加引子（`h3d staging` W47，只建議）
+  strip_layer2(seg)         → 拿掉引子、時間整段前移的 Layer 2 副本（節奏／密度閘門用：引子會被剪掉，不算進成片）
+  strip_pacing(seg)         → 同上，給 pacing_gate 的輸入格式（shots/lines 的 start/end、duration）
 """
 from __future__ import annotations
 
 import re
 from typing import Any, Dict, List, Optional
 
-MIN_LEAD_S = 2.0          # 編譯器 H3 切點下限：每鏡 ≥2 s（T4 原計畫 1.5 s 放不進）
+# 引子長度維持 2.0 s：這是 T4 實測（0/12 跑位重演）用的長度。#120 把編譯器硬下限降到 1.2 s，但 1.2–2.0 s
+# 仍出「短鏡未實測」提醒（h3_spec.SHOT_SOFT_MIN_SEC），H3 切點誤差約 0.12 s；更短的引子沒有證據，不放寬。
+# （T4 當時原計畫 1.5 s，是被那時的 2 s 編譯下限擋掉才改 2.0 s；之後實測的就是 2.0 s。）
+MIN_LEAD_S = 2.0
 RECOMMENDED_LEAD_S = 2.0
 NO_LINE = {"", "（無台詞）", "(無台詞)", "無台詞", "n/a", "none"}
 
@@ -72,6 +77,21 @@ def _bounds(shot: Dict[str, Any]) -> tuple:
     return st, et
 
 
+def _windows(shot: Dict[str, Any]) -> List[tuple]:
+    """這鏡所有段內秒數的台詞時間窗：speech_window、line_timecodes、extra_lines[].speech_window（#120 同鏡接話）。"""
+    dlg = shot.get("dialogue_and_audio") or {}
+    out = []
+    if isinstance(dlg.get("speech_window"), dict):
+        out.append(("speech_window", dlg["speech_window"]))
+    for i, tc in enumerate(dlg.get("line_timecodes") or [], start=1):
+        if isinstance(tc, dict):
+            out.append((f"line_timecodes[{i}]", tc))
+    for i, ex in enumerate(dlg.get("extra_lines") or [], start=1):
+        if isinstance(ex, dict) and isinstance(ex.get("speech_window"), dict):
+            out.append((f"extra_lines[{i}].speech_window", ex["speech_window"]))
+    return out
+
+
 def check(seg: Dict[str, Any]) -> List[str]:
     """標了 dual_lead_in 時的格式問題；沒標回傳空清單（舊專案零影響）。"""
     shots = _shots(seg)
@@ -94,21 +114,20 @@ def check(seg: Dict[str, Any]) -> List[str]:
     if et is None:
         problems.append("引子缺 end_time／duration，組裝不知道要剪多長")
     elif et - (st or 0.0) < MIN_LEAD_S - 1e-6:
-        problems.append(f"引子 {et - (st or 0.0):.2f} s，短於 {MIN_LEAD_S:g} s（編譯器每鏡下限；T4 用 2.0 s）")
+        problems.append(f"引子 {et - (st or 0.0):.2f} s，短於 {MIN_LEAD_S:g} s（T4 實測長度；更短的引子沒有證據）")
     n = len(_ids(lead))
     if n != 2:
         problems.append(f"引子要剛好兩名角色同框（character_ids 現在 {n} 個）")
     if has_dialogue(lead):
         problems.append("引子裡有台詞；引子整段會被剪掉，台詞放到第 2 鏡之後")
-    dlg = lead.get("dialogue_and_audio") or {}
-    if isinstance(dlg.get("speech_window"), dict):
-        problems.append("引子不可有 speech_window")
+    if _windows(lead):
+        problems.append("引子不可有 speech_window／line_timecodes／extra_lines")
     if et is not None:
         for k, shot in enumerate(shots[1:], start=2):
-            win = (shot.get("dialogue_and_audio") or {}).get("speech_window")
-            if isinstance(win, dict) and _f(win.get("start")) is not None and _f(win.get("start")) < et - 1e-6:
-                problems.append(f"第 {k} 鏡 speech_window 從 {_f(win.get('start')):g} s 開始，落在引子（0–{et:g} s）裡；"
-                                f"引子後的時間要整段往後挪")
+            for label, win in _windows(shot):
+                if _f(win.get("start")) is not None and _f(win.get("start")) < et - 1e-6:
+                    problems.append(f"第 {k} 鏡 {label} 從 {_f(win.get('start')):g} s 開始，落在引子（0–{et:g} s）裡；"
+                                    f"引子後的時間要整段往後挪")
         if len(shots) > 1:
             nst, _ = _bounds(shots[1])
             if nst is not None and abs(nst - et) > 0.05:
@@ -123,6 +142,72 @@ def lead_in_seconds(seg: Dict[str, Any]) -> float:
         return 0.0
     _, et = _bounds(shots[0])
     return float(et) if et and et > 0 else 0.0
+
+
+def _shift_window(win: Dict[str, Any], lead: float) -> Dict[str, Any]:
+    out = dict(win)
+    for key in ("start", "end"):
+        v = _f(out.get(key))
+        if v is not None:
+            out[key] = round(v - lead, 6)
+    return out
+
+
+def strip_layer2(seg: Dict[str, Any]) -> Dict[str, Any]:
+    """拿掉 dual_lead_in 引子、其後時間整段前移 lead 秒的 Layer 2 副本；沒標（或整段只有引子）原樣回傳。
+
+    節奏與密度閘門（validate_storyboard D1–D4、說話佔比、段長提醒）用它：引子在組裝時剪掉，
+    不是成片的一部分，不該吃掉蒙太奇額度、拉低密度或拉長段長。編譯與送件照舊用原段（引子要生成）。"""
+    shots = _shots(seg)
+    lead = lead_in_seconds(seg)
+    if not lead or len(shots) < 2:
+        return seg
+    out = dict(seg)
+    new_shots = []
+    for shot in shots[1:]:
+        s2 = dict(shot)
+        for key in ("start_time", "end_time", "start", "end"):
+            v = _f(s2.get(key))
+            if v is not None:
+                s2[key] = round(v - lead, 6)
+        dlg = dict(s2.get("dialogue_and_audio") or {})
+        if isinstance(dlg.get("speech_window"), dict):
+            dlg["speech_window"] = _shift_window(dlg["speech_window"], lead)
+        if dlg.get("line_timecodes"):
+            dlg["line_timecodes"] = [_shift_window(t, lead) if isinstance(t, dict) else t for t in dlg["line_timecodes"]]
+        if dlg.get("extra_lines"):
+            dlg["extra_lines"] = [{**x, "speech_window": _shift_window(x["speech_window"], lead)}
+                                  if isinstance(x, dict) and isinstance(x.get("speech_window"), dict) else x
+                                  for x in dlg["extra_lines"]]
+        if "dialogue_and_audio" in s2:
+            s2["dialogue_and_audio"] = dlg
+        new_shots.append(s2)
+    out["shots"] = new_shots
+    meta = dict(seg.get("metadata") or {})
+    t = _f(meta.get("target_duration_sec"))
+    if t is not None:
+        meta["target_duration_sec"] = round(t - lead, 6)
+    if "metadata" in seg or t is not None:
+        out["metadata"] = meta
+    out["_dual_lead_in_stripped_sec"] = lead
+    return out
+
+
+def strip_pacing(seg: Dict[str, Any]) -> Dict[str, Any]:
+    """pacing_gate 輸入格式版：shots[0].dual_lead_in 時拿掉該鏡，shots／lines 的 start/end 與 duration 扣掉引子。"""
+    shots = _shots(seg)
+    lead = lead_in_seconds(seg)
+    if not lead or len(shots) < 2:
+        return seg
+    out = dict(seg)
+    out["shots"] = [{**s, "start": round(float(s.get("start", 0)) - lead, 6),
+                     "end": round(float(s.get("end", 0)) - lead, 6)} for s in shots[1:]]
+    out["lines"] = [{**l, "start": round(float(l["start"]) - lead, 6), "end": round(float(l["end"]) - lead, 6)}
+                    for l in (seg.get("lines") or [])]
+    if _f(seg.get("duration")) is not None:
+        out["duration"] = round(float(seg["duration"]) - lead, 6)
+    out["_dual_lead_in_stripped_sec"] = lead
+    return out
 
 
 def _size(shot: Dict[str, Any]) -> str:

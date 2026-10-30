@@ -10,12 +10,18 @@
   只看有台詞的鏡頭；無台詞鏡頭由蒙太奇額度管。
 刻意的靜場戲可在 metadata.density_exempt_reason 寫明理由，D2 降為 WARN（D1/D3/D4 不豁免）。
 時間檢查需要 dialogue_and_audio.line_timecodes（段內相對秒數）；沒有時只做密度檢查。
+雙人引子（shots[0].dual_lead_in，spatial-consistency.md §7）組裝時剪掉，D1–D4 先拿掉它、時間整段前移再算。
 """
 from __future__ import annotations
 
 from typing import Any, Dict, List, Tuple
 
 from speech_utils import count_speech_chars
+
+try:
+    import dual_lead_in
+except ImportError:  # pragma: no cover - 套件匯入路徑
+    from . import dual_lead_in
 
 DENSITY_MIN = 3.0
 DENSITY_WARN_MAX = 3.9
@@ -74,6 +80,7 @@ def _span(shot: Dict[str, Any]) -> Tuple[float, float]:
 
 
 def check_dialogue_density(data: Dict[str, Any]) -> Tuple[List[str], List[str]]:
+    data = dual_lead_in.strip_layer2(data)  # 引子組裝時剪掉：不吃蒙太奇額度、不算密度分母、不算切點
     errors: List[str] = []
     warnings: List[str] = []
     shots = data.get("shots") or []

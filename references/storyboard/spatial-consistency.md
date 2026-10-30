@@ -121,7 +121,7 @@ T4 裡三種接點都有效：正反打換主體（S01 沈 MCU → S02 賴 MCU�
 
 1. **第 1 鏡＝引子**，標 `"dual_lead_in": true`（只能標在第 1 鏡）。
 2. `character_ids` 剛好兩人：本段第一個單人鏡的主體＋他對戲／視線指向、此刻在畫外的那位（W47 訊息會點名）。兩人的 `positions`／左右要和本場站位附表一致。
-3. **時長 2.0 s**（編譯器每鏡 ≥2 s；T4 原計畫 1.5 s 放不進）。其後每一鏡的 `start_time`／`end_time` 與 `speech_window` **整段往後挪 2.0 s**；`metadata.target_duration_sec` 加 2.0，`frames` 由 compile 照 17n+5 向上取（T4：7.29 s／175 幀 → 9.42 s／226 幀，多 51 幀）。
+3. **時長 2.0 s**（T4 實測的就是 2.0 s。#120 把編譯器鏡長硬下限降到 1.2 s，但 1.2–2.0 s 仍屬「短鏡未實測」只提醒、H3 切點誤差約 0.12 s，更短的引子沒有證據，所以引子維持 2.0 s；T4 當時原計畫 1.5 s，是被那時的 2 s 編譯下限擋掉才改 2.0 s）。其後每一鏡的 `start_time`／`end_time` 與 `speech_window`（含 `line_timecodes`、`extra_lines[].speech_window`）**整段往後挪 2.0 s**；`metadata.target_duration_sec` 加 2.0，`frames` 由 compile 照 17n+5 向上取（T4：7.29 s／175 幀 → 9.42 s／226 幀，多 51 幀）。
 4. **鏡頭**：雙人 MLS（`medium-wide shot`），28mm、約 5 m，固定機位（`holds a static shot`／locked off），從本場主機位那一側、站立眼高；兩人分別在畫面左三分之一、右三分之一。Camera 句照 §2 寫牆面分配與兩人各自的背景錨點。
 5. **Motion 只寫段開頭當下的姿勢＋一次小的視線交接**，逐人寫、先後分開（staging D11）：「左邊 A 坐在…；右邊 B 站在 A 東邊約兩公尺。先 A 抬頭看向畫右，再 B 低頭看向畫左」。**不演本段或上一段的事件**（不再進門、不再起身、不講台詞），否則就是把重演搬進引子。
 6. **Performance**：`Both hold still for a breath; nobody speaks yet.` 這類；**Sound**：只有環境音。**引子不放台詞、不放 `speech_window`**（會被剪掉；組裝遇到會直接擋）。
@@ -152,5 +152,7 @@ Sound: Only the steady fluorescent hum fills the quiet room for a breath.
 ### 成本與限制
 
 - 每段多生成約 2.1 s（T4 每段 7.29 s → 9.42 s，約 +29%）。
+- **這是「無廢片」原則（不生成要剪掉的秒數，`tail_freeze_hold` 預設關）唯一的例外**：引子的 2 秒一定會被剪掉，但 T4 12/12 沒有跑位或重演，而不加引子的段 4/12 要整段重生；多生成 2 秒比整段重生便宜。其他「生成後再剪」的做法（例如末 1 秒定格）照舊不收。
+- 節奏閘門不計引子：`pacing_gate`（密度、有人聲鏡比例 ≥80%、切鏡後開口、開口次數、無台詞鏡）、`validate_storyboard` D1–D4、說話佔比、分段時長提醒、9:16 景別比例、audit W13 說話佔比，都先拿掉引子那一鏡、時間整段前移 2.0 s、段長扣 2.0 s 再算（`dual_lead_in.strip_layer2`／`strip_pacing`）。時長守恆、17n+5 取整、tail-fit 照含引子的生成長度算（末句後留白是相對段尾，與引子無關）。
 - 證據只有一場戲、REMIX、480P long、每段 2 抽；E3 疊在 #115 新流程（背景錨點句）上跑，但新流程單獨跑更差（同段 5/12），所以把改善歸給引子。12 個樣本裡記了 1 次跳接（S06 第 1 抽第 3 鏡後場景／站位略變，判「尚可」、不需重生）。
 - ref2va 後端、武戲、三人以上同框的段沒測；有新數據時優先修本節。

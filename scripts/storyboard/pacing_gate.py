@@ -19,9 +19,17 @@ WARN：句間空隙 >1.0s（beat_pause 0.6–1.2s 例外）；切鏡後 >0.5s �
       無台詞鏡 >5s；連續無台詞 >10s；
       有人聲鏡比例 <80%（Work_01／Work_08 幾乎每鏡有人聲，含旁白；反應鏡用 L-cut 延續台詞）；
         原著無台詞動作鏡標 `source_action: true` 不計入分母（無台詞鏡 >5s、連續 >10s 照常警告）；
-      提示詞含末 1 秒靜止句（tail_freeze_hold；無廢片原則：不生成要剪掉的秒數）。
+      提示詞含末 1 秒靜止句（tail_freeze_hold；無廢片原則：不生成要剪掉的秒數。唯一例外是 E3 雙人引子，見下）。
+
+雙人引子（spatial-consistency.md §7）：shots[0] 標 `dual_lead_in: true` 時，那一鏡組裝會剪掉、不是成片，
+上面所有檢查（密度、有人聲鏡比例、切鏡後開口、無台詞鏡／連續無台詞、開口次數）都先拿掉它、時間與 duration
+整段扣掉引子秒數再算（`dual_lead_in.strip_pacing`）。
 """
 import json, re, sys, unicodedata
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import dual_lead_in  # noqa: E402
 
 GAP_WARN, GAP_FAIL = 1.0, 1.5
 BEAT_PAUSE_MAX = 1.2
@@ -93,6 +101,7 @@ def _voiced_ratio_shots(shots):
 
 
 def check(seg):
+    seg = dual_lead_in.strip_pacing(seg)  # 引子組裝時剪掉，不計入任何節奏數字
     f, w, sid = [], [], seg.get("id", "?")
     hit = speech_slow(seg.get("prompt", ""))
     if hit and not seg.get("allow_slow"):

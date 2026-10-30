@@ -30,6 +30,7 @@ from dialogue_density import (  # noqa: E402
     LINE_SUGGEST_MAX, ONSCREEN_RATE_WARN, SPEECH_SHARE_WARN, VO_RATE_WARN,
     check_dialogue_density, is_voiceover_line, rate_limits, shot_lines,
 )
+import dual_lead_in  # noqa: E402
 from shot_intent import cross_segment_intent_errors, segment_intent_errors, shot_intent_errors  # noqa: E402
 
 BEAT_TYPES = ("Expository_Fast", "Suspense_Delay", "Dramatic_Core", "Combat_Impact", "Reaction_OTS")
@@ -538,6 +539,12 @@ def validate_storyboard_data(data: dict, original_script_dialogues: list = None)
                 else:
                     seen_vals[val] = sid
 
+    # 雙人引子（spatial-consistency.md §7）：組裝剪掉，說話佔比、段長提醒、9:16 景別比例都以成片（扣掉引子）計
+    lead_in_s = dual_lead_in.lead_in_seconds(data) if len(shots) > 1 else 0.0
+    film_dur = target_dur - lead_in_s if target_dur > 0 else target_dur
+    film_shots = shots[1:] if lead_in_s else shots
+    lead_note = f"（已扣雙人引子 {lead_in_s:g}s）" if lead_in_s else ""
+
     # 整段說話時長比例（v118 #5：#118 目標 75–90%，超過 90% 才提醒；依畫內 4.5／VO 5.5 字/秒估）
     total_speech_sec = 0.0
     for sh in shots:
@@ -545,16 +552,16 @@ def validate_storyboard_data(data: dict, original_script_dialogues: list = None)
         if _d.get("has_dialogue"):
             _rate = VO_RATE_WARN if is_voiceover_line(_d) else ONSCREEN_RATE_WARN
             total_speech_sec += sum(count_speech_chars(t) for t in shot_lines(_d)) / _rate
-    if target_dur > 0 and (total_speech_sec / target_dur) > SPEECH_SHARE_WARN:
+    if film_dur > 0 and (total_speech_sec / film_dur) > SPEECH_SHARE_WARN:
         warnings.append(
-            f"⚠️ 說話佔比偏高：整段說話預估 {total_speech_sec:.1f}s / {target_dur:.1f}s = "
-            f"{total_speech_sec / target_dur:.1%} > {SPEECH_SHARE_WARN:.0%}（目標 75–90%），檢查句間是否還有 0.1s 以上氣口。"
+            f"⚠️ 說話佔比偏高：整段說話預估 {total_speech_sec:.1f}s / {film_dur:.1f}s{lead_note} = "
+            f"{total_speech_sec / film_dur:.1%} > {SPEECH_SHARE_WARN:.0%}（目標 75–90%），檢查句間是否還有 0.1s 以上氣口。"
         )
 
-    # 分段時長提醒
-    if target_dur > 10.0 or target_dur < 5.0:
+    # 分段時長提醒（成片長度：雙人引子會剪掉，不算）
+    if film_dur > 10.0 or film_dur < 5.0:
         warnings.append(
-            f"[分段時長提醒] 本段時長 {target_dur}s：每段建議 2–4 個節拍、7–10 秒（15 秒僅為 H3 單次上限而非硬規則），"
+            f"[分段時長提醒] 本段時長 {round(film_dur, 3):g}s{lead_note}：每段建議 2–4 個節拍、7–10 秒（15 秒僅為 H3 單次上限而非硬規則），"
             f"且每段應為自足開場；收尾在最後一句說完後 0.3 秒（無廢片，不留靜止尾格）。"
         )
     checks_passed.append(
@@ -576,7 +583,8 @@ def validate_storyboard_data(data: dict, original_script_dialogues: list = None)
 
     # Check 9: 9:16 豎屏短劇景別比例檢查
     if aspect == "9:16":
-        cu_ratio = close_up_count / len(shots)
+        cu_ratio = sum(1 for s in film_shots
+                       if (s.get("camera_optics") or {}).get("shot_size", "MS") in ("MCU", "CU", "ECU", "OTS_CU")) / len(film_shots)
         if cu_ratio < 0.65:
             warnings.append(f"[9:16 豎屏構圖警告] 中近景/特寫佔比僅 {cu_ratio:.0%} (建議 >= 70%)，手機螢幕人物過小。")
         else:

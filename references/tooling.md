@@ -27,7 +27,7 @@ python scripts/h3d.py status --root . # 全局狀態（階段／依賴／送件�
 | `compile` | Layer 2 → H3 六段式提示詞＋`segments-*.json`（remix 綁定＝REMIX 三欄，§2.3.1c）；`--check` 同時跑 17 條自檢與失敗目錄 | 每次改完分鏡 |
 | `audit` | 參考圖／主體定義／台詞預算對帳 | 編譯後單獨重驗 |
 | `refcheck` | 參考包涵蓋檢查：提示詞寫到的具名角色／生物／道具／場景／群眾是否都有綁包（remix E50／E51 擋；ref2va 只提示），`--takes` 查已送出抽次的快照（§2.3.1d） | remix 每次改提示詞、送件前 |
-| `staging` | 站位／視線／運鏡閘門 D06–D14（兩個 backend；預設全部警告，`staging_gate=strict` 時 D06–D08 擋，§2.3.1d）；W46 構圖板自動建議（只建議；`--layer2` 在階段 4 未編譯時就能跑） | 階段 4 分鏡定稿後（`--layer2`）、階段 5 寫完提示詞後 |
+| `staging` | 站位／視線／運鏡閘門 D06–D14（兩個 backend；預設全部警告，`staging_gate=strict` 時 D06–D08 擋，§2.3.1d）；W46 構圖板自動建議、W47 雙人引子建議（都只建議；`--layer2` 在階段 4 未編譯時就能跑）、W48 雙人引子格式檢查 | 階段 4 分鏡定稿後（`--layer2`）、階段 5 寫完提示詞後 |
 | `submit` | 送 FreeVideo：能力表＋時長斷言＋ledger 去重（`--output-dir` 預設 `<--root-dir>/videos`；`h3d submit --root X` 會轉成 `--root-dir X`） | 使用者要求生成時 |
 | `collect` | 只把「已完成但沒下載」的工作收回來；影片已在但帳本仍記進行中的段，只查一次服務端並更新帳本 | 批次中斷後 |
 | `resume` | collect 後補送未產出的段；collect 有失敗／漂移就停，處置後用 `--resume-past-failures` 續送其餘缺片段（漂移段要 `submit --segment-id` 明確重送） | 中斷後續跑 |
@@ -292,7 +292,7 @@ python scripts/storyboard/wall_map.py --map <牆面分配表>.json [--shot S01-c
 python scripts/h3d.py staging --root .                 # 預設全部警告，exit 0
 python scripts/h3d.py staging --root . --strict        # 本次把 D06–D08 當錯誤
 python scripts/h3d.py decide staging_gate strict --quote "<使用者原話>" --root .   # 專案定案加嚴（warn＝預設）
-python scripts/h3d.py staging --root . --layer2 [--explain]   # 階段 4：只對 layer2 跑 W46 構圖板建議（--explain 列不建議的原因）
+python scripts/h3d.py staging --root . --layer2 [--explain]   # 階段 4：只對 layer2 跑 W46 構圖板建議＋W47／W48 雙人引子（--explain 列 W46 不建議的原因）
 ```
 
 | 碼 | 規則 | 預設 | strict | 證據 |
@@ -307,11 +307,14 @@ python scripts/h3d.py staging --root . --layer2 [--explain]   # 階段 4：只�
 | D13 | 每一鏡都是 static | 警告 | 警告 | inferred |
 | D14 | remix 多人段沒有 `positions`（D09／D10 無從比對） | 警告（只 remix） | 警告 | — |
 | W46 | 建議改用「以場景母片為底重畫的四格構圖板」：不是武戲（無 `Combat_Impact`、無自動 `h3_loras`、動作欄無打鬥詞）＋綁已驗收場景母片＋室內（`metadata.interior` 或 handoff `setting.interior`／`int_ext`）＋≥2 名具名角色＋有固定座位／站位（`positions`、`anchor_objects`、blocking 座位詞）＋段內有 MCU／CU／ECU／OTS_CU＋有台詞＋場景參考尚未宣告 `reference_view: panel`；任一判不了就不建議（`scripts/storyboard/board_advisor.py`，規則表 `RULES` 可擴充） | **建議**（💡，不擋送件、不擋核准、不改預設編譯） | 建議（strict 不升級） | 方向性：老易實驗第二批 D′ 15/16 vs 單用母片 A′ 6/8，座位錯／換牆／漂移 0，近景 S01-c 只有 D′ 拉對；未達 +25 門檻；武戲無證據（`spatial-consistency.md` §3） |
+| W47 | 建議加雙人引子（E3）：和上一段同場（`scene_id`／`narrative_scene_id`）、段縫硬切（`seam_in` 不是 `cont`，且上一段末鏡不是同主體同景別）、不是武戲（無 `impact_plan`、`h3_loras` 無打鬥詞）、第 1 鏡是單人且 MS 或更近（MCU／CU／ECU／OTS）、本段有台詞、本段後面或上一段有另一名具名角色、還沒標 `dual_lead_in`；訊息點名引子要放的兩人（`scripts/storyboard/dual_lead_in.py` `suggest`） | **建議**（💡，不擋送件、不擋核准、不改預設編譯） | 建議（strict 不升級） | measured，小樣本：PR #115 T4 E3 組同 3 段同種子 12 個樣本跑位／重演 0/12（現流程 4/12、新流程 5/12）；一場戲、REMIX、480P long；武戲、ref2va、三人同框沒測（`spatial-consistency.md` §7） |
+| W48 | 雙人引子格式不符：`dual_lead_in` 不在第 1 鏡、整段只有引子、引子不從 0 s 開始或短於 2.0 s、不是剛好兩名角色、引子裡有台詞或 `speech_window`／`line_timecodes`／`extra_lines`、第 2 鏡起點和引子結束對不上、後面任何台詞時間窗（含 `line_timecodes`、`extra_lines[].speech_window`）落在引子裡（`dual_lead_in.check`） | 警告 | 警告 | — （格式檢查；`h3d assemble` 遇到同樣問題**直接擋該段**，不會剪錯） |
 
 - **「每鏡剛好 1 個運鏡句」「鏡長 ≥2 s」不重做**：`--lint-h3` 的 E6（缺運鏡）、E14（同鏡重複運鏡句）、E4（切點間隔／首末鏡 <2 s）早就是錯誤，兩個 backend 共用；衝擊幀串段的短鏡例外照 h3-combat-impact。
 - **嚴重度為什麼保守**：證據只有一個專案一集；D08 回測誤報率高、D06／D07 抓得到的只是失敗抽的一部分；其餘規則沒有對照組。專案要擋就 `h3d decide staging_gate strict`（只升 D06–D08，inferred 規則 strict 也只警告）。
 - **豁免**：段落 `metadata.staging_waivers: [{"code": "D06", "reason": "…", "quote": "<使用者原話>"}]`（例如刻意讓角色對鏡頭說話）；沒有 `quote` 不算豁免，另列「豁免缺原話」。
 - **remix audit 會帶上**：`audit_refs_and_segments.py --audit-refs` 的 remix 分支把 D06–D14 併進 warnings（strict 時 D06–D08 進 errors）；**ref2va 的 audit 輸出不變**，ref2va 專案請另跑 `h3d staging`。
+- **W47／W48 出現在哪**：`h3d staging`（W47 💡、W48 ⚠️，逐段比同場上一段）與 `--layer2` 階段 4 模式（摘要另計「雙人引子建議 N 段」「格式不符 N 項」）；**審核頁的「💡 自動建議」區塊目前只列 W46**。不採用寫 `staging_waivers`（code W47＋原話）。標了引子後，節奏／密度閘門（`pacing_gate`、validate D1–D4、說話佔比、段長提醒、audit W13）都把引子那一鏡排除、段長扣掉引子秒數再算；組裝自動剪（`spatial-consistency.md` §7）。
 - **W46 出現在哪**：`h3d staging`（💡，摘要另計「建議 N」）、`--layer2` 階段 4 模式、階段 4 審核頁與階段 5 審核頁的「💡 自動建議」區塊（兩個 backend 都列）、remix audit 的 warnings。不採用寫 `staging_waivers`（code W46＋原話）。
 - 角色名來源：`<Video N>／<Subject N> is 名字,` 介紹句、refmods 的 `display_name`、專案詞表（同 refcheck）。D10 只比相鄰且同 `scene_id` 的兩段。
 
