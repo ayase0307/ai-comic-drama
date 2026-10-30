@@ -324,6 +324,60 @@ def sec_to_srt_time(sec: float) -> str:
 # 單分段混音、字幕燒錄與組裝
 # ==============================================================================
 
+NO_LINE_TEXTS = {"（無台詞）", "(無台詞)", "無台詞"}
+
+
+def _window_bounds(window: Any) -> Optional[Tuple[float, float]]:
+    if isinstance(window, dict) and window.get("start") is not None and window.get("end") is not None:
+        return float(window["start"]), float(window["end"])
+    return None
+
+
+def collect_dialogue_lines(seg: Dict[str, Any], audio_mode: str = "auto") -> List[Dict[str, Any]]:
+    """一段要燒字幕／合成的台詞（段內秒、雙人引子未剪前的原片時間）。
+
+    每鏡主句：dialogue_and_audio.line_verbatim（或 subtitle／narration），時間窗優先 speech_window，
+    沒有才退回鏡頭時間。#120 同鏡接話：dialogue_and_audio.extra_lines[] 每句依它自己的 speech_window
+    一起收進來（speaker 用該句的 speaker）；接話一定要有 speech_window，缺了丟 ValueError（不猜位置，
+    以免和主句字幕疊在一起）。narration_only 只收旁白，不收接話。回傳依 start 排序。
+    雙人引子（dual_lead_in）在 process_single_segment 統一前移／剪除，這裡不處理。"""
+    lines_info: List[Dict[str, Any]] = []
+    for s in seg.get("shots", []) or []:
+        if not isinstance(s, dict):
+            continue
+        dlg = s.get("dialogue_and_audio") or {}
+        if audio_mode == "narration_only":
+            text = s.get("narration") or ""
+        else:
+            text = dlg.get("line_verbatim") or s.get("subtitle") or s.get("narration") or ""
+        if text and str(text).strip() not in NO_LINE_TEXTS:
+            st = float(s.get("start_time") or s.get("start") or 0.0)
+            et = float(s.get("end_time") or s.get("end") or (st + float(s.get("duration", 2.5))))
+            # 對白窗口優先用 speech_window（段內秒），沒有才退回鏡頭時間；
+            # 這是 TTS 落點與畫面嘴型的對齊基準。
+            bounds = _window_bounds(dlg.get("speech_window"))
+            if bounds:
+                st, et = bounds
+            spk = dlg.get("speaker") or s.get("speaker") or ""
+            lines_info.append({"start": st, "end": et, "subtitle": text, "speaker": spk})
+        if audio_mode == "narration_only":
+            continue
+        for i, ex in enumerate(dlg.get("extra_lines") or [], start=1):
+            if not isinstance(ex, dict):
+                continue
+            ex_text = str(ex.get("line_verbatim") or "").strip()
+            if not ex_text or ex_text in NO_LINE_TEXTS:
+                continue
+            bounds = _window_bounds(ex.get("speech_window"))
+            if not bounds:
+                raise ValueError(f"{s.get('shot_id') or '?'} extra_lines[{i}]「{ex_text}」缺 speech_window"
+                                 f"（start/end 段內秒），組裝無法定位這句接話的字幕／配音")
+            lines_info.append({"start": bounds[0], "end": bounds[1], "subtitle": ex_text,
+                               "speaker": ex.get("speaker") or "", "extra_line": True})
+    lines_info.sort(key=lambda item: float(item["start"]))
+    return lines_info
+
+
 def process_single_segment(
     in_video: Path,
     out_video: Path,
@@ -934,26 +988,14 @@ def main() -> int:
             missing_segments.append(sid)
             continue
 
-        # 收集台詞資訊
-        lines_info = []
+        # 收集台詞資訊（每鏡主句＋ dialogue_and_audio.extra_lines 同鏡接話，依各自 speech_window）
+        try:
+            lines_info = collect_dialogue_lines(seg, args.audio_mode)
+        except ValueError as exc:
+            print(f"     ❌ {exc}")
+            processing_failures.append({"segment_id": sid, "error": str(exc)})
+            continue
         shots = seg.get("shots", [])
-        for s in shots:
-            dlg = s.get("dialogue_and_audio", {})
-            if args.audio_mode == "narration_only":
-                text = s.get("narration") or ""
-            else:
-                text = dlg.get("line_verbatim") or s.get("subtitle") or s.get("narration") or ""
-            if text and str(text).strip() not in {"（無台詞）", "(無台詞)", "無台詞"}:
-                st = float(s.get("start_time") or s.get("start") or 0.0)
-                et = float(s.get("end_time") or s.get("end") or (st + float(s.get("duration", 2.5))))
-                # 對白窗口優先用 speech_window（段內秒），沒有才退回鏡頭時間；
-                # 這是 TTS 落點與畫面嘴型的對齊基準。
-                window = dlg.get("speech_window") or {}
-                if isinstance(window, dict) and window.get("start") is not None and window.get("end") is not None:
-                    st = float(window.get("start"))
-                    et = float(window.get("end"))
-                spk = dlg.get("speaker") or s.get("speaker") or ""
-                lines_info.append({"start": st, "end": et, "subtitle": text, "speaker": spk})
 
         # 外部化旁白／畫外音：編譯器已把這類台詞移出 H3 的 <d>，改由這裡用外部 TTS 合成
         for entry in (seg.get("external_narration") or []):
@@ -968,6 +1010,7 @@ def main() -> int:
                 "start": st, "end": et, "subtitle": text,
                 "speaker": entry.get("speaker") or "", "external": True,
             })
+        lines_info.sort(key=lambda item: float(item["start"]))  # 字幕依時間排序（主句、接話、外部旁白混排）
 
         # 後製變速：rendered 段換成 videos/ramped/<段>.mp4，所有時間窗從原片時間換算到變速版時間。
         # 後續段的起點由 concat 自然平移（每段長度改用變速版長度）。
@@ -1001,6 +1044,8 @@ def main() -> int:
         planned_durations.append(seg_dur - lead_in_s)
         dialogue_required = any(
             (shot.get("dialogue_and_audio") or {}).get("has_dialogue") is True
+            or any(isinstance(ex, dict) and str(ex.get("line_verbatim") or "").strip()
+                   for ex in ((shot.get("dialogue_and_audio") or {}).get("extra_lines") or []))
             or any(str(value or "").strip() not in {"", "（無台詞）", "(無台詞)", "無台詞"} for value in (
                 (shot.get("dialogue_and_audio") or {}).get("line_verbatim"),
                 shot.get("subtitle"), shot.get("narration"), shot.get("line_verbatim"),

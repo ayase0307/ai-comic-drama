@@ -31,6 +31,7 @@ from dialogue_density import (  # noqa: E402
     check_dialogue_density, is_voiceover_line, rate_limits, shot_lines,
 )
 import dual_lead_in  # noqa: E402
+import h3_spec  # noqa: E402
 from shot_intent import cross_segment_intent_errors, segment_intent_errors, shot_intent_errors  # noqa: E402
 
 BEAT_TYPES = ("Expository_Fast", "Suspense_Delay", "Dramatic_Core", "Combat_Impact", "Reaction_OTS")
@@ -311,14 +312,26 @@ def validate_storyboard_data(data: dict, original_script_dialogues: list = None)
     warnings += lint_segment_moves(shots)  # PR-14c 運鏡導演助手（warning）
     warnings += lint_director(shots)  # PR-15c 導演層 lint（warning）
 
-    # Check 1b: H3 取整後的切點可行性（與 audit_refs_and_segments E4 同規則，提前到階段 4 攔截）
+    # Check 1b: H3 取整後的切點可行性（與 audit_refs_and_segments E4、編譯器同一組常數 h3_spec.MIN_SHOT_SEC／
+    # SHOT_SOFT_MIN_SEC，提前到階段 4 攔截）：每鏡平均 < 1.2 s 擋；1.2–2.0 s 只提醒（未在 H3 實測）。
     if len(shots) > 1 and target_dur > 0:
-        eff_d = effective_duration(target_dur)
-        need = 2.0 * len(shots)
+        # 有合法的 metadata.frames（17n+5）就直接用它；否則由秒數換算（h3_spec 已吸附浮點誤差，SB-2）
+        meta_frames = meta.get("frames")
+        if isinstance(meta_frames, int) and not isinstance(meta_frames, bool) and h3_spec.is_quantum(meta_frames):
+            eff_d = h3_spec.seconds_for_frames(meta_frames)
+        else:
+            eff_d = effective_duration(target_dur)
+        hard, soft = h3_spec.MIN_SHOT_SEC, h3_spec.SHOT_SOFT_MIN_SEC
+        need = hard * len(shots)
         if eff_d - 0.05 < need:
             errors.append(
-                f"[E4 切點不可行] {len(shots)} 鏡分段取整後只有 {eff_d:.3f}s，首切/間隔/收尾各需 >= 2s（共 {need:.1f}s）。"
-                f"請把本段延長到 >= {2.0 * len(shots) + 0.5:.1f}s 或減少鏡頭數。"
+                f"[E4 切點不可行] {len(shots)} 鏡分段取整後只有 {eff_d:.3f}s，首切/間隔/收尾各需 >= {hard:g}s（共 {need:.1f}s）。"
+                f"請把本段延長到 >= {need + 0.5:.1f}s 或減少鏡頭數。"
+            )
+        elif eff_d - 0.05 < soft * len(shots):
+            warnings.append(
+                f"[W:E4 短鏡] {len(shots)} 鏡分段取整後 {eff_d:.3f}s，平均每鏡不到 {soft:g}s"
+                f"（≥{hard:g}s 合規；<{soft:g}s 未在 H3 實測，出片後核對切點）。"
             )
 
     # Check 1c: enum 合法性
