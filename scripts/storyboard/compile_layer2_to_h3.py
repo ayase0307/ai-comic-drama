@@ -2681,7 +2681,11 @@ def compile_segment_h3(
                         speech += f" while {_possessive_list(others)} lips remain completely closed"
             # v118 #2：同鏡接話。dialogue_and_audio.extra_lines 的每一句接在第一句後各給一個 <d>，
             # 前一位說話人閉嘴（取代編譯後手動注入第二句；寫法同 pacing-e5 enqueue_fast118 實測）。
+            # EP01 findings #4：接話句照主句同一套 offscreen_form／voice_only 分支——內心 VO／畫外音用畫外句式，
+            # 不寫成「X answers」畫內對嘴；閉唇句只給看得到臉的人，不給只聞其聲的說話人（不再出現
+            # 「a soundless voice's lips」）。
             prev_owner = (tag_of.get(spk) if spk else None) or identity
+            prev_visible = not no_visible_mouth and bool(prev_owner)
             for ex in (dlg.get("extra_lines") or []):
                 if not isinstance(ex, dict):
                     continue
@@ -2701,12 +2705,55 @@ def compile_segment_h3(
                     ex_subject = f"{ex_identity} ({ex_id})"
                 else:
                     ex_subject = ex_tag or ex_identity
+                ex_record = registry.characters.get(ex_spk, {}) if ex_spk else {}
+                ex_form = str(ex.get("offscreen_form") or "").lower()
+                ex_is_vo = ex_form == "voiceover" or _is_voiceover({"dialogue_and_audio": ex}) \
+                    or str(ex.get("audio_type") or "").strip().lower() in ("narration", "voiceover", "vo", "inner", "v.o.")
+                ex_voice_only = bool(ex.get("voice_only") or ex_record.get("voice_only")
+                                     or ex_record.get("no_visual_reference") or (ex_spk in no_visual_ids if ex_spk else False))
+                ex_offscreen = ex_is_vo or ex_voice_only or ex_form == "offscreen"
+                window_ex = _speech_window_clause(ex)
+                if ex_offscreen:
+                    if _offscreen_route(narration_policy, ex, ex_line) == "external":
+                        external_narration.append({
+                            "shot_id": s.get("shot_id"), "global_shot_id": s.get("global_shot_id"),
+                            "speaker": ex_spk, "speaker_id": ex_id, "line": ex_line, "language": "Chinese",
+                            "is_voiceover": ex_is_vo,
+                            "start": ((ex.get("speech_window") or {}) or {}).get("start"),
+                            "end": ((ex.get("speech_window") or {}) or {}).get("end"),
+                        })
+                        continue  # #122：外部化的句子不寫「某人在說話」卻不給 <d>
+                    ex_voice = _clean(ex.get("offscreen_voice_en")) or _english_voice_descriptor(ex, notes)
+                    if ex_voice and CJK_RE.search(ex_voice):
+                        ex_voice = ""
+                    ex_voice = ex_voice.rstrip(".。 ")
+                    if ex_voice.lower() in ("voiceover", "v.o.", "v.o", "offscreen", "off-screen", "inner voice"):
+                        ex_voice = ""
+                    ex_voice_txt = f", {ex_voice}" if ex_voice else ""
+                    if ex_is_vo:
+                        phrase = f"{ex_subject} says in an off-screen voiceover{ex_voice_txt}: "
+                    else:
+                        ex_where = _clean(ex.get("offscreen_where_en"))
+                        ex_where = f" {ex_where}" if ex_where and not CJK_RE.search(ex_where) else ""
+                        phrase = f"the line is heard from {ex_subject} off-screen{ex_where}{ex_voice_txt}: "
+                    faces = [prev_owner] if prev_visible else []
+                    if ex_is_vo and ex_tag and not ex_voice_only and ex_spk in (s.get("character_ids") or []):
+                        faces.append(ex_tag)  # 畫面上那位的內心聲：他自己的嘴也不動
+                    faces = list(dict.fromkeys(faces))
+                    lips = f" while {_possessive_list(faces)} lips remain completely closed" if faces else ""
+                    speech += f". {window_ex}Right after that line, {phrase}<d>[Chinese] {ex_line}</d>{lips}"
+                    spoken_lines.append(ex_line)
+                    prev_owner = ex_tag or ex_identity
+                    prev_visible = False
+                    continue
                 ex_voice = _english_voice_descriptor(ex, notes)
                 ex_voice_txt = f", {ex_voice}," if ex_voice else ""
-                speech += (f". {_speech_window_clause(ex)}Right after that line, {ex_subject}{ex_voice_txt} answers: "
-                           f"<d>[Chinese] {ex_line}</d> while {prev_owner}'s lips remain completely closed")
+                lips = f" while {prev_owner}'s lips remain completely closed" if prev_visible else ""
+                speech += (f". {window_ex}Right after that line, {ex_subject}{ex_voice_txt} answers: "
+                           f"<d>[Chinese] {ex_line}</d>{lips}")
                 spoken_lines.append(ex_line)
                 prev_owner = ex_tag or ex_identity
+                prev_visible = True
         else:
             speech = "; lips stay closed" if lips_closed else ""
 

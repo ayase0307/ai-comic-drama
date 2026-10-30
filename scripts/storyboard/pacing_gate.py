@@ -15,7 +15,7 @@
 FAIL：句間空隙 >1.5s（beat_pause 亦不得超過）；提示詞把「講話」寫慢（says slowly、語速放緩、慢慢說…；運鏡／動作的慢照樣通過；allow_slow 例外）；單句 >35 字。
 WARN：句間空隙 >1.0s（beat_pause 0.6–1.2s 例外）；切鏡後 >0.5s 才開口；
       對話段密度 <2.8 或 >3.9 字/s（目標 3.0–3.6；給了 shots 時分母扣段首／段尾連續無台詞鏡，
-      合計最多 5s，和 validate_storyboard D2 同一算法）；每 15s 開口 <6 次（等比折算、下限 3）；
+      合計最多 5s；≤4 字短句鏡超出 max(1.2s, 字數÷4＋0.5s) 的秒數也扣，和 validate_storyboard D2 同一算法）；每 15s 開口 <6 次（等比折算、下限 3）；
       無台詞鏡 >5s；連續無台詞 >10s；
       有人聲鏡比例 <80%（Work_01／Work_08 幾乎每鏡有人聲，含旁白；反應鏡用 L-cut 延續台詞）；
         原著無台詞動作鏡標 `source_action: true` 不計入分母（無台詞鏡 >5s、連續 >10s 照常警告）；
@@ -30,6 +30,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import dual_lead_in  # noqa: E402
+from dialogue_density import short_line_excess  # noqa: E402
 
 GAP_WARN, GAP_FAIL = 1.0, 1.5
 BEAT_PAUSE_MAX = 1.2
@@ -128,8 +129,15 @@ def check(seg):
     if seg.get("kind") == "dialogue" and lines:
         n = sum(chars(l["text"]) for l in lines)
         d = seg["duration"]
-        denom = max(d - allowance, 0.1)  # v118 #6：和 D2 同一算法（扣段首／段尾無台詞鏡，最多 5s）
-        note = f"（已扣段首／段尾無台詞 {allowance:.2f}s；整段 {n/d:.2f}）" if allowance else ""
+        # SB-3：≤4 字短句鏡多出的秒數也和 D2 一樣不計入分母
+        short = 0.0
+        for s in shots:
+            if s.get("has_dialogue"):
+                k = sum(chars(l["text"]) for l in lines if s["start"] - 0.011 <= l["start"] < s["end"])
+                short += short_line_excess(s["end"] - s["start"], k)
+        denom = max(d - allowance - short, 0.1)  # v118 #6：和 D2 同一算法（扣段首／段尾無台詞鏡，最多 5s）
+        note = (f"（已扣段首／段尾無台詞 {allowance:.2f}s" + (f"、短句鏡多出 {short:.2f}s" if short else "")
+                + f"；整段 {n/d:.2f}）") if (allowance or short) else ""
         if n / denom < DENSITY_LOW:
             w.append(f"{sid} 對話密度 {n/denom:.2f} 字/s <{DENSITY_LOW}（空跑）{note}")
         elif n / denom > DENSITY_HIGH:

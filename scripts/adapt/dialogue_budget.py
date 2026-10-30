@@ -5,7 +5,12 @@ dialogue_budget.py — 台詞優先（dialogue-first）片長估算與依台詞�
 
 規格：references/adapt/dialogue-first-adaptation.md（出處：references/adapt/adaptation-evidence.md）
 
-片長 L = Σ(字數 ÷ 角色語速) ＋ 0.3 s ×(行數−1) ＋ Σ刻意停頓 ＋ Σ建立鏡
+片長 L = Σ(字數 ÷ 角色語速) ＋ 0.3 s ×(句數−1) ＋ Σ刻意停頓 ＋ Σ建立鏡
+- 句數依句末標點（。！？…；）計，不依台詞行數：同一人連續兩句合成一行（#120「單句 ≤18 字」）或拆成兩行，
+  估時與密度都不變（EP01 實測：依行數算時，合併少掉句間 0.3 s，G3 3.88→4.02 FAIL）。
+- 分鏡後預估片長（storyboard_seconds）：用分鏡閘門同一套數字再算一次——每句說話窗口＝字數÷角色語速＋0.3 s
+  （#116，句內每多一句再加 0.3 s），最低 h3_spec.MIN_SHOT_SEC；每段（≤10 s）取 17n+5 平均多半個量子。
+  只回報、不擋（adapt_gate 列 NOTE）；原著無台詞動作鏡沒標【停頓】【建立】的不計，分鏡時另加。
 - 角色語速沿用 PR #116（pacing-dialogue-density）：男主 4.0、女角／其他 4.5、旁白／畫外／內心 5.5 字/秒。
 - 一般動作行（△）與說話並行，不另計時間；只有標記的動作行計時：
   △【停頓0.8】…   刻意停頓（0.6–1.2 s，每集最多 3 處）
@@ -48,6 +53,7 @@ DIALOGUE_RE = re.compile(r"^(?P<speaker>[^：△（()\s<]{1,12})(?:[（(](?P<not
 COMMENT_RE = re.compile(r"<!--(.*?)-->", re.S)
 MARK_RE = re.compile(r"【(停頓|建立)\s*([\d.]+)?\s*(?:s|秒)?】")
 BREAK_RE = re.compile(r"episode-end\s*[:：]\s*「(?P<anchor>[^」]*)」\s*[|｜]\s*(?P<reason>.*)$", re.S)
+SENTENCE_END_RE = re.compile(r"[。！？!?…；;]+")
 ANCHOR_LEN = (2, 30)  # ArcReel end_anchor 10–30 字元；中文原著句短，下限放到 2
 NARRATOR_NAMES = ("旁白", "畫外音", "VO", "OS")
 VO_NOTES = ("內心", "畫外", "畫外音", "OS", "VO", "旁白")
@@ -56,6 +62,22 @@ VO_NOTES = ("內心", "畫外", "畫外音", "OS", "VO", "旁白")
 def speech_chars(text: str) -> int:
     """只算會唸出來的字：排除標點、空白與符號（Unicode P／Z／S 類）。"""
     return sum(1 for ch in text if not unicodedata.category(ch)[0] in "PZS")
+
+
+def sentence_units(text: str) -> int:
+    """一行台詞裡有幾句（依句末標點切；沒有標點＝1 句）。句間 0.3 s 依這個數，不依行數。"""
+    return max(1, sum(1 for part in SENTENCE_END_RE.split(text) if speech_chars(part)))
+
+
+# 分鏡層的數字（單一來源：scripts/storyboard/h3_spec.py 與 handoff_to_skeleton.DEFAULT_MAX_SEGMENT_SEC）
+try:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "storyboard"))
+    import h3_spec as _h3  # noqa: E402
+    MIN_SHOT_SEC = _h3.MIN_SHOT_SEC
+    QUANTUM_SEC = _h3.FRAME_QUANTUM_STEP / _h3.FPS
+except ImportError:  # pragma: no cover - 單獨拷出 adapt/ 使用時
+    MIN_SHOT_SEC, QUANTUM_SEC = 1.2, 17 / 24
+SEGMENT_MAX_SEC = 10.0  # 同 handoff_to_skeleton.DEFAULT_MAX_SEGMENT_SEC
 
 
 @dataclass
@@ -69,6 +91,7 @@ class Line:
     is_vo: bool = False
     seconds: float = 0.0
     chars: int = 0
+    units: int = 1
     lineno: int = 0
 
 
@@ -143,7 +166,7 @@ def parse_script(text: str, male_leads: Iterable[str] = ()) -> Script:
             n = speech_chars(body)
             ln = Line(kind="dialogue", raw=line, speaker=speaker, note=note, text=body,
                       invented="invented" in comments, is_vo=rate == ROLE_RATES["narration"],
-                      chars=n, seconds=n / rate, lineno=i)
+                      chars=n, seconds=n / rate, units=sentence_units(body), lineno=i)
         (cur.lines if cur else sc.stray).append(ln)
     return sc
 
@@ -152,7 +175,8 @@ def scene_stats(scenes: List[Scene]) -> Dict[str, float]:
     lines = [ln for s in scenes for ln in s.lines]
     dlg = [ln for ln in lines if ln.kind == "dialogue"]
     speak = sum(ln.seconds for ln in dlg)
-    gaps = LINE_GAP_SEC * max(len(dlg) - 1, 0)
+    # #120 合併／拆行不改估時：句間 0.3 s 依句數（句末標點），不依台詞行數
+    gaps = LINE_GAP_SEC * max(sum(ln.units for ln in dlg) - 1, 0)
     marked = sum(ln.seconds for ln in lines if ln.kind == "action")
     total = speak + gaps + marked
     chars = sum(ln.chars for ln in dlg)
@@ -173,7 +197,33 @@ def scene_stats(scenes: List[Scene]) -> Dict[str, float]:
         "avg_line_chars": round(chars / len(dlg), 1) if dlg else 0.0,
         "invented_lines": sum(1 for ln in dlg if ln.invented),
         "longest_silence": round(longest, 2),
+        **storyboard_estimate(scenes),
     }
+
+
+def _line_window(ln: "Line") -> float:
+    """分鏡層一句的鏡長下限：字數÷角色語速＋0.3 s（#116 說話窗口；句內多句再各加 0.3 s），最低 MIN_SHOT_SEC。"""
+    return max(MIN_SHOT_SEC, ln.seconds + LINE_GAP_SEC * ln.units)
+
+
+def storyboard_estimate(scenes: List[Scene]) -> Dict[str, float]:
+    """分鏡後預估片長：和 validate_storyboard／compile 同一套數字（MIN_SHOT_SEC、#116 窗口、17n+5 量子）。
+
+    每場：Σ說話窗口＋Σ標記停頓／建立；段數＝ceil(場長÷SEGMENT_MAX_SEC)，每段取整平均多半個量子
+    （0.354 s，inferred：取整方向 ceil／tail-fit 各半）。原著無台詞動作鏡沒標【停頓】【建立】的不在內。"""
+    total = 0.0
+    segments = 0
+    chars = 0
+    for s in scenes:
+        t = sum(_line_window(ln) if ln.kind == "dialogue" else ln.seconds for ln in s.lines)
+        chars += sum(ln.chars for ln in s.lines if ln.kind == "dialogue")
+        if t <= 0:
+            continue
+        n = max(1, -(-t // SEGMENT_MAX_SEC))
+        segments += int(n)
+        total += t + n * QUANTUM_SEC / 2
+    return {"storyboard_seconds": round(total, 2), "storyboard_segments": segments,
+            "storyboard_density": round(chars / total, 2) if total else 0.0}
 
 
 def budget(seconds: float) -> Dict[str, float]:

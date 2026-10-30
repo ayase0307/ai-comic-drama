@@ -16,7 +16,8 @@ adapt_gate.py — 台詞優先改編自檢門（dialogue-first adaptation gate�
   G10 內容安全：全員成年、不性化（關鍵詞掃描＋人物表聲明）
 警告（WARN）：平均行長 >13、旁白／內心 VO >30%、補寫台詞數（記帳）、無結尾鉤子旁白檢查、
   刻意停頓每集 >3 處、建立鏡每場 >1 處。
-備註（NOTE，不影響狀態）：--source-text 略過的疑似專有名詞引號；原著對白全保留時密度 3.6–3.9（可接受）。
+備註（NOTE，不影響狀態）：--source-text 略過的疑似專有名詞引號；原著對白全保留時密度 3.6–3.9（可接受）；
+  分鏡後預估片長（和分鏡閘門同一套數字，見 dialogue_budget.storyboard_estimate）。
 僅使用 Python 標準庫。
 """
 from __future__ import annotations
@@ -31,7 +32,7 @@ from typing import Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from dialogue_budget import (  # noqa: E402
-    ANCHOR_LEN, DENSITY_MAX, DENSITY_MIN, HEADING_RE, LINE_HARD_MAX, LINE_TARGET,
+    ANCHOR_LEN, DENSITY_MAX, DENSITY_MIN, HEADING_RE, LINE_HARD_MAX, LINE_TARGET, MIN_SHOT_SEC,
     SPACE_WORDS, TIME_WORDS, VO_MAX_SHARE, Script, parse_script, split_episodes, scene_stats, speech_chars,
 )
 
@@ -130,6 +131,11 @@ def run_gate(script_text: str, novel_text: Optional[str] = None, quotes: Optiona
                      "不刪原著對白、不為壓密度多加停頓／建立秒數")
     elif d < DENSITY_MIN or d > DENSITY_MAX:
         warns.append(f"G3 密度 {d} 字/秒 不在目標 {DENSITY_MIN}–{DENSITY_MAX}")
+    if st.get("storyboard_seconds"):
+        # SB-1：劇本估時與分鏡閘門同一套數字；分鏡後片長只回報、不擋
+        notes.append(f"分鏡後預估片長 {st['storyboard_seconds']}s（劇本公式 {st['seconds']}s；"
+                     f"差在每句鏡長下限 {MIN_SHOT_SEC:g}s、說話窗口＋0.3s、{st['storyboard_segments']} 段 17n+5 取整；"
+                     "原著無台詞動作鏡沒標【停頓】【建立】的分鏡時另加）")
     for ep_i, ep in enumerate(split_episodes(sc), start=1):
         pauses = [ln for s in ep for ln in s.lines if ln.kind == "action" and ln.note == "停頓"]
         if len(pauses) > PAUSE_PER_EPISODE_MAX:

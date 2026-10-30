@@ -205,7 +205,8 @@
           "enum": [
             "Slow_Cinematic",
             "Standard_Narrative",
-            "Fast_ShortDrama"
+            "Fast_ShortDrama",
+            "Fast_Dialogue"
           ]
         },
         "palette_preset": {
@@ -296,6 +297,10 @@
         "properties": {
           "shot_id": {
             "type": "string"
+          },
+          "scene_master_disabled": {
+            "type": "boolean",
+            "description": "這一鏡不附場景母版（母版裡完整的物件已毀或已消失，附上會被畫回來；validate #46、v118 SB-6）。Codex 構圖依它跳過場景參考圖"
           },
           "dual_lead_in": {
             "type": "boolean",
@@ -569,7 +574,15 @@
                 }
               },
               "blocking_desc": {
-                "type": "string"
+                "type": "string",
+                "description": "左右一律寫觀眾視角（畫面左側／右側＝看圖的人的左右手邊），不是角色自己的左右；Codex 構圖會把「畫左」改寫成「畫面左側（觀眾視角）」"
+              },
+              "absent_objects": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "這一鏡畫面上已經不存在的物件（飛走的鳥、炸掉的石頭）。Codex 構圖提示詞拿掉提到它的子句、改寫「畫面中沒有：…」（v118 SB-6）"
               },
               "safe_zone_9x16_passed": {
                 "type": "boolean"
