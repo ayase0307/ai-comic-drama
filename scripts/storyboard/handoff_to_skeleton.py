@@ -16,7 +16,9 @@ references/storyboard/templates/layer2-storyboard.schema.json。
 - 鏡頭語言、動作階段、光線鎖、風格鎖等標 TODO，導演須依情節重寫；
   validate_storyboard.py 與 layer2_to_table.py --check 遇到 TODO 一律失敗。
 - 動作拍的順序為先動作後對白（handoff 未提供兩者的先後關係）。
-- 已存在的檔案不會被覆蓋，除非加 --force。
+- 已存在的檔案不會被覆蓋，除非加 --force。--force 重建時保留既有鏡頭的構圖綁定欄位
+  （sketch_file／sketch_sha256／sketch_status／sketch_prompt／sketch_generation／sketch_qc；
+  以 shot_id 對應，構圖檔 sha256 仍相符才保留，見 sketch_bindings.py），不必再手動重綁。
 只使用標準庫。
 """
 from __future__ import annotations
@@ -32,6 +34,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from speech_utils import count_speech_chars  # noqa: E402
+import sketch_bindings  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 LAYER2_SCHEMA = ROOT / "references/storyboard/templates/layer2-storyboard.schema.json"
@@ -608,8 +611,17 @@ def fit_total_duration(results: list[tuple[str, dict]], target_total: float,
 def write_skeletons(results: list[tuple[str, dict]], out_dir: Path, force: bool) -> list[dict]:
     """先算完所有路徑、內容與結構檢查，確認沒有重複檔名後才開始寫檔，避免寫到一半留下殘缺骨架。"""
     planned = []
+    carried: dict[str, dict] = {}
     for seg_id, layer2 in results:
         path = out_dir / f"layer2-{seg_id}.json"
+        if force and path.is_file():
+            # 重建時保留既有鏡頭的構圖綁定（shot_id 對應、構圖檔 sha256 仍相符才保留）
+            try:
+                old = json.loads(path.read_text(encoding="utf-8-sig"))
+            except (OSError, ValueError):
+                old = None
+            if old is not None:
+                carried[seg_id] = sketch_bindings.carry_over(old, layer2, [out_dir.parent, out_dir, Path.cwd()])
         content = json.dumps(layer2, ensure_ascii=False, indent=2) + "\n"
         planned.append((seg_id, layer2, path, content, check_layer2(layer2)))
     names = [item[2].name for item in planned]
@@ -629,6 +641,10 @@ def write_skeletons(results: list[tuple[str, dict]], out_dir: Path, force: bool)
                 tmp.write_text(content, encoding="utf-8")
                 pending.append((tmp, path))
                 status = "寫入"
+                kept = carried.get(seg_id, {}).get("kept") or []
+                dropped = carried.get(seg_id, {}).get("dropped") or []
+                if kept or dropped:
+                    status += f"（保留構圖綁定 {len(kept)} 鏡" + (f"、{len(dropped)} 鏡圖已變未保留" if dropped else "") + "）"
             rows.append({
                 "segment_id": seg_id,
                 "scene_id": layer2["scene_id"],
@@ -639,6 +655,7 @@ def write_skeletons(results: list[tuple[str, dict]], out_dir: Path, force: bool)
                 "file": path.name,
                 "status": status,
                 "errors": errors,
+                "sketch_bindings": carried.get(seg_id, {"kept": [], "dropped": []}),
             })
         for tmp, path in pending:
             os.replace(tmp, path)

@@ -121,6 +121,25 @@ VIEWER_FACE_EN = ("Face direction is given from the viewer's side too: a face tu
                   "means the nose points at the image's left edge.")
 
 
+_FACE_RE = re.compile(r"(?:(?:面向|面朝|臉朝|朝向|轉向|看向|望向|湊向|傾向|對著|朝)\s*(?:圖片|畫面|畫)?|對\s*(?:圖片|畫面))\s*(左|右)")
+FACE_CLOSE_SIZES = ("MS", "MCU", "CU", "ECU", "OTS_MS", "OTS_CU")
+
+
+def face_direction(text: str) -> Optional[str]:
+    """構圖文字裡第一個臉／身體朝向（觀眾視角）：'left'／'right'；沒寫回 None。"""
+    m = _FACE_RE.search(str(text or ""))
+    return None if not m else ("left" if m.group(1) == "左" else "right")
+
+
+def face_direction_en(direction: Optional[str]) -> str:
+    """單人中近景的英文方向句（中文「朝圖片左邊緣」常被畫反，英文明確句效果較好）。"""
+    if direction not in ("left", "right"):
+        return ""
+    side, other, arrow = (("LEFT", "right", "←") if direction == "left" else ("RIGHT", "left", "→"))
+    return (f"Face direction (viewer's perspective): face turned toward the {side} edge of the image — "
+            f"nose pointing {side.lower()} {arrow}; do NOT draw the face turned toward the {other} side of the image.")
+
+
 def viewer_side_text(text: str) -> str:
     """「畫左／畫右／畫面左邊」→「畫面左側（觀眾視角）」；已標過的不重複。"""
     return _SIDE_RE.sub(lambda m: f"畫面{m.group(1)}側（觀眾視角）", str(text or ""))
@@ -186,8 +205,13 @@ def build_panel_prompt(shot: Dict[str, Any], seg: Dict[str, Any], subjects: List
                  f"{drop_absent(five.get('camera') or blk.get('blocking_desc_en', ''), gone)}")
     lines.append(f"Composition (zh): {viewer_side_text(drop_absent(blk.get('blocking_desc', ''), gone))}")
     lines.append(VIEWER_SIDE_EN)
-    if str(cam.get("shot_size") or "").upper() in ("MS", "MCU", "CU", "ECU", "OTS_MS", "OTS_CU"):
+    if str(cam.get("shot_size") or "").upper() in FACE_CLOSE_SIZES:
         lines.append(VIEWER_FACE_EN)
+        # 單人中近景：把臉朝向寫成英文明確句（多人鏡各人朝向不同，不自動加）
+        if len(people) == 1:
+            face_en = face_direction_en(face_direction(drop_absent(blk.get("blocking_desc", ""), gone)))
+            if face_en:
+                lines.append(face_en)
     if gone:
         lines.append(f"畫面中沒有：{'、'.join(gone)}。Not in this frame (already gone at this moment): {', '.join(gone)}; "
                      f"do not draw them anywhere, not even small in the sky or background.")
