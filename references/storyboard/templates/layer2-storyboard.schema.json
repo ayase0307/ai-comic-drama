@@ -297,6 +297,10 @@
           "shot_id": {
             "type": "string"
           },
+          "dual_lead_in": {
+            "type": "boolean",
+            "description": "雙人引子（E3，references/storyboard/spatial-consistency.md §7）：只能標在第 1 鏡；兩名角色同框、≥2.0 s、無台詞的固定機位雙人鏡，後面鏡頭與 speech_window 整段往後挪。h3d assemble 自動剪掉這一鏡（片頭到它的 end_time）；h3d staging W47 建議、W48 檢查格式。"
+          },
           "character_ids": {
             "type": "array",
             "items": {
