@@ -9,7 +9,7 @@
   每鏡 Camera 的「NNmm from X metres」重複句（標頭已有焦段距離）換成實體機位句
   「a real camera 1.5 m away, lens …, optical axis …」。作者在 camera_optics.rig_en（或 rig 物件）寫了就用作者的。
 - R3 施力因果鏈：action_and_performance.force_chain_en 有寫就把 Motion 換成「Force chain: …」；
-  動作鏡（source_action／action_mark／force_chain_en／forbidden_en，或無台詞且有施力動詞）與插入鏡
+  動作鏡（劇本【動作】鏡＝action_marks.is_action_shot、force_chain_en／forbidden_en，或無台詞且有施力動詞）與插入鏡
   在 Motion 後加一行「Forbidden: …」失敗模式（作者寫了 forbidden_en 就只用作者的，沒寫才用預設；最多 5 項、單句不含分號）。
 
 可選、自動觸發（R4，盲評中性，每段 +300–500 字）：
@@ -23,6 +23,11 @@ from __future__ import annotations
 
 import re
 from typing import Any, Dict, Iterable, List, Optional, Sequence
+
+try:  # 動作鏡判定的單一來源（PR #124：source_action＋action_mark＋無台詞）
+    import action_marks
+except ImportError:  # pragma: no cover - 套件匯入路徑
+    from . import action_marks
 
 CJK_RE = re.compile(r"[\u3400-\u9fff]")
 
@@ -177,7 +182,9 @@ def _has_dialogue(shot: Dict[str, Any]) -> bool:
 
 def is_action_shot(shot: Dict[str, Any], motion: str = "") -> bool:
     act = shot.get("action_and_performance") or {}
-    if shot.get("source_action") or shot.get("action_mark"):
+    # 劇本【動作】鏡：和 validate D5／D1–D4、pacing_gate 同一判定（action_marks.is_action_shot）；
+    # 只標 source_action 的【建立】【停頓】舊鏡不算，交給下面的施力動詞判斷
+    if action_marks.is_action_shot(shot):
         return True
     if _english(act.get("force_chain_en")) or _as_list(act.get("force_chain_en")) or _as_list(act.get("forbidden_en")):
         return True

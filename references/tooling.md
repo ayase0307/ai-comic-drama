@@ -114,7 +114,7 @@ python scripts/h3d.py deps --root . --status --strict
 - E33／E34／E35：套句、後設詞（authored／approved…）、防禦性禁止句堆疊。
 - E36／E37：違背分鏡運鏡、嘴部可見的對白被寫成畫外音。
 - E38：`detailed_description`（REMIX 三欄：`integrated_multimodal_description`）與 `metadata.compiled_prompt_sha256` 不符＝編譯後被改寫。
-- W50（只警告，LoveUolanda 寫法、噩盡島 EP01 A/B 2 seed）：分鏡標了【動作】（`source_action`／`action_mark`）的鏡，Motion 沒有 `Force chain:`；在 `action_and_performance.force_chain_en` 寫施力因果鏈（§2.3.4）。編譯器加的 `Forbidden:` 句是固定句，不算 E32／E33／E35。
+- W50（只警告，LoveUolanda 寫法、噩盡島 EP01 A/B 2 seed）：分鏡標了【動作】（`source_action`＋`action_mark`、無台詞，同 validate D5 的 `action_marks.is_action_shot`；只標 `source_action` 的【建立】【停頓】鏡不算）的鏡，Motion 沒有 `Force chain:`；在 `action_and_performance.force_chain_en` 寫施力因果鏈（§2.3.4）。編譯器加的 `Forbidden:` 句是固定句，不算 E32／E33／E35。
 - W41–W45（只警告，D40–D46，來源 Foyege、H3 0 實測）：W41 台詞鏡視線沒寫螢幕方向（和 `h3d staging` D07 共用 `staging_lint.find_gaze`：沒有視線句只由 D07 報）、W42 `subject_definitions` 寫位置或姿態、W43 寫實畫風全身／遠景寫毛孔（定版皮膚段豁免）、W44 Performance 只有情緒詞或 AU 代碼、W45 中段鏡重列全場世界站位（`left to right` 名單不算）。
 - 處置：回 Layer 2 的 `five_part_en` 逐鏡改稿再編譯。不准改檢查器門檻、不准手改 segments 過關。規範見 `references/prompt-authoring.md`。
 

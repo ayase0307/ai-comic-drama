@@ -56,7 +56,7 @@
 
 警告（不擋，但要看）：W40 沒有視覺線索的氣氛詞（cinematic、dramatic、tense atmosphere…，同句沒有光、手、眼、動作等具體線索）；W30 舊產物沒有編譯指紋；W33 零星重複句；W39 八成以上是固定鏡（運鏡是階段 4 的決定，確認是刻意的）。
 Foyege 導演法的警告（D40–D46，來源 Foyege、H3 0 實測，**只警告不擋**）：W41 台詞鏡有視線句卻沒寫螢幕方向（整段完全沒有視線句由 `h3d staging` D07 報，不重複）；W42 `subject_definitions` 寫了位置或姿態；W43 寫實畫風的全身／遠景鏡另外寫毛孔、絨毛（定版皮膚段豁免）；W44 Performance 只有情緒詞、或出現 AU 代碼；W45 第 2 鏡以後同一句把 ≥3 個主體各配一個世界位置。
-LoveUolanda 寫法（噩盡島 EP01 A/B 2 seed，**只警告**）：W50 【動作】鏡（`source_action`／`action_mark`）的 Motion 沒有 `Force chain:`。編譯器自己加的 `Forbidden: …` 一行與段首 `Camera law:`／`Cast rule:`／`Environment lock:` 是固定句，不算套句（E33）、不算叫人別動（E32）、不算禁止句堆疊（E35）。
+LoveUolanda 寫法（噩盡島 EP01 A/B 2 seed，**只警告**）：W50 【動作】鏡（`source_action`＋`action_mark`、無台詞，`action_marks.is_action_shot`）的 Motion 沒有 `Force chain:`。編譯器自己加的 `Forbidden: …` 一行與段首 `Camera law:`／`Cast rule:`／`Environment lock:` 是固定句，不算套句（E33）、不算叫人別動（E32）、不算禁止句堆疊（E35）。
 
 ## 動作鏡怎麼寫才不慢（打擊、追逐、被炸飛）
 

@@ -22,6 +22,9 @@ import prompt_authoring  # noqa: E402
 from test_remix_compile import RemixProject  # noqa: E402
 
 
+MARK = {"text": "【動作2.3】巨獸咬住他的左前臂。", "seconds": 2.3}  # 劇本【動作】鏡＝source_action＋action_mark（PR #124）
+
+
 def _shot(**kw):
     base = {"shot_id": "SH01", "camera_optics": {"shot_size": "MS"},
             "action_and_performance": {}, "dialogue_and_audio": {"has_dialogue": False}}
@@ -75,14 +78,14 @@ class RigTests(unittest.TestCase):
 
 class ActionTests(unittest.TestCase):
     def test_action_mark_gets_default_forbidden_without_semicolons(self):
-        s = _shot(source_action=True)
+        s = _shot(source_action=True, action_mark=MARK)
         items = pc.forbidden_items(s, "", "the beast jerks its head up")
         self.assertEqual(items, pc.DEFAULT_ACTION_FORBIDDEN)
         line = pc.forbidden_sentence(items)
         self.assertTrue(line.startswith("Forbidden: ") and ";" not in line and line.endswith("."))
 
     def test_authored_forbidden_replaces_defaults_dedup_and_capped(self):
-        s = _shot(source_action=True, action_and_performance={
+        s = _shot(source_action=True, action_mark=MARK, action_and_performance={
             "forbidden_en": ["he does not rise by himself; no second beast", "no second beast",
                              "no bite on his head", "the fangs do not pass through the arm", "he does not climb out", "the beast jerks only once"]})
         items = pc.forbidden_items(s, "", "")
@@ -91,7 +94,7 @@ class ActionTests(unittest.TestCase):
         self.assertFalse(any("self-levitating" in i for i in items))  # 作者寫了就不補語意重疊的預設
 
     def test_explicit_empty_forbidden_disables_defaults(self):
-        s = _shot(source_action=True, action_and_performance={"forbidden_en": []})
+        s = _shot(source_action=True, action_mark=MARK, action_and_performance={"forbidden_en": []})
         self.assertEqual(pc.forbidden_items(s, "", "jerks"), [])
 
     def test_hand_insert_gets_framing_and_insert_forbidden(self):
@@ -111,8 +114,15 @@ class ActionTests(unittest.TestCase):
         silent_hit = _shot()
         self.assertTrue(pc.forbidden_items(silent_hit, "", "the paw slams down onto his chest"))
 
+    def test_source_action_without_mark_is_not_action_shot(self):
+        # PR #124 實測：v118 #9 的【建立】【停頓】鏡只標 source_action；和 validate D5 同一判定，不當【動作】鏡
+        est = _shot(source_action=True)
+        self.assertFalse(pc.is_action_shot(est, "the crater rim sits quietly under the noon sun"))
+        self.assertEqual(pc.forbidden_items(est, "", "the crater rim sits quietly under the noon sun"), [])
+        self.assertTrue(pc.is_action_shot(_shot(source_action=True, action_mark=MARK), ""))
+
     def test_force_chain_replaces_motion(self):
-        s = _shot(source_action=True, action_and_performance={"force_chain_en": [
+        s = _shot(source_action=True, action_mark=MARK, action_and_performance={"force_chain_en": [
             "the beast's neck lowers first", "its jaws drop the last half metre", "its fangs clamp his forearm"]})
         out = pc.apply_action_rules({"camera": "Close-up", "motion": "old motion text"}, s)
         self.assertTrue(out["motion"].startswith("Force chain: the beast's neck lowers first, then its jaws drop"))
@@ -142,6 +152,7 @@ class CompileIntegrationTests(RemixProject):
         doc = fx.layer2_doc()
         sh2 = doc["shots"][1]
         sh2["source_action"] = True
+        sh2["action_mark"] = {"text": "【動作】葉薇珊停步，賴一心指向地面。"}
         return doc
 
     def test_law_once_lock_auto_and_authoring_clean(self):
@@ -157,7 +168,7 @@ class CompileIntegrationTests(RemixProject):
         res = prompt_authoring.audit_segment(prompt, seg["shots"], seg["segment_id"])
         self.assertEqual(res["errors"], [])
 
-    def test_action_shot_chain_forbidden_and_w49(self):
+    def test_action_shot_chain_forbidden_and_w50(self):
         doc = self._layer2()
         self.make(layer2=doc)
         seg = self.compile()
