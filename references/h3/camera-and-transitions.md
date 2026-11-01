@@ -95,6 +95,8 @@ brief exposure flicker. Cut at peak blur, then settle and snap back into focus.
 
 一鏡到底的物理轉場（官方 coffee→desert 範例）：`At the exact moment when the cocoa particles resemble the dune ridges, transition seamlessly … No tearing, black frames, hard cuts, obvious VFX, or compositing seams. One continuous shot with no visible edit.`
 
+**可選寫法：段縫遮擋接力（R5，待驗；與 ai-comic-drama「每段獨立生成」定案並列，不進編譯器預設）**：上一段最後一鏡讓遮擋物（手、袖子、紗幔、前景人物）掠過鏡頭，下一段第一鏡從同一個遮擋物移開；**寫明從哪側進、從對側出**（例：`a sleeve sweeps across the lens from frame left and exits frame right`），前後兩段的方向與速度要一致。《噩盡島》EP01 本地 A/B：接縫自然度 2→3，但 H3 沒照寫的方向（寫左→右，實際右進右出），景別與光線跳動仍在；只有 1 組、1 seed。要用就把接力句手寫進前後兩段的五小節。
+
 ## 7. 手持與「不完美」
 
 UGC / vlog / 偽紀實要主動移除精緻感：
@@ -146,6 +148,8 @@ The camera holds still at first, then pushes in with small amplitude toward …
 ## 11. 攝影機幾何：寫實際位置，不只寫角度標籤
 
 來源：LoveUolanda 方法論第 10–12 點（有成片、無 A/B）。**方法主張，H3 未對照實測。**
+
+**ai-comic-drama 本地 A/B（2026-11，《噩盡島》EP01，家機 REMIX，2 seed）**：寫明鏡頭高度、距離、相對位置、光軸後，插入鏡跑位錯 1.0→0、運鏡分 +0.5～1.0（和施力因果鏈同時改，無法單獨歸因），已收進編譯器預設（`prompt-formats.md`「物理機位與施力因果鏈」）。段首同時寫一次總則：不要數位裁切／模擬變焦、不要遠距旁觀機位與大空繞、重音峰值前就框好動作、釋放時才移動。
 
 「low angle」「close-up」本身不保證拿到正確視角。想控制時，寫攝影機相對於人物的真實空間關係：
 

@@ -134,7 +134,21 @@ REWRITE_NEGATIVE_PHRASES = {
 # ==============================================================================
 
 SOFT_WORD_SUGGESTION = 700  # shot-five-part.md：未實測的建議值
-HARD_CHAR_LIMIT = 7000  # hosted API 送件硬上限
+HARD_CHAR_LIMIT = 7000  # hosted API（MiniMax 平台）送件硬上限；只有 submit_endpoint=hosted 才報 E
+# 本地（家機 FreeVideo／REMIX／ComfyUI）沒有字元上限。文字編碼器是 Qwen3-VL-32B（截到第 50 層），
+# 官方 tokenizer_config.json model_max_length＝262144、ComfyUI 的 MiniMax tokenizer max_length 99999999，
+# 超長時 ComfyUI 是報錯不是默默截斷。家機 FreeVideo／REMIX 伺服器端是否另有截斷：待實測（tooling.md §2.3.4）。
+LOCAL_TEXT_ENCODER_MAX_TOKENS = 262144
+SUBMIT_ENDPOINTS = ("local", "hosted")
+DEFAULT_SUBMIT_ENDPOINT = "local"
+_CJK_CHAR_RE = re.compile(r"[\u3400-\u9fff\uf900-\ufaff\u3000-\u303f\uff00-\uffef]")
+
+
+def estimate_prompt_tokens(text: str) -> int:
+    """Qwen 系 BPE 的粗估：英數符號約 4 字元／token、中日文約 1 字／token（只供報告與 W50，不精確）。"""
+    cjk = len(_CJK_CHAR_RE.findall(text or ""))
+    rest = len(text or "") - cjk
+    return cjk + (rest + 3) // 4
 
 
 # W13（v118 #5）：與 dialogue_density.LINE_SUGGEST_MAX／SPEECH_SHARE_WARN、#116 預設語速同值
@@ -246,6 +260,17 @@ def resolve_backend(seg_data: Dict[str, Any], project_root: Optional[Path] = Non
         if decisions_mod is not None:
             return decisions_mod.video_backend(Path(project_root))
     return "ref2va"
+
+
+def resolve_submit_endpoint(project_root: Optional[Path] = None, endpoint: Optional[str] = None) -> str:
+    """順序：明確參數 > decisions.json submit_endpoint > local（現行實際送件是家機本地，無字元上限）。"""
+    if endpoint in SUBMIT_ENDPOINTS:
+        return endpoint
+    if project_root is not None:
+        decisions_mod = _decisions_module()
+        if decisions_mod is not None and hasattr(decisions_mod, "submit_endpoint"):
+            return decisions_mod.submit_endpoint(Path(project_root))
+    return DEFAULT_SUBMIT_ENDPOINT
 
 
 def _decisions_module():
@@ -851,8 +876,12 @@ def lint_h3_prompt(
     rounding_mode: str = "floor",
     authored_shots: Optional[List[Dict[str, Any]]] = None,
     backend: str = "ref2va",
+    submit_endpoint: Optional[str] = None,
 ) -> Dict[str, Any]:
     """對 H3 分段提示詞執行 17 條確定性工程自檢。
+
+    submit_endpoint：hosted＝MiniMax 平台 API，整段 >7000 字元報 E；local（預設，家機 FreeVideo／REMIX／
+    ComfyUI）不設字元上限，只在估計 token 超過文字編碼器上限時 W50。
     支援 5–10 秒短分段與 15 秒段，動態計算 FreeVideo 取整有效秒數 D。
 
     backend=remix（PR-R3）：必填區塊改為 REMIX 三欄（integrated_multimodal_description／
@@ -1213,7 +1242,7 @@ def lint_h3_prompt(
         # 只報告字數與「若壓縮會犧牲什麼」，由使用者決定；不自動壓縮、不鼓勵壓縮。
         warnings.append(
             f"[W11: 字數超過建議值] detailed_description {word_count} 英文字（建議 ≤{SOFT_WORD_SUGGESTION}，未實測，"
-            f"使用者可放行）。若要壓縮，依序會犧牲：① Camera 開頭重複的焦段／距離子句（標頭已有）、"
+            f"使用者可放行；本地送件沒有 7000 字元上限，不要為字數砍物理機位與施力因果鏈）。若要壓縮，依序會犧牲：① Camera 開頭重複的焦段／距離子句（標頭已有）、"
             f"② 逐鏡 Sound 只留第一個子句（其餘只剩 overall_soundscape）、③ Performance／Light 的細節字；"
             f"保留完整版的風險（文字與參考圖搶臉、後段細節被忽略）皆未驗證。"
         )
@@ -1228,11 +1257,20 @@ def lint_h3_prompt(
             f"扣掉編譯器固定字（估約 {_fixed} 字）後，{_n_shots} 鏡每鏡約剩 {_per_shot} 字可寫動作與走位。"
             f"優先縮短開頭光線句，其次精簡各鏡 Light／Sound。（估算值，僅供參考）"
         )
+    endpoint = submit_endpoint if submit_endpoint in SUBMIT_ENDPOINTS else DEFAULT_SUBMIT_ENDPOINT
+    token_estimate = estimate_prompt_tokens(clean_prompt)
     details["prompt_char_count"] = len(clean_prompt)
-    if len(clean_prompt) > HARD_CHAR_LIMIT:
+    details["prompt_token_estimate"] = token_estimate
+    details["submit_endpoint"] = endpoint
+    if endpoint == "hosted" and len(clean_prompt) > HARD_CHAR_LIMIT:
         errors.append(
             f"[E: 字元超過上限] 整段提示詞 {len(clean_prompt)} 字元，超過送件端（hosted API）硬上限 {HARD_CHAR_LIMIT}；"
-            f"只能壓縮或拆段。"
+            f"只能壓縮或拆段。（本地送件沒有這個上限：h3d decide submit_endpoint local）"
+        )
+    elif endpoint == "local" and token_estimate > LOCAL_TEXT_ENCODER_MAX_TOKENS:
+        warnings.append(
+            f"[W11: 可能超過文字編碼器長度] 整段提示詞估計約 {token_estimate} token，超過 H3 tokenizer "
+            f"model_max_length {LOCAL_TEXT_ENCODER_MAX_TOKENS}；尾段可能被截斷或被拒，先拆段。"
         )
 
     # --------------------------------------------------------------------------
@@ -1489,7 +1527,9 @@ def main():
     parser.add_argument("--backend", choices=list(VIDEO_BACKENDS), default=None,
                         help="影片生成路線；預設依段落 metadata.video_backend／refmods，再看 --project-root 的 decisions.json，最後 ref2va")
     parser.add_argument("--project-root", type=pathlib.Path, default=None,
-                        help="專案根目錄（讀 decisions.json 的 video_backend／remix_pack_cap／style_anchor）；預設為檔案所在目錄")
+                        help="專案根目錄（讀 decisions.json 的 video_backend／remix_pack_cap／style_anchor／submit_endpoint）；預設為檔案所在目錄")
+    parser.add_argument("--submit-endpoint", choices=list(SUBMIT_ENDPOINTS), default=None,
+                        help="送件端：local（家機本地，無字元上限）／hosted（平台 API，>7000 字元報 E）；預設讀 decisions.json，沒定案＝local")
 
     args = parser.parse_args()
 
@@ -1617,7 +1657,9 @@ def main():
                 rounding_mode = (seg_data.get("metadata", {}) or {}).get("rounding_mode", args.rounding)
                 lint_backend = resolve_backend(seg_data, args.project_root or p.parent, args.backend)
                 lint_res = lint_h3_prompt(prompt_str, nominal_duration=dur, rounding_mode=rounding_mode,
-                                          authored_shots=seg_data.get("shots"), backend=lint_backend)
+                                          authored_shots=seg_data.get("shots"), backend=lint_backend,
+                                          submit_endpoint=resolve_submit_endpoint(args.project_root or p.parent,
+                                                                                  args.submit_endpoint))
                 if lint_res["passed"]:
                     print(f"  [PASS] H3 提示詞 17 條自檢通過 ({seg_id_label}: 名義 {dur}s -> 真實有效 {lint_res['details']['effective_duration_sec']}s)")
                 else:

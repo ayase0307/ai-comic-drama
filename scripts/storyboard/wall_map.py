@@ -32,7 +32,7 @@ _FRAME_SIDE = {
     "west": {"south": "frame left", "north": "frame right", "west": "background", "east": "behind the camera"},
 }
 BANNED_PHRASES = ("同上", "同前", "same as above", "as above", "as before", "as in the previous shot", "ditto")
-DEFAULT_CHAR_BUDGET = 800  # 單鏡前置句的建議上限；hosted API 整段 7000 字元，10 鏡左右要留給劇本本身
+DEFAULT_CHAR_BUDGET = 800  # 單鏡前置句的建議上限（可讀性）；只有 hosted API 有整段 7000 字元上限，本地送件沒有（tooling.md §2.3.4）
 
 
 def frame_side(camera_facing: str, world_dir: str) -> str:

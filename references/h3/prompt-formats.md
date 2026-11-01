@@ -78,7 +78,7 @@ AVOID
 
 | 他的做法 | 本 skill 規則 | 怎麼取捨 |
 |---|---|---|
-| 單段約 5.9–6.8 千字元（890–1030 英文字） | 純文字 300–700 字；hosted API 上限 7000 字元 | 他的 13 段全在上限內，最長一段只差約 240 字元；journal 其他案例有 20–30 KB 的，**會超過**。先確認端點上限。本地 ComfyUI 與有參考素材時仍照 300–700 字，只寫新變化 |
+| 單段約 5.9–6.8 千字元（890–1030 英文字） | 純文字 300–700 字；hosted API 上限 7000 字元（本地 FreeVideo／REMIX／ComfyUI 沒有字元上限，見下方平台參數地雷） | 他的 13 段全在上限內，最長一段只差約 240 字元；journal 其他案例有 20–30 KB 的，**會超過**。先確認端點上限。本地 ComfyUI 與有參考素材時仍照 300–700 字，只寫新變化 |
 | 10.3–13.6 秒內 5–8 個動作窗（0.02–3.4 秒，約六成落在 1.3–2.7 秒），但明寫硬切每段僅約 0–3 次 | 10 秒 3–4 shot；每 shot ≥ 2 秒、一個主動作 | 衝突在「窗」短於 2 秒，不在 shot 數；許多窗是「流入下一動作」而非切鏡。屬音樂剪輯例外，無音樂時照預算表；若成片糊成一團，砍到 3–4 個窗 |
 | 寫 `Do not generate visible text or subtitles` | 官方回覆：不要在 prompt 裡寫「不要字幕」（提到反而召喚） | 沒有 A/B 證明他的寫法有效。本 skill 維持預設不寫；若真的出現字幕，照 `audio-and-dialogue.md` §7：減少台詞、改寫成不含文字的畫面描述，仍出現就後製裁掉 |
 | 毫秒級節拍網格 | 自然語言模式用形容詞，不用數字 | 時間戳本來就受支援，但精度 0.1 秒已夠（見 `rhythm-and-pacing.md` §11） |
@@ -88,6 +88,20 @@ AVOID
 
 可信度標示：該作者提供完整 prompt 與（自述的）成片，但成片未隨 repo 發布，沒有同題 A/B 對照，也沒有量化評估；每條主張都視為「有人用過、看起來可行」，不是「已證實更好」。
 
+## 物理機位與施力因果鏈（ai-comic-drama 本地 A/B，2026-11）
+
+來源：X @LoveUolanda《画楼春梦》14 段 H3 提示詞（單人古典舞 MV、有成片、無 A/B）＋《噩盡島》EP01 家機 REMIX 盲評（E1-29 吞食、E1-03 三人導遊鏡，各 2 seed，只能算傾向）。ai-comic-drama 的編譯器實作在 `scripts/storyboard/physical_camera.py`。
+
+| 規則 | 寫法 | 結果 | 定案 |
+|---|---|---|---|
+| R3 施力因果鏈＋Forbidden | Motion 寫「誰的哪個部位先動 → 力量傳到哪 → 結果」；後面接一行 `Forbidden:` 列這一鏡最可能出的錯（self-levitating、unmotivated displacement、repeating the same action；只露手的插入鏡加 full-body entry when only the hand is framed） | 甩出 1/2→2/2；插入鏡手部鏈＋「no full-body guide」兩支都對 | 預設 |
+| R2 物理機位 | 每鏡寫鏡頭高度、距離、和人物的相對位置、光軸、實際移動路徑；段首寫一次總則：不要數位裁切／模擬變焦、不要遠距旁觀機位、不要大空繞，重音峰值前就框好動作、釋放時才移動 | 跑位錯 1.0→0、運鏡 +0.5～1.0（與 R3 同時改，無法單獨歸因） | 預設 |
+| R4 CAST RULE＋ENVIRONMENT LOCK | 明寫人數與名單、禁多餘人影／倒影／影子；只准場景圖已有的物件 | 中性（A 版本來就 0 錯），每段 +300–500 字 | 可選：≥3 人、曾出錯、有 absent_objects 才加 |
+| R1 參考圖 ONLY／ignore | 「Picture N is the ONLY source for…」 | 本測沒有構圖圖、場景圖無人，驗不到 | 不收（待驗） |
+| R5 遮擋接力 | 段尾遮擋物掠過鏡頭，接下一段入口 | 接縫 2→3，但方向沒照做 | 只列可選寫法（`camera-and-transitions.md` §6），待驗 |
+
+代價：手寫 B 版 E1-29 由 5189 增到 6821 字元；台詞清晰度 −0.5（在 ASR 誤差內）。本地送件沒有字元上限，不為了字數砍 R2／R3 的必要內容，只刪真正重複的句子（例如 Camera 節裡和鏡頭標頭重複的焦段／距離句）。
+
 ## 平台參數地雷（社群回報）
 
 - 時長：官方 4–15 s；部分端點 T2V/I2V 只到 10 s，Ref2VA 到 15 s。寫 15 秒分鏡前先確認端點。
@@ -95,7 +109,7 @@ AVOID
 - 比例：T2V 必須明確指定（16:9 / 4:3 / 1:1 / 3:4 / 9:16 / 21:9），I2V/Ref2VA 可 adaptive；首幀模式比例跟圖。
 - 首/尾幀模式不能與參考素材混用。
 - 參考：≤9 圖、≤3 影片（各 2–15 s、總 ≤15 s）、≤3 音檔（同上）、總 ≤12 檔；音檔不能單獨。
-- prompt ≤7000 字元。
+- prompt ≤7000 字元：**只限 hosted API**（MiniMax 平台）。本地（家機 FreeVideo／REMIX／ComfyUI）沒有字元上限，必要內容可以超過 7000；要留意的是文字編碼器長度——官方 tokenizer `model_max_length` 262144 token、ComfyUI 的 MiniMax tokenizer 不截斷（超長是報錯），家機伺服器端是否另有截斷**待實測**。ai-comic-drama 以 `submit_endpoint`（local 預設／hosted）決定 audit 要不要報 7000 字元錯（`references/tooling.md` §2.3.4）。
 - 中文台詞本地不出聲：用 repo tokenizer，`<d>[Chinese] …</d>`，注意 shell 編碼。
 
 ## 附：「寫實 15 秒電影腳本產生器」system prompt 與本 skill 的對照（2026-10-21）

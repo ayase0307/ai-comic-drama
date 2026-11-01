@@ -21,13 +21,49 @@
         "## A12. 旁白型解說 / 數位人",
         "## A12. 旁白型解說 / 數位人 ★漫劇旁白常用"
       ]
+    ],
+    "prompt-formats.md": [
+      [
+        "| 純文字 300–700 字；hosted API 上限 7000 字元 |",
+        "| 純文字 300–700 字；hosted API 上限 7000 字元（本地 FreeVideo／REMIX／ComfyUI 沒有字元上限，見下方平台參數地雷） |"
+      ],
+      [
+        "- prompt ≤7000 字元。",
+        "- prompt ≤7000 字元：**只限 hosted API**（MiniMax 平台）。本地（家機 FreeVideo／REMIX／ComfyUI）沒有字元上限，必要內容可以超過 7000；要留意的是文字編碼器長度——官方 tokenizer `model_max_length` 262144 token、ComfyUI 的 MiniMax tokenizer 不截斷（超長是報錯），家機伺服器端是否另有截斷**待實測**。ai-comic-drama 以 `submit_endpoint`（local 預設／hosted）決定 audit 要不要報 7000 字元錯（`references/tooling.md` §2.3.4）。"
+      ],
+      [
+        "## 平台參數地雷（社群回報）",
+        "## 物理機位與施力因果鏈（ai-comic-drama 本地 A/B，2026-11）\n\n來源：X @LoveUolanda《画楼春梦》14 段 H3 提示詞（單人古典舞 MV、有成片、無 A/B）＋《噩盡島》EP01 家機 REMIX 盲評（E1-29 吞食、E1-03 三人導遊鏡，各 2 seed，只能算傾向）。ai-comic-drama 的編譯器實作在 `scripts/storyboard/physical_camera.py`。\n\n| 規則 | 寫法 | 結果 | 定案 |\n|---|---|---|---|\n| R3 施力因果鏈＋Forbidden | Motion 寫「誰的哪個部位先動 → 力量傳到哪 → 結果」；後面接一行 `Forbidden:` 列這一鏡最可能出的錯（self-levitating、unmotivated displacement、repeating the same action；只露手的插入鏡加 full-body entry when only the hand is framed） | 甩出 1/2→2/2；插入鏡手部鏈＋「no full-body guide」兩支都對 | 預設 |\n| R2 物理機位 | 每鏡寫鏡頭高度、距離、和人物的相對位置、光軸、實際移動路徑；段首寫一次總則：不要數位裁切／模擬變焦、不要遠距旁觀機位、不要大空繞，重音峰值前就框好動作、釋放時才移動 | 跑位錯 1.0→0、運鏡 +0.5～1.0（與 R3 同時改，無法單獨歸因） | 預設 |\n| R4 CAST RULE＋ENVIRONMENT LOCK | 明寫人數與名單、禁多餘人影／倒影／影子；只准場景圖已有的物件 | 中性（A 版本來就 0 錯），每段 +300–500 字 | 可選：≥3 人、曾出錯、有 absent_objects 才加 |\n| R1 參考圖 ONLY／ignore | 「Picture N is the ONLY source for…」 | 本測沒有構圖圖、場景圖無人，驗不到 | 不收（待驗） |\n| R5 遮擋接力 | 段尾遮擋物掠過鏡頭，接下一段入口 | 接縫 2→3，但方向沒照做 | 只列可選寫法（`camera-and-transitions.md` §6），待驗 |\n\n代價：手寫 B 版 E1-29 由 5189 增到 6821 字元；台詞清晰度 −0.5（在 ASR 誤差內）。本地送件沒有字元上限，不為了字數砍 R2／R3 的必要內容，只刪真正重複的句子（例如 Camera 節裡和鏡頭標頭重複的焦段／距離句）。\n\n## 平台參數地雷（社群回報）"
+      ]
+    ],
+    "camera-and-transitions.md": [
+      [
+        "來源：LoveUolanda 方法論第 10–12 點（有成片、無 A/B）。**方法主張，H3 未對照實測。**",
+        "來源：LoveUolanda 方法論第 10–12 點（有成片、無 A/B）。**方法主張，H3 未對照實測。**\n\n**ai-comic-drama 本地 A/B（2026-11，《噩盡島》EP01，家機 REMIX，2 seed）**：寫明鏡頭高度、距離、相對位置、光軸後，插入鏡跑位錯 1.0→0、運鏡分 +0.5～1.0（和施力因果鏈同時改，無法單獨歸因），已收進編譯器預設（`prompt-formats.md`「物理機位與施力因果鏈」）。段首同時寫一次總則：不要數位裁切／模擬變焦、不要遠距旁觀機位與大空繞、重音峰值前就框好動作、釋放時才移動。"
+      ],
+      [
+        "## 7. 手持與「不完美」",
+        "**可選寫法：段縫遮擋接力（R5，待驗；與 ai-comic-drama「每段獨立生成」定案並列，不進編譯器預設）**：上一段最後一鏡讓遮擋物（手、袖子、紗幔、前景人物）掠過鏡頭，下一段第一鏡從同一個遮擋物移開；**寫明從哪側進、從對側出**（例：`a sleeve sweeps across the lens from frame left and exits frame right`），前後兩段的方向與速度要一致。《噩盡島》EP01 本地 A/B：接縫自然度 2→3，但 H3 沒照寫的方向（寫左→右，實際右進右出），景別與光線跳動仍在；只有 1 組、1 seed。要用就把接力句手寫進前後兩段的五小節。\n\n## 7. 手持與「不完美」"
+      ]
+    ],
+    "shot-five-part.md": [
+      [
+        "5. 例外：送件端硬上限（hosted API 7000 字元）不能放行，超過只能壓縮或拆段。",
+        "5. 例外：送件端硬上限（hosted API 7000 字元）不能放行，超過只能壓縮或拆段。本地（家機 FreeVideo／REMIX／ComfyUI）沒有字元上限，必要內容可以超過 7000，不必為字數砍動作與機位；要留意的是文字編碼器長度（官方 tokenizer 262144 token；家機伺服器端是否截斷待實測）。"
+      ]
+    ],
+    "long-form-planning.md": [
+      [
+        "；請先確認你的端點上限。壓縮方法見 §8.3。",
+        "；請先確認你的端點上限（只有 hosted API 有 7000 字元上限；本地 FreeVideo／REMIX／ComfyUI 沒有，但要留意文字編碼器截斷）。壓縮方法見 §8.3。"
+      ]
     ]
   },
   "files": {
     "action-choreography.md": "b51d31a9f638fb206471e32312005cebdff86f9c0e750cee95cf8a1a855da6c5",
     "audio-and-dialogue.md": "846f5ea4dcb2c4f75c30009ac0d75bdc3cbd509d6667a5bb50bd0016f18b974e",
     "audio-pipeline.md": "4007e47ce6c75661efe0effea21070fc8cd679c53601c0d7b5f5e9591158c641",
-    "camera-and-transitions.md": "c58298a009424dcdcf9de0e37ee2642d3ac537816ae9ddb186839a52d77abb2e",
+    "camera-and-transitions.md": "334b047051d79e717aa8c3e9080d52ad637b16ae78f75a4b00bf0c0ef235baf5",
     "camera-moves-handbook.md": "bddcd183c51cde2e031c3d8810b229c8a62331155502a146679ee33ac6d5068e",
     "community-sources.md": "619a7fb9dda343bd01bfd7627eb2b1b8860f822f8e4c8f3391dd32d095c99599",
     "example-basketball-crossover-10s.md": "990f1791cc6e64e1f088b62f5db4617374db7320bacba73fe07b4ec7df89fc5f",
@@ -36,15 +72,15 @@
     "example-spec-to-prompt-10s.md": "822da703840d96c86e637780a86ab1fe30afe999fa5f978483f03f669eba81a5",
     "failure-triage.md": "06cc182da48bb24a0411cbbdaa57232cdc8ebf2886f00ce4d04b13777e8532d4",
     "lighting-and-color.md": "d6e037e999fa1f04321f8bbbbbf42c6ff10562c87870b9225bf939f482e0e4f2",
-    "long-form-planning.md": "2f150e7be3d414712daa8de97735b6df2cc1d42330dbeabbcbdad33f5318efc2",
+    "long-form-planning.md": "59c1dd248303c062c9c9eca0cf836502733979a7baacd57847378c2ef7ebecae",
     "motion-quality.md": "7fad80b5d7a4c54555e62bd234cdeca6ae2ab9fcbc1436aa85efd4ba003d0470",
-    "prompt-formats.md": "18d5fcddc644d7b0575d7a60122a9192bebe9e46c31a8003f7a37b0964015ac9",
+    "prompt-formats.md": "c95cf7bf2cc94d65bad476a29badbbd669960550e2e701eb9611d7b6747a0d19",
     "references-and-editing.md": "02f9aec7cbe1554dada8d5eb82fafca15573b45068ba9643ef651e9e65a6445c",
     "rhythm-and-pacing.md": "601e684e6b5e17776e9a3609d9c6716001224afe69cc02429076d2599830bd33",
     "scenarios-commercial.md": "3855ab52ccea1cc001eef0f0d16fecbc4335ed5df6aff44a337db9f2e2f021d7",
     "scenarios-people.md": "bb943311a6d5417e643adee36fc83cf1361dd97fc39c54a48cda6a3370e38308",
     "scenarios-world-and-styles.md": "0ae374a58724925fdbd4499e1ccc21146d0dbd5930ea1fa224888b11c42737fa",
-    "shot-five-part.md": "0f36fddb695e1f8e85a76777f9377e9dd6742d19abacd28d7b1d1ca01e754504",
+    "shot-five-part.md": "c805e35bfe6f37e27775fd6640bd6c64b5fd4017ee370d91a405697f1c1314cd",
     "shot-variety-and-staging.md": "8f8845c7c9f80dec86fc8ad6ec9a4a53c9ce37b9c62043adc71abbdce1637818",
     "skin-realism-block.md": "3bf57fdf883fc2fad37f0d126a135bf29f702138638eb5990d8653aed456740a"
   },

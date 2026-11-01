@@ -29,6 +29,11 @@ Foyege 導演法併入（PR-F2，D40–D46；來源 Foyege、H3 0 實測，所�
   W43 寫實畫風的全身／遠景鏡寫毛孔、絨毛：景別裝不下這種細節（守富 9/16 定版皮膚段本身豁免，不受影響）。
   W44 Performance 只有情緒詞或 AU 代碼：刪掉情緒詞後沒有可見線索；AU 代碼只當中文規劃用語，不進英文提示詞。
   W45 中段鏡重列全場站位：第 2 鏡以後同一句把 ≥3 個主體各配一個世界位置（by the door、at the head of the table…）。
+
+LoveUolanda 寫法（噩盡島 EP01 A/B 盲評 2 seed，physical_camera.py；只警告）：
+  W49 動作鏡沒寫施力因果鏈：分鏡標了【動作】（source_action／action_mark），Motion 卻沒有「Force chain:」；
+      在 action_and_performance.force_chain_en 寫「誰的哪個部位先動 → 力量傳到哪 → 結果」。
+  編譯器加的「Forbidden: …」失敗模式句是固定句：不算套句（E33）、不算 Motion 叫人別動（E32）、不算禁止句堆疊（E35）。
 """
 from __future__ import annotations
 
@@ -117,7 +122,12 @@ COMPILER_BOILERPLATE = [
     re.compile(r"^Style lock for every shot:", re.I),
     re.compile(r"stay plain and unmarked, with no lettering", re.I),
     re.compile(r"<(?:Picture|Video)\s*\d+> is ", re.I),
+    # 物理機位與施力因果鏈（physical_camera.py）：Forbidden 一行與每段一次的總則句
+    re.compile(r"^Forbidden:", re.I),
+    re.compile(r"^(?:Camera law|Cast rule|Environment lock):", re.I),
 ]
+FORBIDDEN_LINE = re.compile(r"^\s*Forbidden:", re.I)
+FORCE_CHAIN = re.compile(r"\bForce chain\b", re.I)
 
 STATIC_HEAD = re.compile(r"\b(holds a steady static shot|holds a static shot|static shot|locked[- ]off|stays static|remains static)\b", re.I)
 # 分鏡（中文或英文）寫了實際運鏡
@@ -442,7 +452,7 @@ def audit_segment(prompt: str, authored_shots: Optional[Sequence[Dict[str, Any]]
 
         motion = parts.get("Motion", "")
         if motion:
-            msents = _sentences(motion)
+            msents = [m for m in _sentences(motion) if not FORBIDDEN_LINE.match(m)]
             # 句子裡只要還有時間順序（first／then／as…）就算有寫動作過程
             stasis = sum(1 for s in msents
                          if (STASIS_PATTERNS.search(s) or PROHIBITIVE.search(s)) and not SEQUENCE_WORDS.search(s))
@@ -469,6 +479,11 @@ def audit_segment(prompt: str, authored_shots: Optional[Sequence[Dict[str, Any]]
                 break
 
         warnings.extend(_foyege_shot_warnings(idx, head, shot, parts, realistic))
+
+        if a is not None and (a.get("source_action") or a.get("action_mark")) and motion and not FORCE_CHAIN.search(motion):
+            warnings.append(f"[W49: 動作鏡沒寫施力因果鏈] {tag} 是【動作】鏡，Motion 沒有 Force chain；"
+                            "在 action_and_performance.force_chain_en 寫「誰的哪個部位先動 → 力量傳到哪 → 結果」"
+                            "（噩盡島 EP01 A/B：甩 1/2→2/2，2 seed，傾向有效；references/h3/prompt-formats.md）。")
 
         sents = [s for s in _sentences(shot) if not _is_boilerplate(s)]
         prohib = [s for s in sents if PROHIBITIVE.search(s) and CONTROL_WORDS.search(s)]

@@ -233,6 +233,14 @@
         "interior": {
           "type": "boolean",
           "description": "Optional. 室內（true）／戶外（false）。h3d staging W46 構圖板建議用；沒寫時改讀 handoff 場景的 setting.interior／int_ext，都沒有就不建議"
+        },
+        "camera_law": {
+          "type": "boolean",
+          "description": "Optional. 預設 true：編譯器每段寫一次物理機位總則（Camera law，references/tooling.md §2.3.4）；false 不寫。"
+        },
+        "cast_lock": {
+          "type": "boolean",
+          "description": "Optional. 人數＋環境鎖（CAST RULE／ENVIRONMENT LOCK）：true 強制加（曾出現多餘人影、換場景物件的段標這個），false 不加；不寫＝同段 ≥3 名人類角色或有 absent_objects 時自動加。"
         }
       }
     },
@@ -573,6 +581,20 @@
               },
               "axis_side": {
                 "type": "string"
+              },
+              "rig_en": {
+                "type": "string",
+                "description": "Optional. 實體機位（英文）：鏡頭在主體哪一側、距離、高度、光軸、移動路徑，例「lens 20 cm above the gravel at his left side, 1.5 m from his raised forearm, optical axis level toward the upper right」。編譯器用它取代 Camera 節裡與鏡頭標頭重複的焦段距離句；不寫就從角度字自動推（references/tooling.md §2.3.4）。"
+              },
+              "rig": {
+                "type": "object",
+                "description": "Optional. rig_en 的分欄寫法（rig_en 優先）：依 position_en、height_en、axis_en、path_en 順序以逗號接起。",
+                "properties": {
+                  "position_en": {"type": "string"},
+                  "height_en": {"type": "string"},
+                  "axis_en": {"type": "string"},
+                  "path_en": {"type": "string"}
+                }
               }
             }
           },
@@ -643,6 +665,16 @@
               "observable_expression_en": {
                 "type": "string",
                 "description": "English observable expression for the H3 prompt"
+              },
+              "force_chain_en": {
+                "type": ["string", "array"],
+                "items": {"type": "string"},
+                "description": "Optional. 施力因果鏈（英文）：誰的哪個部位先動 → 力量傳到哪 → 結果；陣列以「, then」接起。有寫就把 Motion 換成「Force chain: …」，要保留 first／then／as 時間順序（E32）。【動作】鏡沒寫會出 W49。"
+              },
+              "forbidden_en": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Optional. 這一鏡要排除的失敗模式（英文短句，例「he does not rise by himself」）。寫了就只用這裡的（最多 5 項）；沒寫時動作鏡與只露手的插入鏡用預設項（self-levitating、unmotivated displacement、repeating the same action、full-body entry…）；明寫 [] 都不加。"
               },
               "five_part_en": {
                 "type": "object",
