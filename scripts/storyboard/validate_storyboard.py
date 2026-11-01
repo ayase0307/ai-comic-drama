@@ -31,6 +31,7 @@ from dialogue_density import (  # noqa: E402
     check_dialogue_density, is_voiceover_line, rate_limits, shot_lines,
 )
 import dual_lead_in  # noqa: E402
+import action_marks  # noqa: E402
 import h3_spec  # noqa: E402
 from shot_intent import cross_segment_intent_errors, segment_intent_errors, shot_intent_errors  # noqa: E402
 
@@ -509,9 +510,13 @@ def validate_storyboard_data(data: dict, original_script_dialogues: list = None,
 
     # Check 7d: 同段鏡頭意圖／理由不准複製（I04、I05）
     errors += segment_intent_errors(shots)
-    _de, _dw = check_dialogue_density(data)  # PR #118 分鏡台詞密度閘門
+    _de, _dw = check_dialogue_density(data)  # PR #118 分鏡台詞密度閘門（不計雙人引子與原著無台詞動作鏡）
     errors += _de
     warnings += _dw
+    # D5（單段：【動作】鏡被合併／截短）、D6（無台詞鏡塞 ≥3 個主要動作）
+    _ae, _aw = action_marks.segment_issues(data, _segment_anchor_names(data))
+    errors += _ae
+    warnings += _aw
 
     # Check 8: asset_refs 佔位符（#43：骨架的 TODO／S-item1／C-item2 不可原樣通過）
     _refs = data.get("asset_refs") or {}
@@ -778,9 +783,15 @@ def run_demo_suite():
 def check_dialogue_groups(datas: list, handoff: dict, only_scene: str = None) -> dict:
     """同一場景的各段依段序串接台詞，與 handoff 劇本台詞比對。回傳 {scene_id: {passed, errors, segments}}。"""
     expected_map = load_handoff_dialogues(handoff)
+    mark_map = {sc.get("scene_id"): action_marks.expected_marks(sc)
+                for ep in handoff.get("episodes", []) for sc in ep.get("scenes", [])}
     groups: dict = {}
+    act_shots: dict = {}  # D5：鏡上 source_scene_id 可把跨場段的動作鏡歸到劇本所在的場（PR #124 實測 P5）
     for data in datas:
         groups.setdefault(scene_key(data), []).append(data)
+        for shot in data.get("shots") or []:
+            if isinstance(shot, dict):
+                act_shots.setdefault(action_marks.shot_scene(shot, scene_key(data)), []).append(shot)
     results = {}
     for scene_id in [only_scene] if only_scene else list(groups):
         segs = sorted(groups.get(scene_id, []),
@@ -791,6 +802,8 @@ def check_dialogue_groups(datas: list, handoff: dict, only_scene: str = None) ->
             errors = [f"[台詞保真] 找不到場景 {scene_id} 的分鏡檔，無法核對台詞"]
         else:
             errors = verbatim_check(expected_map[scene_id], dialogue_stream(segs)) + jcut_errors(segs)
+            errors += action_marks.scene_count_errors(scene_id, mark_map.get(scene_id, []), segs,
+                                                      shots=act_shots.get(scene_id, []))  # D5 標記數
         results[scene_id] = {
             "passed": not errors,
             "errors": errors,

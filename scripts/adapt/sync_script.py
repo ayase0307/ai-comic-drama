@@ -46,6 +46,21 @@ def _episode_target(project_dir: Path) -> Dict[str, Any]:
     return {}
 
 
+ACTION_MARK_RE = re.compile(r"【動作\s*([\d.]+)?\s*(?:s|秒)?】")  # 同 scripts/storyboard/action_marks.py
+
+
+def script_sequence(sc: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """劇本裡 △ 動作行與台詞的先後順序（依行號）：[{kind: action|dialogue, index}]。
+    handoff 的 action_beats／dialogue 是分開兩串，分鏡骨架靠它把【動作】鏡排回原位（不再一律排在台詞前）。"""
+    items = [(a.get("line_no", 0), "action", i) for i, a in enumerate(sc.get("actions", []))]
+    items += [(d.get("line_no", 0), "dialogue", i) for i, d in enumerate(sc.get("dialogues", []))]
+    return [{"kind": k, "index": i} for _, k, i in sorted(items, key=lambda x: (x[0], x[1] != "action"))]
+
+
+def scene_has_action_marks(sc: Dict[str, Any]) -> bool:
+    return any(ACTION_MARK_RE.search(a.get("text", "")) for a in sc.get("actions", []))
+
+
 def compute_content_hash(actions: List[str], dialogues: List[Dict[str, Any]]) -> str:
     """計算場景動作與對白的 SHA256 前 8 碼雜湊值。"""
     payload = {
@@ -367,6 +382,7 @@ def create_handoff_scene_from_script(
         "scene_goal": "TODO",
         "dramatic_turn": "TODO",
         "action_beats": action_texts,
+        **({"script_sequence": script_sequence(sc)} if scene_has_action_marks(sc) else {}),
         "dialogue": dialogue_list,
         "dialogue_blocks": list(dialogue_list),
         "props": [],
@@ -461,6 +477,11 @@ def sync_scene_content(
     if sc.get("event_exposition") and hs.get("event_exposition") != sc["event_exposition"]:
         meta_changed = True
 
+    # 有【動作】標記的場才記台詞／動作先後（沒標記的舊場不加欄位、不因此判成有變更）
+    new_sequence = script_sequence(sc) if scene_has_action_marks(sc) else None
+    if new_sequence is not None and hs.get("script_sequence") != new_sequence:
+        meta_changed = True
+
     if not actions_changed and not dialogues_changed and not setting_changed and not chars_changed and not meta_changed:
         return False, f"[{scene_id}] 內容未變更，略過同步"
 
@@ -473,6 +494,10 @@ def sync_scene_content(
         )
 
     hs["action_beats"] = new_actions
+    if new_sequence is not None:
+        hs["script_sequence"] = new_sequence
+    else:
+        hs.pop("script_sequence", None)
     if "storyboard_handoff" in hs and "required_visual_beats" in hs["storyboard_handoff"]:
         hs["storyboard_handoff"]["required_visual_beats"] = list(new_actions)
 

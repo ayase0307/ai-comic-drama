@@ -256,6 +256,7 @@ python scripts/adapt/compare_adaptation.py --source adapt/source.json --script s
     - 同鏡接話：`dialogue_and_audio.extra_lines[]`（`speaker`、`line_verbatim`、`speech_window`、`voice_4d_spec_en`），編譯器逐句給 `<d>`、前一位說話人閉嘴；D2 密度與語速閘門都把接話算進去。
     - 分鏡語速閘門（validate）：畫內 >4.7 字/秒 FAIL、>4.5 WARN；旁白／內心 VO >5.8 FAIL、>5.5 WARN（以鏡長計；舊 4.2 一律線取消）。
     - `pacing_gate`：給了 `shots` 時密度分母扣段首／段尾連續無台詞鏡（最多 5 秒，同 D2）；原著無台詞動作鏡標 `source_action: true` 不計入有人聲鏡比例；`beat_pause` 句的切鏡後開口可到 1.2 秒（同 D4）。
+    - **原著無台詞動作鏡**（劇本 `△【動作】`，一個標記＝一個主要動作）：骨架獨立成鏡、鏡長＝標記秒數，台詞估時不壓縮；`pacing_gate`（`source_action` 鏡拿掉後再算空隙／開口／密度／有人聲鏡比例）、validate D1–D4 不計；validate D5 核對標記數／合併／截短，D6 擋一鏡塞 ≥3 個動作（`references/storyboard/cinematic-director.md`）。
     - **無廢片**（不生成之後要剪掉的秒數：`tail_freeze_hold` 預設關、收尾在末句後 0.3 秒）的**唯一例外是 E3 雙人引子**（`shots[0].dual_lead_in`，`references/storyboard/spatial-consistency.md` §7）：段縫硬切到單人近景時多生成 2.0 秒雙人鏡、組裝剪掉。依據：T4 同段同種子 12 個樣本跑位／重演 0/12（不加引子 4/12），2 秒引子比整段重生便宜。節奏閘門（`pacing_gate` 密度／有人聲鏡比例／切鏡後開口／開口次數、validate D1–D4、說話佔比、段長提醒、audit W13）都不計引子那一鏡，段長扣掉引子秒數。
   - **硬門禁（FAIL）**：句間空隙 >1.5 秒、單句 >35 字、提示詞含 `slow`（含 `slow motion`、`no slow motion`、`at slow speed`、`slow push`；揭露／定格鏡標 `allow_slow` 例外）。機檢見 `scripts/storyboard/pacing_gate.py`。
   - **提示詞寫法保留**：動作鏈（施力點→傳導→受擊反應）＋逐句時間錨點（`[0.0–1.8s]` 開口時間），正向寫 `real-time speed, natural brisk motion`。
