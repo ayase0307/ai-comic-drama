@@ -21,7 +21,7 @@ WARN：句間空隙 >1.0s（beat_pause 0.6–1.2s 例外）；切鏡後 >0.5s �
         原著無台詞動作鏡標 `source_action: true` 不計入分母（無台詞鏡 >5s、連續 >10s 照常警告）；
       提示詞含末 1 秒靜止句（tail_freeze_hold；無廢片原則：不生成要剪掉的秒數。唯一例外是 E3 雙人引子，見下）。
 
-原著無台詞動作鏡（劇本【動作】標記，Layer 2 `source_action: true`）：比照雙人引子，台詞類檢查（句間空隙、切鏡後開口、
+原著無台詞動作鏡（劇本【動作】標記，Layer 2 `source_action: true`＋`action_mark`；只有 source_action 的【建立】【停頓】鏡不算）：比照雙人引子，台詞類檢查（句間空隙、切鏡後開口、
 密度、開口次數、有人聲鏡比例）先拿掉它、其後時間前移、duration 扣掉再算（`action_marks.strip_pacing`），
 不逼為了過閘去砍動作；無台詞鏡 >5s、連續無台詞 >10s 仍照含動作鏡的時間軸警告。
 

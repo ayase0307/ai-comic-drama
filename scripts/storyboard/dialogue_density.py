@@ -14,7 +14,7 @@
 刻意的靜場戲可在 metadata.density_exempt_reason 寫明理由，D2 降為 WARN（D1/D3/D4 不豁免）。
 時間檢查需要 dialogue_and_audio.line_timecodes（段內相對秒數）；沒有時只做密度檢查。
 雙人引子（shots[0].dual_lead_in，spatial-consistency.md §7）組裝時剪掉，D1–D4 先拿掉它、時間整段前移再算。
-原著無台詞動作鏡（`source_action: true`、無台詞；劇本【動作】標記，action_marks.py）是原著要求的畫面時間，
+原著無台詞動作鏡（`source_action: true`＋`action_mark`、無台詞；劇本【動作】標記，action_marks.is_action_shot）是原著要求的畫面時間，
 D1–D4 同樣先拿掉、其後時間前移再算（不吃蒙太奇額度、不拉低密度、前後兩句不算句間空隙）；整段都是動作鏡時 D1 不適用。
 動作鏡本身由 validate D5（標記遺失／合併／截短）與 D6（一鏡塞 ≥3 個動作）管。
 """

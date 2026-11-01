@@ -166,7 +166,7 @@ graph TD
 
 ### 原著無台詞動作鏡（劇本【動作】標記）
 
-劇本 `△【動作】…`／`△【動作2.5】…`（`references/adapt/dialogue-first-adaptation.md` §3）在分鏡裡是**獨立一鏡**：`source_action: true`、`action_mark: {text, seconds}`（`handoff_to_skeleton.py` 自動寫），鏡長＝標記秒數（未給 2.0 s，最短 `h3_spec.MIN_SHOT_SEC` 1.2 s）。它是原著要求的畫面時間，所以：
+劇本 `△【動作】…`／`△【動作2.5】…`（`references/adapt/dialogue-first-adaptation.md` §3）在分鏡裡是**獨立一鏡**：`source_action: true`、`action_mark: {text, seconds}`（`handoff_to_skeleton.py` 自動寫），鏡長＝標記秒數（未給 2.0 s，最短 `h3_spec.MIN_SHOT_SEC` 1.2 s）。**動作鏡＝`source_action: true`＋`action_mark`＋無台詞**（`action_marks.is_action_shot`；D1–D6、`pacing_gate`、編譯器 tail-fit、物理機位共用同一判定）：v118 #9 起【建立】【停頓】鏡也標 `source_action`，只有它不算動作鏡，只照舊從有人聲鏡比例的分母豁免。骨架切段時連續【動作】鏈（咬→甩→落喉）不從中間切開：段剛好滿 `--max-shots`、秒數還裝得下時多裝一鏡（最多 max+1，validate W:E2 只提醒）。它是原著要求的畫面時間，所以：
 
 - **D1–D4 不計動作鏡**：先拿掉動作鏡、其後時間整段前移再算（`action_marks.strip_layer2`，比照雙人引子）；整段都是動作鏡時 D1 不適用。動作鏡前後兩句台詞不算句間空隙、不吃蒙太奇額度、不拉低密度——不要為了過閘去砍動作。
 - `pacing_gate` 的句間空隙、切鏡後開口、密度、開口次數、有人聲鏡比例 ≥80% 也不計（`action_marks.strip_pacing`）；無台詞鏡 >5 s、連續無台詞 >10 s 照常 WARN。
@@ -174,7 +174,7 @@ graph TD
 
 | 代碼 | 規則 | 級別 |
 |---|---|---|
-| D5 | 劇本【動作】標記在分鏡裡遺失或被合併：同場劇本標記數（handoff `action_beats`）≠ 分鏡動作鏡數（帶 `--handoff` 才比）；一鏡的 `action_mark` 含 ≥2 個標記；動作鏡短於標記秒數 −0.05 s（被截短） | FAIL |
-| D6 | 無台詞鏡的動作描述（`action_mark.text` 與 `shot_intent.story_beat` 取動作較多者）含 ≥3 個主要動作，且鏡長 < 1.5 s × 動作數 → 要求拆鏡；< 2.0 s × 動作數 → 提醒。沒標【動作】的舊無台詞鏡只看 `story_beat`、最多 WARN | FAIL／WARN |
+| D5 | 劇本【動作】標記在分鏡裡遺失或被合併：同場劇本標記數（handoff `action_beats`）≠ 分鏡動作鏡數（帶 `--handoff` 才比；**只算帶 `action_mark` 的鏡**——只標 `source_action: true` 的【建立】【停頓】舊鏡不算；跨場段的動作鏡在鏡上寫 `source_scene_id` 歸到劇本所在的場）；一鏡的 `action_mark` 含 ≥2 個標記；動作鏡短於標記秒數 −0.05 s（被截短） | FAIL |
+| D6 | 無台詞鏡的動作描述（`action_mark.text` 與 `shot_intent.story_beat` 取動作較多者）含 ≥3 個主要動作，且鏡長 < 1.5 s × 動作數 → 要求拆鏡；< 2.0 s × 動作數 → 提醒。沒標【動作】的舊無台詞鏡另看 `spatial_blocking.blocking_desc`（舊事故鏡常把咬／甩／落喉只寫在構圖描述）、最多 WARN；標了【動作】的鏡不看 blocking_desc（構圖描述的姿勢、表情會被誤數） | FAIL／WARN |
 
 「主要動作」依子句數（標點與「然後／接著／隨即」切開，含動作動詞的子句算一個；「」內文字與段內角色名先拿掉），規則在 `scripts/storyboard/action_marks.py`。吞鳥鏡：咬／甩／落喉三鏡約 7 s 通過；擠成一鏡 2.2 s → D6 FAIL（2.2 < 4.5），帶 handoff 再加 D5 FAIL（劇本 3 個、分鏡 1 個）。

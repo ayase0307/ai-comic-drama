@@ -348,8 +348,13 @@ def pack_items(items: list[dict], scene_id: str,
                 f"{scene_id} 有一句台詞估時 {item['duration']} 秒，超過 H3 單鏡 {MAX_SHOT_SEC:.0f} 秒上限，"
                 f"無法切段又不丟台詞：{item['text']!r}。請拆句後重跑。"
             )
-        # 若當前段已滿 max_shots，或加入後超過 max_segment_sec（且當前段已有鏡頭），則切段
-        if current and (len(current) >= max_shots or current_sec + item["duration"] > max_segment_sec):
+        # 若當前段已滿 max_shots，或加入後超過 max_segment_sec（且當前段已有鏡頭），則切段。
+        # 例外（PR #124 實測 P6）：連續【動作】鏈（咬→甩→落喉）不從中間切開——當前段剛好滿 max_shots、
+        # 末鏡與這一項都是【動作】鏡、加入後秒數仍 ≤ max_segment_sec 時，多裝這一鏡（最多 max_shots+1；validate W:E2 只提醒）
+        fits_sec = current_sec + item["duration"] <= max_segment_sec
+        keep_chain = (len(current) == max_shots and fits_sec and item.get("kind") == "action_mark"
+                      and current[-1].get("kind") == "action_mark")
+        if current and not keep_chain and (len(current) >= max_shots or not fits_sec):
             segments.append(current)
             current, current_sec = [], 0.0
         current.append(item)

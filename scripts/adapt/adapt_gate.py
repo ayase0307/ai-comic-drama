@@ -104,7 +104,8 @@ def _quote_index(line_text: str, spans: List[tuple], start: int) -> Optional[int
     order = list(range(start, len(spans))) + list(range(0, start))
     for k in order:
         nq = normalize(spans[k][2])
-        if nl in nq or (len(nq) >= 2 and nq in nl):
+        # 原著短句（「不像。」）被包在劇本較長的句子裡不算對上（PR #124 實測：內心獨白被錯對到前面的短引號）
+        if nl in nq or (len(nq) >= 2 and nq in nl and len(nq) * 2 >= len(nl)):
             return k
     for k in order:
         nq = normalize(spans[k][2])
@@ -114,6 +115,42 @@ def _quote_index(line_text: str, spans: List[tuple], start: int) -> Optional[int
 
 
 G14_LIST_MAX = 8
+G14_PLAIN_MIN = 4  # 原著沒有引號的台詞（內心獨白、旁白轉述）用原文定位時，至少要對上這麼多個可發聲字
+G14_PLAIN_WINDOW = 400  # 改寫過的內心獨白只用片段定位時，只在上一個錨點之後這麼多字內找（避免對到遠處同詞）
+G14_PLAIN_LONG = 6      # 視窗外只接受這麼長以上的片段
+
+
+def _plain_index(text: str):
+    """原著的可發聲字串與每個字在原文的位置（定位無引號的內心獨白用）。"""
+    chars, pos = [], []
+    for i, ch in enumerate(text):
+        if speech_chars(ch):
+            chars.append(ch)
+            pos.append(i)
+    return "".join(chars), pos
+
+
+def _plain_anchor(line_text: str, plain: str, pos: List[int], after: int) -> Optional[tuple]:
+    """劇本台詞在原著原文（不限引號內）的位置 (start, end)；先從 after 之後找，再從頭找。對不上回 None。"""
+    nl = normalize(line_text)
+    if len(nl) < G14_PLAIN_MIN or not plain:
+        return None
+    k0 = next((j for j, p in enumerate(pos) if p >= after), len(pos))
+    k = plain.find(nl, k0)
+    if k < 0:
+        k = plain.find(nl)
+    if k >= 0:
+        return pos[k], pos[k + len(nl) - 1] + 1
+    # 改編時脫水改寫過（「暑假跟著叔叔的劇組來打雜」↔ 原著「隨劇組來到這座島嶼做些打雜的工作」）：
+    # 用劇本句裡最長、且在上一個錨點之後 G14_PLAIN_WINDOW 字內出現的片段（≥ G14_PLAIN_MIN 字）定位，只往後找
+    # 視窗內找不到時，往後整段找較長的片段（≥ G14_PLAIN_LONG 字）
+    for window, min_size in ((plain[k0:k0 + G14_PLAIN_WINDOW], G14_PLAIN_MIN), (plain[k0:], G14_PLAIN_LONG)):
+        for size in range(len(nl) - 1, min_size - 1, -1):
+            for i in range(0, len(nl) - size + 1):
+                j = window.find(nl[i:i + size])
+                if j >= 0:
+                    return pos[k0 + j], pos[k0 + j + size - 1] + 1
+    return None
 
 
 def action_beat_warnings(script: Script, novel_text: Optional[str]) -> List[str]:
@@ -130,21 +167,30 @@ def action_beat_warnings(script: Script, novel_text: Optional[str]) -> List[str]
                                      "一個標記＝一個主要動作，拆成多行（例：咬／甩／落喉三行），否則分鏡只給一鏡的秒數")
     if novel_text:
         spans = source_quote_spans(novel_text)
+        plain, plain_pos = _plain_index(novel_text)
+        # 錨點跨場延續（場序跟原著走）：場界上的動作（爆炸、墜坡）屬於上一場結尾或下一場開頭，兩邊的【動作】行都算
+        last_end = 0
+        prev = None  # (上一句台詞行號, 原著錨點 (start, end))
+        marks_since = 0
+        pos = 0
         for s in script.scenes:
-            prev = None  # (上一句台詞行號, 對到的原著引號 index)
-            marks_since = 0
-            pos = 0
             for ln in s.lines:
                 if ln.kind == "action":
                     marks_since += len(ACTION_MARK_RE.findall(ln.raw))
                     continue
                 if ln.invented:
                     continue
+                # 錨點：先對原著引號；對不上（內心獨白、旁白在原著沒有引號）再到原文裡直接找（PR #124 實測 P3）
                 k = _quote_index(ln.text, spans, pos) if spans else None
-                if k is None:
+                if k is not None:
+                    anchor = spans[k][:2]
+                else:
+                    anchor = _plain_anchor(ln.text, plain, plain_pos, prev[1][1] if prev else last_end)
+                if anchor is None:
                     continue
-                if prev is not None and k > prev[1]:
-                    a_end, b_start = spans[prev[1]][1], spans[k][0]
+                last_end = max(last_end, anchor[1])
+                if prev is not None and anchor[0] >= prev[1][1]:
+                    a_end, b_start = prev[1][1], anchor[0]
                     between = novel_text[a_end:b_start]
                     cl = action_marks.action_clauses(between, names)
                     # 沒標任何【動作】且原著 ≥2 個動作子句；或有標，但原著動作子句 ≥3 且超過標記數兩倍（多半是多步動作塞一行）
@@ -155,7 +201,9 @@ def action_beat_warnings(script: Script, novel_text: Optional[str]) -> List[str]
                             + "／".join(c[:12] for c in cl[:4]) + ("…" if len(cl) > 4 else "")
                             + f"），劇本只有 {marks_since} 行【動作】：原著無台詞動作 beat 每個主要動作標一行 "
                               "`△【動作】…`（必要時給秒數 `△【動作2.5】…`）；確認那些是和說話並行的小動作可忽略")
-                prev, marks_since, pos = (ln.lineno, k), 0, k
+                prev, marks_since = (ln.lineno, anchor), 0
+                if k is not None:
+                    pos = k
     if len(found) > G14_LIST_MAX:
         found = found[:G14_LIST_MAX] + [f"G14 另有 {len(found) - G14_LIST_MAX} 處同類提醒（未逐條列出，請逐場檢查）"]
     return found

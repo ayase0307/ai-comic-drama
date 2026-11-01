@@ -786,8 +786,12 @@ def check_dialogue_groups(datas: list, handoff: dict, only_scene: str = None) ->
     mark_map = {sc.get("scene_id"): action_marks.expected_marks(sc)
                 for ep in handoff.get("episodes", []) for sc in ep.get("scenes", [])}
     groups: dict = {}
+    act_shots: dict = {}  # D5：鏡上 source_scene_id 可把跨場段的動作鏡歸到劇本所在的場（PR #124 實測 P5）
     for data in datas:
         groups.setdefault(scene_key(data), []).append(data)
+        for shot in data.get("shots") or []:
+            if isinstance(shot, dict):
+                act_shots.setdefault(action_marks.shot_scene(shot, scene_key(data)), []).append(shot)
     results = {}
     for scene_id in [only_scene] if only_scene else list(groups):
         segs = sorted(groups.get(scene_id, []),
@@ -798,7 +802,8 @@ def check_dialogue_groups(datas: list, handoff: dict, only_scene: str = None) ->
             errors = [f"[台詞保真] 找不到場景 {scene_id} 的分鏡檔，無法核對台詞"]
         else:
             errors = verbatim_check(expected_map[scene_id], dialogue_stream(segs)) + jcut_errors(segs)
-            errors += action_marks.scene_count_errors(scene_id, mark_map.get(scene_id, []), segs)  # D5 標記數
+            errors += action_marks.scene_count_errors(scene_id, mark_map.get(scene_id, []), segs,
+                                                      shots=act_shots.get(scene_id, []))  # D5 標記數
         results[scene_id] = {
             "passed": not errors,
             "errors": errors,

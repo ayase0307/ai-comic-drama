@@ -55,6 +55,15 @@ def _g14(warns):
 
 # ---------------------------------------------------------------- 主要動作數
 class CountActions(unittest.TestCase):
+    def test_field_test_word_list_fixes(self):
+        # PR #124 實測 P4
+        self.assertEqual(am.count_actions("洛年頭上腳下落進喉嚨"), 1)  # 「下落」以前把「腳下落進」吃掉
+        self.assertEqual(am.count_actions("強風憑空刮起"), 1)
+        self.assertEqual(am.count_actions("那光芒比太陽還炫目，卻不刺眼"), 0)
+        self.assertEqual(am.count_actions("他的下落不明"), 0)
+        self.assertEqual(am.count_actions("他們是來這兒拍電影的"), 0)
+        self.assertEqual(am.count_actions("他回過頭，向石頭走"), 2)
+
     def test_swallow_beat_is_three_actions(self):
         self.assertEqual(am.count_actions("巨鳥一口咬住洛年的手，把他甩上半空，張嘴讓他落進喉嚨。"), 3)
         self.assertEqual(am.count_actions("咬手、甩上半空、落進喉嚨"), 3)
@@ -102,6 +111,24 @@ class AdaptGateG14(unittest.TestCase):
         quiet = SOURCE.replace("話音未落，巨鳥俯衝而下，一口咬住洛年的手，把他甩上半空，張開大嘴，洛年就這麼落進了牠的喉嚨。",
                                "兩人沉默地看著天空。")
         self.assertEqual(_g14(self.run_gate("△兩人看著天空。\n", source=quiet)["warns"]), [])
+
+    def test_unquoted_monologue_anchors(self):
+        # PR #124 實測 P3：原著內心獨白沒有引號、劇本又脫水改寫過 → 以前對不上錨點就跳過，現在用原文片段定位
+        src = ("「那是什麼？」他問。\n"
+               "這是幻聽嗎？自己大腦有毛病了嗎？洛年心想。\n"
+               "突然砰的一聲，一陣強風莫名刮起，洛年一下重重撞在蛙仙石上，疼得閉上眼睛。\n"
+               "這是什麼東西？洛年往上下左右看去。\n")
+        head = "第01集｜吞鳥\n<!-- source: 卷1 L1-L4 -->\n1-1 火山口 日/外\n人物：洛年\n洛年：那是什麼？\n"
+        script = head + "洛年（內心）：我腦子有毛病了嗎？\n△洛年撞上石頭。\n洛年（內心）：這是什麼東西……\n<!-- episode-end: 「看去」 | 換場 -->\n"
+        g = _g14(adapt_gate.run_gate(script, novel_text=src, male_leads=["洛年"])["warns"])
+        self.assertTrue(any(w.startswith("G14b") and "刮起" in w for w in g), g)
+        fixed = script.replace("△洛年撞上石頭。\n", "△【動作1.5】一陣強風莫名刮起。\n△【動作2.0】洛年重重撞在蛙仙石上，吃痛閉眼。\n")
+        self.assertEqual(_g14(adapt_gate.run_gate(fixed, novel_text=src, male_leads=["洛年"])["warns"]), [])
+
+    def test_short_source_quote_not_matched_inside_longer_line(self):
+        spans = adapt_gate.source_quote_spans("「不像。」幾個人搖頭。\n")
+        self.assertIsNone(adapt_gate._quote_index("除了這塊不像青蛙的石頭", spans, 0))
+        self.assertEqual(adapt_gate._quote_index("不像。", spans, 0), 0)
 
     def test_storyboard_estimate_counts_split_marks(self):
         res = self.run_gate(SPLIT3)
@@ -161,6 +188,21 @@ class Skeleton(unittest.TestCase):
         items = hts.build_items(scene)
         self.assertEqual(items[:1], hts.merge_beats(scene["action_beats"]))  # 舊行為：動作拍合併、排在台詞前
         self.assertFalse(any(am.is_action_shot(s) for s in _all_shots(hts.convert_handoff(h, None))))
+
+    def test_action_chain_not_split_at_max_shots(self):
+        # PR #124 實測 P6：台詞＋咬＋甩剛好 3 鏡，落喉被切到下一段；動作鏈秒數裝得下時多裝一鏡
+        items = [{"kind": "dialogue", "text": "妖怪不是都能溝通嗎？", "duration": 1.9},
+                 {"kind": "action_mark", "text": "咬", "duration": 2.3},
+                 {"kind": "action_mark", "text": "甩", "duration": 2.3},
+                 {"kind": "action_mark", "text": "落喉", "duration": 2.4}]
+        self.assertEqual([len(c) for c in hts.pack_items(items, "S")], [4])
+        too_long = [dict(i) for i in items]
+        too_long[-1]["duration"] = 4.0  # 10.5 s > 10 s：照舊換段
+        self.assertEqual([len(c) for c in hts.pack_items(too_long, "S")], [3, 1])
+        plain = [dict(i, kind="dialogue") for i in items]  # 不是動作鏈：照舊 3 鏡一段
+        self.assertEqual([len(c) for c in hts.pack_items(plain, "S")], [3, 1])
+        five = items + [{"kind": "action_mark", "text": "吞", "duration": 0.5}]  # 最多 max_shots+1
+        self.assertEqual([len(c) for c in hts.pack_items(five, "S")], [4, 1])
 
     def test_missing_sequence_falls_back_to_actions_first(self):
         h = _handoff(HEAD + SPLIT3 + TAIL)
@@ -238,12 +280,63 @@ class ValidateD5D6(unittest.TestCase):
         errs = _d(group["EP01-S01"]["errors"], "D5")
         self.assertTrue(errs and "b3" in errs[0], errs)
 
-    def test_extra_source_action_without_mark_fails_count(self):
+    def test_extra_marked_action_shot_fails_count(self):
         seg = copy.deepcopy(SPLIT_SEG)
-        seg["shots"].append(dict(_shot("b4", 7.0, 9.0), source_action=True))
+        seg["shots"].append(_shot("b4", 7.0, 9.0, action="【動作】巨鳥振翅飛走。"))
         seg["metadata"]["target_duration_sec"] = 9.0
         group = vs.check_dialogue_groups([seg], self.handoff(SPLIT3), "EP01-S01")
         self.assertTrue(_d(group["EP01-S01"]["errors"], "D5"))
+
+    def test_source_action_without_mark_not_counted(self):
+        # PR #124 實測 P1：v118 #9 起【建立】【停頓】鏡也標 source_action:true（沒有 action_mark），不是【動作】鏡
+        seg = copy.deepcopy(SPLIT_SEG)
+        seg["shots"].append(dict(_shot("b4", 7.0, 9.0, beat="交代地點：火山口（建立）"), source_action=True))
+        seg["metadata"]["target_duration_sec"] = 9.0
+        self.assertFalse(am.is_action_shot(seg["shots"][-1]))
+        group = vs.check_dialogue_groups([seg], self.handoff(SPLIT3), "EP01-S01")
+        self.assertEqual(_d(group["EP01-S01"]["errors"], "D5"), [])
+
+    def test_legacy_establish_and_pause_shots_no_d5(self):
+        # ep01r EP01-S01：劇本 0 個【動作】標記、E1-01／E1-19 建立鏡與 E1-07 停頓鏡標 source_action:true → 不得 D5 FAIL
+        est = dict(_shot("e1", 0.0, 2.5, beat="交代地點：熱帶火山島頂、一顆怪石"), source_action=True)
+        talk = _shot("e2", 2.5, 5.0, line="洛年！")
+        pause = dict(_shot("e3", 5.0, 6.2, beat="眾人被問住了"), source_action=True)
+        seg = _seg("EP01-S01-a", est, talk, pause)
+        group = vs.check_dialogue_groups([seg], self.handoff(UNMARKED), "EP01-S01")
+        self.assertEqual(_d(group["EP01-S01"]["errors"], "D5"), [])
+        self.assertEqual(_d(vs.validate_storyboard_data(copy.deepcopy(seg))["errors"], "D5"), [])
+
+    def test_explicit_mark_in_story_beat_counts(self):
+        shot = dict(_shot("x1", 0.0, 2.0, beat="【動作】巨鳥咬住洛年的手"), source_action=True)
+        self.assertTrue(am.is_action_shot(shot))
+
+    def test_cross_scene_action_shot_source_scene_id(self):
+        # PR #124 實測 P5：E1-27（1-2 段）第 2 鏡是 1-3 開頭的「往下直摔」→ 鏡上 source_scene_id 歸到 1-3
+        text = (HEAD + "△【動作】蛙仙石轟然爆裂。\n"
+                + "1-2 陡坡 日/外\n人物：洛年、懷真\n△【動作】他順著山壁往下直摔。\n洛年：是夢嗎？\n" + TAIL)
+        h = _handoff(text)
+        sc2 = parse_and_validate_script(text)["scenes"][1]
+        h["episodes"][0]["scenes"].append(sync_script.create_handoff_scene_from_script(sc2, "t", "EP01", "EP01-S02", {}))
+        scenes = [sc["scene_id"] for sc in h["episodes"][0]["scenes"]]
+        self.assertEqual(scenes, ["EP01-S01", "EP01-S02"])
+        self.assertEqual([len(am.expected_marks(sc)) for sc in h["episodes"][0]["scenes"]], [1, 1])
+        seg = _seg("EP01-S01-z", _shot("z1", 0.0, 2.0, action="【動作】蛙仙石轟然爆裂。"),
+                   _shot("z2", 2.0, 4.0, action="【動作】他順著山壁往下直摔。"))
+        seg2 = dict(_seg("EP01-S02-a", _shot("y1", 0.0, 2.0, line="是夢嗎？")), scene_id=scenes[1])
+        group = vs.check_dialogue_groups([copy.deepcopy(seg), copy.deepcopy(seg2)], h)
+        self.assertTrue(_d(group[scenes[0]]["errors"], "D5"))  # 沒覆寫：1-1 多一個、1-2 少一個
+        seg["shots"][1]["source_scene_id"] = scenes[1]
+        group = vs.check_dialogue_groups([seg, seg2], h)
+        self.assertEqual(_d(group[scenes[0]]["errors"], "D5"), [])
+        self.assertEqual(_d(group[scenes[1]]["errors"], "D5"), [])
+
+    def test_unmarked_legacy_blocking_desc_counts(self):
+        # PR #124 實測 P2：舊 E1-29 SH02 story_beat 只寫 2 個子句，咬／甩／落喉寫在 blocking_desc → 也要報（舊鏡最多 WARN）
+        seg = _seg("x", dict(_shot("x1", 0.0, 2.2, beat="巨獸咬手、把他甩上半空"), source_action=True))
+        seg["shots"][0]["spatial_blocking"] = {"blocking_desc": "白色巨獸低頭一口咬住他舉起的左前臂，接著猛一揚頭把他甩上半空，他頭上腳下落進喉嚨（不畫血）。"}
+        res = vs.validate_storyboard_data(seg)
+        self.assertEqual(_d(res["errors"], "D6"), [])
+        self.assertTrue(_d(res["warnings"], "D6"), res["warnings"])
 
     def test_unmarked_legacy_shot_only_warns(self):
         seg = _seg("x", _shot("x1", 0.0, 2.2, beat="巨鳥一口咬住洛年的手，把他甩上半空，他落進喉嚨"))
@@ -305,9 +398,12 @@ def _gate(seg):
 
 
 class PacingGateExcludesActionShots(unittest.TestCase):
-    def seg(self, flag=True):
+    def seg(self, flag=True, mark=True):
         acts = [{"start": a, "end": b, "has_dialogue": False, "source_action": flag}
                 for a, b in ((2.0, 4.3), (4.3, 6.6), (6.6, 9.0))]
+        if mark:
+            for a in acts:
+                a["action_mark"] = {"text": "【動作】巨鳥咬住手。", "seconds": 2.3}
         return {"id": "s", "duration": 11.0, "kind": "dialogue", "prompt": "real-time speed",
                 "lines": [{"text": "一二三四五六", "start": 0.2, "end": 1.7},
                           {"text": "一二三四五六", "start": 9.2, "end": 10.7}],
@@ -320,6 +416,12 @@ class PacingGateExcludesActionShots(unittest.TestCase):
         self.assertNotIn("有人聲鏡", out)
         self.assertNotIn("對話密度", out)
         self.assertIn("0 FAIL", out)
+
+    def test_source_action_without_mark_only_voiced_ratio_exempt(self):
+        # 只有 source_action 的舊鏡（【建立】【停頓】）：照 v118 #9 只從有人聲鏡分母豁免，句間空隙照舊量
+        out = _gate(self.seg(mark=False))
+        self.assertIn("句間空隙", out)
+        self.assertNotIn("有人聲鏡", out)
 
     def test_unflagged_keeps_old_behaviour(self):
         out = _gate(self.seg(flag=False))

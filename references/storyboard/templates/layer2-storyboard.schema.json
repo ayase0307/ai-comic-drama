@@ -308,7 +308,7 @@
           },
           "source_action": {
             "type": "boolean",
-            "description": "原著無台詞動作鏡（劇本 `△【動作】…`／`△【動作2.5】…`，scripts/storyboard/action_marks.py）：handoff_to_skeleton 依標記獨立成鏡時寫入。validate D1–D4 與 pacing_gate 的台詞類檢查（密度、有人聲鏡比例、句間空隙、切鏡後開口、開口次數）不計這一鏡；validate D5 核對劇本標記數、合併與截短。"
+            "description": "原著無台詞動作鏡（劇本 `△【動作】…`／`△【動作2.5】…`，scripts/storyboard/action_marks.py）：handoff_to_skeleton 依標記獨立成鏡時寫入。validate D1–D4 與 pacing_gate 的台詞類檢查（密度、有人聲鏡比例、句間空隙、切鏡後開口、開口次數）不計這一鏡；validate D5 核對劇本標記數、合併與截短。 動作鏡判定＝source_action:true＋action_mark＋無台詞（action_marks.is_action_shot）；只有 source_action 的【建立】【停頓】鏡不算動作鏡，只從 pacing_gate 有人聲鏡比例的分母豁免。"
           },
           "action_mark": {
             "type": "object",

@@ -12,7 +12,7 @@
 本模組（只用標準庫）：
   ACTION_MARK_RE／mark_seconds(text)／strip_marks(text)  劇本標記
   action_clauses(text)／count_actions(text)              「主要動作」數（依子句計，見下）
-  is_action_shot(shot)／required_seconds(shot)            Layer 2 動作鏡（source_action:true 且無台詞）
+  is_action_shot(shot)／required_seconds(shot)            Layer 2 動作鏡（source_action:true、帶 action_mark、無台詞）
   strip_layer2(seg)／strip_pacing(seg)                    拿掉動作鏡、其後時間整段前移（台詞類閘門用）
 
 「主要動作」怎麼數（啟發式，故意保守）：把描述依標點（，、；。！？…—）和「然後／接著／隨即／隨後／緊接著／跟著」
@@ -45,16 +45,22 @@ DURATION_TOLERANCE = 0.05         # D5：動作鏡比標記秒數短超過這個
 _VERBS = set(
     "咬叼啄吞嚥嚼甩拋扔丟擲摔砸墜跌撲衝撞跳躍竄掠翻滾爬抓揪拽扯拖推舉抬劈砍斬刺捅戳射擊揍踢踹踩蹬揮掃掄"
     "噴吐爆炸裂碎崩塌扭折夾纏捲絞勒掐壓撕搶奪閃躲擋撐翻跪摟抱扛拔插捏捶敲撈潑灑倒落飛撲"
+    "刮颳吹揚沉震晃搖濺彈掀拍伸拉走跑摸嗅騰"  # PR #124 實測 P4：「強風憑空刮起」「一路沉到」「回過頭向石頭走」原本不算
 )
 # 雙字動作詞（含單字表裡沒有的）
 _VERB_WORDS = ("吞下", "嚥下", "落進", "掉進", "掉落", "滑落", "沉入", "鑽進", "鑽出", "衝出", "竄出", "撲向",
-               "抓住", "咬住", "張嘴", "張開", "合上", "閉合", "飛起", "升空", "爆開", "炸開", "倒下", "倒地")
+               "抓住", "咬住", "張嘴", "張開", "合上", "閉合", "飛起", "升空", "爆開", "炸開", "倒下", "倒地",
+               "低頭", "回頭", "回過頭", "轉身", "仰頭", "睜開", "閉上", "展翅")
 # 含動作字但不是動作的詞（先拿掉再數）
 _NON_ACTION_WORDS = ("話音未落", "話音剛落", "落座", "打算", "打量", "打聽", "打招呼", "倒是", "倒也", "反倒", "部落", "落寞", "失落", "段落", "角落",
-                     "落後", "下落", "著落", "拉麵", "判斷", "不斷", "斷定", "照射", "注射", "反射", "射手", "飛機",
+                     "落後", "下落不明", "的下落", "著落", "拉麵", "判斷", "不斷", "斷定", "照射", "注射", "反射", "射手", "飛機",
                      "飛快", "閃光", "閃爍", "閃亮", "一閃而過的念頭", "壓力", "壓抑", "撐腰", "抱歉", "抱怨", "擔當",
                      "推測", "推理", "推論", "推薦", "推辭", "搶先", "碎碎念", "崩潰", "爆料", "爆笑", "掃興", "掃視",
-                     "翻譯", "翻閱", "插嘴", "插話", "噴嚏", "吐槽", "吐露", "躲藏的心思", "跌宕", "摔門而出的念頭")
+                     "翻譯", "翻閱", "插嘴", "插話", "噴嚏", "吐槽", "吐露", "躲藏的心思", "跌宕", "摔門而出的念頭",
+                     # PR #124 實測 P4：「卻不刺眼」被算成動作；新增動詞（沉、震、揚、吹、搖、彈、拍、拉）的非動作詞
+                     "刺眼", "刺耳", "刺鼻", "刺骨", "諷刺", "刺激", "沉默", "沉思", "沉重", "深沉", "低沉", "沉穩",
+                     "沉著", "沉迷", "沉睡", "震驚", "震撼", "動搖", "吹牛", "揚言", "表揚", "張揚", "悠揚", "彈性",
+                     "子彈", "拍馬屁", "拍板", "拍電影", "拍片", "拍戲", "拍攝", "拍照", "碎石", "走神", "走紅", "走運", "走漏", "走了以後", "跑題", "摸索", "摸不著", "摸清", "拉近距離", "伸張", "延伸")
 _CLAUSE_SPLIT_RE = re.compile(r"[，,、；;。．！!？?…—\n]+|然後|接著|緊接著|隨即|隨後|旋即|跟著")
 _QUOTE_RE = re.compile(r"「[^「」]*」|『[^『』]*』|“[^”]*”|\"[^\"]*\"")
 
@@ -133,9 +139,27 @@ def _has_dialogue(shot: Dict[str, Any]) -> bool:
     return bool(str(dlg.get("line_verbatim") or "").strip()) or bool(shot.get("has_dialogue"))
 
 
+def has_action_mark(shot: Any) -> bool:
+    """鏡上有明確的【動作】標記：`action_mark`（{text, seconds} 或字串）非空，或 story_beat 裡寫了【動作】標記。"""
+    if not isinstance(shot, dict):
+        return False
+    am = shot.get("action_mark")
+    if isinstance(am, dict):
+        if str(am.get("text") or "").strip() or _f(am.get("seconds")) is not None:
+            return True
+    elif str(am or "").strip():
+        return True
+    return has_mark((shot.get("shot_intent") or {}).get("story_beat"))
+
+
 def is_action_shot(shot: Any) -> bool:
-    """原著無台詞動作鏡：`source_action: true` 且沒有台詞（有台詞的鏡照一般台詞鏡算）。"""
-    return isinstance(shot, dict) and shot.get("source_action") is True and not _has_dialogue(shot)
+    """原著無台詞動作鏡（劇本【動作】標記）：`source_action: true`、帶 action_mark（或 story_beat 有【動作】標記）、沒有台詞。
+
+    只標 `source_action: true` 不夠：v118 #9 起【建立】【停頓】鏡也標它（pacing_gate 有人聲鏡比例的分母豁免），
+    PR #124 實測 ep01r 這些舊鏡被 D5 當成動作鏡、整場誤報 FAIL。D5、D1–D4、pacing_gate、編譯器 tail-fit、
+    物理機位因果鏈都用這同一個判定。有台詞的鏡照一般台詞鏡算。"""
+    return (isinstance(shot, dict) and shot.get("source_action") is True and not _has_dialogue(shot)
+            and has_action_mark(shot))
 
 
 def mark_text(shot: Dict[str, Any]) -> str:
@@ -217,9 +241,11 @@ def strip_layer2(seg: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def strip_pacing(seg: Dict[str, Any]) -> Dict[str, Any]:
-    """pacing_gate 輸入格式版：拿掉 `source_action:true` 的無台詞鏡，其後 shots／lines 的 start/end 前移，duration 扣掉。"""
+    """pacing_gate 輸入格式版：拿掉原著無台詞動作鏡（`source_action:true`＋`action_mark`、無台詞），
+    其後 shots／lines 的 start/end 前移，duration 扣掉。只有 source_action 的舊鏡（【建立】【停頓】）不拿掉，
+    只照 v118 #9 從有人聲鏡比例的分母豁免。"""
     shots = [s for s in (seg.get("shots") or []) if isinstance(s, dict)]
-    acts = [s for s in shots if s.get("source_action") and not s.get("has_dialogue")]
+    acts = [s for s in shots if s.get("source_action") and not s.get("has_dialogue") and has_action_mark(s)]
     if not acts or len(acts) == len(shots):
         return seg
 
@@ -242,13 +268,20 @@ def strip_pacing(seg: Dict[str, Any]) -> Dict[str, Any]:
 
 def split_overload(shot: Dict[str, Any], ignore_names: Iterable[str] = ()) -> Optional[Dict[str, Any]]:
     """D6：無台詞鏡塞了 ≥3 個主要動作且鏡長不夠。回傳 {level: FAIL|WARN, n, dur, need_fail, need_warn, clauses, text}；
-    沒問題回 None。描述取 action_mark 文字與 shot_intent.story_beat 中動作數較多的那個（TODO 佔位不算）。"""
+    沒問題回 None。描述取 action_mark 文字、shot_intent.story_beat、spatial_blocking.blocking_desc（中文構圖描述）
+    中動作數最多的那個（TODO 佔位不算；blocking_desc 只用於沒標【動作】的舊鏡）。PR #124 實測：舊 E1-29 咬甩鏡 story_beat 只寫「咬手、甩上半空」2 個子句，
+    咬／甩／落喉三階段只寫在 blocking_desc，只看 story_beat 會漏報。"""
     if _has_dialogue(shot):
         return None
     texts = [mark_text(shot)]
     beat = str(((shot.get("shot_intent") or {}).get("story_beat")) or "")
-    if "TODO" not in beat:
-        texts.append(beat)
+    # blocking_desc 只給沒標【動作】的舊鏡用：它是構圖描述（姿勢、位置、表情），標了【動作】的鏡以標記文字為準，
+    # 拿它來數會把「側臉與抬起的左前臂」「他痛得張嘴」當成多個動作、把已拆好的鏡誤判 FAIL（ep01r 移植版實測）
+    blocking = "" if has_action_mark(shot) else str(
+        ((shot.get("spatial_blocking") or {}).get("blocking_desc")) or shot.get("blocking_desc") or "")
+    for extra in (beat, blocking):
+        if extra and "TODO" not in extra:
+            texts.append(extra)
     best = max(texts, key=lambda t: count_actions(t, ignore_names))
     clauses = action_clauses(best, ignore_names)
     n = len(clauses)
@@ -273,13 +306,13 @@ def segment_issues(data: Dict[str, Any], ignore_names: Iterable[str] = ()) -> tu
 
     D5（FAIL）：動作鏡的 action_mark 含 ≥2 個【動作】標記（被合併）；動作鏡比標記秒數短（被截短）。
     D6：無台詞鏡描述 ≥3 個主要動作且鏡長 < 1.5 s×動作數 → FAIL（要求拆鏡），< 2.0 s×動作數 → WARN。
-        沒標 source_action／action_mark 的無台詞鏡（舊專案）只看 shot_intent.story_beat，最多 WARN（不改舊專案的過閘結果）。
+        沒標 action_mark 的無台詞鏡（舊專案）看 shot_intent.story_beat 與 blocking_desc，最多 WARN（不改舊專案的過閘結果）。
     """
     errors: List[str] = []
     warnings: List[str] = []
     for i, shot in enumerate(s for s in (data.get("shots") or []) if isinstance(s, dict)):
         sid = shot.get("shot_id") or f"SH{i + 1:02d}"
-        marked = is_action_shot(shot) or bool(mark_text(shot))
+        marked = is_action_shot(shot) or has_action_mark(shot)
         if is_action_shot(shot):
             n_marks = len(ACTION_MARK_RE.findall(mark_text(shot)))
             if n_marks > 1:
@@ -309,10 +342,19 @@ def expected_marks(scene: Dict[str, Any]) -> List[str]:
     return [p["text"] for b in beats for p in split_marked_line(str(b))]
 
 
-def scene_count_errors(scene_id: str, expected: List[str], segments: List[Dict[str, Any]]) -> List[str]:
+def shot_scene(shot: Dict[str, Any], seg_scene: str) -> str:
+    """動作鏡歸哪一場算 D5：鏡上 `source_scene_id` 覆寫段的場（跨場段：段末一鏡其實是下一場開頭的動作）。"""
+    return str(shot.get("source_scene_id") or seg_scene)
+
+
+def scene_count_errors(scene_id: str, expected: List[str], segments: List[Dict[str, Any]],
+                       shots: Optional[List[Dict[str, Any]]] = None) -> List[str]:
     """D5（FAIL）：劇本【動作】標記數 ≠ 分鏡動作鏡標記數（遺失、被併進台詞鏡、或多出沒有劇本依據的動作鏡）。
-    劇本沒有任何標記、分鏡也沒有動作鏡時回空清單（舊專案不受影響）。"""
-    shots = [s for seg in segments for s in (seg.get("shots") or []) if isinstance(s, dict)]
+    只算帶 action_mark 的動作鏡（is_action_shot）；只標 source_action 的【建立】【停頓】舊鏡不算。
+    劇本沒有任何標記、分鏡也沒有動作鏡時回空清單（舊專案不受影響）。
+    `shots` 給了就用它（呼叫端已依鏡上 source_scene_id 把跨場動作鏡分到正確的場），否則取 segments 全部鏡。"""
+    if shots is None:
+        shots = [s for seg in segments for s in (seg.get("shots") or []) if isinstance(s, dict)]
     got = sum(max(1, len(ACTION_MARK_RE.findall(mark_text(s)))) for s in shots if is_action_shot(s))
     if not expected and not got:
         return []
@@ -320,5 +362,6 @@ def scene_count_errors(scene_id: str, expected: List[str], segments: List[Dict[s
         return []
     merged = [s.get("shot_id", "?") for s in shots if not is_action_shot(s) and has_mark(mark_text(s))]
     hint = (f"；{('、'.join(merged))} 帶【動作】文字卻有台詞或沒標 source_action（被併進台詞鏡）" if merged else "")
+    hint += "；跨場段的動作鏡可在鏡上寫 `source_scene_id` 歸到它劇本所在的場"
     return [f"[D5 【動作】標記數對不上] {scene_id} 劇本 {len(expected)} 個【動作】標記、分鏡動作鏡 {got} 個{hint}。"
             "每個標記要是獨立一鏡（source_action:true、action_mark.text 原樣）；重跑 handoff_to_skeleton.py 或補拆鏡"]
