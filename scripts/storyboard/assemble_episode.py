@@ -44,10 +44,18 @@ try:  # ffmpeg／ffprobe 位置（AICD_FFMPEG／AICD_FFPROBE 可覆寫）
 except ImportError:  # pragma: no cover - 套件匯入路徑
     from . import media_tools
 
+try:  # 跨段「以對白為錨」電平對齊（dialogue_loudness.py）
+    import dialogue_loudness
+except ImportError:  # pragma: no cover - 套件匯入路徑
+    from . import dialogue_loudness
+
 try:  # 雙人引子 dual_lead_in（spatial-consistency.md §7）：組裝時自動剪掉片頭
     import dual_lead_in
 except ImportError:  # pragma: no cover - 套件匯入路徑
     from . import dual_lead_in
+
+# 段與成片音訊位元率：ffmpeg 原生 aac 在 192k 遇密集低頻會過衝（限幅後仍超 0 dBFS），256k 無此現象
+AAC_BITRATE = "256k"
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -359,7 +367,8 @@ def collect_dialogue_lines(seg: Dict[str, Any], audio_mode: str = "auto") -> Lis
             if bounds:
                 st, et = bounds
             spk = dlg.get("speaker") or s.get("speaker") or ""
-            lines_info.append({"start": st, "end": et, "subtitle": text, "speaker": spk})
+            lines_info.append({"start": st, "end": et, "subtitle": text, "speaker": spk,
+                               "window_source": "speech_window" if bounds else "shot_window"})
         if audio_mode == "narration_only":
             continue
         for i, ex in enumerate(dlg.get("extra_lines") or [], start=1):
@@ -373,7 +382,8 @@ def collect_dialogue_lines(seg: Dict[str, Any], audio_mode: str = "auto") -> Lis
                 raise ValueError(f"{s.get('shot_id') or '?'} extra_lines[{i}]「{ex_text}」缺 speech_window"
                                  f"（start/end 段內秒），組裝無法定位這句接話的字幕／配音")
             lines_info.append({"start": bounds[0], "end": bounds[1], "subtitle": ex_text,
-                               "speaker": ex.get("speaker") or "", "extra_line": True})
+                               "speaker": ex.get("speaker") or "", "extra_line": True,
+                               "window_source": "speech_window"})
     lines_info.sort(key=lambda item: float(item["start"]))
     return lines_info
 
@@ -534,7 +544,8 @@ def process_single_segment(
     if filter_complex_parts:
         cmd.extend(["-c:v", "libx264", "-pix_fmt", "yuv420p"])
         if has_tts or has_native_audio:
-            cmd.extend(["-c:a", "aac", "-b:a", "192k"])
+            # 256k：ffmpeg 原生 aac 在 192k 遇密集低頻會過衝（EP01 重跑 E1-11 實測限幅後 −2.49 dBFS → 解碼 +0.45 dBFS）
+            cmd.extend(["-c:a", "aac", "-b:a", AAC_BITRATE])
     else:
         cmd.extend(["-c:v", "copy"])
         if has_native_audio:
@@ -572,12 +583,15 @@ def _concat_quote(path: Path) -> str:
     return "'" + value.replace("'", "'\\''") + "'"
 
 
-def build_pcm_audio_track(video_list: List[Path], work_dir: Path) -> Optional[Path]:
+def build_pcm_audio_track(video_list: List[Path], work_dir: Path,
+                          segment_filters: Optional[List[str]] = None) -> Optional[Path]:
     """逐段解成 PCM、長度鎖成該段影片時長再串接（#168）。
 
     concat demuxer 直接 -c copy 接 AAC 會讓各段 priming 疊加，出現
     Non-monotonic DTS 與 A/V 漂移。這裡每段先解 48 kHz 立體聲 PCM，
     補靜音或裁切到影片時長，再串成單一 wav，最後由呼叫端統一編碼。
+    segment_filters[i]（選用）是第 i 段的增益／壓限濾鏡（dialogue_loudness.gain_filter），
+    在 PCM 上套、再鎖長度，所以不會有逐段重編 AAC 尾巴多一個 frame 的時間軸漂移。
     全部分段都沒有音軌時回傳 None（沿用舊路徑）。
     """
     specs = [probe_video_specs(v) for v in video_list]
@@ -588,6 +602,9 @@ def build_pcm_audio_track(video_list: List[Path], work_dir: Path) -> Optional[Pa
         dur = max(float(sp["duration"]), 0.0)
         wav = work_dir / f".pcm_{os.getpid()}_{idx:03d}.wav"
         fmt = "aresample=48000,aformat=channel_layouts=stereo"
+        extra = (segment_filters[idx] if segment_filters and idx < len(segment_filters) else "") or ""
+        if extra:
+            fmt = f"{fmt},{extra},aformat=sample_rates=48000:channel_layouts=stereo"
         if sp["has_audio"]:
             cmd = [media_tools.ffmpeg_bin(), "-y", "-hide_banner", "-loglevel", "error", "-i", str(video.resolve()), "-vn",
                    "-af", f"{fmt},apad,atrim=0:{dur:.6f}"]
@@ -616,18 +633,41 @@ def build_pcm_audio_track(video_list: List[Path], work_dir: Path) -> Optional[Pa
     return joined
 
 
+def _loudnorm_two_pass_filter(pcm: Path, target_lufs: float, true_peak: float, lra: float,
+                              total_seconds: float) -> Tuple[str, Dict[str, Any]]:
+    """兩遍 loudnorm 的第二遍濾鏡：第一遍量 PCM，第二遍帶 measured_*＋linear=true。
+
+    linear 模式是整條一個固定增益（不動態壓縮）；所需增益會讓 TP 超標時 loudnorm 自己回退 dynamic。
+    loudnorm 輸出 192 kHz，在這個取樣率下 alimiter 近似 true-peak 限制（回退 dynamic 時開頭會冒峰），
+    再降回 48 kHz、atrim 回原長（音畫同長）。"""
+    m = dialogue_loudness.measure(str(pcm))
+    lim = 10 ** ((float(true_peak) - dialogue_loudness.AAC_TP_MARGIN_DB) / 20.0)
+    filt = (f"loudnorm=I={target_lufs}:TP={true_peak}:LRA={lra}"
+            f":measured_I={m['I']}:measured_TP={m['TP']}:measured_LRA={m['LRA']}:measured_thresh={m['thresh']}"
+            f":linear=true:print_format=json"
+            f",alimiter=limit={lim:.4f}:attack=1:release=50:level=disabled"
+            f",aresample=48000,atrim=end={total_seconds:.6f}")
+    return filt, m
+
+
 def concat_videos(
     video_list: List[Path],
     out_video: Path,
     target_lufs: Optional[float] = -23.0,
     true_peak: float = -1.5,
     lra: float = 11.0,
+    segment_audio: Optional[List[Dict[str, Any]]] = None,
+    align_options: Optional[Dict[str, Any]] = None,
+    report: Optional[Dict[str, Any]] = None,
 ) -> Tuple[bool, str]:
     """使用 FFmpeg concat 協議無縫拼接分段影片成片。
 
-    響度正規化一律在「整片」層級做，不在分段層做：分段各自正規化會壓掉
-    段與段之間的動態對比。戲劇交付預設對齊 EBU R128（−23 LUFS、true peak
-    ≤ −1 dBTP）；串流平台可改用 --target-lufs。
+    響度兩層（pipeline.md §7.4）：
+      1. 段層「以對白為錨」（segment_audio 有給時）：每段量對白區段響度、算固定增益對齊同一個錨點，
+         無台詞段保持相對電平；增益在 PCM 上套（dialogue_loudness.py）。H3 每支 clip 原生音電平隨機，
+         整片 loudnorm 修不了段間落差，所以要先做這一層。不是逐段正規化：段內動態不動、無台詞段不拉。
+      2. 整片兩遍 loudnorm（measured_*＋linear=true），預設對齊 EBU R128（−23 LUFS、TP −1.5）。
+    report（選用 dict）會寫入每段量測／增益、成片逐段 LUFS／TP 與段間落差。
     """
     out_video.parent.mkdir(parents=True, exist_ok=True)
     list_file = out_video.parent / f"concat_{out_video.stem}_{os.getpid()}.txt"
@@ -636,30 +676,62 @@ def concat_videos(
     list_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
     staging_video = out_video.with_name(f".{out_video.stem}.{os.getpid()}.concat{out_video.suffix}")
     staging_video.unlink(missing_ok=True)
+    opts = dict(align_options or {})
+    tp_ceiling = float(opts.get("tp_ceiling", dialogue_loudness.DEFAULT_TP_CEILING_DBTP))
 
+    segment_filters: Optional[List[str]] = None
+    records: List[Dict[str, Any]] = []
     try:
-        pcm = build_pcm_audio_track(video_list, out_video.parent)
+        specs = [probe_video_specs(v) for v in video_list]
+        if segment_audio is not None and len(segment_audio) == len(video_list) and any(sp["has_audio"] for sp in specs):
+            for video, sp, info in zip(video_list, specs, segment_audio):
+                rec = dialogue_loudness.measure_segment(
+                    str(video), info.get("windows") or [], bool(info.get("has_dialogue")), float(sp["duration"]),
+                    window_source=str(info.get("window_source") or "speech_window"), has_audio=bool(sp["has_audio"]))
+                rec["segment_id"] = info.get("segment_id") or video.stem
+                records.append(rec)
+            if "tp_ceiling" not in opts:
+                anchor, _ = dialogue_loudness.anchor_of(records, opts.get("anchor_lufs"))
+                tp_ceiling = dialogue_loudness.segment_tp_ceiling(anchor, target_lufs, true_peak)
+            summary = dialogue_loudness.plan_gains(
+                records, anchor_lufs=opts.get("anchor_lufs"),
+                max_gain_db=float(opts.get("max_gain_db", dialogue_loudness.DEFAULT_MAX_GAIN_DB)),
+                ambient_ceiling_lu=float(opts.get("ambient_ceiling_lu", dialogue_loudness.DEFAULT_AMBIENT_CEILING_LU)),
+                tp_ceiling=tp_ceiling)
+            if opts.get("apply", True):
+                segment_filters = [dialogue_loudness.gain_filter(r["gain_db"], r["limit"], tp_ceiling) for r in records]
+            else:  # --no-dialogue-align：只量測、列報告，不套增益
+                for r in records:
+                    r["planned_gain_db"], r["gain_db"], r["limit"] = r["gain_db"], 0.0, False
+                summary["applied"] = False
+            summary.setdefault("applied", True)
+            if report is not None:
+                report["dialogue_align"] = summary
+        pcm = build_pcm_audio_track(video_list, out_video.parent, segment_filters)
     except Exception as exc:
         list_file.unlink(missing_ok=True)
         return False, f"拼接失敗: {exc}"
+    total_seconds = sum(max(float(sp["duration"]), 0.0) for sp in specs)
     cmd = [
-        media_tools.ffmpeg_bin(), "-y", "-hide_banner", "-f", "concat", "-safe", "0",
+        media_tools.ffmpeg_bin(), "-y", "-hide_banner", "-nostats", "-f", "concat", "-safe", "0",
         "-i", str(list_file.resolve()),
     ]
+    first_pass: Optional[Dict[str, Any]] = None
     if pcm is not None:
         cmd.extend(["-i", str(pcm.resolve()), "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy",
-                    "-c:a", "aac", "-b:a", "192k", "-ar", "48000"])
+                    "-c:a", "aac", "-b:a", AAC_BITRATE, "-ar", "48000"])
         if target_lufs is not None:
-            cmd.extend(["-af", f"loudnorm=I={target_lufs}:TP={true_peak}:LRA={lra}"])
-    elif target_lufs is None:
-        cmd.extend(["-c", "copy"])
+            try:
+                loud, first_pass = _loudnorm_two_pass_filter(pcm, target_lufs, true_peak, lra, total_seconds)
+            except Exception as exc:
+                list_file.unlink(missing_ok=True)
+                pcm.unlink(missing_ok=True)
+                return False, f"拼接失敗（loudnorm 第一遍量測）: {exc}"
+            cmd.extend(["-af", loud])
     else:
-        # 單遍 loudnorm：先正規化整合響度，再由 loudnorm 內建的 true peak 限制收尾。
-        loud = f"loudnorm=I={target_lufs}:TP={true_peak}:LRA={lra}"
-        cmd.extend([
-            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
-            "-af", loud,
-        ])
+        # 全部分段都沒有音軌：純影像串接，沒有東西可以正規化。
+        cmd.extend(["-c", "copy"])
+    # 不加 -movflags +faststart：在 JuiceFS 等網路檔案系統上改寫 trailer 會 I/O error（EP01 重跑實測）。
     cmd.append(str(staging_video.resolve()))
     res = subprocess.run(cmd, cwd=str(out_video.parent), capture_output=True, text=True, encoding="utf-8", errors="replace")
     try:
@@ -672,8 +744,71 @@ def concat_videos(
     if res.returncode != 0 or not staging_video.exists() or staging_video.stat().st_size == 0:
         staging_video.unlink(missing_ok=True)
         return False, f"拼接失敗: {res.stderr[:400]}"
+    if report is not None and pcm is not None:
+        try:
+            _fill_loudness_report(report, staging_video, specs, segment_audio, records, first_pass, res.stderr,
+                                  float(opts.get("spread_warn_lu", dialogue_loudness.DEFAULT_SPREAD_WARN_LU)))
+        except Exception as exc:  # 報告失敗不擋交付，但要看得到
+            report.setdefault("warnings", []).append(f"響度報告量測失敗：{exc}")
     staging_video.replace(out_video)
     return True, "成功"
+
+
+def _fill_loudness_report(report: Dict[str, Any], final_video: Path, specs: List[Dict[str, Any]],
+                          segment_audio: Optional[List[Dict[str, Any]]], records: List[Dict[str, Any]],
+                          first_pass: Optional[Dict[str, Any]], second_pass_stderr: str,
+                          spread_warn_lu: float) -> None:
+    """成片量測：整片 I／TP／LRA、逐段（依段界）整段與對白區段 LUFS／TP、最大段間落差，超門檻 W49。"""
+    found = re.findall(r"\{[^{}]*\"input_i\"[^{}]*\}", second_pass_stderr or "", re.S)
+    if first_pass is not None:
+        report["film_loudnorm"] = {"first_pass": first_pass}
+        if found:
+            p2 = json.loads(found[-1])
+            report["film_loudnorm"]["normalization_type"] = p2.get("normalization_type")
+            report["film_loudnorm"]["target_offset"] = p2.get("target_offset")
+    report["film"] = dialogue_loudness.measure(str(final_video))
+    seg_rows: List[Dict[str, Any]] = []
+    cursor = 0.0
+    for idx, sp in enumerate(specs):
+        dur = max(float(sp["duration"]), 0.0)
+        info = (segment_audio[idx] if segment_audio and idx < len(segment_audio) else {}) or {}
+        rec = records[idx] if idx < len(records) else {}
+        row: Dict[str, Any] = {"segment_id": info.get("segment_id") or rec.get("segment_id") or f"#{idx + 1}",
+                               "start": round(cursor, 3), "duration": round(dur, 3),
+                               "role": rec.get("role") or ("dialogue" if info.get("has_dialogue") else "ambient"),
+                               "gain_db": rec.get("gain_db", 0.0), "limit": rec.get("limit", False),
+                               "flags": rec.get("flags", []), "speech_source": rec.get("speech_source")}
+        if rec.get("whole"):
+            row["before_I"], row["before_TP"] = rec["whole"]["I"], rec["whole"]["TP"]
+        if rec.get("speech"):
+            row["before_speech_I"] = rec["speech"]["I"]
+        if sp.get("has_audio") and dur >= dialogue_loudness.MIN_MEASURE_SECONDS:
+            after = dialogue_loudness.measure(str(final_video), start=cursor, duration=dur)
+            row["after_I"], row["after_TP"] = after["I"], after["TP"]
+            wins = dialogue_loudness.clip_windows(rec.get("windows") or info.get("windows") or [], dur)
+            if row["role"] == "dialogue" and wins and sum(e - s for s, e in wins) >= dialogue_loudness.MIN_MEASURE_SECONDS \
+                    and rec.get("speech_source") != "energy":
+                row["after_speech_I"] = dialogue_loudness.measure(str(final_video), wins, start=cursor, duration=dur)["I"]
+            elif row["role"] == "dialogue":
+                row["after_speech_I"] = after["I"]
+        seg_rows.append(row)
+        cursor += dur
+    report["segments"] = seg_rows
+    dlg = [r for r in seg_rows if r["role"] == "dialogue"]
+    report["spread"] = {
+        "dialogue_before": dialogue_loudness.spread([r.get("before_speech_I") for r in dlg]),
+        "dialogue_after": dialogue_loudness.spread([r.get("after_speech_I") for r in dlg]),
+        "all_segments_after": dialogue_loudness.spread([r.get("after_I") for r in seg_rows]),
+        "warn_threshold_lu": spread_warn_lu,
+    }
+    after_spread = report["spread"]["dialogue_after"]["max_minus_min"]
+    if after_spread is not None and after_spread > spread_warn_lu:
+        loud = max(dlg, key=lambda r: r.get("after_speech_I") or -99)
+        quiet = min(dlg, key=lambda r: r.get("after_speech_I") if r.get("after_speech_I") is not None else 99)
+        report.setdefault("warnings", []).append(
+            f"W49 段間對白電平落差 {after_spread:.2f} LU > {spread_warn_lu:g} LU"
+            f"（最響 {loud['segment_id']} {loud.get('after_speech_I')}、最小 {quiet['segment_id']} {quiet.get('after_speech_I')} LUFS）；"
+            f"看是否被增益上限截住（flags clamped_*／tp_capped），或對白區段時間窗不準")
 
 
 # ==============================================================================
@@ -761,6 +896,42 @@ def run_self_test() -> bool:
 # CLI 入口
 # ==============================================================================
 
+def format_loudness_report(rep: Dict[str, Any]) -> List[str]:
+    """交付清單的「響度」段：錨點、整片 I／TP／LRA、逐段 LUFS／TP 與增益、最大段間落差、W49。"""
+    if not rep or not rep.get("segments"):
+        return []
+    fmt = lambda v, nd=2: "—" if v is None else f"{v:.{nd}f}"
+    align = rep.get("dialogue_align") or {}
+    film = rep.get("film") or {}
+    sp = rep.get("spread") or {}
+    before = (sp.get("dialogue_before") or {})
+    after = (sp.get("dialogue_after") or {})
+    out = ["", "## 響度（段層對白錨定＋整片兩遍 loudnorm）", ""]
+    if align:
+        out.append(f"- **對白錨定**：{'已套用' if align.get('applied', True) else '關閉（--no-dialogue-align，只量測）'}；"
+                   f"錨點 `{fmt(align.get('anchor_lufs'))}` LUFS（{align.get('anchor_source') or '無對白段'}），"
+                   f"對白段 {align.get('dialogue_segments', 0)} 段，增益上下限 ±{align.get('max_gain_db')} dB")
+    ln = rep.get("film_loudnorm") or {}
+    if ln:
+        out.append(f"- **整片 loudnorm**：兩遍（linear）；第二遍實際模式 `{ln.get('normalization_type') or '?'}`")
+    out.append(f"- **成片**：I `{fmt(film.get('I'))}` LUFS／TP `{fmt(film.get('TP'))}` dBTP／LRA `{fmt(film.get('LRA'), 1)}` LU")
+    out.append(f"- **段間對白電平落差**（最大－最小）：處理前 `{fmt(before.get('max_minus_min'))}` LU → 成片 "
+               f"`{fmt(after.get('max_minus_min'))}` LU（相鄰最大 `{fmt(after.get('max_adjacent'))}` LU；"
+               f"門檻 {sp.get('warn_threshold_lu')} LU）")
+    for warning in rep.get("warnings", []):
+        out.append(f"- ⚠️ {warning}")
+    out += ["", "| 段 | 類型 | 對白窗 | 處理前 對白 LUFS | 處理前 整段 LUFS／TP | 增益 dB | 成片 對白 LUFS | 成片 整段 LUFS／TP | 備註 |",
+            "|---|---|---|---|---|---|---|---|---|"]
+    role_name = {"dialogue": "對白", "ambient": "無台詞", "silent": "無音軌"}
+    for r in rep["segments"]:
+        note = "、".join(list(r.get("flags") or []) + (["限幅"] if r.get("limit") else []))
+        out.append(f"| {r['segment_id']} | {role_name.get(r.get('role'), r.get('role'))} | {r.get('speech_source') or '—'} | "
+                   f"{fmt(r.get('before_speech_I'))} | {fmt(r.get('before_I'))}／{fmt(r.get('before_TP'))} | "
+                   f"{r.get('gain_db', 0):+.2f} | {fmt(r.get('after_speech_I'))} | "
+                   f"{fmt(r.get('after_I'))}／{fmt(r.get('after_TP'))} | {note or '—'} |")
+    return out
+
+
 def _default_episode_label(args: argparse.Namespace) -> str:
     """預設輸出檔名用的集數：segments 的 episode／episode_id → 檔名 epNN → ep01（舊預設）。"""
     if args.segments and args.segments.is_file():
@@ -809,6 +980,15 @@ def main() -> int:
     parser.add_argument("--true-peak", type=float, default=-1.5, help="成片 true peak 上限 dBTP (預設 -1.5)")
     parser.add_argument("--lra", type=float, default=11.0, help="成片響度範圍 LRA (預設 11)")
     parser.add_argument("--no-loudnorm", action="store_true", help="整片不做響度正規化（不建議交付）")
+    parser.add_argument("--no-dialogue-align", action="store_true",
+                        help="關掉段層「以對白為錨」電平對齊（預設開：每段量對白區段響度、固定增益對齊同一錨點，"
+                             "無台詞段保持相對電平；關掉後仍量測並列報告）")
+    parser.add_argument("--dialogue-anchor", type=float, default=None,
+                        help="對白錨點 LUFS（預設＝有對白段人聲響度中位數；整片 loudnorm 之後才定絕對電平）")
+    parser.add_argument("--dialogue-max-gain", type=float, default=dialogue_loudness.DEFAULT_MAX_GAIN_DB,
+                        help="段層增益上下限 ±dB（預設 12）")
+    parser.add_argument("--loudness-spread-warn", type=float, default=dialogue_loudness.DEFAULT_SPREAD_WARN_LU,
+                        help="成片段間對白電平落差超過幾 LU 出 W49 警告（預設 6）")
     parser.add_argument("--no-burn-subtitles", action="store_true", help="關閉字幕硬字幕燒錄")
     parser.add_argument("--delivery-report", type=Path, help="輸出階段 7 交付清單 Markdown 檔案")
     parser.add_argument("--manifest", type=Path, help="輸出機器可讀交付 JSON（預設 delivery-<output>.json）")
@@ -960,6 +1140,7 @@ def main() -> int:
                 print(f"⚠️ [警告] 變速清單讀取失敗，一律用原片: {exc}")
                 ramp_spec = None
     processed_videos: List[Path] = []
+    segment_audio: List[Dict[str, Any]] = []  # 段層對白錨定用：對白時間窗（剪引子／變速後的段內秒）
     segment_records: List[Dict[str, Any]] = []
     missing_segments: List[str] = []
     mismatched_segments: List[str] = []
@@ -1078,6 +1259,17 @@ def main() -> int:
         )
         if ok and out_seg_v.exists():
             processed_videos.append(out_seg_v)
+            out_dur = seg_dur - lead_in_s
+            voiced = [item for item in lines_info if str(item.get("subtitle") or "").strip()]
+            sources = {str(item.get("window_source") or ("external" if item.get("external") else "shot_window"))
+                       for item in voiced}
+            segment_audio.append({
+                "segment_id": sid,
+                "has_dialogue": bool(voiced),
+                "windows": dialogue_loudness.clip_windows(
+                    [(float(item["start"]), float(item["end"])) for item in voiced], out_dur, offset=lead_in_s),
+                "window_source": "speech_window" if sources <= {"speech_window", "external"} else "shot_window",
+            })
             segment_records.append({
                 "segment_id": sid,
                 "source_video_file": str(found_in.resolve()),
@@ -1119,11 +1311,20 @@ def main() -> int:
     print(f"\n🔗 開始將 {len(processed_videos)} 個已配音字幕分段無縫拼接為成片...")
     candidate = args.output.with_name(f".{args.output.stem}.{os.getpid()}.candidate{args.output.suffix}")
     candidate.unlink(missing_ok=True)
+    loudness_report: Dict[str, Any] = {}
     concat_ok, concat_msg = concat_videos(
         processed_videos, candidate,
         target_lufs=(None if args.no_loudnorm else args.target_lufs),
         true_peak=args.true_peak,
         lra=args.lra,
+        segment_audio=segment_audio,
+        align_options={
+            "apply": not args.no_dialogue_align,
+            "anchor_lufs": args.dialogue_anchor,
+            "max_gain_db": args.dialogue_max_gain,
+            "spread_warn_lu": args.loudness_spread_warn,
+        },
+        report=loudness_report,
     )
 
     if not concat_ok:
@@ -1180,6 +1381,9 @@ def main() -> int:
     ]
     for pv in processed_videos:
         report_lines.append(f"- ✅ `{pv.name.replace('proc_', '')}`")
+    report_lines.extend(format_loudness_report(loudness_report))
+    for warning in loudness_report.get("warnings", []):
+        print(f"⚠️ [WARN] {warning}")
     report_tmp = report_file.with_name(f".{report_file.name}.{os.getpid()}.tmp")
     report_tmp.write_text("\n".join(report_lines), encoding="utf-8")
     report_tmp.replace(report_file)
@@ -1193,6 +1397,8 @@ def main() -> int:
         "expected_duration_seconds": expected_duration,
         "audio_mode": args.audio_mode,
         "native_audio_handling": "retained_at_bg_volume; native speech is not separated from ambience",
+        "loudness": loudness_report,
+        "warnings": list(loudness_report.get("warnings", [])),
     })
     atomic_write_json(manifest_file, manifest)
     print(f"📄 交付清單報表已寫入: {report_file.name}")
