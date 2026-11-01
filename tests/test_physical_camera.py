@@ -165,7 +165,7 @@ class CompileIntegrationTests(RemixProject):
                       seg["h3_prompt"])
         res = prompt_authoring.audit_segment(seg["h3_prompt"], seg["shots"], seg["segment_id"])
         self.assertEqual(res["errors"], [])
-        self.assertTrue(any(w.startswith("[W49") for w in res["warnings"]))
+        self.assertTrue(any(w.startswith("[W50") for w in res["warnings"]))
 
         doc2 = copy.deepcopy(doc)
         doc2["shots"][1]["action_and_performance"]["force_chain_en"] = (
@@ -181,7 +181,7 @@ class CompileIntegrationTests(RemixProject):
         self.assertNotIn("Camera law", p2)
         res2 = prompt_authoring.audit_segment(p2, seg2["shots"], seg2["segment_id"])
         self.assertEqual(res2["errors"], [])
-        self.assertFalse(any(w.startswith("[W49") for w in res2["warnings"]))
+        self.assertFalse(any(w.startswith("[W50") for w in res2["warnings"]))
 
     def test_new_text_has_a_budget(self):
         """新增文字要有預算：總則 ≤300、每鏡機位句 ≤130、Forbidden 句 ≤220、人數＋環境鎖 ≤420 字元。"""

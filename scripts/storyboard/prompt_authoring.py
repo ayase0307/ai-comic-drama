@@ -31,7 +31,7 @@ Foyege 導演法併入（PR-F2，D40–D46；來源 Foyege、H3 0 實測，所�
   W45 中段鏡重列全場站位：第 2 鏡以後同一句把 ≥3 個主體各配一個世界位置（by the door、at the head of the table…）。
 
 LoveUolanda 寫法（噩盡島 EP01 A/B 盲評 2 seed，physical_camera.py；只警告）：
-  W49 動作鏡沒寫施力因果鏈：分鏡標了【動作】（source_action／action_mark），Motion 卻沒有「Force chain:」；
+  W50 動作鏡沒寫施力因果鏈：分鏡標了【動作】（source_action／action_mark），Motion 卻沒有「Force chain:」；
       在 action_and_performance.force_chain_en 寫「誰的哪個部位先動 → 力量傳到哪 → 結果」。
   編譯器加的「Forbidden: …」失敗模式句是固定句：不算套句（E33）、不算 Motion 叫人別動（E32）、不算禁止句堆疊（E35）。
 """
@@ -481,7 +481,7 @@ def audit_segment(prompt: str, authored_shots: Optional[Sequence[Dict[str, Any]]
         warnings.extend(_foyege_shot_warnings(idx, head, shot, parts, realistic))
 
         if a is not None and (a.get("source_action") or a.get("action_mark")) and motion and not FORCE_CHAIN.search(motion):
-            warnings.append(f"[W49: 動作鏡沒寫施力因果鏈] {tag} 是【動作】鏡，Motion 沒有 Force chain；"
+            warnings.append(f"[W50: 動作鏡沒寫施力因果鏈] {tag} 是【動作】鏡，Motion 沒有 Force chain；"
                             "在 action_and_performance.force_chain_en 寫「誰的哪個部位先動 → 力量傳到哪 → 結果」"
                             "（噩盡島 EP01 A/B：甩 1/2→2/2，2 seed，傾向有效；references/h3/prompt-formats.md）。")
 

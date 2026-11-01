@@ -669,7 +669,7 @@
               "force_chain_en": {
                 "type": ["string", "array"],
                 "items": {"type": "string"},
-                "description": "Optional. 施力因果鏈（英文）：誰的哪個部位先動 → 力量傳到哪 → 結果；陣列以「, then」接起。有寫就把 Motion 換成「Force chain: …」，要保留 first／then／as 時間順序（E32）。【動作】鏡沒寫會出 W49。"
+                "description": "Optional. 施力因果鏈（英文）：誰的哪個部位先動 → 力量傳到哪 → 結果；陣列以「, then」接起。有寫就把 Motion 換成「Force chain: …」，要保留 first／then／as 時間順序（E32）。【動作】鏡沒寫會出 W50。"
               },
               "forbidden_en": {
                 "type": "array",

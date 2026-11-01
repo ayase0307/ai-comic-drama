@@ -145,7 +145,7 @@ _CJK_CHAR_RE = re.compile(r"[\u3400-\u9fff\uf900-\ufaff\u3000-\u303f\uff00-\uffe
 
 
 def estimate_prompt_tokens(text: str) -> int:
-    """Qwen 系 BPE 的粗估：英數符號約 4 字元／token、中日文約 1 字／token（只供報告與 W50，不精確）。"""
+    """Qwen 系 BPE 的粗估：英數符號約 4 字元／token、中日文約 1 字／token（只供報告與 W11，不精確）。"""
     cjk = len(_CJK_CHAR_RE.findall(text or ""))
     rest = len(text or "") - cjk
     return cjk + (rest + 3) // 4
@@ -881,7 +881,7 @@ def lint_h3_prompt(
     """對 H3 分段提示詞執行 17 條確定性工程自檢。
 
     submit_endpoint：hosted＝MiniMax 平台 API，整段 >7000 字元報 E；local（預設，家機 FreeVideo／REMIX／
-    ComfyUI）不設字元上限，只在估計 token 超過文字編碼器上限時 W50。
+    ComfyUI）不設字元上限，只在估計 token 超過文字編碼器上限時 W11（可能超過文字編碼器長度）。
     支援 5–10 秒短分段與 15 秒段，動態計算 FreeVideo 取整有效秒數 D。
 
     backend=remix（PR-R3）：必填區塊改為 REMIX 三欄（integrated_multimodal_description／

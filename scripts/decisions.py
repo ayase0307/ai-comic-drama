@@ -102,7 +102,7 @@ KNOWN_DECISIONS: Dict[str, Dict[str, Any]] = {
                      "required_by": 99, "reference": "references/tooling.md"},
     # 選填：提示詞送到哪個端點。local＝家機 FreeVideo／REMIX／ComfyUI（預設：repo 的送件程式只對接本機
     # 127.0.0.1:8189 與 REMIX，沒有 hosted 送件路徑）；hosted＝MiniMax 平台 API（整段 7000 字元硬上限，audit 報 E）。
-    # 本地沒有字元上限；官方 tokenizer model_max_length 262144 token，超過才 W50（tooling.md §2.3.4）。
+    # 本地沒有字元上限；官方 tokenizer model_max_length 262144 token，超過才 W11（可能超過文字編碼器長度；tooling.md §2.3.4）。
     "submit_endpoint": {"label": "送件端（local 家機本地預設／hosted 平台 API，只有 hosted 有 7000 字元上限）",
                         "stages": [5, 6], "required_by": 99, "reference": "references/tooling.md"},
 }
