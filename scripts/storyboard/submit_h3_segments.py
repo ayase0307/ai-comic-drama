@@ -560,6 +560,7 @@ def audit_segment_prompts(todo_segs: List[Dict[str, Any]], root_dir: Optional[Pa
             nominal_duration=dur,
             rounding_mode=seg.get("metadata", {}).get("rounding_mode", "floor"),
             authored_shots=seg.get("shots"),
+            submit_endpoint="local",  # 本程式只送家機 FreeVideo（127.0.0.1:8189），沒有 hosted 的 7000 字元上限
         )
         if not l_res.get("passed", True):
             for e in l_res.get("errors", []):

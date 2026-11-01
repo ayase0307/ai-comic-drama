@@ -58,6 +58,7 @@ from audit_refs_and_segments import (
     effective_duration,
     frames_for,
     lint_h3_prompt,
+    resolve_submit_endpoint,
 )
 from director_storyboard_assistant import (
     auto_adapt_h3_loras,
@@ -78,6 +79,7 @@ try:  # 以 scripts/storyboard 為 sys.path 執行（CLI 慣例）
     import voice_lint
     import creature_lint
     import action_marks
+    import physical_camera
 except ImportError:  # pragma: no cover - 套件匯入路徑
     from . import h3_spec
     from . import normalize as normalize_mod
@@ -87,6 +89,7 @@ except ImportError:  # pragma: no cover - 套件匯入路徑
     from . import voice_lint
     from . import creature_lint
     from . import action_marks
+    from . import physical_camera
 
 
 # ==============================================================================
@@ -184,7 +187,7 @@ CAMERA_HOLD_ACTION_RE = re.compile(
 )
 
 
-COMPILER_RULES_VERSION = "2026-10-26"  # 改編譯輸出規則時更新（#150）
+COMPILER_RULES_VERSION = "2026-11-02"  # 改編譯輸出規則時更新（#150）；11-02：物理機位＋施力因果鏈＋可選人數／環境鎖
 
 
 def normalize_authored_camera_hold_action(stage: str) -> str:
@@ -2486,6 +2489,36 @@ def compile_segment_h3(
     tail_hold = tail_hold and not final_second_has_dialogue
     used_motion: set = set()
     remix_kind = {str(r["id"]): str(r.get("kind") or "") for r in remix_mods}
+    # ---------- R2 物理機位總則（每段一次）＋R4 人數／環境鎖（可選、自動觸發）：physical_camera.py ----------
+    def _cast_kind(cid: str) -> str:
+        if not cid or is_narrator(cid) or cid in no_visual_ids:
+            return "skip"
+        if remix and remix_kind.get(cid):
+            return {"actor": "human", "creature": "creature", "extras": "extras"}.get(remix_kind[cid], "skip")
+        rec = registry.characters.get(cid, {}) or {}
+        if rec.get("voice_only") or rec.get("no_visual_reference"):
+            return "skip"
+        info = char_info(cid)
+        if info.get("is_group") or str(cid).upper().startswith("EXTRAS"):
+            return "extras"
+        if info.get("is_creature") or str(cid).upper().startswith(("CREATURE", "CR-")):
+            return "creature"
+        return "human"
+    _cast = physical_camera.classify_cast(
+        [c for _s in shots for c in (_s.get("character_ids") or [])], _cast_kind)
+    _seg_meta = layer2_data.get("metadata") or {}
+    lock_bits: List[str] = []
+    if _seg_meta.get("camera_law", True) is not False:
+        lock_bits.append(physical_camera.CAMERA_LAW_EN)
+    if physical_camera.cast_lock_wanted(layer2_data, len(_cast["human"])):
+        def _cast_name(cid: str) -> str:
+            return tag_of.get(cid) or secondary_short.get(cid) or char_info(cid).get("short_en") or cid
+        lock_bits.insert(0, physical_camera.cast_environment_lock(
+            [_cast_name(c) for c in _cast["human"]], [_cast_name(c) for c in _cast["creature"]],
+            bool(_cast["extras"]), physical_camera.absent_objects_en(layer2_data)))
+    lock_text = " ".join(lock_bits)
+    if lock_text and not remix:
+        det_lines[0] = f"{det_lines[0]} {lock_text}"
     spoken_lines: List[str] = []
     external_narration: List[Dict[str, Any]] = []
     for idx, s in enumerate(shots, start=1):
@@ -2804,7 +2837,8 @@ def compile_segment_h3(
 
         if idx == 1 and remix:
             # REMIX：場景句＋每個包的介紹句放在第 1 鏡開頭（ch02 實戰位置），接著才是鏡頭句
-            head = (f"[Shot 1] {' '.join(remix_intros)} The shot opens on a {shot_size}{optics} of {focal}, "
+            head = (f"[Shot 1] {' '.join(remix_intros + ([lock_text] if lock_text else []))} "
+                    f"The shot opens on a {shot_size}{optics} of {focal}, "
                     f"as {mclause}.").replace("[Shot 1]  ", "[Shot 1] ")
         elif idx == 1 and ref2va:
             head = f"[Shot 1] The scene opens with <Picture 1> as a scene/style reference for spatial guidance: {shot_size}{optics} of {focal}, as {mclause}."
@@ -2849,6 +2883,9 @@ def compile_segment_h3(
             def _subject_token(m, _tags=tag_of):
                 cid = m.group(1)
                 return _tags.get(cid) or secondary_short.get(cid) or char_info(cid)["short_en"]
+            # R2 物理機位（Camera 節的重複焦段距離句換成實體機位句）、R3 施力鏈＋Forbidden（physical_camera.py）
+            five["camera"] = physical_camera.camera_with_rig(five["camera"], cam, dist)
+            five = physical_camera.apply_action_rules(five, s)
             five = {k: re.sub(r"\{((?:C|CREATURE|EXTRAS)-[A-Za-z0-9_-]+)\}", _subject_token, v or "") for k, v in five.items()}
             # 逐鏡五小節（references/prompt-authoring.md）：由 agent 依分鏡親手寫在 Layer 2，
             # 取代自動拼出的 action／Expression／Blocking；台詞說明仍由編譯器接在最後。
@@ -2863,7 +2900,9 @@ def compile_segment_h3(
             body += f"{tail}{marker}"
         else:
             closing = f"{speech}." if speech else ("." if (expr and not blocking_clause and not stage_refs and not expr.rstrip().endswith((".", "!", "?"))) else "")
-            body = f"{head} {action}." + (f" Expression: {expr}" if expr else "") + blocking_clause + stage_refs + f"{closing}{tail}{marker}"
+            _forbid = physical_camera.forbidden_sentence(physical_camera.forbidden_items(s, "", action))
+            body = (f"{head} {action}." + (f" {_forbid}" if _forbid else "") + (f" Expression: {expr}" if expr else "")
+                    + blocking_clause + stage_refs + f"{closing}{tail}{marker}")
         for _st in variant_stage_by_shot.get(global_shot_id, []):
             if not _st["banned_en"]:
                 continue
@@ -3287,6 +3326,9 @@ def main() -> int:
     parser.add_argument("--backend", choices=("ref2va", "remix"), default=None,
                         help="影片生成路線（PR-R5）；預設看 --bindings 的綁定（remix 綁定＝REMIX 三欄）。"
                              "和綁定不一致會報錯，請先用同一個 backend 重跑 h3d bind")
+    parser.add_argument("--submit-endpoint", choices=("local", "hosted"), default=None,
+                        help="--check 用的送件端：local（家機本地，無字元上限）／hosted（平台 API，>7000 字元報 E）；"
+                             "預設讀 decisions.json submit_endpoint，沒定案＝local")
 
     args = parser.parse_args()
     try:
@@ -3456,6 +3498,7 @@ def main() -> int:
                 rounding_mode=seg.get("metadata", {}).get("rounding_mode", "floor"),
                 authored_shots=seg.get("shots"),
                 backend=backend,
+                submit_endpoint=resolve_submit_endpoint(args.project_root, args.submit_endpoint),
             )
 
             passed = refs_res["passed"] and lint_res["passed"]

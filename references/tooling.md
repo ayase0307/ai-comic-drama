@@ -114,6 +114,7 @@ python scripts/h3d.py deps --root . --status --strict
 - E33／E34／E35：套句、後設詞（authored／approved…）、防禦性禁止句堆疊。
 - E36／E37：違背分鏡運鏡、嘴部可見的對白被寫成畫外音。
 - E38：`detailed_description`（REMIX 三欄：`integrated_multimodal_description`）與 `metadata.compiled_prompt_sha256` 不符＝編譯後被改寫。
+- W50（只警告，LoveUolanda 寫法、噩盡島 EP01 A/B 2 seed）：分鏡標了【動作】（`source_action`＋`action_mark`、無台詞，同 validate D5 的 `action_marks.is_action_shot`；只標 `source_action` 的【建立】【停頓】鏡不算）的鏡，Motion 沒有 `Force chain:`；在 `action_and_performance.force_chain_en` 寫施力因果鏈（§2.3.4）。編譯器加的 `Forbidden:` 句是固定句，不算 E32／E33／E35。
 - W41–W45（只警告，D40–D46，來源 Foyege、H3 0 實測）：W41 台詞鏡視線沒寫螢幕方向（和 `h3d staging` D07 共用 `staging_lint.find_gaze`：沒有視線句只由 D07 報）、W42 `subject_definitions` 寫位置或姿態、W43 寫實畫風全身／遠景寫毛孔（定版皮膚段豁免）、W44 Performance 只有情緒詞或 AU 代碼、W45 中段鏡重列全場世界站位（`left to right` 名單不算）。
 - 處置：回 Layer 2 的 `five_part_en` 逐鏡改稿再編譯。不准改檢查器門檻、不准手改 segments 過關。規範見 `references/prompt-authoring.md`。
 
@@ -352,6 +353,25 @@ python scripts/h3d.py compile --layer2 layer2/ --bible video-bible.json --bindin
   - `C4 同場配樂跟著生成段走`：同一場景相鄰兩段（依段號排序）只要有一段的 `non_diegetic_music` 不是 N/A（空白、`N/A`、`none`、`no music` 都算 N/A）就警告；文字不同會寫「描述不同」，相同則寫「兩段都寫了配樂」（H3 仍會每段各生一次）。做法：同場各段寫 N/A，配樂到後製統一鋪（`references/edit/manju-editing-playbook.md` §8.1）。刻意每段換曲時可忽略。只比這次編譯輸入裡有提示詞的段。
 - **無文字句**：角色描述、走位、動作或五小節出現 crest／badge／emblem／logo／taxi／bus／car door／sign／poster／banner／斑駁或水泥牆這類燒字來源時，逐鏡前的總述行自動補 `Badges, crests, vehicle doors, signs and wall surfaces stay plain and unmarked, with no lettering, no logos and no graffiti.`。需要可讀文字的段（招牌是劇情重點）在 Layer 2 `metadata.allow_lettering: true`；全專案關掉：`--no-lettering-guard`。物件描述本身也建議寫正向的 `plain embroidered badge with no lettering`。
 - 編譯結果 `metadata` 會記 `lighting_lock_line`、`carried_end_state`、`no_lettering_added`，方便 QA 對照。
+
+### 2.3.4 物理機位、施力因果鏈、人數／環境鎖與送件端長度（LoveUolanda 寫法，2026-11）
+
+證據：X @LoveUolanda 寫法在《噩盡島》EP01 家機 REMIX 盲評（E1-29、E1-03，各 2 seed，只是傾向）。規則表與取捨見 `references/h3/prompt-formats.md`「物理機位與施力因果鏈」；實作 `scripts/storyboard/physical_camera.py`。編譯規則版本 `COMPILER_RULES_VERSION` 改為 2026-11-02，舊專案重編後提示詞會變（多出下列句子），`h3d deps` 不會因此把舊影片標過期（#150）。
+
+| 規則 | 預設 | 編譯器做什麼 | Layer 2 可選欄位（向後相容，不寫就自動） |
+|---|---|---|---|
+| R2 物理機位 | 開 | 每段一次 `Camera law:` 總則（ref2va 放 detailed_description 開頭；REMIX 放第 1 鏡介紹句之後、鏡頭句之前）；每鏡 Camera 節裡和鏡頭標頭重複的「50mm from one and a half metres」換成「a real camera 1.5 m away, lens …, optical axis …」（高度與光軸只從 low-angle／ground level／top-down／from slightly above／eye level／微俯／低角度／正俯／仰拍 這類字推，推不出就只寫距離） | `camera_optics.rig_en`（字串）或 `camera_optics.rig`（`position_en`／`height_en`／`axis_en`／`path_en`）：作者寫的實體機位，取代自動句；`metadata.camera_law: false` 關掉總則 |
+| R3 施力因果鏈＋Forbidden | 開 | `force_chain_en` 有寫就把 Motion 換成 `Force chain: …`；動作鏡（`source_action`／`action_mark`／有寫 `force_chain_en`／`forbidden_en`，或無台詞且有 bite／jerk／toss／slam／kick 等施力動詞）在 Motion 後接一行 `Forbidden: no self-levitating, no unmotivated displacement, no repeating the same action.`；只露手的插入鏡（Camera 寫 insert 或景別 ECU／INSERT，Motion 有手／手指）Camera 加「only the hand and forearm enter frame while the body stays out of frame」、Forbidden 加 full-body entry／手出入鏡。作者寫了 `forbidden_en` 就只用作者的（不再補語意重疊的預設），最多 5 項、單句不含分號 | `action_and_performance.force_chain_en`（字串或步驟陣列，誰的哪個部位先動 → 力量傳到哪 → 結果）、`action_and_performance.forbidden_en`（陣列；明寫 `[]` 不加預設） |
+| R4 CAST RULE＋ENVIRONMENT LOCK | 可選、自動觸發 | 同段 ≥3 名人類角色、或有 `absent_objects`（英文）時，加人數與名單、禁多餘人影／倒影／影子，以及「只准場景圖已有的物件；not in frame: …」；有群演（extras）的段不寫人數句 | `metadata.cast_lock`：`true` 強制加（曾出錯的段標這個）、`false` 不加 |
+| R1 參考圖 ONLY | 不收 | — | 待驗（本測無構圖圖、場景圖無人） |
+| R5 遮擋接力 | 不收 | — | 只在 `references/h3/camera-and-transitions.md` §6 列可選寫法（寫明從哪側進、從對側出），待驗、與「每段獨立」定案並列 |
+
+成本（E1-29／E1-03 A 版 5189／4651 字元）：不加任何新欄位重編為 5926／5514；照實測 B 版把機位、施力鏈、Forbidden 寫進新欄位為 6431／5919（手寫 B 版 6821／6405；差在 R1 句不收、E1-29 不觸發 R4、Camera 節重複的焦段距離句已刪）。官方 tokenizer 實數：auto 1453／1370、新欄位 1585／1465 token。
+
+**送件端與長度**：`h3d decide submit_endpoint local|hosted`（`--check`、audit 另有 `--submit-endpoint`）。
+- `local`（預設）：家機 FreeVideo／REMIX／ComfyUI。repo 的送件程式只對接本機（`submit_h3_segments.py` 127.0.0.1:8189、REMIX），沒有 hosted 送件路徑，所以預設本地。**沒有字元上限**，必要內容可超過 7000，不要為字數砍 R2／R3。文字編碼器是 Qwen3-VL-32B（截到第 50 層）；官方 tokenizer `model_max_length` 262144 token、ComfyUI 的 MiniMax tokenizer 不截斷（超長是報錯）。audit 估計 token（英數約 4 字元／token、中文 1 字／token，與官方 tokenizer 實數差約 3%）超過 262144 才出 `[W11: 可能超過文字編碼器長度]`。**家機 FreeVideo／REMIX 伺服器端是否另有截斷：待實測。**
+- `hosted`：MiniMax 平台 API，整段 >7000 字元照舊報 E（只能壓縮或拆段）。
+- lint 的 `details` 一律記 `prompt_char_count`、`prompt_token_estimate`、`submit_endpoint`。
 
 ## 2.4 階段 0–3 產物內容門禁（stage_content_checks.py）
 

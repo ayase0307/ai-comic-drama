@@ -56,6 +56,7 @@
 
 警告（不擋，但要看）：W40 沒有視覺線索的氣氛詞（cinematic、dramatic、tense atmosphere…，同句沒有光、手、眼、動作等具體線索）；W30 舊產物沒有編譯指紋；W33 零星重複句；W39 八成以上是固定鏡（運鏡是階段 4 的決定，確認是刻意的）。
 Foyege 導演法的警告（D40–D46，來源 Foyege、H3 0 實測，**只警告不擋**）：W41 台詞鏡有視線句卻沒寫螢幕方向（整段完全沒有視線句由 `h3d staging` D07 報，不重複）；W42 `subject_definitions` 寫了位置或姿態；W43 寫實畫風的全身／遠景鏡另外寫毛孔、絨毛（定版皮膚段豁免）；W44 Performance 只有情緒詞、或出現 AU 代碼；W45 第 2 鏡以後同一句把 ≥3 個主體各配一個世界位置。
+LoveUolanda 寫法（噩盡島 EP01 A/B 2 seed，**只警告**）：W50 【動作】鏡（`source_action`＋`action_mark`、無台詞，`action_marks.is_action_shot`）的 Motion 沒有 `Force chain:`。編譯器自己加的 `Forbidden: …` 一行與段首 `Camera law:`／`Cast rule:`／`Environment lock:` 是固定句，不算套句（E33）、不算叫人別動（E32）、不算禁止句堆疊（E35）。
 
 ## 動作鏡怎麼寫才不慢（打擊、追逐、被炸飛）
 
@@ -68,6 +69,8 @@ H3 是 24 fps 原生，慢動作感來自「動作只佔鏡頭的一小段」：
 | **第一幀就在動** | `already in motion in the first frame`：切進來時拳頭已經在半路，不要從靜止起手。 |
 | **動作撐到切點** | 最後一個動作寫成 `still … at the cut`（still tumbling at the cut、still skidding at the cut），不要寫「然後停住」。 |
 | **騰空寫下墜曲線** | 被炸飛／甩飛：`thrown upward, then dropping fast along a falling curve`，落地另起一鏡。**用 curve，不要用 arc**：E5 會把 arc 當成運鏡詞（camera arc）擋掉。 |
+| **施力因果鏈（R3，預設）** | 動作鏡在 Layer 2 `action_and_performance.force_chain_en` 寫「誰的哪個部位先動 → 力量傳到哪 → 結果」：`the beast's neck lowers first, then its jaws drop the last half metre, then its fangs clamp shut around his forearm`；要排除的失敗寫在 `forbidden_en`（`he does not rise by himself`）。編譯器把 Motion 換成 `Force chain: …` 並接一行 `Forbidden:`（含預設的 self-levitating／unmotivated displacement／repeating the same action）。噩盡島 E1-29 甩出 1/2→2/2。 |
+| **實體機位（R2，預設）** | 機位寫在 `camera_optics.rig_en`：鏡頭在誰的哪一側、多遠、多高、光軸對哪裡、怎麼移動（`lens 20 cm above the gravel at his left side, 1.5 m from his raised forearm, optical axis level toward the upper right`）；沒寫時編譯器只從角度字推高度與光軸。只露手的插入鏡寫明哪隻手從哪個角入鏡、身體不入鏡。 |
 | **打擊鏡固定機位** | 打擊、撞擊、被打飛的鏡 Camera 寫 locked-off／static；跟拍會把畫面上的位移抵掉，看起來更慢。運鏡放在撞擊前後的鋪陳鏡。 |
 
 已經產出的片子有定住、蓄力、飄浮的問題，先用後製變速（`h3d motion` → `h3d ramp`），不用整段重跑。

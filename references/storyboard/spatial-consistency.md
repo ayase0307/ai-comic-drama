@@ -44,7 +44,7 @@ Wall map: the {長檯} is only on the {west} wall{, 本鏡位置}; the one {開�
 {第 2 鏡起：Same moment, same {south} side, the room unmirrored; tightened along Shot 1's direction, not a new camera position.}
 ```
 
-可選工具：`scripts/storyboard/wall_map.py` 把牆面分配表 JSON（範例 `templates/wall-map.example.json`）展開成每鏡句子，並檢查「同上」、缺否定句、否定句跨鏡重複、字數；四正向機位會自動換算世界方位→畫面左右。**不接進預設編譯**，要用時手動貼進 Layer 2 或提示詞。字數預算：hosted API 整段 7000 字元上限，每鏡前置約 400–550 字元。
+可選工具：`scripts/storyboard/wall_map.py` 把牆面分配表 JSON（範例 `templates/wall-map.example.json`）展開成每鏡句子，並檢查「同上」、缺否定句、否定句跨鏡重複、字數；四正向機位會自動換算世界方位→畫面左右。**不接進預設編譯**，要用時手動貼進 Layer 2 或提示詞。字數預算：只有 hosted API 有整段 7000 字元上限（每鏡前置約 400–550 字元）；本地 FreeVideo／REMIX／ComfyUI 沒有字元上限，必要內容可超過，但要留意文字編碼器截斷（`references/tooling.md` §2.3.4）。
 
 ## §3 構圖板／分鏡板必須以場景母片為底重畫（店感鎖）
 

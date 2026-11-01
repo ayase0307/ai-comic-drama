@@ -100,10 +100,17 @@ KNOWN_DECISIONS: Dict[str, Dict[str, Any]] = {
     # strict＝measured 的三條（D06 面向鏡頭、D07 對話缺視線、D08 多人缺左到右）擋。證據只有 ch02 EP04，故預設保守。
     "staging_gate": {"label": "站位／視線閘門嚴重度（warn 預設／strict）", "stages": [5, 6],
                      "required_by": 99, "reference": "references/tooling.md"},
+    # 選填：提示詞送到哪個端點。local＝家機 FreeVideo／REMIX／ComfyUI（預設：repo 的送件程式只對接本機
+    # 127.0.0.1:8189 與 REMIX，沒有 hosted 送件路徑）；hosted＝MiniMax 平台 API（整段 7000 字元硬上限，audit 報 E）。
+    # 本地沒有字元上限；官方 tokenizer model_max_length 262144 token，超過才 W11（可能超過文字編碼器長度；tooling.md §2.3.4）。
+    "submit_endpoint": {"label": "送件端（local 家機本地預設／hosted 平台 API，只有 hosted 有 7000 字元上限）",
+                        "stages": [5, 6], "required_by": 99, "reference": "references/tooling.md"},
 }
 
 VIDEO_BACKENDS = ("ref2va", "remix")
 STAGING_GATES = ("warn", "strict")
+SUBMIT_ENDPOINTS = ("local", "hosted")
+DEFAULT_SUBMIT_ENDPOINT = "local"
 DEFAULT_VIDEO_BACKEND = "ref2va"
 # 與 scripts/storyboard/providers/remix.json 的 max_refmods（GET /capabilities refmods_max）一致；
 # tests/test_remix_backend.py 會對帳。
@@ -243,6 +250,8 @@ def validate(data: Any) -> List[str]:
                 errors.append(f"remix_pack_cap 必須是 1–{REMIX_MAX_REFMODS} 的整數（只能加嚴，不可超過伺服器上限；收到 {cap!r}）")
         if did == "staging_gate" and "value" in item and item["value"] not in STAGING_GATES:
             errors.append(f"staging_gate 只能是 {'／'.join(STAGING_GATES)}（收到 {item['value']!r}）")
+        if did == "submit_endpoint" and "value" in item and item["value"] not in SUBMIT_ENDPOINTS:
+            errors.append(f"submit_endpoint 只能是 {'／'.join(SUBMIT_ENDPOINTS)}（收到 {item['value']!r}）")
         if did == "style_anchor" and "value" in item and (not isinstance(item["value"], str) or not item["value"].strip()):
             errors.append("style_anchor 必須是非空的英文錨句")
         if isinstance(did, str) and did.startswith(VOICE_PREFIX) and isinstance(source, dict) \
@@ -326,6 +335,18 @@ def staging_gate(root: Optional[Path]) -> str:
         return "warn"
     value = (item or {}).get("value")
     return value if value in STAGING_GATES else "warn"
+
+
+def submit_endpoint(root: Optional[Path]) -> str:
+    """送件端：沒定案或讀不到＝local（現行實際用法：家機 FreeVideo／REMIX，無字元上限）。"""
+    if root is None:
+        return DEFAULT_SUBMIT_ENDPOINT
+    try:
+        item = get(load(Path(root)), "submit_endpoint")
+    except DecisionError:
+        return DEFAULT_SUBMIT_ENDPOINT
+    value = (item or {}).get("value")
+    return value if value in SUBMIT_ENDPOINTS else DEFAULT_SUBMIT_ENDPOINT
 
 
 def style_anchor(root: Optional[Path]) -> Optional[str]:
@@ -432,6 +453,10 @@ def parse_value(decision_id: str, raw: str) -> Any:
     if decision_id == "video_backend":
         text = raw.strip().lower()
         return {"角色卡": "remix", "ref2va": "ref2va", "remix": "remix"}.get(text, raw.strip())
+    if decision_id == "submit_endpoint":
+        text = raw.strip().lower()
+        return {"本地": "local", "本機": "local", "家機": "local", "comfyui": "local", "freevideo": "local",
+                "remix": "local", "api": "hosted", "平台": "hosted", "雲端": "hosted"}.get(text, raw.strip().lower())
     if decision_id == "remix_pack_cap" and re.fullmatch(r"-?\d+", raw.strip()):
         return int(raw.strip())
     if decision_id == "delivery_scope" and raw.strip() in DELIVERY_PRESETS:
