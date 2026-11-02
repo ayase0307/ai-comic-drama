@@ -212,6 +212,21 @@ class VideoBackendDecisionTests(unittest.TestCase):
         decisions.decide(self.root, "style_anchor", ANCHOR, "錨句用這句")
         self.assertEqual(decisions.style_anchor(self.root), ANCHOR)
 
+    def test_resolve_backend_sees_refmods_and_decisions(self):
+        """階段 5 審核要和編譯器用同一套 backend 判定。
+
+        `build_stage_review` 曾只讀 `metadata.video_backend`：只帶 `refmods` 的 REMIX 段會退回 ref2va，
+        拿 Ref2VA 規則去 lint REMIX 提示詞（誤報 E1）。
+        """
+        seg = remix_segment()
+        del seg["metadata"]["video_backend"]
+        self.assertEqual(audit.resolve_backend(seg), "remix")
+        bare = {"segment_id": "EP01-S01-a", "metadata": {}}
+        self.assertEqual(audit.resolve_backend(bare), "ref2va")
+        decisions.decide(self.root, "video_backend", "角色卡", "第二章改用角色卡")
+        self.assertEqual(audit.resolve_backend(bare, project_root=self.root), "remix")
+        self.assertEqual(audit.resolve_backend(bare, backend="ref2va"), "ref2va")
+
     def test_schema_declares_backend_enum(self):
         schema = json.loads((ROOT / "references" / "schemas" / "decisions.schema.json").read_text(encoding="utf-8"))
         rules = {r["if"]["properties"]["id"].get("const"): r for r in schema["$defs"]["decision"]["allOf"]

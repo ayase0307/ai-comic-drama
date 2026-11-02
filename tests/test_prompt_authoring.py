@@ -112,6 +112,16 @@ class PromptAuthoringTests(unittest.TestCase):
         segs.append(seg("S9", prompt(f"{HEAD1} {g2}", f"{HEAD2} {GOOD2.replace('Sound:', line + ' Sound:')}")))
         self.assertIn("跨段套句", " ".join(pa.audit_segments(segs)["errors"]))
 
+    def test_compiler_back_facing_sentence_is_not_a_rewrite(self):
+        """編譯器在多人構圖鏡吐的 'The figure seen from behind matches …' 是固定句。
+
+        它跨鏡重複出現，以前被當成手寫跨段套句（E33／W33）；這句是編譯器產生的，不該算。
+        """
+        line = "The figure seen from behind matches panel A3 in <Picture 2>; his face stays turned away."
+        self.assertTrue(pa._is_boilerplate(line))
+        segs = [seg(f"S{i}", prompt(f"{HEAD1} {line} {GOOD1}")) for i in range(3)]
+        self.assertNotIn("跨段套句", " ".join(pa.audit_segments(segs)["errors"]))
+
     def test_unfingerprinted_segments_only_warn(self):
         p = prompt(f"{HEAD1} {GOOD1}")
         res = pa.audit_segments([seg("A", p)])
