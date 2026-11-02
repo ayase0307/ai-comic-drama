@@ -868,8 +868,11 @@ def _apply_en_segment(data: Dict[str, Any], overlay: Dict[str, Any]) -> None:
         return
     style_lock = data.setdefault("style_lock", {})
     if overlay.get("style_anchor_en"):
-        # 只覆寫 Ref2VA 讀的 style_lock.anchor；REMIX 讀 metadata.style_lock_tail_en（編譯時另記 note）。
-        style_lock["anchor"] = str(overlay["style_anchor_en"])
+        # Ref2VA 讀 style_lock.anchor；REMIX 讀 metadata.style_anchor_en（remix_style_anchor）。
+        # 兩個都寫，階段 5 才能在不改已核准 Layer 2 的情況下換掉整段風格錨。
+        anchor = str(overlay["style_anchor_en"])
+        style_lock["anchor"] = anchor
+        data.setdefault("metadata", {})["style_anchor_en"] = anchor
     if isinstance(overlay.get("continuity_anchors_en"), dict):
         style_lock["continuity_anchors_en"] = dict(overlay["continuity_anchors_en"])
     if overlay.get("lighting_lock_line_en"):
@@ -1764,9 +1767,6 @@ def compile_segment_h3(
         raise ValueError(f"source timeline cannot satisfy H3 cut bounds (shot < {h3_spec.MIN_SHOT_SEC}s after "
                          f"{h3_spec.FRAME_QUANTUM_STEP}n+{h3_spec.FRAME_QUANTUM_OFFSET} rounding); revise the storyboard cuts")
     notes: List[str] = []
-    if remix and stage5_binding and (stage5_en_overlay(stage5_binding) or {}).get("style_anchor_en"):
-        notes.append("en_overlay.style_anchor_en 只覆寫 Ref2VA 的 style_lock.anchor；REMIX 讀 metadata.style_lock_tail_en，"
-                     "這句不會輸出——要改 REMIX 的風格錨請寫 metadata.style_lock_tail_en")
     if tail_fit_note:
         notes.append(tail_fit_note)
     short_spans = [(i + 1, d) for i, d in enumerate(spans) if d < h3_spec.SHOT_SOFT_MIN_SEC - 1e-6]
@@ -3138,6 +3138,11 @@ def compile_segment_h3(
             for key in ("visual_subject_ids", "no_visual_reference_ids", "pack_ids"):
                 if key in bound:
                     shot[key] = list(bound[key] or [])
+            # 宣告 offscreen 的角色不進 REMIX 的下游檢查（E50 要有包、D08 站位句、_onscreen_count）；
+            # 否則人數鎖說「兩人」、E50 卻還要那個人的包。
+            hidden = set(shot.get("offscreen_subject_ids") or [])
+            if hidden and isinstance(shot.get("visual_subject_ids"), list):
+                shot["visual_subject_ids"] = [x for x in shot["visual_subject_ids"] if x not in hidden]
     return result
 
 

@@ -78,6 +78,29 @@ class RemixProject(unittest.TestCase):
                                                remix_packs=self.bindings.get("packs"), **kwargs)
 
 
+class RemixOverlayOverrideTests(RemixProject):
+    """`en_overlay` 在 REMIX 段的兩個出口：風格錨要真的進提示詞、offscreen 角色要從可見清單扣掉。"""
+
+    def test_style_anchor_en_reaches_remix_header(self):
+        self.make()
+        binding = copy.deepcopy(self.bindings["segments"][0])
+        anchor = "bold ink-wash oil painting, amber rim light, hand-painted edges"
+        binding.setdefault("en_overlay", {})["style_anchor_en"] = anchor
+        seg = self.compile(binding=binding)
+        self.assertIn(anchor, seg["h3_prompt"].split("\n")[0])
+
+    def test_offscreen_actor_is_dropped_from_visual_subject_ids(self):
+        self.make()
+        layer2 = json.loads(self.layer2_path.read_text(encoding="utf-8"))
+        first = layer2["shots"][0]
+        sid = first.get("global_shot_id") or first.get("shot_id")
+        binding = copy.deepcopy(self.bindings["segments"][0])
+        binding.setdefault("en_overlay", {}).setdefault("shots", {})[sid] = {"offscreen_subject_ids": ["C-YE"]}
+        seg = self.compile(binding=binding)
+        self.assertNotIn("C-YE", seg["shots"][0]["visual_subject_ids"])
+        self.assertIn("C-YE", seg["shots"][0]["pack_ids"])   # 包還在，只是不算可見主體
+
+
 class RemixGoldenTests(RemixProject):
     def test_golden_prompt_verbatim(self):
         self.make()

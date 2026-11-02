@@ -272,6 +272,35 @@ class EnOverlayOverrideTests(unittest.TestCase):
         self.assertIn("two people", prompt)
         self.assertNotIn("Ben", prompt.split("Cast rule:")[1].split(";")[0])
 
+    def test_binding_offscreen_end_to_end(self):
+        """從 `stage5_binding.en_overlay.shots` 一路寫到 shot，E40 的豁免真的吃到（不是直接改 Layer 2）。
+
+        註：這裡不跑 `compile_segment_h3`——fixture 的 binding 沒有 `reference_paths`，帶 binding 編譯會（正確地）
+        擋「has no approved reference image」。E40／人數鎖的完整編譯效果由另外兩支測試覆蓋。
+        """
+        from prompt_authoring import shot_entities
+        f = _fixture()
+        for cid, name in (("C-ANA", "Ana"), ("C-BEN", "Ben")):
+            f.registry.characters[cid] = {
+                "id": cid, "name": name, "desc_en": f"{name}, grey coat", "short_en": name,
+                "desc_zh": "", "ref_img": f"assets/characters/{cid}.png",
+                "wardrobe_states": {}, "is_creature": False,
+            }
+        data = f.segment()
+        data["metadata"]["cast_lock"] = True
+        data["asset_refs"]["characters"] = [{"id": "C-MIRA"}, {"id": "C-ANA"}]   # C-BEN 沒掛參考圖
+        for shot in data["shots"]:
+            shot["character_ids"] = ["C-MIRA", "C-ANA", "C-BEN"]
+
+        binding = {"segment_id": data["segment_id"], "shots": [], "en_overlay": {"shots": {}}}
+        for shot in data["shots"]:
+            key = shot.get("global_shot_id") or shot.get("shot_id")
+            binding["en_overlay"]["shots"][key] = {"offscreen_subject_ids": ["C-BEN"]}
+        applied = compiler.apply_stage5_binding(copy.deepcopy(data), binding)
+        self.assertEqual(applied["shots"][0]["offscreen_subject_ids"], ["C-BEN"])   # binding 真的寫進 shot
+        self.assertNotIn("C-BEN", shot_entities(applied["shots"][0]))               # E40 的豁免吃得到
+        self.assertIn("C-BEN", applied["shots"][0]["character_ids"])                # 沒改 Layer 2 的選角
+
     def test_style_anchor_en_overrides_segment_anchor(self):
         data = _fixture().segment()
         compiler._apply_en_segment(data, {"style_anchor_en": "bold oil painting, amber rim light"})
