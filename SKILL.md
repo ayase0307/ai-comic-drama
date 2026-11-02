@@ -21,12 +21,19 @@ agent_created: true
    不以每集秒數壓縮事件；預設不分集，整部一支連續長片。短劇／竪屏爆款短集（1–2 分鐘、強鉤子）只有使用者明確要求才用
    （`h3d decide series_format short`）。被壓縮、跳過或交代不全的事件由 Agent 依原著補回（`event_coverage.py`），不自己砍、也不問使用者。
 8. **劇本改寫不詢問使用者**：一律走 `references/adapt/dialogue-first-adaptation.md`（原著對白全保留、只轉述的對話可補寫並標 `invented`、旁白＝主角內心聲 VO ≤30%、集長不設限、斷點停在自然故事點並記原著錨點＋理由、交稿前 `adapt_gate.py` 全過）。
+9. **開工前先對一次技能版本**：`h3d --version` 與專案 `review/project-state.json` 記的建立版本不一致時，先同步技能再動工。同一個提示詞在不同版本有不同門檻（單句 15→18 字、說話佔比 60%→90%、鏡長下限 2.0→1.2 秒、新增 D2 密度與 D4 開口），拿舊版規則改稿會白做一輪。安裝目錄的 skills 副本不一定是 git repo，來源 repo 在本機時先 pull 再整份覆蓋，覆蓋前先備份。
+10. **修一輪要批次，不要逐句重簽**：同類問題（同一種句型、同一個包的問題）一次改完所有段，再 rebuild → `h3d bind` → `h3d compile` → 重簽階段 4／5（批次＝先逐鏡對回 `shot_intent` 確認是同一個根因，不是按警告類型批量改；階段 5 改過的段照段級核准走 `--segments`，不得 `--auto`）。每改一句就重簽一次會把整輪審核時間吃掉，而且 layer2 與 segments 指紋不同步時階段 5 會擋。rebuild 會清掉 `sketch_*` 欄位，重建前用 shot_id 快照、重建後寫回。
+    **段數或段代號改了就同步 REMIX 的分鏡表**（`PUT /projects/{id}/storyboard`）：介面／審片室的「預計 N 鏡」與章節分組讀的是那份 doc，不是 `segments-*.json`，不換就永遠顯示舊規劃（例如 133 鏡 vs 實際 18 段）。換之前先用 `GET /jobs?project=<id>` 逐鏡確認舊代號沒有工作掛著——沒有就直接整份覆寫。
+    使用者說「抽卡」「自己安排審片／修訂／循環」時＝自主跑完整輪（送件→收件→抽格審片→修→再抽），只在人為關卡（階段 6 核准、要使用者寫覆寫理由）停下；回報以「輪次＋四格證據圖＋修了什麼」為單位，不要每抽一段就回報一次。
+11. **參考包壓過提示詞**：REMIX 的包母片有什麼，每一鏡都會出現（母片裡的發光建築、背包、夜空都算）。要改就換包或重出母片，不要用否定句在提示詞裡硬拗——提到道具＝道具出現。細節見 `references/remix-draft-loop.md`。
+12. **核准版與定稿版分開放，換版就要重驗**：`videos/<段>.mp4` 永遠放「已跑過 QA 並簽核」的那一版；`pika768` 定稿、超分、重抽候選放 `videos/final-768/` 等子目錄。要把定稿升為核准版＝重跑 `h3d qa`／`motion`／`--continuity` → 重建階段 6 快照 → 使用者重簽一次；不要直接把檔案覆蓋掉換版本，那會讓已簽核的快照與證據對不上。
 
 ## Overview
 
 依使用者指定的交付範圍，完成小說改編、劇本、導演分鏡、提示詞，或使用實際可用的圖片／影片工具生成媒體。
 文字規劃可獨立交付；媒體生成需要相應工具或已連線的後端（FreeVideo 是可選 adapter，不代表每個 Agent 都內建影片生成）。
 **沒有實際呼叫生成工具，就不得聲稱已產出圖片或影片。** 小說不得直接當劇本用，一律先走階段 1 改編。
+**接手既有專案（不是自己從 0 起的）先稽核再推進**：先讀 `references/audit-inherited-project.md`，不要沿著前一個 agent 的分鏡往下寫——壞掉的上游會讓每一鏡都重做一次；判定「重複資產」「內容錯誤」前，一律回查 bible 與原著行號，不要只看圖或檔名。
 
 這一頁是**操作首頁**：每階段做什麼、不准做什麼、跑哪個指令。原理、模板、實戰定案與完整工具清單在
 `references/skill-guide.md`（原 SKILL.md 全文，章節不變），由 `h3d next` 指到該讀的那一份。
@@ -46,7 +53,7 @@ agent_created: true
 | 3 劇本 | 場景化改寫、台詞預算（角色語速 4.0／4.5／VO 5.5 字/秒、說話佔 75–90%）、改編差異 | 超預算照送 | `estimate_duration.py --h3`、`sync_script.py` | `references/adapt/screenplay-format.md` |
 | 4 分鏡 | **每鏡先寫 `shot_intent`（觀眾要看懂什麼）再定技術值，每項選擇在 `choice_why` 寫理由**；運鏡依 beat 情緒查 `references/camera-moves-guide.md` 選 `move_preset`（選用理由寫進分鏡表，編譯器展開、`move_lint` 警告）；每段附人物賬、台詞鏡寫視線、段縫寫末態並換機位（`continuity-ledger.md`）；Ref2VA 預設一鏡一張可辨識臉（單人裁切，走角色卡 remix 時不受此限）、遠景不放人、焦距物距成對寫 | 沒有對應構圖 PNG 就進編譯；按警告類型批量改、為過關改核准內容（人群換空座、補 empty background）；分鏡圖換人或漏關鍵道具 | 缺構圖時 `h3d imagegen --detect`／`--set --stage 4`（使用者選 Codex 分鏡／Qwen 鉛筆九宮格／手繪，寫 `storyboard_engine`）→ `h3d next` 給該工具的指令（Codex 要 `--model <使用者指定模型>`）、`validate_storyboard.py` | `references/storyboard/shot-intent.md`、`references/storyboard/cinematic-director.md`、`references/storyboard/continuity-ledger.md`；有打鬥／招式／特效另載 `h3-combat-impact`（見下節） |
 | 5 提示詞 | **逐鏡親手寫** Layer 2 `five_part_en`（Camera／Motion／Performance／Light／Sound，Motion 與 Performance 必須詳寫；每句要對應看得到或聽得到的結果，不重寫參考圖已有的外貌，寫站位、視線、起訖姿勢、關鍵道具），讀分鏡、構圖與前一鏡狀態後再寫；編譯器只負責組成六段式 | 寫程式產生五小節；編譯後覆寫 segments；用後設詞（authored／approved）或禁止句堆疊交差；沒 ack 就放過警告 | `h3d bind`（先產參考圖綁定）、`h3d author`、`h3d compile --check`、`h3d catalog --check` | `references/prompt-authoring.md`、`references/h3/prompt-formats.md`、`references/tooling.md`；打鬥／大招段同時照 `h3-combat-impact` 寫 |
-| 6 影片 | 送件 → 收件 → QA → 動態 QA（光流量凍結／定住，自動提案變速清單）→ 交界連續性 QA（實際切點＋交界拼貼＋一側靜止候選，只警告）→ 逐段結論 → 收件匣 | 兩個 runner 同時跑；碰別人的 job；漂移片拿去 QA；用規劃秒數抽格判交界（先看 `--continuity` 找到的實際切點） | `h3d probe`、`h3d run --plan`、`h3d qa`、`h3d motion`、`h3d qa --continuity`、`h3d verdict`、`h3d inbox` | `references/tooling.md` §2.5–2.8（交界 QA 見 §2.8.1）、`references/speed-ramp.md`、`references/skill-guide.md`「階段 6 生成」 |
+| 6 影片 | 送件 → 收件 → QA → 動態 QA（光流量凍結／定住，自動提案變速清單）→ 交界連續性 QA（實際切點＋交界拼貼＋一側靜止候選，只警告）→ 逐段結論 → 收件匣 | 兩個 runner 同時跑；碰別人的 job；漂移片拿去 QA；用規劃秒數抽格判交界（先看 `--continuity` 找到的實際切點） | `h3d probe`、`h3d run --plan`、`h3d qa`、`h3d motion`、`h3d qa --continuity`、`h3d verdict`、`h3d inbox` | `references/tooling.md` §2.5–2.8（交界 QA 見 §2.8.1）、`references/remix-draft-loop.md`（remix 抽卡→審片→修訂）、`references/speed-ramp.md`、`references/skill-guide.md`「階段 6 生成」 |
 | 7 配音剪輯 | 已核准的動作段後製變速（原片不動、台詞原速）、ASR 對位、畫外句壓原聲、響度、每角色音色一次定案、全集單一剪輯專案 | 長旁白交給 H3 念（短畫外句與短旁白預設留 H3，長旁白才外部化）；替使用者定音色；覆寫原片；變速台詞區 | `h3d ramp`、`h3d voice align`、`h3d concat plan/build`、`h3d assemble`；剪輯 lens（只給建議）`scripts/craft/edit_review.py` | `references/tooling.md` §2.7、`references/skill-guide.md`「階段 7」、`references/edit/manju-editing-playbook.md`（剪點／轉場／特效／字幕／登場卡／配樂 ducking／響度）、`references/craft/murch-cut`、`references/craft/hamilton-action` |
 
 **正式階段核准以 `review/project-state.json` 為準**，只能走 `build_stage_review.py --approve-stage`（使用者原話）或 `h3d approve --auto`（使用者授權過的階段）。
@@ -85,6 +92,8 @@ agent_created: true
 - `references/pipeline.md` — 八階段詳細流程、提問清單、模板；聲音三層決策與響度標準。
 - `references/review-page-spec.md` — 審查頁規格：交給使用者的是決策收件匣（版面順序、卡片必備欄位、禁止事項、八階段閱讀視圖六區塊），舊階段頁只作除錯。
 - `references/document-standard.md` — 階段文件標準格式：狀態卡＋本體＋修訂紀錄，用 `h3d doc` 寫，不要手改；「要你決定」會自動進收件匣。
+- `references/audit-inherited-project.md` — 接手他人專案（「你接手」「前一個 agent 做的很爛」「看看有甚麼建議」）：先稽核再推進、機械生成指紋門檻、台詞管線三種壞法、REMIX 稽核、重建順序與地雷（重 bind、官方運鏡動詞、sketch 快照還原、非支援後端出構圖圖）。
+- `references/remix-draft-loop.md` — remix 抽卡循環（階段 6）：`pika480` 4／6 步的選擇、參考包壓過提示詞的五種症狀、審片三件事、三個常見假警報（低彩度／框線／色調跳躍）、批次修＋重簽、收件與定稿順序。
 - `docs/skill-roadmap.html` — 給人看的動態路線圖（八階段動作、產出、誰決定、停車訊號）；流程改了要同步它內嵌的 `roadmap-data`（`tests/test_skill_roadmap.py` 對帳）。
 - `references/adapt/`（改編）、`references/storyboard/`（導演分鏡）、`references/consistency.md`（資產一致性）、
   `references/styles.md`（風格鎖定錨）、`references/freevideo.md`、`references/model-profiles.md`、
