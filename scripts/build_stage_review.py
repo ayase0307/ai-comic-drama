@@ -2380,7 +2380,7 @@ def build_stage_5(project_dir: Path, state: Dict[str, Any],
         return False, ["找不到 `segments-ep*.json`，請先完成階段 4 確認後執行 `compile_layer2_to_h3.py`！"], ""
 
     from audit_refs_and_segments import (audit_refs_and_subjects, lint_h3_prompt, extract_prompt_from_seg,  # noqa: E402
-                                         resolve_submit_endpoint)
+                                         resolve_backend, resolve_submit_endpoint)
     submit_endpoint = resolve_submit_endpoint(project_dir)
 
     cards: List[str] = []
@@ -2401,6 +2401,7 @@ def build_stage_5(project_dir: Path, state: Dict[str, Any],
                 nominal_duration=dur,
                 rounding_mode=seg.get("metadata", {}).get("rounding_mode", "floor"),
                 authored_shots=seg.get("shots"),
+                backend=resolve_backend(seg, project_root=project_dir),
                 submit_endpoint=submit_endpoint,
             )
             if not r_res["passed"]:

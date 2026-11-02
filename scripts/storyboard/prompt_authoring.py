@@ -119,6 +119,7 @@ COMPILER_BOILERPLATE = [
     re.compile(r"lips remain completely closed", re.I),
     re.compile(r"lips stay closed", re.I),
     re.compile(r"as a scene/style reference for spatial guidance", re.I),
+    re.compile(r"the figure seen from behind matches ", re.I),
     re.compile(r"no other figure on that sheet appears in this shot", re.I),
     re.compile(r"is the visible speaking character", re.I),
     re.compile(r"the final second holds still before the cut", re.I),
