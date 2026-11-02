@@ -29,6 +29,8 @@
 
 **REMIX（`video_backend: remix`，PR-R5）也一樣**：五小節同一套、同樣寫在 Layer 2 `five_part_en`，編譯器只換外殼——提示詞變成三欄、`{C-id}` 換成角色英文名（不是 `<Subject N>`）、第 1 鏡前面多了場景句與每個包一句「`<Video N> is 名字, 外觀`」。介紹句只管身份，**站位、坐站、誰在畫面哪一側照樣寫在各鏡的 Motion／Camera**（三人同框寫 `From left to right: A, B, C.`，`h3d staging` D08）。上述檢查（E30–E40、W41–W45）對 REMIX 三欄照跑。格式細節見 `references/tooling.md` §2.3.1c。
 
+階段 4 已經核准、Layer 2 不能改時，五小節也可以只改要改的那幾節：`en_overlay.shots.<gsid>.five_part_en`（只認 `camera`／`motion`／`performance`／`light`／`sound`，沒寫的節保留原值）。同一鏡宣告「看不到誰」用 `offscreen_subject_ids`（不算人數鎖、也不算未綁參考圖），只要豁免參考圖、仍算人數用 `accepted_unbound_subject_ids`；段落級風格錨用 `en_overlay.style_anchor_en`（Ref2VA 與 REMIX 都生效）。
+
 ## 二、一定要寫詳細（過薄擋：E31、E32）
 
 | 小節 | 下限（英文字） | 說明 |
