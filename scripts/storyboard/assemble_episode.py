@@ -646,7 +646,7 @@ def _loudnorm_two_pass_filter(pcm: Path, target_lufs: float, true_peak: float, l
             f":measured_I={m['I']}:measured_TP={m['TP']}:measured_LRA={m['LRA']}:measured_thresh={m['thresh']}"
             f":linear=true:print_format=json"
             f",alimiter=limit={lim:.4f}:attack=1:release=50:level=disabled"
-            f",aresample=48000,atrim=end={total_seconds:.6f}")
+            f",aresample=48000,aformat=sample_rates=48000:channel_layouts=stereo,atrim=end={total_seconds:.6f}")
     return filt, m
 
 

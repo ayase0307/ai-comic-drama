@@ -7,6 +7,7 @@
 `h3d next` 會讀這份檔案：專案版本章比目前技能舊時，列出中間各版標題提醒重驗。
 
 ## [未發布]
+- 修正：成片兩遍 loudnorm 後明確固定取樣率與立體聲聲道，避免 FFmpeg 5.1 在 `aresample` 到 `atrim` 間無法協商聲道配置而使組裝失敗。
 - 測試：`test_audit_stage0_3`、`test_ejindao_ep01_findings` 執行子程序時加 `PYTHONIOENCODING=utf-8` 與 `errors="replace"`，Windows（cp950／ANSI OEM）不再因解碼失敗讓斷言拿到 `NoneType`。（與 main 其他測試的 `{**os.environ, ...}` 寫法一致）
 - 維護：`.gitignore` 忽略 `graphify-out/`（graphify 本機索引產物，不進版控）。
 - 文件：`docs/research/briefs/` 加入 WIP 落地規劃（3 PR 切法、`five_part_en` 單一 helper、schema 判定）與三件交付審查的 brief／Opus 回覆，實作決策可追溯。
