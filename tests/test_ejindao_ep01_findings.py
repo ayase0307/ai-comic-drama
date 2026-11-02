@@ -14,6 +14,7 @@
   #13 SB-6：Codex 構圖只寫當下存在的物件
 """
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -269,8 +270,9 @@ class ShortLineDensity(unittest.TestCase):
                          {"start": 3.0, "end": 5.0, "has_dialogue": True}]}
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as f:
             json.dump({"segments": [seg]}, f, ensure_ascii=False)
+        env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
         out = subprocess.run([sys.executable, str(GATE), f.name], capture_output=True, text=True,
-                             encoding="utf-8").stdout
+                             encoding="utf-8", errors="replace", env=env).stdout
         self.assertNotIn("空跑", out)  # 舊算 13/5.0=2.6 <2.8 會警告空跑
 
 

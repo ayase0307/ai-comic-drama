@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import io
+import os
 import json
 import shutil
 import subprocess
@@ -38,8 +39,9 @@ from validate_structure import parse_and_validate_script  # noqa: E402
 
 
 def run(script: Path, *args: str, cwd: Path | None = None) -> subprocess.CompletedProcess:
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
     return subprocess.run([sys.executable, str(script), *map(str, args)], capture_output=True,
-                          text=True, encoding="utf-8", cwd=cwd)
+                          text=True, encoding="utf-8", errors="replace", cwd=cwd, env=env)
 
 
 def make_project(base: Path, name: str = "霧港 專案") -> Path:

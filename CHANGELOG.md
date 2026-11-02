@@ -7,6 +7,8 @@
 `h3d next` 會讀這份檔案：專案版本章比目前技能舊時，列出中間各版標題提醒重驗。
 
 ## [未發布]
+- 測試：`test_audit_stage0_3`、`test_ejindao_ep01_findings` 執行子程序時加 `PYTHONIOENCODING=utf-8` 與 `errors="replace"`，Windows（cp950／ANSI OEM）不再因解碼失敗讓斷言拿到 `NoneType`。（與 main 其他測試的 `{**os.environ, ...}` 寫法一致）
+- 維護：`.gitignore` 忽略 `graphify-out/`（graphify 本機索引產物，不進版控）。
 
 ## [0.10.1] - 2026-11-02
 - 新增：技能原則 9–12（開工前版本對帳、批次修＋REMIX 分鏡表同步＋抽卡自主、參考包壓過提示詞、核准版與定稿版分開放），Overview 新增「接手既有專案先稽核再推進」，並帶入 `references/audit-inherited-project.md`、`references/remix-draft-loop.md`、`scripts/audit_inherited_project.py`（本機 bot 副本已在使用、未回流 repo 的規則集）。原則 10 補「批次＝逐鏡對回 `shot_intent`，不是按警告類型批量改；階段 5 段級核准走 `--segments`，不得 `--auto`」，以免與階段 4／5 既有規則牴觸。
