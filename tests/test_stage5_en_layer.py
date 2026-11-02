@@ -194,5 +194,89 @@ class GlobalShotIdTests(unittest.TestCase):
             compiler.validate_stage5_binding(data, binding, self.path, self.root)
 
 
+class EnOverlayOverrideTests(unittest.TestCase):
+    """階段 5 binding 的 en_overlay 覆寫：五小節逐節、可見度豁免、段落風格錨。
+
+    規格：docs/research/briefs/2026-11-02-wip-landing-plan.opus.md §2 PR③。
+    """
+
+    FIVE = {"camera": "35mm from two metres at her eye height, static.",
+            "motion": "She lifts the cup, then sets it down.",
+            "performance": "Her jaw tightens once.",
+            "light": "Cold window light from camera left.",
+            "sound": "Cup clicks on wood at about 1.1 s."}
+
+    def test_overlay_replaces_only_the_named_part(self):
+        shot = {"shot_id": "S1", "action_and_performance": {"five_part_en": dict(self.FIVE)}}
+        compiler._apply_en_shot(shot, {"five_part_en": {"motion": "He steps back, then turns away."}})
+        after = shot["action_and_performance"]["five_part_en"]
+        self.assertEqual(after["motion"], "He steps back, then turns away.")
+        for key in ("camera", "performance", "light", "sound"):
+            self.assertEqual(after[key], self.FIVE[key])
+
+    def test_single_container_when_shot_already_has_five_part(self):
+        shot = {"shot_id": "S1", "five_part_en": dict(self.FIVE)}
+        compiler._apply_en_shot(shot, {"five_part_en": {"light": "Amber lamp from the right."}})
+        self.assertEqual(shot["five_part_en"]["light"], "Amber lamp from the right.")
+        self.assertNotIn("action_and_performance", shot)
+
+    def test_overlay_rejects_unknown_part_and_bad_values(self):
+        shot = {"shot_id": "S1", "action_and_performance": {"five_part_en": dict(self.FIVE)}}
+        with self.assertRaises(ValueError):
+            compiler._apply_en_shot(shot, {"five_part_en": {"music": "none"}})
+        with self.assertRaises(ValueError):
+            compiler._apply_en_shot(shot, {"five_part_en": {"motion": "   "}})
+        with self.assertRaises(ValueError):
+            compiler._apply_en_shot(shot, {"five_part_en": "Motion: x"})
+        with self.assertRaises(ValueError):
+            compiler._apply_en_shot(shot, {"offscreen_subject_ids": "C-MIRA"})
+
+    def test_visibility_override_lists_are_string_arrays(self):
+        shot = {"shot_id": "S1"}
+        compiler._apply_en_shot(shot, {"offscreen_subject_ids": [" C-BEN "],
+                                      "accepted_unbound_subject_ids": ["C-ANA"]})
+        self.assertEqual(shot["offscreen_subject_ids"], ["C-BEN"])
+        self.assertEqual(shot["accepted_unbound_subject_ids"], ["C-ANA"])
+
+    def test_offscreen_override_exempts_subject_coverage_e40(self):
+        from prompt_authoring import audit_subject_coverage
+        f = _fixture()
+        f.registry.characters["C-BIRD"] = {
+            "id": "C-BIRD", "name": "Bird", "desc_en": "a vast crimson bird", "short_en": "a crimson bird",
+            "desc_zh": "", "ref_img": "", "wardrobe_states": {}, "is_creature": True,
+        }
+        data = f.segment()
+        data["shots"][1]["character_ids"] = ["C-MIRA", "C-BIRD"]   # 沒掛參考圖 → E40
+        compiled = f.compile(data)
+        self.assertTrue(any("E40" in e for e in audit_subject_coverage(compiled)), audit_subject_coverage(compiled))
+        compiler._apply_en_shot(compiled["shots"][1], {"offscreen_subject_ids": ["C-BIRD"]})
+        self.assertEqual([e for e in audit_subject_coverage(compiled) if "E40" in e], [])
+
+    def test_cast_lock_drops_offscreen_actor(self):
+        f = _fixture()
+        for cid, name in (("C-ANA", "Ana"), ("C-BEN", "Ben")):
+            f.registry.characters[cid] = {
+                "id": cid, "name": name, "desc_en": f"{name}, grey coat", "short_en": name,
+                "desc_zh": "", "ref_img": f"assets/characters/{cid}.png",
+                "wardrobe_states": {}, "is_creature": False,
+            }
+        data = f.segment()
+        data["metadata"]["cast_lock"] = True
+        data["asset_refs"]["characters"] = [{"id": "C-MIRA"}, {"id": "C-ANA"}, {"id": "C-BEN"}]
+        for shot in data["shots"]:
+            shot["character_ids"] = ["C-MIRA", "C-ANA", "C-BEN"]
+        self.assertIn("three people", f.compile(copy.deepcopy(data))["h3_prompt"])
+        for shot in data["shots"]:
+            shot["offscreen_subject_ids"] = ["C-BEN"]
+        prompt = f.compile(copy.deepcopy(data))["h3_prompt"]
+        self.assertIn("two people", prompt)
+        self.assertNotIn("Ben", prompt.split("Cast rule:")[1].split(";")[0])
+
+    def test_style_anchor_en_overrides_segment_anchor(self):
+        data = _fixture().segment()
+        compiler._apply_en_segment(data, {"style_anchor_en": "bold oil painting, amber rim light"})
+        self.assertEqual(data["style_lock"]["anchor"], "bold oil painting, amber rim light")
+
+
 if __name__ == "__main__":
     unittest.main()

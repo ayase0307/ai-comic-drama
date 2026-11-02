@@ -533,9 +533,13 @@ class AssetRegistry:
 # 階段 4 的 Layer 2 常是中文（運鏡、走位、錨點物件、連戲錨、收尾狀態），layer2 檔案綁著階段 4 核准 hash 不能改，
 # 所以英文版放在 stage5 binding，編譯時寫進記憶體中的 Layer 2 的 *_en 欄位。
 SHOT_OVERRIDE_KEYS = {
-    "action_stages_en", "observable_expression_en",
+    "action_stages_en", "observable_expression_en", "five_part_en",
     "movement_en", "blocking_en", "anchor_objects_en", "lips", "show",
+    "offscreen_subject_ids", "accepted_unbound_subject_ids",
 }
+# 逐鏡可見度豁免（en_overlay.shots.<gsid> 或 shot_overrides）：宣告「這鏡看不到誰」。
+# 列入 offscreen 的角色不算進 R4 人數鎖（physical_camera 的 CAST RULE），也不算未綁參考圖。
+VISIBILITY_OVERRIDE_KEYS = ("offscreen_subject_ids", "accepted_unbound_subject_ids")
 # 逐鏡可見度（#67）：en_overlay.shots.<gsid>.show = {角色 id: 模式}；未列出的 Subject 視為 absent。
 SHOW_MODES = {
     "face": "{L}: face visible, from {P}",
@@ -827,12 +831,45 @@ def _apply_en_shot(shot: Dict[str, Any], en_shot: Dict[str, Any]) -> None:
             dlg["offscreen_form"] = hv["form"]
     if en_shot.get("voice_route") in VOICE_ROUTES:
         shot.setdefault("dialogue_and_audio", {})["voice_route"] = en_shot["voice_route"]
+    _apply_five_part_override(shot, en_shot.get("five_part_en"))
+    _apply_visibility_override(shot, en_shot)
+
+
+def _apply_five_part_override(shot: Dict[str, Any], overlay: Any) -> None:
+    """逐節覆寫五小節：binding 是手改檔，算信任邊界，key／型別不合格就報錯，不默默吞掉。"""
+    if overlay is None:
+        return
+    if not isinstance(overlay, dict):
+        raise ValueError(f"Stage5 {shot.get('shot_id')} five_part_en 必須是物件"
+                         f"（camera/motion/performance/light/sound）")
+    allowed = [key for key, _ in FIVE_PART_KEYS]
+    for key, value in overlay.items():
+        if key not in allowed:
+            raise ValueError(f"Stage5 {shot.get('shot_id')} five_part_en 只能覆寫 "
+                             f"{'/'.join(allowed)}，不認得 {key!r}")
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"Stage5 {shot.get('shot_id')} five_part_en.{key} 必須是非空字串")
+    _five_part_merge(shot, overlay)
+
+
+def _apply_visibility_override(shot: Dict[str, Any], en_shot: Dict[str, Any]) -> None:
+    """逐鏡可見度豁免：列入 offscreen 的角色不算進人數鎖，也不再被要求掛參考圖。"""
+    for key in VISIBILITY_OVERRIDE_KEYS:
+        if key not in en_shot:
+            continue
+        values = en_shot[key]
+        if not isinstance(values, list) or not all(isinstance(v, str) and v.strip() for v in values):
+            raise ValueError(f"Stage5 {shot.get('shot_id')} {key} 必須是非空字串的陣列")
+        shot[key] = [v.strip() for v in values]
 
 
 def _apply_en_segment(data: Dict[str, Any], overlay: Dict[str, Any]) -> None:
     if not overlay:
         return
     style_lock = data.setdefault("style_lock", {})
+    if overlay.get("style_anchor_en"):
+        # 只覆寫 Ref2VA 讀的 style_lock.anchor；REMIX 讀 metadata.style_lock_tail_en（編譯時另記 note）。
+        style_lock["anchor"] = str(overlay["style_anchor_en"])
     if isinstance(overlay.get("continuity_anchors_en"), dict):
         style_lock["continuity_anchors_en"] = dict(overlay["continuity_anchors_en"])
     if overlay.get("lighting_lock_line_en"):
@@ -969,12 +1006,39 @@ FIVE_PART_KEYS = (("camera", "Camera"), ("motion", "Motion"), ("performance", "P
                   ("light", "Light"), ("sound", "Sound"))
 
 
+def _five_part_slot(shot: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], Any]:
+    """五小節的容器與現值：優先順序只定義在這裡（`shot.five_part_en` 優先，否則 `action_and_performance`）。
+
+    讀取端（`_five_part_en`）與階段 5 overlay 寫入端（`_five_part_merge`）共用同一順序，
+    免得兩邊各寫一份、編譯產物與人審讀到不同版本。兩處都沒有值時回 `(None, {})`。
+    """
+    raw = shot.get("five_part_en")
+    if raw:
+        return shot, raw
+    action = shot.get("action_and_performance")
+    if isinstance(action, dict) and action.get("five_part_en"):
+        return action, action["five_part_en"]
+    return None, {}
+
+
+def _five_part_merge(shot: Dict[str, Any], overlay: Dict[str, Any]) -> None:
+    """把 `en_overlay.shots.<gsid>.five_part_en` 逐節併回「讀取端會讀到的那個容器」，只寫一處。"""
+    container, current = _five_part_slot(shot)
+    if not isinstance(current, dict):
+        raise ValueError(f"{shot.get('shot_id')}: five_part_en 必須是物件（camera/motion/performance/light/sound）")
+    merged = {str(k): str(v) for k, v in current.items() if v is not None}
+    merged.update({str(k): str(v) for k, v in overlay.items() if v is not None})
+    if container is None:
+        container = shot.setdefault("action_and_performance", {})
+    container["five_part_en"] = merged
+
+
 def _five_part_en(shot: Dict[str, Any]) -> Optional[Dict[str, str]]:
     """讀 Layer 2 逐鏡五小節：shot.five_part_en 或 action_and_performance.five_part_en。
 
     五節必須齊全且非空；缺一節就報錯，不默默退回自動拼句（那正是要禁止的偷懶路徑）。
     """
-    raw = shot.get("five_part_en") or (shot.get("action_and_performance") or {}).get("five_part_en")
+    _container, raw = _five_part_slot(shot)
     if not raw:
         return None
     if not isinstance(raw, dict):
@@ -1700,6 +1764,9 @@ def compile_segment_h3(
         raise ValueError(f"source timeline cannot satisfy H3 cut bounds (shot < {h3_spec.MIN_SHOT_SEC}s after "
                          f"{h3_spec.FRAME_QUANTUM_STEP}n+{h3_spec.FRAME_QUANTUM_OFFSET} rounding); revise the storyboard cuts")
     notes: List[str] = []
+    if remix and stage5_binding and (stage5_en_overlay(stage5_binding) or {}).get("style_anchor_en"):
+        notes.append("en_overlay.style_anchor_en 只覆寫 Ref2VA 的 style_lock.anchor；REMIX 讀 metadata.style_lock_tail_en，"
+                     "這句不會輸出——要改 REMIX 的風格錨請寫 metadata.style_lock_tail_en")
     if tail_fit_note:
         notes.append(tail_fit_note)
     short_spans = [(i + 1, d) for i, d in enumerate(spans) if d < h3_spec.SHOT_SOFT_MIN_SEC - 1e-6]
@@ -2504,8 +2571,11 @@ def compile_segment_h3(
         if info.get("is_creature") or str(cid).upper().startswith(("CREATURE", "CR-")):
             return "creature"
         return "human"
+    # 宣告 offscreen 的角色不算進人數鎖：不然「三人、其中一人不入鏡」會被鎖成 exactly three people，
+    # 跟同一鏡的可見度豁免互相打架。
     _cast = physical_camera.classify_cast(
-        [c for _s in shots for c in (_s.get("character_ids") or [])], _cast_kind)
+        [c for _s in shots for c in (_s.get("character_ids") or [])
+         if c not in (_s.get("offscreen_subject_ids") or [])], _cast_kind)
     _seg_meta = layer2_data.get("metadata") or {}
     lock_bits: List[str] = []
     if _seg_meta.get("camera_law", True) is not False:

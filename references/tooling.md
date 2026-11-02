@@ -134,7 +134,10 @@ Layer 2 每鏡新增必填欄位 `shot_intent`（audience、story_beat、pov、e
 
 ```json
 "en_overlay": {
-  "shots": {"EP01-S01-a-SH01": {"movement_en": "dolly in", "blocking_en": "...", "anchor_objects_en": ["..."], "lips": "closed|omit"}},
+  "shots": {"EP01-S01-a-SH01": {"movement_en": "dolly in", "blocking_en": "...", "anchor_objects_en": ["..."], "lips": "closed|omit",
+                                 "five_part_en": {"motion": "First she lifts the cup, then sets it down."},
+                                 "offscreen_subject_ids": ["C-BEN"], "accepted_unbound_subject_ids": ["C-ANA"]}},
+  "style_anchor_en": "bold oil painting, amber rim light",
   "continuity_anchors_en": {"lighting": "...", "axis": "...", "blocking": "...", "texture": "..."},
   "lighting_lock_line_en": "...",
   "end_state_en": {"<who/what>": "<state>"},
@@ -143,7 +146,10 @@ Layer 2 每鏡新增必填欄位 `shot_intent`（audience、story_beat、pov、e
 }
 ```
 
-- `shot_overrides` 也接受 `movement_en`／`blocking_en`／`anchor_objects_en`／`lips`。Layer 2 本身寫了 `camera_optics.movement_en`、`spatial_blocking.blocking_desc_en`／`anchor_objects_en`、`style_lock.continuity_anchors_en`、`segment_end_state.planned_final_state_en` 也優先採用。
+- `shot_overrides` 也接受 `movement_en`／`blocking_en`／`anchor_objects_en`／`lips`／`five_part_en`／`offscreen_subject_ids`／`accepted_unbound_subject_ids`。Layer 2 本身寫了 `camera_optics.movement_en`、`spatial_blocking.blocking_desc_en`／`anchor_objects_en`、`style_lock.continuity_anchors_en`、`segment_end_state.planned_final_state_en` 也優先採用。
+- **五小節逐節覆寫**（階段 4 已核准、Layer 2 不能改時）：`en_overlay.shots.<gsid>.five_part_en` 只寫要改的那幾節，其餘四節保留 Layer 2 原值；寫回的位置跟讀取端同一個（`shot.five_part_en` 優先，否則 `action_and_performance.five_part_en`），不會兩處各留一份。key 只認 `camera`／`motion`／`performance`／`light`／`sound`，值必須是非空字串，不合格直接報錯。
+- **可見度豁免**：`offscreen_subject_ids` 宣告「這鏡看不到誰」→ 該角色不算進 R4 人數鎖（`Cast rule: exactly two people…`）、也不算未綁參考圖（audit E40 豁免）；`accepted_unbound_subject_ids` 只豁免 E40／E41，仍算人數。兩者都是字串陣列。
+- **段落風格錨**：`en_overlay.style_anchor_en` 覆寫 `style_lock.anchor`，只作用於 Ref2VA；REMIX 讀的是 `metadata.style_lock_tail_en`，帶了這個 key 的 REMIX 段會在 `compile_notes` 留一條提醒（不會默默失效）。
 - 沒有 `global_shot_id` 的 Layer 2：編譯時以 `shot_id` 補（只在記憶體，不改檔、不影響階段 4 核准）。
 - 中文運鏡會依關鍵字對到官方動詞（推近→dollies in、跟拍→tracks、手持→handheld…）；對不到就報錯並指向 `movement_en`。
 - 仍是中文、沒有英文版的走位／錨點／連戲錨／收尾狀態**不會**寫進提示詞，改記一條 compile note；audit E15 對所有英文提示詞檢查（`<d>` 台詞除外）。

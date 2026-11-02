@@ -10,6 +10,7 @@
 - 測試：`test_audit_stage0_3`、`test_ejindao_ep01_findings` 執行子程序時加 `PYTHONIOENCODING=utf-8` 與 `errors="replace"`，Windows（cp950／ANSI OEM）不再因解碼失敗讓斷言拿到 `NoneType`。（與 main 其他測試的 `{**os.environ, ...}` 寫法一致）
 - 維護：`.gitignore` 忽略 `graphify-out/`（graphify 本機索引產物，不進版控）。
 - 修正：`build_stage_review` 階段 5 改用 `resolve_backend` 決定 lint 路線（段落 `metadata.video_backend` → 頂層 `video_backend` → `refmods` → `decisions.json` → ref2va），只帶 `refmods` 的 REMIX 段不再被 Ref2VA 規則誤報；`COMPILER_BOILERPLATE` 收「the figure seen from behind matches …」編譯器句，跨鏡重複不再算手寫套句（E33／W33）。
+- 新增：階段 5 綁定可逐鏡覆寫五小節與可見度——`en_overlay.shots.<gsid>.five_part_en` 只寫要改的節（key 限 `camera`／`motion`／`performance`／`light`／`sound`，值必非空字串），其餘節保留 Layer 2 原值，且寫回讀取端的同一個容器（不再兩處各留一份）；`offscreen_subject_ids` 宣告該鏡看不到誰（不算進 R4 人數鎖、也豁免 E40），`accepted_unbound_subject_ids` 只豁免參考圖、仍算人數；段落級 `en_overlay.style_anchor_en` 覆寫 `style_lock.anchor`（Ref2VA 生效，REMIX 讀 `metadata.style_lock_tail_en`，留一條 compile note 而不是默默失效）。`shot_overrides` 同步接受這三個 key，舊綁定行為不變（`tests/test_stage5_en_layer.py::EnOverlayOverrideTests`、`references/tooling.md` §2.3）。
 
 ## [0.10.1] - 2026-11-02
 - 新增：技能原則 9–12（開工前版本對帳、批次修＋REMIX 分鏡表同步＋抽卡自主、參考包壓過提示詞、核准版與定稿版分開放），Overview 新增「接手既有專案先稽核再推進」，並帶入 `references/audit-inherited-project.md`、`references/remix-draft-loop.md`、`scripts/audit_inherited_project.py`（本機 bot 副本已在使用、未回流 repo 的規則集）。原則 10 補「批次＝逐鏡對回 `shot_intent`，不是按警告類型批量改；階段 5 段級核准走 `--segments`，不得 `--auto`」，以免與階段 4／5 既有規則牴觸。
