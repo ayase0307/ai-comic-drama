@@ -13,3 +13,6 @@ config/*.local.json
 
 # 專案（噩盡島等）請放 E:\MinimaxH3\series\，不要放進本 skill repo；
 # 若真的暫時放這裡，請自行加一條忽略，嚴禁 commit 專案內容。
+
+# graphify 索引產物（不進版控）
+graphify-out/
