@@ -191,7 +191,7 @@ class OfflineWorkflowTests(unittest.TestCase):
         manifest = self.project / "final" / "delivery-final-ep01.json"
         result = run_cli(STORYBOARD / "assemble_episode.py", "--segments", str(segments),
             "--videos-dir", str(self.project / "videos"), "--output", str(final),
-            "--manifest", str(manifest), "--audio-mode", "native_sub", "--no-burn-subtitles",
+            "--manifest", str(manifest), "--no-burn-subtitles",
             cwd=self.project)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         delivery = json.loads(manifest.read_text(encoding="utf-8"))

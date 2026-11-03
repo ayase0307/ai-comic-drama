@@ -4,8 +4,8 @@
 
 比 `check_environment.py` 多做三件事：
   1. 量 GPU 剩餘顯存，並對照本機經驗值（4.20 GiB）。
-  2. 探測產線三個服務的 port 是否在聽（預設本機 FreeVideo 8189 / ComfyUI 8188 / VoiceStudio 8001；
-     可用 FREEVIDEO_API_URL／COMFYUI_URL／VOICESTUDIO_URL 指到別台機器或別的 port）。
+  2. 探測產線服務的 port 是否在聽（預設本機 FreeVideo 8189 / ComfyUI 8188；
+     可用 FREEVIDEO_API_URL／COMFYUI_URL 指到別台機器或別的 port）。
   3. 實測 ffmpeg 是否還吃 `-vsync`（9.0 起移除，須改用 `-fps_mode`）。
 
 紀律：不寫檔、不讀 token、不上傳、不呼叫任何生成端點。
@@ -33,7 +33,6 @@ SAFE_VRAM_MB = 4300  # 本機 RTX 4060 Ti 8GB 的經驗門檻，不是 H3 官方
 SERVICE_PORTS = {
     "freevideo_8189": 8189,
     "comfyui_8188": 8188,
-    "voicestudio_8001": 8001,
 }
 
 #: 服務名稱 → 覆寫用環境變數（值是 URL，例如 http://192.168.1.20:8189/freevideo/agent/v1）。
@@ -41,7 +40,6 @@ SERVICE_PORTS = {
 SERVICE_URL_ENV = {
     "freevideo_8189": "FREEVIDEO_API_URL",
     "comfyui_8188": "COMFYUI_URL",
-    "voicestudio_8001": "VOICESTUDIO_URL",
 }
 
 

@@ -42,6 +42,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -79,6 +80,77 @@ def _load_json(path: Path, default: Any) -> Any:
 
 def _rel(root: Path, path: Path) -> str:
     return path.resolve().relative_to(root.resolve()).as_posix()
+
+
+EFFECT_ID_RE = re.compile(r"B-[\w-]+")
+
+
+def _all_strings(obj: Any) -> List[str]:
+    out: List[str] = []
+    if isinstance(obj, dict):
+        for value in obj.values():
+            out.extend(_all_strings(value))
+    elif isinstance(obj, list):
+        for value in obj:
+            out.extend(_all_strings(value))
+    elif obj is not None:
+        out.append(str(obj))
+    return out
+
+
+def _effect_ids_in_shot(shot: Dict[str, Any], registry: AssetRegistry) -> List[str]:
+    """這一鏡提到／列出的特效資產 id（B- 卡片，或 registry.effects 的 id）。"""
+    known = set(registry.effects) | set(EFFECT_ID_RE.findall(json.dumps(shot, ensure_ascii=False)))
+    found: List[str] = []
+    for key in ("effect_ids", "effects", "vfx", "effect"):
+        value = shot.get(key)
+        values = value if isinstance(value, list) else [value]
+        for item in values:
+            eid = item.get("id") if isinstance(item, dict) else item
+            if eid and str(eid) in known and str(eid) not in found:
+                found.append(str(eid))
+    for text in _all_strings(shot):
+        for eid in known:
+            if eid in text and eid not in found:
+                found.append(eid)
+    return found
+
+
+def _segment_effect_ids(data: Dict[str, Any], registry: AssetRegistry) -> List[str]:
+    refs = data.get("asset_refs") or {}
+    found: List[str] = []
+    for key in ("effects", "props"):
+        for entry in refs.get(key) or []:
+            eid = entry.get("id") if isinstance(entry, dict) else entry
+            if eid and str(eid) in registry.effects and str(eid) not in found:
+                found.append(str(eid))
+    for shot in data.get("shots") or []:
+        if isinstance(shot, dict):
+            for eid in _effect_ids_in_shot(shot, registry):
+                if eid not in found:
+                    found.append(eid)
+    return found
+
+
+def _effect_reference(root: Path, registry: AssetRegistry, eid: str, seg_id: str,
+                      gaps: List[str]) -> Optional[Dict[str, Any]]:
+    """特效的參考圖只從已登記卡片取；沒有已審核圖片就記缺口（不猜預設圖）。"""
+    try:
+        info = registry.get_effect(eid)
+    except ValueError as exc:
+        gaps.append(f"{seg_id} {exc}；請在 assets.md 建特效卡（id B-…、類型：特效、設定圖）")
+        return None
+    ref = str(info.get("ref_img") or "").strip()
+    if not ref or not (root / ref).is_file():
+        gaps.append(
+            f"{seg_id} 特效 {eid} 沒有已審核參考圖（assets.md 卡片 `設定圖` 或 bible reference_image）；"
+            f"特效不得用 pack_waivers 豁免，補圖後重綁"
+        )
+        return None
+    entry: Dict[str, Any] = {"id": eid, "reference_image": ref}
+    if info.get("source_en"):
+        entry["source_en"] = info["source_en"]
+    return entry
 
 
 def _ids(values: Any) -> List[str]:
@@ -220,11 +292,18 @@ def build_segment(root: Path, registry: AssetRegistry, plans: Dict[str, Any], vi
     shots = data.get("shots", []) or []
     states = segment_states(seg_id, shots, visibility)
     chosen: Dict[str, Optional[Dict[str, Any]]] = {}  # 一段一角色一張圖
+    declared_effects: List[str] = []
+    for key in ("effects", "props"):
+        for entry in refs.get(key) or []:
+            eid = entry.get("id") if isinstance(entry, dict) else entry
+            if eid and str(eid) in registry.effects and str(eid) not in declared_effects:
+                declared_effects.append(str(eid))
     shot_bindings = []
     for shot in shots:
         gid = str(shot.get("global_shot_id") or "")
         visible, no_visual = [], []
-        grouped: Dict[str, List[Dict[str, Any]]] = {"characters": [], "creatures": [], "extras": []}
+        grouped: Dict[str, List[Dict[str, Any]]] = {"characters": [], "creatures": [], "extras": [],
+                                                     "effects": []}
         for raw_id in _ids(shot.get("character_ids") or shot.get("characters")):
             cid = registry.id_aliases.get(raw_id, raw_id)
             if cid not in registry.characters:
@@ -241,6 +320,16 @@ def build_segment(root: Path, registry: AssetRegistry, plans: Dict[str, Any], vi
             entry = chosen[cid]
             if entry:
                 grouped[entry["group"]].append({k: v for k, v in entry.items() if k != "group"})
+        effect_ids = list(declared_effects)
+        for eid in _effect_ids_in_shot(shot, registry):
+            if eid not in effect_ids:
+                effect_ids.append(eid)
+        for eid in effect_ids:
+            entry = _effect_reference(root, registry, eid, seg_id, gaps)
+            if entry:
+                grouped["effects"].append(entry)
+        if not grouped["effects"]:
+            grouped.pop("effects")
         binding: Dict[str, Any] = {"global_shot_id": gid, "reference_paths": grouped,
                                    "visual_subject_ids": visible, "no_visual_reference_ids": no_visual}
         humans = [e["id"] for e in grouped["characters"]]
@@ -271,7 +360,7 @@ PACK_TAGS = ("Picture", "Video")
 # remix 不使用的 Ref2VA 欄位：寫了只警告，產出時一律不帶
 REMIX_UNUSED_KEYS = ("face_subject_ids", "identity_anchor_ids", "reference_view", "panel_label_en")
 # refmods 排序：場景第一、演員、生物、道具、群眾
-_KIND_ORDER = {"scene": 0, "actor": 1, "creature": 2, "prop": 3, "extras": 4}
+_KIND_ORDER = {"scene": 0, "actor": 1, "creature": 2, "effect": 3, "prop": 4, "extras": 5}
 
 
 def _pack_record(asset_id: str, raw: Any, costume: Optional[str], warnings: List[str],
@@ -306,7 +395,7 @@ def _pack_record(asset_id: str, raw: Any, costume: Optional[str], warnings: List
     if tag in PACK_TAGS:
         record["tag"] = tag
     else:
-        record["tag"] = "Picture" if kind == "scene" else "Video"
+        record["tag"] = "Picture" if kind in ("scene", "effect") else "Video"
         record["tag_inferred"] = True
         warnings.append(f"包 {name}（{asset_id}）沒有 tag，依 kind={kind} 推定為 {record['tag']}；"
                         f"tag 看的是建包圖片張數（單圖 Picture／多圖 Video），請建包回讀後寫進計畫表")
@@ -348,6 +437,7 @@ def _strip_unused(obj: Any) -> Any:
 def _pack_hint(asset_id: str, kind: str) -> str:
     how = ("設定圖四格裁切＋skip_8view" if kind == "actor" else
            "單張母片（kind scene，tag Picture）" if kind == "scene" else
+           "特效參考圖單圖包（kind effect，tag Picture；只參考形狀／顏色／透光，不參考背景）" if kind == "effect" else
            "設定圖裁切或三張獨立單圖＋skip_8view（生物／道具不要跑 8 視角）")
     return (f"在家機 REMIX Studio 建包（{how}，帶 project），回讀確認後寫進 assets/character-packs.json 的 "
             f"packs.{asset_id}（含 tag）；`h3d pack build` 尚未提供（PR-R8），或在 waivers.<段> 寫豁免並附使用者原話")
@@ -409,6 +499,10 @@ def build_segment_remix(root: Path, registry: AssetRegistry, pack_plan: Dict[str
     waivers = validate_waivers(seg_id, waiver_src, gaps)
     waived_ids = {str(w.get("id")) for w in waivers if w.get("id")}
     waived_packs = {str(w.get("pack")) for w in waivers if w.get("pack")}
+    effect_waivers = [eid for eid in waived_ids if eid in registry.effects]
+    for eid in effect_waivers:
+        gaps.append(f"{seg_id} 特效 {eid} 不能用 pack_waivers 豁免：特效必須有參考包／參考圖，請建包後重綁")
+        waived_ids.discard(eid)
     hits: List[str] = []
     _unused_key_hits(old, f"video-bindings.json[{seg_id}]", hits)
     for hit in hits:
@@ -461,12 +555,18 @@ def build_segment_remix(root: Path, registry: AssetRegistry, pack_plan: Dict[str
             kind = "extras" if rec.get("is_group") else "creature" if rec.get("is_creature") else "actor"
             if want(cid, kind, costume_by_id.get(cid)):
                 pack_ids.append(cid)
+        for eid in _effect_ids_in_shot(shot, registry):
+            if want(eid, "effect") and eid not in pack_ids:
+                pack_ids.append(eid)
         shot_bindings.append({"global_shot_id": gid, "visual_subject_ids": visible,
                               "no_visual_reference_ids": no_visual, "pack_ids": pack_ids})
-    for entry in refs.get("props", []) or []:
-        pid = entry.get("id") if isinstance(entry, dict) else entry
-        if pid:
-            want(str(pid), "prop")
+    for key in ("props", "effects"):
+        for entry in refs.get(key) or []:
+            aid = entry.get("id") if isinstance(entry, dict) else entry
+            if aid and str(aid) in registry.effects:
+                want(str(aid), "effect")
+            elif aid:
+                want(str(aid), "prop")
 
     refmods = sorted((chosen[a] for a in order), key=lambda r: (_KIND_ORDER.get(r["kind"], 9), order.index(r["id"])))
     counters = {"Picture": 0, "Video": 0}

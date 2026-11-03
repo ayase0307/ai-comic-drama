@@ -20,11 +20,10 @@ python scripts/h3d.py status --root . # 全局狀態（階段／依賴／送件�
 | `approve --auto` | 沒有未決卡、且符合 `decisions.json` 政策（`auto_approve`）時自動核准並記錄依據 | `h3d next` 指示時 |
 | `run` | 階段 6 送件 runner（`--plan`）：單例鎖、佇列檢查、`--pause`／續跑、`--status` 進度檔 | 送整批分段時（取代專案自寫 runner） |
 | `probe` | 送件前查 API schema 與已安裝 LoRA，缺的直接擋並列替代 | 每次送件前（`run` 也會自動做） |
-| `voice` | `voice align`：ASR 對位、畫外句區間壓原聲（−22 dB）、響度標準化（−16 LUFS） | 階段 7 配音完成後 |
 | `concat` | `concat plan`／`concat build`：全集單一 Concat 剪輯專案（T1 影片、T2 字幕、T3 畫外音） | 剪輯方式定案為 Concat 時 |
 | `doctor` | GPU 顯存、ffmpeg（含 `-vsync` 回歸）、服務 port、磁碟 | 開工前、換機器後 |
 | `imagegen` | 生圖工具：`--detect` 偵測可用後端（Codex／Qwen-Image 經 FreeVideo／Grok／手繪上傳，ComfyUI 只回報），`--set <後端> --quote` 寫入使用者選擇（§2.4.1） | 階段 2 缺設定圖、階段 4 缺構圖且 `h3d next` 要你問使用者時 |
-| `compile` | Layer 2 → H3 六段式提示詞＋`segments-*.json`（remix 綁定＝REMIX 三欄，§2.3.1c）；`--check` 同時跑 17 條自檢與失敗目錄 | 每次改完分鏡 |
+| `compile` | Layer 2 → H3 六段式提示詞＋`segments-*.json`（remix 綁定＝REMIX 三欄，§2.3.1c）；`--check` 同時跑 18 條自檢與失敗目錄 | 每次改完分鏡 |
 | `audit` | 參考圖／主體定義／台詞預算對帳 | 編譯後單獨重驗 |
 | `refcheck` | 參考包涵蓋檢查：提示詞寫到的具名角色／生物／道具／場景／群眾是否都有綁包（remix E50／E51 擋；ref2va 只提示），`--takes` 查已送出抽次的快照（§2.3.1d） | remix 每次改提示詞、送件前 |
 | `staging` | 站位／視線／運鏡閘門 D06–D14（兩個 backend；預設全部警告，`staging_gate=strict` 時 D06–D08 擋，§2.3.1d）；W46 構圖板自動建議、W47 雙人引子建議（都只建議；`--layer2` 在階段 4 未編譯時就能跑）、W48 雙人引子格式檢查 | 階段 4 分鏡定稿後（`--layer2`）、階段 5 寫完提示詞後 |
@@ -251,7 +250,7 @@ python scripts/h3d.py compile --layer2 "layer2/layer2-EP04-*.json" --episode EP0
 - **台詞與畫外音**：與 ref2va 同一套（`<d>[Chinese] …</d>`、`(Sx)`、畫外 O.S.／V.O. 官方句式＋閉唇、長句外部化、E22–E25、E43／E44）；說話者代號依第一次發聲順序 `(S1)`、`(S2)`（沒有 `<Subject k>` 可對齊）。remix 多人同框的可見台詞，同鏡其他演員另加 `while A's and B's lips remain completely closed`（ch02 寫法）。
 - **其他**：秒數→影格照 ref2va（台詞段往上取，`metadata.frames` 送 `frames/24` 精確值，家機往下取也落在同一量子），超出 REMIX 區間 56–243 幀記 compile note；`audio_references`、`en_overlay.show` 不輸出（REMIX 沒有音訊參考；可見度寫進五小節）；Combat_Impact 段不自動掛 LoRA（FreeVideo LoRA 目錄在 V1.3 未驗證）。
 - **segments 欄位**：`metadata.video_backend: "remix"`、`metadata.style_anchor_en`、`refmods`（含 `label`）、`pack_waivers`、`positions`、逐鏡 `visual_subject_ids`／`no_visual_reference_ids`／`pack_ids`、`reference_images: []`；編譯指紋 `compiled_prompt_sha256` 照舊（REMIX 取 `integrated_multimodal_description`，E38）。
-- **`--check`**：audit 走 remix 分支（E50–E55＋refcheck 文字比對＋站位 D06–D14）、`lint_h3_prompt(backend="remix")`（三欄沒有 summary，時長改以 authored 時間軸與切點時間戳對帳）、失敗目錄、段間連戲、逐鏡撰寫審查（E30–E40、W41–W45；E40／E41 改看 refmods 與介紹句英文名，帶原話的 `pack_waivers` 視為已處置）。
+- **`--check`**：audit 走 remix 分支（E50–E57＋refcheck 文字比對＋站位 D06–D14）、`lint_h3_prompt(backend="remix")`（三欄沒有 summary，時長改以 authored 時間軸與切點時間戳對帳）、失敗目錄、段間連戲、逐鏡撰寫審查（E30–E40、W41–W45；E40／E41 改看 refmods 與介紹句英文名，帶原話的 `pack_waivers` 視為已處置）。
 - **backend 一致**：綁定是 remix 就產三欄；`--backend ref2va` 配 remix 綁定、或定案 remix 卻沒有 remix 綁定 → 報錯，先用同一個 backend 重跑 `h3d bind`。定案和綁定不同時照綁定編、印提示。
 - **送件**：`h3d submit`／`h3d run`（FreeVideo）看到 remix 段一律拒送；remix 送件 adapter 是 PR-R7，完成前在家機 REMIX Studio 手動送 `h3_prompt`＋`refmods`（依順序）。
 
@@ -267,6 +266,9 @@ python scripts/h3d.py compile --layer2 "layer2/layer2-EP04-*.json" --episode EP0
 | E22–E25、E43／E44 | 擋 | 照用（讀 `integrated_multimodal_description`） |
 | E28 14 號風格 | 擋 | 照用（參考看 refmods） |
 | — | — | **E55** `integrated_multimodal_description` 開頭≠風格錨（段落 `metadata.style_anchor_en` > 定案 `style_anchor` > 14 號固定錨；都沒有也擋） |
+| **E58** 提示詞洩漏 JSON／dict | 擋 | 兩個 backend 都擋：提示詞含 `{`、`}` 或 `": "`；把結構化資料改寫成英文散文（`Luonian is back against the stone; the red sky is spreading overhead`） |
+| **E56** 特效缺參考圖 | 擋 | 照用：段落用到 `B-` 特效（shot／asset_refs），FreeVideo 沒有 `reference_paths.effects`、REMIX 沒有 `kind=effect` 的包 → 擋；`pack_waivers` 不算 |
+| **E57** 有特效詞但沒有效果 id | 擋 | 照用：單鏡動作／表演／走位／描述出現 glow／beam／aura／energy／火焰／紅芒／光幕等，但沒有 `effect_ids`／`B-` id → 擋（陽光、日光、光線、lighting／highlight／glint／反光／微光等詞與 `light` 欄位排除）；可用 `effect_ids: []`＋`no_effect_reason` 單鏡宣告不是特效 |
 
 `lint_h3_prompt(..., backend="remix")` 的必填區塊改成三欄 `integrated_multimodal_description`／`overall_soundscape`／`non_diegetic_music`，其餘規則照用。refcheck（R4）與站位閘門（R6）見 §2.3.1d。REMIX 三欄輸出（R5）已接上（見上方「編譯」）。尚未做：送件 adapter（R7，含送件前自動跑 refcheck）、`h3d pack`（R8）、single480 抽卡流程（R9）、verdict／失敗目錄（R10）。
 
@@ -347,7 +349,7 @@ python scripts/h3d.py compile --layer2 layer2/ --bible video-bible.json --bindin
 - **backend 一致**：定案 `video_backend=remix` 但段落是 Ref2VA 六段式（沒有 `refmods`）→ 擋；`h3d next` 在綁定不是 remix 或已落後時先給 `h3d bind`，remix 綁定新鮮時直接給帶 `--bindings` 的 compile 指令重編成 REMIX 三欄（PR-R5）；此判斷排在綁定新鮮度之前。
 - `h3d next` 的優先序：backend 不符 → 綁定落後（`h3d bind`）→ 只剩失敗目錄命中時給 `h3d catalog --list` → 補編。核准已失效時先查產物本身，產物不齊就先給修正指令，不重建審核頁。
 
-逐集 `segments-epXX.json` 則用 `--episode EPxx` 另編；`--bindings` 含其他集的段會自動略過。`--check` 的「17 條」是 `audit_refs_and_segments.py --lint-h3` 的 E1–E9、W10–W13、E14–E16、E18；E19 起是參考圖對帳與逐鏡撰寫審查。
+逐集 `segments-epXX.json` 則用 `--episode EPxx` 另編；`--bindings` 含其他集的段會自動略過。`--check` 的「18 條」是 `audit_refs_and_segments.py --lint-h3` 的 E1–E9、W10–W13、E14–E16、E18、E58；E19 起是參考圖對帳與逐鏡撰寫審查。
 
 ### 2.3.3 段間連戲、無文字句、同場光線、同場配樂（#133 #138 #139；C4 抖音蒸餾 2026-10）
 
@@ -431,7 +433,7 @@ python scripts/h3d.py compile --layer2 layer2/ --bible video-bible.json --bindin
 **原則：人只看例外。** 收件匣取代逐階段把所有資料攤開的審核頁（舊八頁保留給除錯；`--stage N` 仍負責綁審核快照）。版面、卡片欄位與禁止事項見 `references/review-page-spec.md`。
 
 - `h3d inbox --root .`（或 `build_stage_review.py --project-dir . --inbox`）產生 `review/inbox.html`（standalone、手機優先、縮圖 webp 內嵌、目標 < 5 MB）與 `review/inbox.json`。
-  資料只讀 `decisions.json`、`review/verdicts.json`、`review/project-state.json`，選用 `videos/qa-report.json` 與影片抽 10 幀條（`--strips all|recent|none`）；階段 7 的待定音色角色另讀 `segments-ep*.json` 的 `external_narration[].speaker`。
+  資料只讀 `decisions.json`、`review/verdicts.json`、`review/project-state.json`，選用 `videos/qa-report.json` 與影片抽 10 幀條（`--strips all|recent|none`）；階段 7 的待定音色角色另讀 `segments-ep*.json` 的 `shots[].dialogue_and_audio`（畫外／旁白發聲者）。
 - 卡片來源（依會不會擋下一步排序）：
   1. 目前階段還沒定案的規則（`decisions.json` 缺項）
   2. verdicts 依政策判 fail（擋核准）／warn（不擋；超過 3 段併成一張）；`decided_by=user` 的結論列在「已決定」
@@ -492,25 +494,15 @@ python scripts/h3d.py compile --layer2 layer2/ --bible video-bible.json --bindin
 | `FREEVIDEO_API_URL` | submit／collect／resume／run／probe 的 API 位址，`h3d doctor`、`h3d imagegen --detect` 與 `qwen_storyboard_grid.py` 也用它 | `http://127.0.0.1:8189/freevideo/agent/v1` |
 | `FREEVIDEO_TOKEN`／`FREEVIDEO_TOKEN_FILE` | 令牌本身／令牌檔路徑 | 依序找 `E:\FreeVideo\agent\token`、`~/.freevideo/agent/token`、`C:\FreeVideo\agent\token`（非 Windows 只看家目錄） |
 | `AICD_FFMPEG`／`AICD_FFPROBE` | ffmpeg／ffprobe 完整路徑（只設 ffmpeg 時 ffprobe 取同目錄） | PATH |
-| `COMFYUI_URL`／`VOICESTUDIO_URL` | `h3d doctor`（ComfyUI 也給 `h3d imagegen --detect`）探測的 ComfyUI／VoiceStudio 位址 | `127.0.0.1:8188`／`127.0.0.1:8001`（TTS 位址另由 `config/tts.json` 的 `engines.voicestudio.base_url` 決定） |
+| `COMFYUI_URL` | `h3d doctor`／`h3d imagegen --detect` 探測的 ComfyUI 位址 | `127.0.0.1:8188` |
 | `AICD_AGENT_IMAGE_TOOL` | Agent 宣告自己有的內建生圖工具（目前認 `grok`），`h3d imagegen --detect` 才會把 Grok 標可用 | 不設＝Grok 標「未知」 |
-| `AICD_OMNIVOICE_LAUNCHER` | tts_doctor 提示的 OmniVoice 啟動檔 | `E:\OmniVoice\啟動-OmniVoice.bat` |
 | `AICD_H3_UPSTREAM` | `sync_h3_reference.py` 的上游 clone | 依序 `E:\MinimaxH3\h3-video-prompting`、本 repo 同層 `../h3-video-prompting` |
 
-本機服務（127.x／localhost）的 HTTP 請求一律不走系統 `HTTP(S)_PROXY`（送件端與 TTS 都是）；設了代理的機器以前會把 VoiceStudio 健康檢查丟給代理，造成「沒開卻回報可用」。
+本機服務（127.x／localhost）的 HTTP 請求一律不走系統 `HTTP(S)_PROXY`（送件端、ComfyUI 與其他本機服務都是）。
 
 **`h3d probe --segments segments-ep*.json`**（`scripts/runner/fv_probe.py`）：GET agent 根取已安裝 LoRA、GET `openapi.json` 取 JobSpec；
 LoRA 沒裝 → error，附「拿掉 LoRA」與相近的已安裝名稱；多帶 `trigger`／`reason` → warning（送件端 `sanitize_loras` 只送 name＋strength）。
 離線：`--installed a,b --schema openapi.json`。
-
-**`h3d voice align --root .`**（`scripts/voice/voice_align.py`，階段 7 固定流程）
-
-1. `asr`：faster-whisper 轉寫 `videos/<段>.mp4` → `voice/h3-asr.json`（已有的段跳過）。
-2. `place`：畫內台詞（`timeline-plan-ep*.csv` 的 subtitle）對齊 ASR；畫外配音放在前一句畫內台詞結束後 0.15 秒、下一句前收，放不下加速 ≤ 1.2 倍，最後一句可溢入下一段開頭靜默；ASR 認不出的聲音＝亂語 → `mutes`（相鄰合併）。寫 `voice/placement.json`。人聽過的修正寫 `voice/placement-overrides.json`，重跑不會被蓋掉。
-3. `duck`：`mutes` 區間原聲 −22 dB（`--duck-db`）→ `voice/muted/<段>.mp4`。
-4. `loudnorm`：配音 −16 LUFS／TP −1.5（`--lufs`），套 tempo → `voice/final/<key>.wav`，寫回 `final`／`final_dur`。
-
-輸入 `voice/manifest.json`：`{key: {segment, speaker, line, file, dur}}`。`--steps place,duck,loudnorm` 可跳過 ASR；`--dry-run` 只算放置。
 
 **`h3d concat plan --name "<劇名> 全集粗剪" --root .`／`h3d concat build --location <資料夾> --root .`**（`scripts/edit/concat_adapter.py`）
 

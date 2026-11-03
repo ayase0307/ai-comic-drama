@@ -1,25 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""`h3d voice align`：階段 7 固定流程——ASR 對位、畫外句區間壓原聲、響度標準化。
+"""`voice_align`：Concat 剪輯 adapter 用的 ASR 對齊與字幕輔助（外部 TTS 已移除）。
 
-從《我修的是遺忘課》voice/（asr_segs.py、place.py、make_check.py）通用化。
-為什麼要有：H3 會把該由外部配音念的畫外句自己念成亂語（本案 115 段裡 12 段），
-直接疊配音會「兩個聲音打架」。固定流程：
-
-  1. asr       ：faster-whisper 轉寫每段原聲（字級時間），寫 voice/h3-asr.json（已有的段跳過）。
-  2. place     ：把畫內台詞（timeline-plan-ep*.csv 的 subtitle）跟 ASR 對齊，找出每句畫外配音能放的窗口
-                 ——接在前一句畫內台詞結束後 0.15 秒、下一句開始前收；放不下就加速（≤ 1.2 倍），
-                 最後一句可溢入下一段開頭的靜默；ASR 認不出是哪句畫內台詞的聲音＝亂語，記成 mutes。
-                 寫 voice/placement.json；人聽過後的修正寫在 voice/placement-overrides.json，重跑不會被蓋掉。
-  3. duck      ：mutes 區間原聲壓低（預設 −22 dB），輸出 voice/muted/<段>.mp4（影像直接複製）。
-  4. loudnorm  ：每句配音響度標準化（預設 −16 LUFS、TP −1.5），必要時套 tempo，輸出 voice/final/<key>.wav，
-                 並把 final／final_dur 寫回 placement。
-
-輸入：
-  * voice/manifest.json：{key: {segment, speaker, line, file, dur}}（外部 TTS 產物，dur＝秒）
-  * timeline-plan-ep*.csv：shot_id,start,end,...,subtitle（layer2_to_table 產生）
-  * segments-ep*.json：決定段落順序（最後一句溢入下一段時要知道下一段是誰）
-  * videos/<段>.mp4
+使用者定案：所有台詞、旁白、畫外音都由 MiniMax H3 原生生成，沒有外部 TTS。
+本模組不再呼叫任何 TTS，也不再是階段 7 的固定流程（`h3d voice align` 已移除）；
+保留的原因是 `scripts/edit/clip_map.py` 與 `scripts/edit/concat_adapter.py` 仍需要
+其中非 TTS 的共用工具（segment_order、timeline_lines、ffprobe_duration、拼音
+token 對齊與字幕時間換算）。`place`／`duck`／`loudnorm` 只服務舊 Concat T3
+配音軌；沒有外部配音檔時不會被呼叫。
 """
 from __future__ import annotations
 
@@ -426,7 +414,7 @@ def align(root: Path, *, steps: Sequence[str] = ("asr", "place", "duck", "loudno
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    parser = argparse.ArgumentParser(prog="h3d voice align",
+    parser = argparse.ArgumentParser(prog="voice_align（Concat adapter helper）",
                                      description="階段 7 固定流程：ASR 對位 → 放置 → 畫外句區間壓原聲 → 響度標準化")
     parser.add_argument("action", nargs="?", default="align", choices=["align"])
     parser.add_argument("--root", type=Path, default=Path("."))

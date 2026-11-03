@@ -179,7 +179,7 @@ class AssembleTrimTests(unittest.TestCase):
             _make_video(src, 3.0)
             ok, msg = assembly.process_single_segment(
                 src, out, [{"subtitle": "受傷了嗎", "start": 2.2, "end": 2.8}], 3.0,
-                audio_mode="native_sub", temp_dir=root / "tmp", lead_in_s=2.0)
+                temp_dir=root / "tmp", lead_in_s=2.0)
             self.assertTrue(ok, msg)
             self.assertAlmostEqual(_probe(out), 1.0, delta=0.1)
             srt = (root / "tmp" / "SEG.srt").read_text(encoding="utf-8")
@@ -192,7 +192,7 @@ class AssembleTrimTests(unittest.TestCase):
             _make_video(src, 3.0)
             ok, msg = assembly.process_single_segment(
                 src, root / "proc.mp4", [{"subtitle": "喂", "start": 1.0, "end": 1.5}], 3.0,
-                audio_mode="native_sub", temp_dir=root / "tmp", lead_in_s=2.0)
+                temp_dir=root / "tmp", lead_in_s=2.0)
         self.assertFalse(ok)
         self.assertIn("雙人引子", msg)
 
@@ -201,7 +201,7 @@ class AssembleTrimTests(unittest.TestCase):
             root = Path(td)
             src, out = root / "SEG.mp4", root / "proc.mp4"
             _make_video(src, 2.0)
-            ok, msg = assembly.process_single_segment(src, out, [], 2.0, audio_mode="native_sub",
+            ok, msg = assembly.process_single_segment(src, out, [], 2.0,
                                                       temp_dir=root / "tmp", burn_subtitles=False)
             self.assertTrue(ok, msg)
             self.assertAlmostEqual(_probe(out), 2.0, delta=0.1)
@@ -217,7 +217,7 @@ class AssembleTrimTests(unittest.TestCase):
             output = root / "final.mp4"
             with mock.patch.object(sys, "argv", [
                 "assemble_episode.py", "--segments", str(segments), "--videos-dir", str(videos),
-                "--output", str(output), "--audio-mode", "native_sub", "--no-burn-subtitles",
+                "--output", str(output), "--no-burn-subtitles",
             ]), contextlib.redirect_stdout(io.StringIO()):
                 code = assembly.main()
             final = _probe(output) if output.exists() else None

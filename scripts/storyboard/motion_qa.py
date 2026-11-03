@@ -12,7 +12,7 @@
    max(峰值 20%, 6 px) 的最長連續秒數）、onset_s（起手延遲）、重複幀數。
 3. 依規則提出變速區段，**合併**寫進 `videos/speed-ramps.json`（status=proposed）：
    開頭連續重複幀＝剪掉；起手延遲≥0.4 s＝2.5×；定住≥0.5 s＝2×（超過 1.2 s＝3×）；其餘 1×；
-   台詞保護區（segments 的 speech_window／external_narration／有台詞的鏡，可加 --vad 用 ffmpeg 偵測人聲）一律 1×。
+   台詞保護區（segments 的 speech_window／有台詞的鏡，可加 --vad 用 ffmpeg 偵測人聲）一律 1×。
    **飄浮（騰空水平滑行）光流抓不到**，要人看影格標成 kind=float、speed 1.8–2。
    已 approved／rendered 的段、來源 sha 沒變就不覆寫（--force 才重提）。
 
@@ -133,7 +133,7 @@ def shot_stats(flow: Dict[str, Any], bounds: List[Tuple[str, float, float]]) -> 
 # ------------------------------------------------------------------ 3. 提案區段
 
 def protect_windows(segment: Dict[str, Any], vad: Optional[List[Tuple[float, float]]] = None) -> List[Dict[str, Any]]:
-    """台詞保護區：speech_window、external_narration、有台詞的鏡；VAD 人聲區與它們重疊就併進來。"""
+    """台詞保護區：speech_window、有台詞的鏡；VAD 人聲區與它們重疊就併進來。"""
     wins: List[Dict[str, Any]] = []
     for sh in segment.get("shots") or []:
         dlg = sh.get("dialogue_and_audio") or {}
@@ -147,9 +147,6 @@ def protect_windows(segment: Dict[str, Any], vad: Optional[List[Tuple[float, flo
             st = float(sh.get("start_time") or 0.0)
             en = float(sh.get("end_time") or st + float(sh.get("duration") or 0.0))
             wins.append({"start": st, "end": en, "why": f"{sh.get('shot_id')} 有台詞（無 speech_window，整鏡保護）"})
-    for e in segment.get("external_narration") or []:
-        if e.get("start") is not None and e.get("end") is not None:
-            wins.append({"start": float(e["start"]), "end": float(e["end"]), "why": "畫外台詞（external_narration）"})
     for a, b in vad or []:
         if any(a < w["end"] + 0.3 and b > w["start"] - 0.3 for w in wins):
             wins.append({"start": a, "end": b, "why": "VAD 人聲"})

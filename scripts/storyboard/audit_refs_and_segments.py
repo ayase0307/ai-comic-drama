@@ -11,7 +11,7 @@ audit_refs_and_segments.py — 確定性產線稽核工具
    - 檢查主角是否在前 5 名，同段掛多張角色圖時發出同質化混臉警告。
    - 支援 --fix-refs 由演員設定自動確定性生成並覆寫一致的資產定義。
 2. 模式 B (--lint-h3)：
-   - H3 分段提示詞 17 條確定性自檢（FreeVideo 17n+5 幀數取整真實有效秒數 D、
+   - H3 分段提示詞 18 條確定性自檢（FreeVideo 17n+5 幀數取整真實有效秒數 D、
      6 大必填區塊、鏡頭數量連續性、禁止時間戳於 Shot 1、切點 >=2s、末切點空間、
      禁用運鏡詞、每鏡官方運鏡詞、時間推進詞 then/as、光源名詞、負面詞轉正面改寫、台詞語速等）。
 3. 模式 C (--self-test)：
@@ -292,7 +292,6 @@ def _section_body(prompt_text: str, section: str) -> str:
 def _norm_words(text: str) -> str:
     return re.sub(r"\s+", " ", str(text or "")).strip().lower()
 
-
 def _segment_named_ids(seg_data: Dict[str, Any]) -> List[str]:
     """段落裡「在畫面上的具名角色」：段層／逐鏡 visual_subject_ids、character_ids、unanchored_in_frame_characters。"""
     found: List[str] = []
@@ -312,6 +311,232 @@ def _segment_named_ids(seg_data: Dict[str, Any]) -> List[str]:
         hidden.update(str(x) for x in (shot.get("no_visual_reference_ids") or []))
         add(shot.get("visual_subject_ids") or shot.get("character_ids"))
     return [cid for cid in found if cid not in hidden and not cid.upper().startswith(("NARRATOR", "VO-", "N-"))]
+
+
+
+EFFECT_ID_RE = re.compile(r"\bB-[\w-]+\b")
+EFFECT_VOCAB_RE = re.compile(
+    r"\b(?:glow(?:s|ed|ing)?|light[- ]?form|beams?|auras?|sparks?|energy|flames?|luminous|radiant|"
+    r"phantoms?|spirit light|ghost light)\b|紅芒|光幕|光柱|特效|能量|火焰|光",
+    re.IGNORECASE,
+)
+LIGHTING_EXCLUDE_RE = re.compile(
+    r"\b(?:sunlight|sun light|noon light|daylight|moonlight|moon light|ambient light|key light|fill light|"
+    r"back ?light|practical light|lighting|light direction|light source|sunbeam|moonbeam|"
+    r"highlight|glint|reflection|sheen|catchlight)\b|"
+    r"陽光|日光|光線|燈光|月光|晨光|燭光|目光|眼光|時光|風光|觀光|光陰|光明|反光|高光|微光|光澤|眼神光",
+    re.IGNORECASE,
+)
+LIGHTING_KEYS = {"light", "lighting", "lighting_lock", "lighting_lock_line", "light_source",
+                 "light_direction", "key_light", "fill_light"}
+EFFECT_TEXT_KEYS = ("action_and_performance", "spatial_blocking", "composition_start", "description",
+                    "shot_description", "visual_description", "effect_description", "effect_desc",
+                    "effects", "vfx", "action")
+EFFECT_CHECKLIST_ROWS = ("location layout", "prop shape & state", "character screen side & facing",
+                         "costume", "light direction & colour", "effect state")
+
+
+def _effect_registry(project_root: Optional[Path]):
+    if not project_root:
+        return None
+    try:
+        import compile_layer2_to_h3 as compiler
+    except Exception:
+        return None
+    root = Path(project_root)
+    bible = root / "adapt" / "bible.json"
+    if not bible.is_file():
+        bible = root / "video-bible.json"
+    try:
+        return compiler.AssetRegistry(
+            bible_path=bible if bible.is_file() else None,
+            assets_path=root / "assets.md" if (root / "assets.md").is_file() else None,
+            project_root=root,
+        )
+    except Exception:
+        return None
+
+
+def _walk_effect_ids(obj: Any, known: set) -> List[str]:
+    found: List[str] = []
+    def visit(value: Any) -> None:
+        if isinstance(value, dict):
+            for item in value.values():
+                visit(item)
+        elif isinstance(value, list):
+            for item in value:
+                visit(item)
+        elif value is not None:
+            text = str(value)
+            for eid in known:
+                if eid in text and eid not in found:
+                    found.append(eid)
+    visit(obj)
+    return found
+
+
+def _effect_ids_in_segment(seg_data: Dict[str, Any], registry: Any) -> List[str]:
+    known = set(getattr(registry, "effects", {}) or {}) if registry is not None else set()
+    blob = json.dumps(seg_data, ensure_ascii=False)
+    b_ids = set(EFFECT_ID_RE.findall(blob))
+    if registry is not None:
+        # B- 也可能是生物（例：B-baishou）；有 registry 時只把「不是角色／道具／場景」的 B- 當特效候選。
+        non_effects = set(getattr(registry, "characters", {}) or {}) | set(getattr(registry, "props", {}) or {})             | set(getattr(registry, "locations", {}) or {})
+        known |= {eid for eid in b_ids if eid not in non_effects}
+    else:
+        known |= b_ids
+    found: List[str] = []
+    for container in (seg_data.get("asset_refs") or {}, seg_data.get("shots") or [],
+                      seg_data.get("reference_paths") or {}, seg_data.get("pack_ids") or [],
+                      seg_data.get("refmods") or [], seg_data.get("pack_waivers") or [],
+                      seg_data.get("h3_prompt") or ""):
+        for eid in _walk_effect_ids(container, known):
+            if eid not in found:
+                found.append(eid)
+    return found
+
+
+def _bound_effect_ids(seg_data: Dict[str, Any], backend: str) -> List[str]:
+    bound: List[str] = []
+    if backend == "remix":
+        for ref in seg_data.get("refmods") or []:
+            if isinstance(ref, dict) and str(ref.get("kind") or "") == "effect" and ref.get("pack"):
+                eid = str(ref.get("id") or "")
+                if eid and eid not in bound:
+                    bound.append(eid)
+        return bound
+    for ref in seg_data.get("reference_images") or []:
+        if isinstance(ref, dict) and ref.get("type") == "effect" and str(ref.get("path") or "").strip():
+            eid = str(ref.get("id") or "")
+            if eid and eid not in bound:
+                bound.append(eid)
+    for shot in seg_data.get("shots") or []:
+        if not isinstance(shot, dict):
+            continue
+        for entry in (shot.get("reference_paths") or {}).get("effects") or []:
+            if isinstance(entry, dict) and entry.get("id") and str(entry.get("reference_image") or entry.get("path") or "").strip():
+                eid = str(entry["id"])
+                if eid not in bound:
+                    bound.append(eid)
+    return bound
+
+
+def effect_reference_errors(seg_data: Dict[str, Any], backend: str,
+                            project_root: Optional[Path] = None) -> List[str]:
+    """E56：段落用到特效資產，卻沒有真的送到後端的參考圖／包。
+
+    pack_waivers 對特效無效：豁免不是參考圖，H3 只會畫出便宜的線稿或整片色偏。
+    """
+    registry = _effect_registry(project_root)
+    used = _effect_ids_in_segment(seg_data, registry)
+    if not used:
+        return []
+    bound = set(_bound_effect_ids(seg_data, backend))
+    missing = [eid for eid in used if eid not in bound]
+    if not missing:
+        return []
+    route = "refmods 要有 kind=effect 的包" if backend == "remix" else "reference_paths.effects 要有已審核參考圖"
+    return [
+        f"[E56: 特效缺參考圖] 這一段用到特效 {', '.join(missing)}，但 {route}；"
+        f"pack_waivers／豁免不能取代特效參考圖。請在 assets.md 建 B- 特效卡（類型：特效、設定圖、光源）"
+        f"並重新 h3d bind，特效沒有圖不得進階段 5。"
+    ]
+
+
+
+def _effect_text_from_shot(shot: Dict[str, Any]) -> str:
+    """只收動作／表演／走位／描述／特效欄位的文字；不讀 light／lighting 這類燈光欄位。"""
+    parts: List[str] = []
+
+    def visit(value: Any) -> None:
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if str(key).lower() in LIGHTING_KEYS:
+                    continue
+                visit(item)
+        elif isinstance(value, list):
+            for item in value:
+                visit(item)
+        elif value is not None:
+            parts.append(str(value))
+
+    for key in EFFECT_TEXT_KEYS:
+        if key in shot:
+            visit(shot.get(key))
+    return " ".join(parts)
+
+
+def _declared_effect_ids(seg_data: Dict[str, Any]) -> List[str]:
+    """段落層已明確列出／綁定的特效 id；用來避免「同段其他地方已列 id」時誤報。"""
+    found: List[str] = []
+    for entry in (seg_data.get("asset_refs") or {}).get("effects") or []:
+        eid = entry.get("id") if isinstance(entry, dict) else entry
+        if eid and str(eid) not in found:
+            found.append(str(eid))
+    for ref in seg_data.get("reference_images") or []:
+        if isinstance(ref, dict) and ref.get("type") == "effect" and ref.get("id"):
+            if str(ref["id"]) not in found:
+                found.append(str(ref["id"]))
+    for ref in seg_data.get("refmods") or []:
+        if isinstance(ref, dict) and str(ref.get("kind") or "") == "effect" and ref.get("id"):
+            if str(ref["id"]) not in found:
+                found.append(str(ref["id"]))
+    for shot in seg_data.get("shots") or []:
+        if not isinstance(shot, dict):
+            continue
+        for entry in (shot.get("reference_paths") or {}).get("effects") or []:
+            if isinstance(entry, dict) and entry.get("id"):
+                if str(entry["id"]) not in found:
+                    found.append(str(entry["id"]))
+    return found
+
+
+def _shot_lists_effect(shot: Dict[str, Any], registry: Any, segment_ids: List[str]) -> bool:
+    explicit = shot.get("effect_ids")
+    if isinstance(explicit, list) and explicit:
+        return True
+    if isinstance(explicit, dict) and explicit:
+        return True
+    blob = json.dumps(shot, ensure_ascii=False)
+    if EFFECT_ID_RE.search(blob):
+        return True
+    for eid in getattr(registry, "effects", {}) or {}:
+        if eid in blob:
+            return True
+    return bool(segment_ids)
+
+
+def effect_vocabulary_errors(seg_data: Dict[str, Any],
+                             project_root: Optional[Path] = None) -> List[str]:
+    """E57：鏡頭文字寫了特效，卻沒有列出任何特效 id（效果只能用文字碰運氣）。
+
+    只看動作／表演／走位／描述／特效欄位；陽光、日光、光線、lighting 這類燈光詞先排除。
+    單鏡可用 `effect_ids: []` ＋ `no_effect_reason: "<原因>"` 明確宣告「這不是特效」。
+    """
+    registry = _effect_registry(project_root)
+    segment_ids = _declared_effect_ids(seg_data)
+    errors: List[str] = []
+    shots = [s for s in (seg_data.get("shots") or []) if isinstance(s, dict)]
+    if not shots and seg_data.get("h3_prompt"):
+        shots = [{"shot_id": "prompt", "_prompt_text": str(seg_data.get("h3_prompt") or "")}]
+    for shot in shots:
+        raw = shot.get("_prompt_text") if shot.get("_prompt_text") else _effect_text_from_shot(shot)
+        cleaned = LIGHTING_EXCLUDE_RE.sub(" ", raw or "")
+        match = EFFECT_VOCAB_RE.search(cleaned)
+        if not match:
+            continue
+        explicit = shot.get("effect_ids")
+        if isinstance(explicit, list) and not explicit and str(shot.get("no_effect_reason") or "").strip():
+            continue  # 使用者明確宣告：這不是特效
+        if _shot_lists_effect(shot, registry, segment_ids):
+            continue
+        errors.append(
+            f"[E57: 鏡頭寫了特效但沒有綁特效資產] {shot.get('shot_id') or '?'} 的文字提到「{match.group(0)}」，"
+            f"卻沒有任何 effect_ids 或 B- 特效 id。請建立特效卡＋參考圖並在 effect_ids 列出；"
+            f"若只是陽光／日光／環境光，請在該鏡寫 \"effect_ids\": [] 與 "
+            f"\"no_effect_reason\": \"<原因>\"。"
+        )
+    return errors
 
 
 def audit_remix(seg_data: Dict[str, Any], project_root: Optional[Path] = None,
@@ -489,6 +714,9 @@ def audit_remix(seg_data: Dict[str, Any], project_root: Optional[Path] = None,
     if style_rules.is_style14(style_value):
         errors.extend(style_rules.segment_errors(seg_data, prompt_text, backend="remix"))
 
+    errors.extend(effect_reference_errors(seg_data, "remix", project_root))
+    errors.extend(effect_vocabulary_errors(seg_data, project_root))
+
     return {
         "passed": not errors,
         "errors": errors,
@@ -563,20 +791,33 @@ def _prompt_role_checks(prompt_text: str, seg_data: Dict[str, Any], ref_images: 
                 "Immediately after every voiceover <d> block, state that the on-screen character's lips remain closed."
             )
 
-    # ---------- E24：外部化的台詞不得同時寫進 <d>（任何政策） ----------
-    # external 全部外部化；short-offscreen-h3 只外部化長句。進了 external_narration 的句子
-    # 若仍以 <d> 出現，H3 會念一次、階段 7 又混一次。
-    # 預設與 compile_layer2_to_h3.DEFAULT_NARRATION_POLICY 一致（短畫外句交給 H3）。
-    narration_policy = str((seg_data.get("metadata") or {}).get("narration_policy") or "short-offscreen-h3")
+    # ---------- E24：外部 TTS 已移除 ----------
+    # 舊專案可能還留著 external_narration 或 voice_route=external；現在每一句都由
+    # H3 原生生成，這兩種標記都代表編譯政策沒換過來，必須擋下（不能靜默忽略）。
     external_narration = seg_data.get("external_narration") or []
-    if narration_policy in ("external", "short-offscreen-h3") and external_narration:
-        for entry in external_narration:
-            line = str(entry.get("line") or "").strip()
-            if line and f"<d>[{entry.get('language') or 'Chinese'}] {line}</d>" in prompt_text:
-                errors.append(
-                    f"[E24: 旁白政策衝突] narration_policy={narration_policy}，這句已列入外部 TTS，"
-                    f"卻仍以 <d> 出現在提示詞中：{line!r}。外部化的句子只在階段 7 混入，H3 這鏡只出環境音。"
-                )
+    if isinstance(external_narration, dict):
+        external_narration = [external_narration]
+    external_routes: List[str] = []
+    for shot in seg_data.get("shots") or []:
+        if not isinstance(shot, dict):
+            continue
+        dlg = shot.get("dialogue_and_audio") or {}
+        lines = [dlg] + [ex for ex in (dlg.get("extra_lines") or []) if isinstance(ex, dict)]
+        for line in lines:
+            if str(line.get("voice_route") or "").strip().lower() == "external":
+                external_routes.append(str(shot.get("shot_id") or shot.get("global_shot_id") or "?"))
+                break
+    if external_narration or external_routes:
+        detail = []
+        if external_narration:
+            detail.append(f"external_narration {len(external_narration)} 句")
+        if external_routes:
+            detail.append("voice_route=external：" + "、".join(sorted(set(external_routes))[:5]))
+        errors.append(
+            "[E24: 外部 TTS 已移除] 這一段仍有外部配音標記（" + "；".join(detail) + "）。"
+            "所有台詞、旁白、畫外音、內心獨白都由 H3 原生生成：請把 voice_route 改成 h3（或刪除），"
+            "刪掉 external_narration，重新編譯提示詞。"
+        )
 
     # ---------- E43／E44：畫外句聲音 lint（strict 才擋） ----------
     _voice = voice_lint.voice_lint(prompt_text, strict=strict)
@@ -765,6 +1006,8 @@ def audit_refs_and_subjects(seg_data: Dict[str, Any], project_root: Optional[Pat
     if style_rules.is_style14(style_value):
         errors.extend(style_rules.segment_errors(seg_data, prompt_text))
 
+    errors.extend(effect_reference_errors(seg_data, "ref2va", project_root))
+    errors.extend(effect_vocabulary_errors(seg_data, project_root))
     passed = len(errors) == 0
     return {
         "passed": passed,
@@ -867,7 +1110,7 @@ def fix_refs_and_subjects(seg_data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # ==============================================================================
-# 模式 B：H3 分段提示詞 17 條確定性自檢 (--lint-h3)
+# 模式 B：H3 分段提示詞 18 條確定性自檢 (--lint-h3)
 # ==============================================================================
 
 def lint_h3_prompt(
@@ -878,7 +1121,7 @@ def lint_h3_prompt(
     backend: str = "ref2va",
     submit_endpoint: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """對 H3 分段提示詞執行 17 條確定性工程自檢。
+    """對 H3 分段提示詞執行 18 條確定性工程自檢。
 
     submit_endpoint：hosted＝MiniMax 平台 API，整段 >7000 字元報 E；local（預設，家機 FreeVideo／REMIX／
     ComfyUI）不設字元上限，只在估計 token 超過文字編碼器上限時 W11（可能超過文字編碼器長度）。
@@ -902,6 +1145,13 @@ def lint_h3_prompt(
     # prompt channel. A copied exclusion block must be rewritten before sending.
     if re.search(r"\bnegative(?:[_\s]+prompt|\s+constraints)\s*:", clean_prompt, re.IGNORECASE):
         errors.append("[E18: unsupported negative prompt block] 將負面清單改寫為正向可見狀態；不得把 negative constraints / negative_prompt 區塊送入 H3 正文。")
+
+    # E58：原始 dict／JSON 洩漏。提示詞只送英文散文，大括號與 JSON 的 `": "` 一律擋。
+    if re.search(r"[{}]", clean_prompt) or '": "' in clean_prompt:
+        errors.append(
+            "[E58: 提示詞洩漏 JSON／dict] 提示詞含 `{`、`}` 或 `\": \"`；結構化資料要改寫成英文散文"
+            "（例：Luonian is back against the stone; the red sky is spreading overhead），不得把 raw dict／JSON 送進 H3。"
+        )
 
     # 計算真實有效時長 D
     eff_d = effective_duration(nominal_duration, rounding=rounding_mode)
@@ -1521,7 +1771,7 @@ def main():
     parser.add_argument("--strict", action="store_true",
                         help="新門禁模式（h3d next／新核准用）：E43／E44 畫外句聲音 lint 算錯誤；預設只警告")
     parser.add_argument("--fix-refs", action="store_true", help="搭配 --audit-refs，自動以演員表重寫並修復至 100%% 合規")
-    parser.add_argument("--lint-h3", metavar="FILE_OR_DIR", help="對指定分段 JSON 或提示詞文本執行 17 條 H3 確定性自檢")
+    parser.add_argument("--lint-h3", metavar="FILE_OR_DIR", help="對指定分段 JSON 或提示詞文本執行 18 條 H3 確定性自檢")
     parser.add_argument("--duration", type=float, default=7.0, help="分段目標名義秒數（預設: 7.0s）")
     parser.add_argument("--rounding", choices=["floor", "round", "ceil"], default="floor", help="17n+5 取整模式；JSON分段優先採 metadata.rounding_mode")
     parser.add_argument("--backend", choices=list(VIDEO_BACKENDS), default=None,
@@ -1650,7 +1900,7 @@ def main():
                     print(f"  ⚠️ {w}")
                 total_warnings += len(refs_res["warnings"])
 
-            # 模式 B: H3 提示詞 17 條自檢
+            # 模式 B: H3 提示詞 18 條自檢
             if args.lint_h3:
                 prompt_str = extract_prompt_from_seg(seg_data)
                 dur = float(seg_data.get("metadata", {}).get("target_duration_sec", args.duration))
@@ -1661,7 +1911,7 @@ def main():
                                           submit_endpoint=resolve_submit_endpoint(args.project_root or p.parent,
                                                                                   args.submit_endpoint))
                 if lint_res["passed"]:
-                    print(f"  [PASS] H3 提示詞 17 條自檢通過 ({seg_id_label}: 名義 {dur}s -> 真實有效 {lint_res['details']['effective_duration_sec']}s)")
+                    print(f"  [PASS] H3 提示詞 18 條自檢通過 ({seg_id_label}: 名義 {dur}s -> 真實有效 {lint_res['details']['effective_duration_sec']}s)")
                 else:
                     for e in lint_res["errors"]:
                         print(f"  ❌ {e}")

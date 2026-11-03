@@ -554,7 +554,7 @@ def audit_segment_prompts(todo_segs: List[Dict[str, Any]], root_dir: Optional[Pa
                 for e in r_res.get("errors", []):
                     errors.append(f"[{sid}] 模式 A 參考圖錯誤: {e}")
 
-        # 模式 B: H3 提示詞 17 條自檢
+        # 模式 B: H3 提示詞 18 條自檢
         l_res = lint_h3_prompt(
             prompt,
             nominal_duration=dur,

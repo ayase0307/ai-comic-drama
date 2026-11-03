@@ -7,7 +7,7 @@ compile_layer2_to_h3.py — Layer 2 分鏡轉 H3 官方六段式 Prompt 與分�
 功能：
 1. 讀取一至多個 Layer 2 分鏡 JSON（支援目錄或多檔案），依集與場序批次編譯。
 2. 結合 bible.json 與/或 assets.md 解析角色、妖物、場景底圖的圖片路徑與中英文外貌錨點。
-3. 嚴格輸出符合 audit_refs_and_segments.py 17 條規則的 H3 官方六段式結構：
+3. 嚴格輸出符合 audit_refs_and_segments.py 18 條規則的 H3 官方六段式結構：
    - subject_definitions: (<Picture 1> 為場景，<Subject k> 嚴格對應 <Picture k+1>)
    - summary: (時長、鏡數、主體動作與情緒)
    - retention_analysis: (四大連戲錨點、妖物純灰底三視圖防染色聲明)
@@ -33,7 +33,7 @@ import os
 import pathlib
 import re
 import sys
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 # 確保 Windows 終端輸出 UTF-8
 if hasattr(sys.stdout, "reconfigure"):
@@ -180,6 +180,55 @@ DEFAULT_LIGHT_SOURCES = [
 
 NARRATOR_IDS = {"旁白", "narrator", "narration", "v.o.", "vo", "os", "o.s.", "畫外音", "旁白（v.o.）"}
 CJK_RE = re.compile(r"[\u4e00-\u9fff]")
+# 特效資產（PART 1）：assets.md 卡片 id 以 B- 開頭且文字有特效關鍵詞，或卡片明寫
+# `類型：特效`／`type: effect`。特效沒有參考圖時不得進階段 5（audit E56）。
+EFFECT_KEYWORDS = re.compile(
+    r"特效|光效|光暈|光形|發光|紅光|金光|白光|VFX|\beffects?\b|light[- ]?form|glow|luminous|emissive",
+    re.IGNORECASE,
+)
+EFFECT_TYPE_WORDS = ("特效", "光效", "effect", "vfx", "fx")
+LIGHT_EFFECT_TEXT = re.compile(
+    r"光效|光暈|光形|發光|紅光|金光|白光|\blight[- ]?form\b|\bglow|\bluminous\b|\bemissive\b|\bglowing\b",
+    re.IGNORECASE,
+)
+
+
+NON_EFFECT_MARKERS = ("生物設定板描述", "三視圖", "四視圖")
+
+
+def _is_effect_asset(asset_id: str, *texts: str, type_value: Any = None) -> bool:
+    """特效判定（PART 1）：
+
+    1. 有 `類型：` 就由它決定：特效／光效／VFX → 是；其他（生物、道具、場景…）→ 不是。
+    2. 沒有類型時，卡片有「生物設定板描述／三視圖／四視圖」→ 一定不是特效。
+    3. 只有 B- 卡片才用關鍵詞後援，且只搜固定描述片段／設定板描述／類型說明。
+    """
+    kind = str(type_value or "").strip().lower()
+    if kind:
+        return any(word in kind for word in EFFECT_TYPE_WORDS)
+    body = " ".join(str(text or "") for text in texts)
+    if any(marker in body for marker in NON_EFFECT_MARKERS):
+        return False
+    if str(asset_id or "").upper().startswith("B-"):
+        return bool(EFFECT_KEYWORDS.search(body))
+    return False
+
+
+def _effect_record(asset_id: str, name: str, desc_en: str, ref_img: str,
+                   source_en: str = "", source_zh: str = "", *texts: str) -> Dict[str, Any]:
+    body = " ".join([name, desc_en, source_en, source_zh, *[str(t or "") for t in texts]])
+    return {
+        "id": asset_id,
+        "name": name or asset_id,
+        "desc_en": desc_en,
+        "ref_img": ref_img,
+        "source_en": source_en or "",
+        "source_zh": source_zh or "",
+        "is_effect": True,
+        "is_light": bool(LIGHT_EFFECT_TEXT.search(body)),
+    }
+
+
 TODO_RE = re.compile(r"^\[?TODO\]?[:：]?")
 CAMERA_HOLD_ACTION_RE = re.compile(
     r"^(\s*(?:Stage\s+\d+\s*:\s*)?)The camera holds on (.+?)[.!]?$",
@@ -258,6 +307,8 @@ class AssetRegistry:
         self.characters: Dict[str, Dict[str, Any]] = {}
         self.locations: Dict[str, Dict[str, Any]] = {}
         self.props: Dict[str, Dict[str, Any]] = {}
+        self.effects: Dict[str, Dict[str, Any]] = {}
+        self._b_cards: Dict[str, Dict[str, Any]] = {}
         self.bodydetails: Dict[str, Dict[str, Any]] = {}
         self.style: Dict[str, str] = {}
         self.id_aliases: Dict[str, str] = {}
@@ -348,13 +399,38 @@ class AssetRegistry:
             pid = prop.get("id") or prop.get("prop_id")
             if pid:
                 desc_en = prop.get("visual_prompt_en") or prop.get("desc_en") or prop.get("description_en") or ""
-                self.props[pid] = {
-                    "id": pid,
-                    "name": prop.get("name", pid),
-                    "desc_en": "" if CJK_RE.search(desc_en or "") else desc_en,
-                    "ref_img": prop.get("reference_image") or prop.get("image_path") or "",
-                    **_english_name_fields(prop),
-                }
+                ref_img = prop.get("reference_image") or prop.get("image_path") or ""
+                type_value = prop.get("type") or prop.get("kind") or prop.get("category") or prop.get("asset_type")
+                source_en = prop.get("source_en") or prop.get("light_source_en") or ""
+                source_zh = prop.get("source") or prop.get("light_source") or ""
+                if _is_effect_asset(str(pid), desc_en, prop.get("name", ""), type_value=type_value):
+                    self.effects[pid] = _effect_record(
+                        str(pid), str(prop.get("name", pid)),
+                        "" if CJK_RE.search(desc_en or "") else desc_en, ref_img,
+                        source_en, source_zh, type_value, prop.get("name", ""))
+                    self.effects[pid].update(_english_name_fields(prop))
+                else:
+                    self.props[pid] = {
+                        "id": pid,
+                        "name": prop.get("name", pid),
+                        "desc_en": "" if CJK_RE.search(desc_en or "") else desc_en,
+                        "ref_img": ref_img,
+                        **_english_name_fields(prop),
+                    }
+        for effect in data.get("effects", []) or []:
+            if not isinstance(effect, dict):
+                continue
+            eid = effect.get("id") or effect.get("effect_id")
+            if not eid:
+                continue
+            desc_en = effect.get("visual_prompt_en") or effect.get("desc_en") or effect.get("description_en") or ""
+            self.effects[str(eid)] = _effect_record(
+                str(eid), str(effect.get("name", eid)),
+                "" if CJK_RE.search(desc_en or "") else desc_en,
+                effect.get("reference_image") or effect.get("image_path") or "",
+                effect.get("source_en") or "", effect.get("source") or "",
+                effect.get("type") or "effect", effect.get("name", ""))
+            self.effects[str(eid)].update(_english_name_fields(effect))
         for detail in data.get("bodydetails", []) or []:
             if not isinstance(detail, dict):
                 continue
@@ -394,14 +470,21 @@ class AssetRegistry:
                     self.style[m.group(1)] = value
                 continue
             # 卡片標題
-            m = re.match(r"^#{2,4}\s*((?:C|CREATURE|EXTRAS)-[\w-]+|CREATURE-\d+)\s*[　\s]*(.*)$", line)
+            m = re.match(r"^#{2,4}\s*((?:C|B|CREATURE|EXTRAS)-[\w-]+|CREATURE-\d+)\s*[　\s]*(.*)$", line)
             if m:
                 aid, name = m.group(1), re.sub(r"[（(].*?[)）]", "", m.group(2)).strip() or m.group(1)
-                rec = self.characters.setdefault(aid, {
-                    "id": aid, "name": name, "desc_en": "", "short_en": "", "desc_zh": "",
-                    "ref_img": "", "wardrobe_states": {}, "is_creature": aid.startswith("CREATURE"),
-                    "is_group": aid.startswith("EXTRAS"),
-                })
+                if aid.startswith("B-"):
+                    rec = self._b_cards.setdefault(aid, {
+                        "id": aid, "name": name, "desc_en": "", "short_en": "", "desc_zh": "",
+                        "ref_img": "", "wardrobe_states": {}, "is_creature": True,
+                        "_card_lines": [],
+                    })
+                else:
+                    rec = self.characters.setdefault(aid, {
+                        "id": aid, "name": name, "desc_en": "", "short_en": "", "desc_zh": "",
+                        "ref_img": "", "wardrobe_states": {}, "is_creature": aid.startswith("CREATURE"),
+                        "is_group": aid.startswith("EXTRAS"),
+                    })
                 rec.setdefault("name", name)
                 current = rec
                 continue
@@ -425,6 +508,24 @@ class AssetRegistry:
                     current["ref_img"] = ticks[0].strip()
                 elif label.startswith("簡稱") and ticks:
                     current["short_en"] = ticks[0].strip()
+                elif "設定板描述" in label:
+                    current["board_desc"] = ticks[0].strip() if ticks else re.sub(r"^-\s*\*\*[^*]+\*\*[：:]\s*", "", line).strip()
+                elif label.startswith("類型說明"):
+                    current["type_note"] = ticks[0].strip() if ticks else re.sub(r"^-\s*\*\*[^*]+\*\*[：:]\s*", "", line).strip()
+                elif label.startswith("類型") or label.lower() in ("type", "category"):
+                    value = ticks[0].strip() if ticks else re.sub(r"^-\s*\*\*[^*]+\*\*[：:]\s*", "", line).strip()
+                    current["asset_type"] = value
+                    if any(word in value.lower() for word in EFFECT_TYPE_WORDS):
+                        current["is_effect"] = True
+                elif label.startswith("光源"):
+                    value = ticks[0].strip() if ticks else re.sub(r"^-\s*\*\*[^*]+\*\*[：:]\s*", "", line).strip()
+                    if "en" in label.lower() or label.lower() in ("source_en", "light_source_en"):
+                        current["source_en"] = value
+                    else:
+                        current["source_zh"] = value
+                elif label.lower() in ("source_en", "light_source_en", "source"):
+                    value = ticks[0].strip() if ticks else re.sub(r"^-\s*\*\*[^*]+\*\*[：:]\s*", "", line).strip()
+                    current["source_en"] = value
                 continue
             # 場景清單行
             m = re.match(r"^-\s*`(S-[\w-]+)`\s*([^：:`]*)[：:]?\s*(.*)$", line)
@@ -440,7 +541,7 @@ class AssetRegistry:
             # 表格行
             if line.startswith("|"):
                 parts = [p.strip() for p in line.strip("|").split("|")]
-                if len(parts) >= 3 and re.match(r"^(C|S|P|CREATURE)-", parts[0]):
+                if len(parts) >= 3 and re.match(r"^(C|B|S|P|CREATURE)-", parts[0]):
                     aid, name, desc = parts[0], parts[1], parts[2].strip("`")
                     if aid.startswith(("C-", "CREATURE")):
                         rec = self.characters.setdefault(aid, {"id": aid, "name": name, "desc_en": "", "short_en": "",
@@ -450,8 +551,34 @@ class AssetRegistry:
                     elif aid.startswith("S-"):
                         rec = self.locations.setdefault(aid, {"id": aid, "name": name, "desc_en": "", "desc_zh": "", "ref_img": ""})
                         rec["desc_en"] = rec["desc_en"] or desc
+                    elif aid.startswith("B-"):
+                        if _is_effect_asset(aid, name, desc):
+                            self.effects[aid] = _effect_record(aid, name, desc, "", "", "", desc)
+                        else:
+                            self.characters[aid] = {"id": aid, "name": name, "desc_en": desc, "short_en": "",
+                                                    "desc_zh": "", "ref_img": "", "wardrobe_states": {},
+                                                    "is_creature": True, "is_group": False}
                     else:
                         self.props[aid] = {"id": aid, "name": name, "desc_en": desc}
+
+        for aid, rec in list(self._b_cards.items()):
+            text = " ".join(str(rec.get(k) or "") for k in
+                            ("desc_en", "board_desc", "type_note", "source_en", "source_zh"))
+            if _is_effect_asset(aid, text, type_value=rec.get("asset_type")):
+                effect = _effect_record(
+                    aid, str(rec.get("name") or aid), str(rec.get("desc_en") or ""),
+                    str(rec.get("ref_img") or ""), str(rec.get("source_en") or ""),
+                    str(rec.get("source_zh") or ""), text)
+                self.effects[aid] = effect
+            else:
+                self.characters[aid] = {k: v for k, v in rec.items() if k != "_card_lines"}
+        self._b_cards.clear()
+        for rec in self.effects.values():
+            body = " ".join(str(rec.get(k) or "") for k in ("name", "desc_en", "source_en", "source_zh", "asset_type"))
+            rec["is_effect"] = True
+            rec["is_light"] = bool(LIGHT_EFFECT_TEXT.search(body))
+            rec.setdefault("source_en", "")
+            rec.setdefault("source_zh", "")
 
     # ---------- 查詢 ----------
     def get_character(self, cid_or_name: str, wardrobe_state: Optional[str] = None) -> Dict[str, Any]:
@@ -516,6 +643,17 @@ class AssetRegistry:
                 f"Stage5 binding prop {pid!r} has no English visual description"
                 + ("" if result.get("ref_img") else "（也沒有參考圖；沒有圖的道具會以英文描述純文字注入，至少要有描述）")
             )
+        return result
+
+    def get_effect(self, eid: str) -> Dict[str, Any]:
+        """特效資產：必須登記，且要有英文固定描述；參考圖由呼叫端決定是否必填。"""
+        eid = self.id_aliases.get(eid, eid)
+        rec = self.effects.get(eid)
+        if not rec:
+            raise ValueError(f"Stage5 binding effect {eid!r} is not registered in the normalized Bible／assets.md")
+        result = dict(rec)
+        if not result.get("desc_en"):
+            result["desc_en"] = result.get("name") or eid
         return result
 
     def get_bodydetail(self, did: str) -> Dict[str, Any]:
@@ -829,8 +967,11 @@ def _apply_en_shot(shot: Dict[str, Any], en_shot: Dict[str, Any]) -> None:
             dlg["offscreen_where_en"] = str(hv["where"])
         if hv.get("form") in ("voiceover", "offscreen"):
             dlg["offscreen_form"] = hv["form"]
-    if en_shot.get("voice_route") in VOICE_ROUTES:
-        shot.setdefault("dialogue_and_audio", {})["voice_route"] = en_shot["voice_route"]
+    route = str(en_shot.get("voice_route") or "").strip().lower()
+    if route and route not in VOICE_ROUTES:
+        raise ValueError(EXTERNAL_TTS_REMOVED_MESSAGE)
+    if route in VOICE_ROUTES:
+        shot.setdefault("dialogue_and_audio", {})["voice_route"] = route
     _apply_five_part_override(shot, en_shot.get("five_part_en"))
     _apply_visibility_override(shot, en_shot)
 
@@ -929,7 +1070,7 @@ def _stage5_reference_path_map(binding: Dict[str, Any]) -> Tuple[Dict[str, str],
                         if scene_description and scene_description != desc:
                             raise ValueError("Stage5 segment binds conflicting scene descriptions")
                         scene_description = desc
-        for group in ("characters", "creatures", "extras", "props", "bodydetails"):
+        for group in ("characters", "creatures", "extras", "effects", "props", "bodydetails"):
             entries = grouped.get(group, []) or []
             if isinstance(entries, dict):
                 entries = [{"id": key, "reference_image": value} for key, value in entries.items()]
@@ -1264,20 +1405,39 @@ def _strip_dialogue_from_soundscape(foley: str, spoken_lines: List[str]) -> str:
     return text.strip()
 
 
-# 畫外音／旁白政策（PR-10c，findings #104 #114 #122 #123）。
-#   short-offscreen-h3（預設）：短畫外句（O.S.）與短旁白（V.O.）留給 H3 直接生成，用官方句式＋逐字 <d>；
-#                              超過 SHORT_OFFSCREEN_MAX_CHARS 字或 voice_route=external 才改外部 TTS。
-#   external：所有沒有可見嘴的台詞都改外部 TTS（H3 這鏡不提任何人說話，只留環境音）。
-#   h3-native：所有沒有可見嘴的台詞都留 H3（不看長度）。
-# 逐句可用 dialogue_and_audio.voice_route = "h3" | "external" 覆寫政策。
-NARRATION_POLICIES = ("short-offscreen-h3", "external", "h3-native")
-DEFAULT_NARRATION_POLICY = "short-offscreen-h3"
+# 畫外音／旁白政策（使用者定案：全部由 H3 原生生成）。
+#   h3-native（唯一政策）：所有沒有可見嘴的台詞（O.S.、旁白／內心獨白 V.O.、
+#   旁白者、謎之聲）都留給 H3 用官方畫外句式＋逐字 <d> 生成；不再有外部 TTS。
+#   旁白必須有刻意設計的聲線（voice_4d_spec_en／offscreen_voice_en），
+#   並明確寫「畫面中沒人說話、所有可見的嘴都閉著」讓 H3 不會把旁白配到
+#   在場角色的嘴上。
+# 逐句 dialogue_and_audio.voice_route 只接受 "h3"（或省略）；"external" 會報錯。
+NARRATION_POLICIES = ("h3-native",)
+DEFAULT_NARRATION_POLICY = "h3-native"
 # 實測（噩盡島 EP01 S02-b／S02-d／S03-e，拼音相似度 1.00）都是 ≤15 字的短句。
-# v118 #10：路由上限改用 #116「單句建議 ≤18 字」，16–18 字仍留 H3（不多一道外部 TTS 後處理），
-# 只在 compile_notes 提醒「超過實測範圍」；>18 字才預設外部 TTS。逐句 voice_route 仍可覆寫。
+# v118 #10：路由上限改用 #116「單句建議 ≤18 字」，16–18 字仍留 H3，
+# 只在 compile_notes 提醒「超過實測範圍」；>18 字改提醒「旁白過長：請拆到多鏡」。
 SHORT_OFFSCREEN_MEASURED_CHARS = 15
 SHORT_OFFSCREEN_MAX_CHARS = 18
-VOICE_ROUTES = ("h3", "external")
+VOICE_ROUTES = ("h3",)
+NARRATION_CHARS_PER_SEC = 3.0
+
+EXTERNAL_TTS_REMOVED_MESSAGE = (
+    "外部 TTS 已移除：請把 voice_route 改成 h3（或刪除該欄位），旁白一律由 H3 原生生成"
+)
+
+# 沒有聲線描述時，給旁白用的預設英文描述：無實體、慢，且明說「比畫面裡任何人都老、都低」。
+# 噩盡島 EP01 實測：只寫抽象詞（genderless、disembodied）時，畫面只有一人的段落 H3 會借他的音色；
+# 寫成具體年齡＋與畫面人物對比後才分得開（仍約一半 seed，旁白段要多跑一個 seed 驗音色）。
+DEFAULT_NARRATOR_VOICE_EN = (
+    "a disembodied voice with no source in the frame, clearly a different person from anyone on screen: "
+    "older and much deeper than any visible character, low and unhurried, "
+    "slower than normal speech with clear pauses between phrases, "
+    "close-miked with a faint airy reverb, it fills the air rather than coming from anyone"
+)
+NO_ONE_SPEAKS_SENTENCE = (
+    "No one in frame speaks during this line; every visible mouth stays closed and still."
+)
 # #123：畫外句同鏡的 Expression 寫張嘴／喘氣，H3 會讓露臉者跟著開口，像他在說話（與 voice_lint E44 同一條）。
 MOUTH_OPEN_RE = voice_lint.MOUTH_OPEN_RE
 
@@ -1309,15 +1469,38 @@ def _spoken_char_count(line: str) -> int:
 
 
 def _offscreen_route(policy: str, dlg: Dict[str, Any], line: str) -> str:
-    """回傳 "h3" 或 "external"：沒有可見嘴的這一句該由誰發聲。"""
+    """沒有可見嘴的這一句永遠由 H3 原生生成；任何外部路由都視為舊資料並報錯。"""
     route = str(dlg.get("voice_route") or "").strip().lower()
-    if route in VOICE_ROUTES:
-        return route
-    if policy == "external":
-        return "external"
-    if policy == "h3-native":
-        return "h3"
-    return "h3" if _spoken_char_count(line) <= SHORT_OFFSCREEN_MAX_CHARS else "external"
+    if route and route not in VOICE_ROUTES:
+        raise ValueError(EXTERNAL_TTS_REMOVED_MESSAGE)
+    if policy not in NARRATION_POLICIES:
+        raise ValueError(EXTERNAL_TTS_REMOVED_MESSAGE)
+    return "h3"
+
+
+def _validate_voice_routes(layer2_data: Dict[str, Any]) -> None:
+    """舊專案殘留的 voice_route=external 在編譯前就擋下，不讓它靜默變成 H3 原生。"""
+    for shot in layer2_data.get("shots", []) or []:
+        if not isinstance(shot, dict):
+            continue
+        lines = [shot.get("dialogue_and_audio") or {}]
+        lines += [ex for ex in ((shot.get("dialogue_and_audio") or {}).get("extra_lines") or [])
+                  if isinstance(ex, dict)]
+        for line in lines:
+            route = str(line.get("voice_route") or "").strip().lower()
+            if route and route not in VOICE_ROUTES:
+                raise ValueError(EXTERNAL_TTS_REMOVED_MESSAGE)
+
+
+def _narration_window_seconds(dlg: Dict[str, Any], shot_len: Optional[float]) -> Optional[float]:
+    """旁白可用秒數：優先用 speech_window，沒有才退回整鏡長度。"""
+    window = dlg.get("speech_window")
+    if isinstance(window, dict) and window.get("start") is not None and window.get("end") is not None:
+        try:
+            return max(0.0, float(window["end"]) - float(window["start"]))
+        except (TypeError, ValueError):
+            pass
+    return shot_len
 
 
 def _possessive_list(tags: List[str]) -> str:
@@ -1355,9 +1538,8 @@ def _english_or_empty(text: str) -> str:
 def _shot_speaker_has_visible_mouth(shot: Dict[str, Any], registry: AssetRegistry) -> bool:
     """判斷這句台詞的說話人是否有「可見的嘴」。
 
-    官方 base §4.4：發聲者（含畫外音）都要有穩定 (Sx) 代號；而沒有可見嘴的台詞
-    不該由 H3 內建語音生成（見 --narration-policy external）。這個判斷同時決定
-    「要不要掛音色參考 <Audio N>」：只有 H3 自己要念出來的台詞才需要音色參考。
+    官方 base §4.4：發聲者（含畫外音）都要有穩定 (Sx) 代號。現在所有台詞都由
+    H3 原生生成；這個判斷只用來決定旁白句式與「不要掛在畫面某人嘴上」的寫法。
     """
     dlg = shot.get("dialogue_and_audio", {}) or {}
     if not (dlg.get("has_dialogue") or dlg.get("line_verbatim")):
@@ -1365,12 +1547,60 @@ def _shot_speaker_has_visible_mouth(shot: Dict[str, Any], registry: AssetRegistr
     speaker = dlg.get("speaker")
     if not speaker:
         return False
-    if _is_voiceover(shot):
-        return False
-    record = registry.characters.get(speaker, {}) or {}
-    if record.get("no_visual_reference") or record.get("voice_only"):
+    if _line_has_no_visible_mouth(shot, dlg, registry):
         return False
     return _dialogue_visibility(shot) == "visible"
+
+
+def _line_has_no_visible_mouth(shot: Dict[str, Any], dlg: Dict[str, Any], registry: AssetRegistry) -> bool:
+    """這一句是不是「沒有可見的嘴」：畫外 O.S.、旁白／內心 V.O.、背影／遮嘴、voice-only。"""
+    speaker = dlg.get("speaker")
+    record = registry.characters.get(speaker, {}) if speaker else {}
+    if record.get("no_visual_reference") or record.get("voice_only"):
+        return True
+    is_vo = _is_voiceover(shot)
+    form = str(dlg.get("offscreen_form") or "").lower()
+    if form == "voiceover":
+        is_vo = True
+    visibility = _dialogue_visibility(shot)
+    if form == "offscreen":
+        visibility = "offscreen"
+    return is_vo or visibility in ("offscreen", "mouth_hidden")
+
+
+def _extra_line_has_no_visible_mouth(shot: Dict[str, Any], ex: Dict[str, Any],
+                                     registry: AssetRegistry) -> bool:
+    speaker = ex.get("speaker")
+    record = registry.characters.get(speaker, {}) if speaker else {}
+    if ex.get("voice_only") or record.get("no_visual_reference") or record.get("voice_only"):
+        return True
+    form = str(ex.get("offscreen_form") or "").lower()
+    audio_type = str(ex.get("audio_type") or "").strip().lower()
+    if form in ("voiceover", "offscreen") or audio_type in ("narration", "voiceover", "vo", "inner", "v.o."):
+        return True
+    if ex.get("lips_closed_lock"):
+        return True
+    speaker_ids = shot.get("character_ids") or []
+    return bool(speaker) and speaker not in speaker_ids
+
+
+def _collect_narration_speakers(shots: List[Dict[str, Any]], registry: AssetRegistry) -> List[str]:
+    """回傳段內有「沒有可見嘴」台詞的說話人（依首次出現順序）。"""
+    found: List[str] = []
+    for shot in shots:
+        dlg = shot.get("dialogue_and_audio", {}) or {}
+        if (dlg.get("has_dialogue") or dlg.get("line_verbatim")) and _line_has_no_visible_mouth(shot, dlg, registry):
+            speaker = dlg.get("speaker")
+            if speaker and speaker not in found:
+                found.append(speaker)
+        for ex in dlg.get("extra_lines") or []:
+            if not isinstance(ex, dict) or not str(ex.get("line_verbatim") or "").strip():
+                continue
+            if _extra_line_has_no_visible_mouth(shot, ex, registry):
+                speaker = ex.get("speaker")
+                if speaker and speaker not in found:
+                    found.append(speaker)
+    return found
 
 
 def _english_voice_descriptor(dlg: Dict[str, Any], notes: Optional[List[str]] = None) -> str:
@@ -1494,8 +1724,8 @@ def remix_refmods(binding: Dict[str, Any]) -> List[Dict[str, Any]]:
         if tag not in REMIX_PACK_TAGS:
             raise ValueError(f"remix 綁定 {seg_id} 包 {pack} 的 tag={tag!r}；只能是 Picture（單圖包）或 Video（多圖包）")
         kind = str(ref.get("kind") or "")
-        if kind not in REMIX_SUBJECT_KINDS + ("scene", "prop"):
-            raise ValueError(f"remix 綁定 {seg_id} 包 {pack} 的 kind={kind!r}；只能是 scene／actor／creature／prop／extras")
+        if kind not in REMIX_SUBJECT_KINDS + ("scene", "prop", "effect"):
+            raise ValueError(f"remix 綁定 {seg_id} 包 {pack} 的 kind={kind!r}；只能是 scene／actor／creature／prop／effect／extras")
         if kind == "scene" and index != 0:
             raise ValueError(f"remix 綁定 {seg_id} 的場景包 {pack} 不在 refmods 第一個（E53：場景包第一）")
         counters[tag] += 1
@@ -1531,6 +1761,8 @@ def remix_english_name(ref: Dict[str, Any], registry: "AssetRegistry", plan: Opt
         rec = registry.locations.get(aid, {})
     elif kind == "prop":
         rec = registry.props.get(aid, {})
+    elif kind == "effect":
+        rec = registry.effects.get(aid, {})
     else:
         rec = registry.characters.get(registry.id_aliases.get(aid, aid), {})
     for candidate in (ref.get("name_en"), entry.get("name_en"), rec.get("name_en"), ref.get("display_name"),
@@ -1559,6 +1791,8 @@ def remix_description(ref: Dict[str, Any], registry: "AssetRegistry", plan: Opti
         desc = rec.get("desc_en") or ""
     elif kind == "prop":
         desc = (registry.props.get(registry.id_aliases.get(aid, aid)) or {}).get("desc_en") or ""
+    elif kind == "effect":
+        desc = (registry.effects.get(aid) or {}).get("desc_en") or ""
     else:
         desc = registry.get_character(aid, wardrobe_state=ref.get("costume_id") or wardrobe).get("desc_en") or ""
     return _clean(desc).rstrip(" .")
@@ -1586,6 +1820,12 @@ def remix_intro_sentences(refmods: List[Dict[str, Any]], registry: "AssetRegistr
             if name:
                 names[aid] = name
             continue
+        if kind == "effect":
+            info = registry.get_effect(aid)
+            sentences.append(effect_reference_sentence(label, info, notes))
+            if name:
+                names[aid] = name
+            continue
         if not name:
             if kind in REMIX_SUBJECT_KINDS:
                 raise ValueError(
@@ -1602,6 +1842,25 @@ def remix_intro_sentences(refmods: List[Dict[str, Any]], registry: "AssetRegistr
             body = name + (f", {desc}" if desc else "")
         sentences.append(f"{label} is {body}.")
     return sentences, names
+
+
+def effect_reference_sentence(label: str, info: Dict[str, Any],
+                              notes: Optional[List[str]] = None) -> str:
+    """特效參考句：只參考形狀／色／透光；光效再加局部光源與「不改整片調色」。"""
+    desc = _clean(info.get("desc_en"))
+    name = desc or _ascii_name(info.get("name_en")) or _ascii_name(info.get("name")) or "the effect"
+    sentence = (f"{label} is the visual reference for the effect {name}: copy only its shape, "
+                f"feather-like light streaks, colour and translucency; do not copy its layout, "
+                f"background or the objects around it.")
+    if info.get("is_light"):
+        source = _clean(info.get("source_en"))
+        if not source:
+            if notes is not None:
+                notes.append(f"特效缺光源位置（{info.get('id') or name}）：請在 assets.md 卡片補 `光源：…` 或 `source_en`")
+            source = "its own core"
+        sentence += (f" The light is emitted locally from {source}, falls off within a short radius "
+                     f"and only rim-lights nearby surfaces; the overall colour grade of the scene does not change.")
+    return sentence
 
 
 def remix_style_anchor(layer2_data: Dict[str, Any], registry: "AssetRegistry") -> str:
@@ -1653,14 +1912,13 @@ def compile_segment_h3(
     主角參考圖：asset_refs.primary_character / metadata.primary_character 優先；
     否則取臉戲權重（景別越近權重越高）最重的角色。旁白與畫外音永不成為主體。
 
-    narration_policy（沒有可見嘴的台詞：畫外 O.S.、旁白／內心獨白 V.O.、背影／遮嘴）：
-      - "short-offscreen-h3"（預設）：≤18 字的短句留給 H3（實測 ≤15 字），用官方句式寫逐字 <d>
-        （O.S.：the line is heard from X (Sn) off-screen, <聲線>: <d>…</d>；
-        V.O.：X (Sn) says in an off-screen voiceover, <聲線>: <d>…</d>），露臉者寫嘴閉合、
-        沒有臉寫 no face is on screen；長句才改外部 TTS（external_narration）。
-      - "external"：全部改外部 TTS，H3 這一鏡不提任何人說話，只留環境與動作音。
-      - "h3-native"：全部留 H3（不看長度），句式同上。
-      逐句 dialogue_and_audio.voice_route = "h3"／"external" 可覆寫。
+    narration_policy（沒有可見嘴的台詞：畫外 O.S.、旁白／內心獨白 V.O.、旁白者、謎之聲）：
+      - "h3-native"（唯一政策）：全部留給 H3，用官方句式寫逐字 <d>
+        （O.S.：the line is heard from <Subject N> (Sn) off-screen, <聲線>: <d>…</d>；
+        V.O.：<Subject N> (Sn) says in an off-screen voiceover, <聲線>: <d>…</d>），
+        並固定加一句「No one in frame speaks during this line; every visible mouth stays closed and still.」
+        聲線優先用 offscreen_voice_en／voice_4d_spec_en，沒有就用預設旁白描述。
+      逐句 dialogue_and_audio.voice_route 只接受 "h3"（或省略）；舊的 "external" 會報錯。
 
     previous_end_state：同場景前一段的 segment_end_state（#133）。有英文終態時，
     寫成本段第 1 鏡的「Starting state carried over from the previous segment」句，
@@ -1669,7 +1927,11 @@ def compile_segment_h3(
     「表面素淨、無文字無塗鴉」（#138）；metadata.allow_lettering=true 的段不加。
     """
     if narration_policy not in NARRATION_POLICIES:
+        if narration_policy in ("external", "short-offscreen-h3"):
+            raise ValueError(EXTERNAL_TTS_REMOVED_MESSAGE)
         raise ValueError(f"narration_policy 必須是 {'、'.join(NARRATION_POLICIES)} 之一，收到 {narration_policy!r}")
+    # 舊 Layer 2 若還寫 voice_route=external（或任何非 h3 路由），在編譯前就擋下。
+    _validate_voice_routes(layer2_data)
     # 正規化層（P3）：先把同義欄位與時間軸收斂，避免「合法欄位被誤報缺」
     # 或「duration 與 end-start 不一致卻照算」。strict=False 只把可自動修正的
     # 問題降級為 warning；結構性錯誤（缺時間軸、重複 shot_id、panel 缺格位）仍會拋錯。
@@ -2036,6 +2298,20 @@ def compile_segment_h3(
     if not remix:
         speaker_ids = _align_speaker_ids(speaker_ids, selected)
 
+    # 旁白／畫外音說話人：在自己的 (Sx) 之外再給一個「沒有 <Picture>」的 <Subject N>。
+    # 已掛參考圖的 Subject 直接用自己那一號；其餘（旁白者、voice-only、謎之聲）接在
+    # 已選 Subject 之後編號，並在 subject_definitions 明說沒有參考圖、永不入鏡。
+    narration_subject_no: Dict[str, int] = {}
+    if not remix:
+        for spk in _collect_narration_speakers(shots, registry):
+            if spk in selected or spk in narration_subject_no:
+                continue
+            sid = speaker_ids.get(str(spk))
+            if sid and sid.startswith("S") and sid[1:].isdigit():
+                narration_subject_no[spk] = int(sid[1:])
+            else:
+                narration_subject_no[spk] = len(selected) + len(narration_subject_no) + 1
+
     # ---------- 未錨定的在場人物（複製人主因，送件前由 E19 攔截） ----------
     in_frame_ids: List[str] = []
     for shot in shots:
@@ -2120,12 +2396,15 @@ def compile_segment_h3(
     # ---------- 音色參考 <Audio N>（官方獨立編號） ----------
     # 官方 ref-en §2.4：<Audio N> 是可單獨追蹤的參考音訊，用途之一是「參考說話人的音色與語氣」。
     # 綁定格式：stage5 的 audio_references[{id, path, character_id, role, description_en}]。
-    # 只有「這一段 H3 真的要念出來」的說話人才需要音色參考；畫外音已外部化成 TTS，不需要。
-    on_screen_speakers: List[str] = []
+    # 現在所有台詞都由 H3 原生生成，所以畫內對白與旁白說話人都需要音色參考（有提供時）。
+    h3_voiced_speakers: List[str] = []
     for shot in shots:
-        speaker = (shot.get("dialogue_and_audio", {}) or {}).get("speaker")
-        if speaker and _shot_speaker_has_visible_mouth(shot, registry) and speaker not in on_screen_speakers:
-            on_screen_speakers.append(speaker)
+        dlg = shot.get("dialogue_and_audio", {}) or {}
+        lines = [dlg] + [ex for ex in (dlg.get("extra_lines") or []) if isinstance(ex, dict)]
+        for line in lines:
+            speaker = line.get("speaker")
+            if speaker and str(line.get("line_verbatim") or "").strip() and speaker not in h3_voiced_speakers:
+                h3_voiced_speakers.append(speaker)
     audio_refs: List[Dict[str, Any]] = []
     if remix and (stage5_binding or {}).get("audio_references"):
         notes.append("REMIX 沒有音訊參考輸入，audio_references 已略過（音色靠 voice_4d_spec_en 描述詞）")
@@ -2133,10 +2412,10 @@ def compile_segment_h3(
         if not isinstance(entry, dict):
             raise ValueError("Stage5 audio_references entries must be objects")
         character_id = entry.get("character_id")
-        if character_id and character_id not in on_screen_speakers:
+        if character_id and character_id not in h3_voiced_speakers:
             notes.append(
-                f"音色參考 {entry.get('id')} 對應的角色 {character_id} 在本段沒有可見嘴的台詞，"
-                f"已略過（畫外音由外部 TTS 負責，不需掛 H3 音色參考）"
+                f"音色參考 {entry.get('id')} 對應的角色 {character_id} 在本段沒有台詞，"
+                f"已略過（沒有要 H3 念的句子）"
             )
             continue
         if not entry.get("path"):
@@ -2262,6 +2541,19 @@ def compile_segment_h3(
         if not info["desc_en"]:
             notes.append(f"{cid} 缺英文固定描述片段")
 
+    # 旁白／畫外音說話人：<Subject N> 只代表「這把聲音」，沒有 <Picture>，也不代表畫面人物。
+    for spk, no in narration_subject_no.items():
+        sid = speaker_ids.get(str(spk)) or f"S{no}"
+        label = _dialogue_speaker_label(spk, registry)
+        subject_def_lines.append(
+            f"<Subject {no}> is {label}, a voice-only presence heard off-screen ({sid}); "
+            f"it has no <Picture> reference, is never visible in frame, and never moves a visible mouth."
+        )
+        retention_lines.append(
+            f"<Subject {no}> ({sid}): reference - voice only; no reference image and no body are imported, "
+            f"and no visible character's mouth moves for this voice."
+        )
+
     secondary_short: Dict[str, str] = {}
     for cid in secondary:
         info = char_info(cid)
@@ -2299,7 +2591,10 @@ def compile_segment_h3(
     # 官方 ref-en §2.4：<Audio 1> is the voice-timbre reference for <Subject 1> (S1).
     # 官方 ref-en §4.1 音訊的保留標記是 reference：只參考音色與語氣，不複製原訊號。
     for ref, tag, speaker_id in audio_ref_entries:
-        subject_tag = tag_of.get(str(ref.get("character_id") or ""))
+        cid = str(ref.get("character_id") or "")
+        subject_tag = tag_of.get(cid)
+        if not subject_tag and cid in narration_subject_no:
+            subject_tag = f"<Subject {narration_subject_no[cid]}>"
         desc = ref.get("description") or "a single speaker's line recorded dry with no music"
         if subject_tag and speaker_id:
             subject_def_lines.append(
@@ -2308,6 +2603,15 @@ def compile_segment_h3(
             retention_lines.append(
                 f"{tag}: reference - {subject_tag} ({speaker_id}) follows {tag}'s voice timbre and measured "
                 f"delivery without copying the original signal; the words in {tag} are not spoken in the target video."
+            )
+        elif subject_tag:
+            # 旁白／voice-only：<Subject N> 沒有 <Picture>，但 <Audio N> 仍是它的音色來源。
+            subject_def_lines.append(
+                f"{tag} is the voice-timbre reference for {subject_tag}, containing {desc}."
+            )
+            retention_lines.append(
+                f"{tag}: reference - {subject_tag} follows {tag}'s voice timbre and measured delivery "
+                f"without copying the original signal; the words in {tag} are not spoken in the target video."
             )
         else:
             subject_def_lines.append(
@@ -2346,6 +2650,11 @@ def compile_segment_h3(
             aid = entry.get("id") if isinstance(entry, dict) else entry
             if aid and aid not in prop_ids:
                 prop_ids.append(aid)
+        effect_ids: List[str] = []
+        for entry in asset_refs.get("effects", []) or []:
+            aid = entry.get("id") if isinstance(entry, dict) else entry
+            if aid and aid not in effect_ids:
+                effect_ids.append(str(aid))
         for entry in asset_refs.get("bodydetails", []) or []:
             aid = entry.get("id") if isinstance(entry, dict) else entry
             if aid and aid not in detail_ids:
@@ -2358,11 +2667,24 @@ def compile_segment_h3(
                 aid = entry.get("id") if isinstance(entry, dict) else None
                 if aid and aid not in prop_ids:
                     prop_ids.append(aid)
+            bound_effects = (shot_binding.get("reference_paths", {}) or {}).get("effects", []) or []
+            if isinstance(bound_effects, dict):
+                bound_effects = [{"id": key, "reference_image": value} for key, value in bound_effects.items()]
+            for entry in bound_effects:
+                aid = entry.get("id") if isinstance(entry, dict) else None
+                if aid and aid not in effect_ids:
+                    effect_ids.append(str(aid))
         for aid in ref_path_map:
+            if aid in registry.effects and aid not in effect_ids:
+                effect_ids.append(aid)
             if aid in registry.props and aid not in prop_ids:
                 prop_ids.append(aid)
             if aid in registry.bodydetails and aid not in detail_ids:
                 detail_ids.append(aid)
+        for aid in effect_ids:
+            info = registry.get_effect(aid)
+            info["ref_img"] = ref_path_map.get(aid, info.get("ref_img") or "")
+            supplementary.append(("effect", info))
         for aid in prop_ids:
             info = registry.get_prop(aid)
             info["ref_img"] = ref_path_map.get(aid, info.get("ref_img") or "")
@@ -2372,6 +2694,22 @@ def compile_segment_h3(
             info["ref_img"] = ref_path_map.get(aid, info["ref_img"])
             supplementary.append(("bodydetail", info))
         for kind, info in supplementary:
+            if kind == "effect":
+                if not info.get("ref_img"):
+                    notes.append(f"特效 {info.get('id')} 沒有已審核參考圖，未寫入 Picture；audit E56 會擋")
+                    continue
+                reference_images.append({
+                    "id": info["id"], "type": "effect",
+                    "description": info.get("desc_en") or info.get("name", info["id"]),
+                    "path": info["ref_img"],
+                })
+                pic_no = len(reference_images)
+                subject_def_lines.append(effect_reference_sentence(f"<Picture {pic_no}>", info, notes))
+                retention_lines.append(
+                    f"<Picture {pic_no}> (effect reference): preserve only its shape, light streaks, "
+                    f"colour and translucency; do not import its layout, background or surrounding objects."
+                )
+                continue
             if kind == "prop" and not info.get("ref_img"):
                 # 無設定圖的道具：不占 Picture 編號，描述寫進參考定義區（純文字）
                 subject_def_lines.append(
@@ -2590,7 +2928,6 @@ def compile_segment_h3(
     if lock_text and not remix:
         det_lines[0] = f"{det_lines[0]} {lock_text}"
     spoken_lines: List[str] = []
-    external_narration: List[Dict[str, Any]] = []
     for idx, s in enumerate(shots, start=1):
         cam = s.get("camera_optics", {}) or {}
         shot_size = cam.get("shot_size", "MS")
@@ -2676,34 +3013,15 @@ def compile_segment_h3(
             elif _form == "offscreen":
                 visibility = "offscreen"
             spoken_lines.append(line)
-            # 外部化判準：這句話沒有「可見的嘴」就不該由 H3 內建語音發出。
-            # 畫外音、旁白、背影／遮嘴說話全部改由外部 TTS 合成後於階段 7 混入；
-            # 有可見嘴的畫內對白才留 <d> 給 H3 當口型錨點。
+            # 所有台詞都由 H3 原生生成。沒有可見嘴的台詞改用旁白句式：
+            # 綁定說話人自己的 <Subject N> (Sx)（沒有 <Picture>）、寫死英文聲線，
+            # 並明說「畫面中沒人說話、所有可見的嘴都閉著」。
             no_visible_mouth = is_vo or visibility in ("offscreen", "mouth_hidden")
-            route = _offscreen_route(narration_policy, dlg, line) if no_visible_mouth else "h3"
-            if no_visible_mouth and route == "external":
-                external_narration.append({
-                    "shot_id": s.get("shot_id"),
-                    "global_shot_id": s.get("global_shot_id"),
-                    "speaker": spk,
-                    "speaker_id": speaker_id,
-                    "line": line,
-                    "language": "Chinese",
-                    "is_voiceover": is_vo,
-                    "start": ((dlg.get("speech_window") or {}) or {}).get("start"),
-                    "end": ((dlg.get("speech_window") or {}) or {}).get("end"),
-                })
-                # #122：外部化的句子不得在提示詞裡寫「某人在說話」卻不給 <d>（H3 會自編亂語）。
-                # 這一鏡只寫畫面角色閉嘴與環境音；台詞由階段 7 混入。
-                if lips_closed:
-                    delivery = ("the visible characters keep their lips completely closed and continue their actions, "
-                                "and the shot carries only the location ambience")
-                else:
-                    delivery = "the shot carries only the location ambience"
-                if window:
-                    delivery = delivery[:1].upper() + delivery[1:]
-                speech = f"; {window}{delivery}"
-            elif no_visible_mouth and (is_vo or visibility == "offscreen"):
+            _offscreen_route(narration_policy, dlg, line)  # 舊 voice_route=external 在此報錯
+            narration_line = no_visible_mouth and (is_vo or visibility == "offscreen")
+            if narration_line and spk in narration_subject_no and not speaker_tag:
+                subject_speaker = f"<Subject {narration_subject_no[spk]}> ({speaker_id or 'S' + str(narration_subject_no[spk])})"
+            if narration_line:
                 # 官方畫外句式（實測：噩盡島 EP01 S02-b／S02-d／S03-e 拼音相似度 1.00）：
                 # 聲線描述放 <d> 外、<d> 內只放逐字台詞；只對露臉者寫嘴閉合。
                 form_vo = is_vo
@@ -2714,8 +3032,11 @@ def compile_segment_h3(
                 if voice.lower() in ("voiceover", "v.o.", "v.o", "offscreen", "off-screen", "inner voice"):
                     voice = ""
                 if not voice:
-                    notes.append(f"{s.get('shot_id')} 畫外句缺英文聲線描述（offscreen_voice_en 或 voice_4d_spec_en）；"
-                                 f"H3 會自己猜聲音，跨段更難一致")
+                    voice = DEFAULT_NARRATOR_VOICE_EN
+                    notes.append(
+                        f"{s.get('shot_id')} 畫外句缺英文聲線描述（offscreen_voice_en 或 voice_4d_spec_en），"
+                        f"已套用預設旁白聲線；建議用 h3d decide voice:<角色> 定案，跨段才一致"
+                    )
                 where = _clean(dlg.get("offscreen_where_en"))
                 if where and CJK_RE.search(where):
                     where = ""
@@ -2746,23 +3067,41 @@ def compile_segment_h3(
                     delivery = f"the line is heard from {subject_speaker} off-screen{where_txt}{voice_txt}: "
                     if window:
                         delivery = delivery[:1].upper() + delivery[1:]
-                speech = f"; {window}{delivery}<d>[Chinese] {line}</d>{lips}"
+                speech = f"; {window}{delivery}<d>[Chinese] {line}</d>{lips}. {NO_ONE_SPEAKS_SENTENCE}"
                 n_chars = _spoken_char_count(line)
-                if n_chars > SHORT_OFFSCREEN_MEASURED_CHARS:
+                if n_chars > SHORT_OFFSCREEN_MAX_CHARS:
+                    notes.append(f"{s.get('shot_id')} 旁白過長：請拆到多鏡（{n_chars} 字 > {SHORT_OFFSCREEN_MAX_CHARS}）")
+                elif n_chars > SHORT_OFFSCREEN_MEASURED_CHARS:
                     notes.append(f"{s.get('shot_id')} 畫外句 {n_chars} 字，超過實測範圍（約 ≤{SHORT_OFFSCREEN_MEASURED_CHARS} 字）；"
-                                 f"H3 可能念不全或亂語，考慮拆鏡或 voice_route=external")
+                                 f"H3 可能念不全，建議拆鏡")
                 try:
                     shot_len = float(s.get("end_time")) - float(s.get("start_time"))
                 except (TypeError, ValueError):
                     shot_len = None
-                if shot_len is not None and shot_len < n_chars / 4.0 + 0.6:
-                    notes.append(f"{s.get('shot_id')} 畫外句 {n_chars} 字只有 {shot_len:.1f}s，鏡長可能不夠念完（約每秒 4 字＋起音）")
+                narration_secs = _narration_window_seconds(dlg, shot_len)
+                if narration_secs is not None and narration_secs < n_chars / NARRATION_CHARS_PER_SEC:
+                    notes.append(
+                        f"{s.get('shot_id')} 旁白 {n_chars} 字需要約 {n_chars / NARRATION_CHARS_PER_SEC:.1f}s，"
+                        f"旁白窗只有 {narration_secs:.1f}s（3.0 字/秒）；請拉長或拆鏡")
                 if faces and MOUTH_OPEN_RE.search(expr or ""):
                     notes.append(f"{s.get('shot_id')} 畫外句同鏡的 Expression 寫了張嘴／喘氣（{MOUTH_OPEN_RE.search(expr).group(0)}），"
                                  f"H3 會讓露臉者跟著開口；改成 lips pressed tightly shut（#123）")
+
             elif visibility == "mouth_hidden":
                 delivery = f"{subject_speaker} speaks with lips remaining completely closed: "
-                speech = f"; {window}{delivery}<d>[Chinese] {line}</d>"
+                speech = f"; {window}{delivery}<d>[Chinese] {line}</d>. {NO_ONE_SPEAKS_SENTENCE}"
+                n_chars = _spoken_char_count(line)
+                if n_chars > SHORT_OFFSCREEN_MAX_CHARS:
+                    notes.append(f"{s.get('shot_id')} 旁白過長：請拆到多鏡（{n_chars} 字 > {SHORT_OFFSCREEN_MAX_CHARS}）")
+                try:
+                    hidden_len = float(s.get("end_time")) - float(s.get("start_time"))
+                except (TypeError, ValueError):
+                    hidden_len = None
+                hidden_secs = _narration_window_seconds(dlg, hidden_len)
+                if hidden_secs is not None and hidden_secs < n_chars / NARRATION_CHARS_PER_SEC:
+                    notes.append(
+                        f"{s.get('shot_id')} 旁白 {n_chars} 字需要約 {n_chars / NARRATION_CHARS_PER_SEC:.1f}s，"
+                        f"旁白窗只有 {hidden_secs:.1f}s（3.0 字/秒）；請拉長或拆鏡")
             else:
                 who = tag_of.get(spk) or (secondary_short.get(spk) if spk else None) or focal
                 # 音色：穩定的描述詞（voice_4d_spec_en）＋ 官方音色參考 <Audio N>。
@@ -2822,21 +3161,18 @@ def compile_segment_h3(
                 ex_offscreen = ex_is_vo or ex_voice_only or ex_form == "offscreen"
                 window_ex = _speech_window_clause(ex)
                 if ex_offscreen:
-                    if _offscreen_route(narration_policy, ex, ex_line) == "external":
-                        external_narration.append({
-                            "shot_id": s.get("shot_id"), "global_shot_id": s.get("global_shot_id"),
-                            "speaker": ex_spk, "speaker_id": ex_id, "line": ex_line, "language": "Chinese",
-                            "is_voiceover": ex_is_vo,
-                            "start": ((ex.get("speech_window") or {}) or {}).get("start"),
-                            "end": ((ex.get("speech_window") or {}) or {}).get("end"),
-                        })
-                        continue  # #122：外部化的句子不寫「某人在說話」卻不給 <d>
+                    _offscreen_route(narration_policy, ex, ex_line)  # 舊 voice_route=external 在此報錯
+                    if ex_spk in narration_subject_no and not ex_tag:
+                        ex_subject = (f"<Subject {narration_subject_no[ex_spk]}> "
+                                      f"({ex_id or 'S' + str(narration_subject_no[ex_spk])})")
                     ex_voice = _clean(ex.get("offscreen_voice_en")) or _english_voice_descriptor(ex, notes)
                     if ex_voice and CJK_RE.search(ex_voice):
                         ex_voice = ""
                     ex_voice = ex_voice.rstrip(".。 ")
                     if ex_voice.lower() in ("voiceover", "v.o.", "v.o", "offscreen", "off-screen", "inner voice"):
                         ex_voice = ""
+                    if not ex_voice:
+                        ex_voice = DEFAULT_NARRATOR_VOICE_EN
                     ex_voice_txt = f", {ex_voice}" if ex_voice else ""
                     if ex_is_vo:
                         phrase = f"{ex_subject} says in an off-screen voiceover{ex_voice_txt}: "
@@ -2849,7 +3185,20 @@ def compile_segment_h3(
                         faces.append(ex_tag)  # 畫面上那位的內心聲：他自己的嘴也不動
                     faces = list(dict.fromkeys(faces))
                     lips = f" while {_possessive_list(faces)} lips remain completely closed" if faces else ""
-                    speech += f". {window_ex}Right after that line, {phrase}<d>[Chinese] {ex_line}</d>{lips}"
+                    no_one = "" if NO_ONE_SPEAKS_SENTENCE in speech else f" {NO_ONE_SPEAKS_SENTENCE}"
+                    speech += f". {window_ex}Right after that line, {phrase}<d>[Chinese] {ex_line}</d>{lips}.{no_one}"
+                    n_chars = _spoken_char_count(ex_line)
+                    if n_chars > SHORT_OFFSCREEN_MAX_CHARS:
+                        notes.append(f"{s.get('shot_id')} 旁白過長：請拆到多鏡（{n_chars} 字 > {SHORT_OFFSCREEN_MAX_CHARS}）")
+                    try:
+                        ex_shot_len = float(s.get("end_time")) - float(s.get("start_time"))
+                    except (TypeError, ValueError):
+                        ex_shot_len = None
+                    ex_secs = _narration_window_seconds(ex, ex_shot_len)
+                    if ex_secs is not None and ex_secs < n_chars / NARRATION_CHARS_PER_SEC:
+                        notes.append(
+                            f"{s.get('shot_id')} 旁白 {n_chars} 字需要約 {n_chars / NARRATION_CHARS_PER_SEC:.1f}s，"
+                            f"旁白窗只有 {ex_secs:.1f}s（3.0 字/秒）；請拉長或拆鏡")
                     spoken_lines.append(ex_line)
                     prev_owner = ex_tag or ex_identity
                     prev_visible = False
@@ -2932,8 +3281,10 @@ def compile_segment_h3(
             if final_state and _has_cjk(final_state):
                 notes.append("segment_end_state 是中文，未寫進英文提示詞；請在 en_overlay.end_state_en 補英文")
                 final_state = {}
-            if final_state:
-                tail += " End state: " + json.dumps(final_state, ensure_ascii=False, sort_keys=True) + "."
+            if isinstance(final_state, Mapping) and final_state:
+                end_text = continuity_lint.state_sentence(final_state)
+                if end_text:
+                    tail += " End state: " + end_text + "."
         action = action[:1].upper() + action[1:]
         marker = ""
         if embed_cut_markers:
@@ -2969,7 +3320,10 @@ def compile_segment_h3(
                 body += "."
             body += f"{tail}{marker}"
         else:
-            closing = f"{speech}." if speech else ("." if (expr and not blocking_clause and not stage_refs and not expr.rstrip().endswith((".", "!", "?"))) else "")
+            if speech:
+                closing = speech if speech.rstrip().endswith((".", "!", "?")) else f"{speech}."
+            else:
+                closing = "." if (expr and not blocking_clause and not stage_refs and not expr.rstrip().endswith((".", "!", "?"))) else ""
             _forbid = physical_camera.forbidden_sentence(physical_camera.forbidden_items(s, "", action))
             body = (f"{head} {action}." + (f" {_forbid}" if _forbid else "") + (f" Expression: {expr}" if expr else "")
                     + blocking_clause + stage_refs + f"{closing}{tail}{marker}")
@@ -3060,11 +3414,6 @@ def compile_segment_h3(
             f"⏳ 待補參考圖（已宣告 pending_references，提示詞可審稿、不可送件）：{', '.join(pending_missing)}；"
             f"圖補齊後重編一次即可解除。"
         )
-    if external_narration:
-        notes.append(
-            f"畫外音／旁白 {len(external_narration)} 句已改為外部 TTS（未寫入 <d>），"
-            f"階段 7 需以 {narration_policy} 政策合成後混入"
-        )
     frame_provider = "remix" if remix else h3_spec.DEFAULT_PROVIDER
     if not h3_spec.in_supported_range(seg_frames, frame_provider):
         spec = h3_spec.provider_spec(frame_provider)
@@ -3118,7 +3467,6 @@ def compile_segment_h3(
         "h3_prompt": full_h3_prompt,
         "h3_loras": loras,
         "shots": shots,
-        "external_narration": external_narration,
         "speaker_ids": speaker_ids,
         "unanchored_in_frame_characters": unanchored_in_frame,
         "segment_end_state": layer2_data.get("segment_end_state"),
@@ -3358,6 +3706,10 @@ def resolve_narration_policy(cli_value: Optional[str], project_root: pathlib.Pat
         decided = decisions_mod.narration_policy_of(decisions_mod.load(project_root))
     except decisions_mod.DecisionError as exc:
         raise ValueError(f"decisions.json 讀取失敗：{exc}") from exc
+    if cli_value and cli_value not in NARRATION_POLICIES:
+        if cli_value in ("external", "short-offscreen-h3"):
+            raise ValueError(EXTERNAL_TTS_REMOVED_MESSAGE)
+        raise ValueError(f"narration_policy 必須是 {'、'.join(NARRATION_POLICIES)} 之一，收到 {cli_value!r}")
     if cli_value and decided and cli_value != decided:
         raise ValueError(f"--narration-policy {cli_value} 與 decisions.json 的 dialogue_policy 定案 {decided} 衝突，請統一後再編譯")
     return cli_value or decided or DEFAULT_NARRATION_POLICY
@@ -3386,9 +3738,9 @@ def main() -> int:
                         help="在提示詞寫入 <scenetrans>／<cutoff> 標記（本專案約定，非官方語法）")
     parser.add_argument(
         "--narration-policy", type=str, default=None, choices=list(NARRATION_POLICIES),
-        help=("畫外音／旁白政策：short-offscreen-h3=短畫外句與旁白（≤18 字）由 H3 用官方句式＋<d> 直接生成，長句才外部 TTS；"
-              "external=全部外部 TTS，於階段 7 混入；h3-native=全部留 H3。"
-              "省略時讀 <project-root>/decisions.json 的 dialogue_policy，都沒有才用 short-offscreen-h3（預設）；與定案衝突會報錯"),
+        help=("畫外音／旁白政策：h3-native（唯一選項）＝所有畫外句、旁白、內心獨白都由 H3 "
+              "用官方畫外句式＋<d> 原生生成，套用固定聲線描述並明說畫面中沒人說話。"
+              "省略時讀 <project-root>/decisions.json 的 dialogue_policy，都沒有才用 h3-native；與定案衝突會報錯"),
     )
     parser.add_argument("--no-carry-end-state", action="store_false", dest="carry_end_state", default=True,
                         help="不把同場景前一段的英文終態帶入本段第 1 鏡（#133；預設帶入）")
@@ -3566,7 +3918,7 @@ def main() -> int:
             dur = seg["metadata"]["target_duration_sec"]
             # 模式 A: 參考圖序對（remix：角色包 E50–E55＋refcheck 文字比對＋站位閘門 D06–D14）
             refs_res = audit_refs_and_subjects(seg, project_root=args.project_root, backend=backend)
-            # 模式 B: H3 提示詞 17 條自檢（remix 讀三欄）
+            # 模式 B: H3 提示詞 18 條自檢（remix 讀三欄）
             lint_res = lint_h3_prompt(
                 seg["h3_prompt"],
                 nominal_duration=dur,
@@ -3594,7 +3946,7 @@ def main() -> int:
                     print(f"    [模式B錯誤] {e}")
                 total_errors += len(lint_res["errors"])
             else:
-                print(f"    [模式B通過] 17 條 H3 自檢全部通過 (真實秒數 D={lint_res['details']['effective_duration_sec']}s)")
+                print(f"    [模式B通過] 18 條 H3 自檢全部通過 (真實秒數 D={lint_res['details']['effective_duration_sec']}s)")
 
             for w in refs_res["warnings"] + lint_res["warnings"]:
                 print(f"    [警告] {w}")

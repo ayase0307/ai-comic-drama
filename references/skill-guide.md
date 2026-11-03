@@ -67,7 +67,7 @@
 | 4 導演分鏡 | 依內容編排分段、焦距物距與動作；需要構圖審核時用使用者選的生圖工具（`h3d imagegen`：Codex 分鏡、Qwen 分鏡總覽圖、手繪或其他圖像工具） | `layer2/*.json`、`storyboard-ep01.md`、選用的對應 PNG | `review/stage-4-storyboard.html`（進 H3 編譯前需對應圖與人工核准） |
 | 5 提示詞包 | **逐鏡親手寫五小節（Layer 2 `five_part_en`，規範見 `references/prompt-authoring.md`）**→ **H3 官方六段式批次編譯（`compile_layer2_to_h3.py`，含分鏡總覽圖門禁檢查）**、服裝狀態機解析、LoRA 精確適配、`--check` 雙重對帳＋逐鏡撰寫審查（E30–E38） | `prompts-ep01.md`、`segments-ep01.json` | `review/stage-5-prompts.html` |
 | 6 生成（選用） | 僅在使用者要求且相容的影片工具／adapter 可用時生成；**審核頁為「影片 × 分鏡總覽圖 × 設定圖 × QA」四欄對照**（缺圖紅框不阻擋核准），QA 技術結果與人工核准分開；**收件後跑動態 QA（`h3d motion`）自動提案變速清單**（`references/speed-ramp.md`） | `videos/`、`qa-report.json`、`videos/speed-ramps.json` | `review/stage-6-videos.html` |
-| 7 組裝（選用） | **短畫外句與短旁白由 H3 直接生成、長旁白走外部 TTS**（`--narration-policy short-offscreen-h3` 預設；`external` 全部外部化），**畫內對白保留 H3 口型**（H3 每支原生音電平隨機，組裝器預設**段層以對白為錨**對齊各段對白電平、無台詞段保持相對電平，`--no-dialogue-align` 關）；**TTS 引擎由 `tts_doctor.py` 盤點後選擇**（`--tts-engine`／`--tts-config`）；整片兩遍 `loudnorm` 對齊 EBU R128，報告列逐段 LUFS／TP 與段間落差（> 6 LU 出 W49）；**已核准的變速段用 `videos/ramped/`，字幕／旁白／配音依 `time_map` 換算** | `final/`、`narration-ep01.md`、compiled segments 匯出的有效時間線 | `review/stage-7-final.html` |
+| 7 組裝（選用） | **所有台詞、旁白、畫外音、內心獨白都由 H3 原生生成**（`--narration-policy h3-native`，唯一政策；沒有外部 TTS）；旁白必須有固定英文聲線描述與「No one in frame speaks…」句，長旁白提醒拆鏡；**畫內對白保留 H3 口型**（H3 每支原生音電平隨機，組裝器預設**段層以對白為錨**對齊各段對白電平、無台詞段保持相對電平，`--no-dialogue-align` 關）；組裝器只燒字幕、做響度對齊與拼接；整片兩遍 `loudnorm` 對齊 EBU R128，報告列逐段 LUFS／TP 與段間落差（> 6 LU 出 W49）；**已核准的變速段用 `videos/ramped/`，字幕時間窗依 `time_map` 換算** | `final/`、compiled segments 匯出的有效時間線 | `review/stage-7-final.html` |
 
 **詳細做法、每階段模板與檢查點見 `references/pipeline.md`。** 正式階段核准以 `review/project-state.json` 為準；純文字草稿可按指定範圍交付，無需自動推進到媒體生成。
 
@@ -182,14 +182,13 @@
 
 ### 7.1 配音分層決策（新增重要規範）
 H3 的聲音與畫面在同一次 forward 生成，輸出是**單一 32 kHz 立體聲混音軌，沒有分軌，也沒有關閉音訊的參數**；H3 內建中文語音實測 ASR 置信度只有 0.43–0.54【社群實測】。因此本專案的規則是：
-- **短畫外句與旁白留 H3，長句才外部 TTS**：`--narration-policy short-offscreen-h3`（預設）把 ≤18 字（實測 ≤15 字）的畫外句（O.S.）與旁白（V.O.）用官方句式＋逐字 `<d>` 交給 H3（聲線放 `<d>` 外、露臉者嘴閉合、無臉寫 `no face is on screen`）；長句或需跨段統一聲線的句子移出 `<d>`、於階段 7 由外部 TTS 混入（`external` 政策則全部外部化）。限制：同說話者跨段聲線可能不一致（未量測）、H3 念的句子事後改稿要重跑整段。句式與門禁見 `references/pipeline.md` §5.4。
-- **畫內有可見嘴的對白保留 H3 內建語音**：`<d>` 標籤留作生成時嘴部開合與時間點的物理錨點；**掛上音色母帶（`<Audio N>`）時，H3 會照母帶音色重新合成**（本機 FreeVideo 送得進音訊參考，但官方只保證「參考音色與語氣」，不鎖輸出音軌與口型）；要每段完全一致或更清晰的聲音時，再用外部 TTS 覆蓋並補 lipsync。
-- **TTS 引擎由 `tts_doctor.py` 盤點後選擇**（`--tts-engine`）：本機 VoiceStudio／OmniVoice 為預設，另有 Fish Audio 與自帶 OpenAI 相容 API；`edge-tts` 自 2026-10-10 起 403 且非商用，只留離線除錯。
-- **TTS 先行（v2）**：MiniMax Speech `speed` 預設 **1.1**（急的角色 1.15–1.2、長輩 1.0），先產音、量實長，鏡頭長＝語音實長＋0.3 秒（**不再 ×1.2**）再生成；整體超過 1.25 倍仍放不下就改寫台詞，避免旁白比鏡頭長而白跑一次 render。
+- **所有旁白與畫外音都由 H3 原生生成**：`--narration-policy h3-native`（唯一政策）。畫外句（O.S.）與旁白（V.O.）用官方句式＋逐字 `<d>`；說話人綁自己的 `<Subject N>`（沒有 `<Picture>`），固定英文聲線放 `<d>` 外，並加 `No one in frame speaks during this line; every visible mouth stays closed and still.`。旁白窗以 3.0 字／秒估時；>18 字提醒拆鏡。舊 `voice_route=external`／`external` 政策會報錯「外部 TTS 已移除」。句式與門禁見 `references/pipeline.md` §5.4。
+- **畫內有可見嘴的對白也由 H3 生成**：`<d>` 標籤是嘴部開合與時間點的物理錨點；**掛上音色母帶（`<Audio N>`）時，H3 會照母帶音色重新合成**（本機 FreeVideo 送得進音訊參考，但官方只保證「參考音色與語氣」，不鎖輸出音軌與口型）。跨段一致靠每段貼同一句 `voice_4d_spec_en`＋同一條 `<Audio N>`。
+- **旁白先行**：先定旁白聲線與句子，依 3.0 字／秒配旁白窗，鏡頭／分段長度才定案；太短就拉長或拆鏡，不要壓語速硬塞。
 - 完整決策表、混音鏈與響度交付標準（EBU R128 / ATSC A/85 / Netflix）見 `references/pipeline.md` §7。
 
 ### 7.2 後期交付檔案
-- **旁白與字幕稿**（`narration-ep01.md`）：時間碼對齊。
+- **字幕**：由 `assemble_episode.py` 直接從 segments 的台詞時間窗燒錄，沒有外部旁白稿。
 - **剪輯時間線**（`timeline-ep01.csv`）：由 `layer2_to_table.py --timeline` 產生。
 - **拼接成片**：使用 ffmpeg 拼接影片片段、燒錄字幕與混音；先段層以對白為錨對齊各段對白電平（H3 原生音逐支電平隨機），整片再兩遍 `loudnorm` 對齊 EBU R128（−23 LUFS／−1.5 dBTP）。
 - **交付清單**：列出已生成檔案、未完成鏡號。
@@ -205,10 +204,10 @@ H3 的聲音與畫面在同一次 forward 生成，輸出是**單一 32 kHz 立�
 ## 資源
 
 - `references/tooling.md` — **產線工具（`h3d`）與四道確定性檢查**：一個入口、時長量子（17n+5）、證據分級（VERIFIED／PARTIAL／UNVERIFIED 與階段 6 閘門）、segment 級依賴帳本（`deps --record／--status`）、失敗目錄與 ack 憑證流程、provider 能力表、常見錯誤訊息 → 處置。**跑任何指令前先讀這頁。**
-- `references/pipeline.md` — 八階段詳細流程、提問清單與各階段模板；階段 7 含聲音三層決策（畫內對白／畫外音／全片外部聲景）、配音先行與時長對軸、TTS 引擎盤點與混音響度交付標準（EBU R128 / ATSC A/85 / Netflix）。
+- `references/pipeline.md` — 八階段詳細流程、提問清單與各階段模板；階段 7 含 H3 原生聲音策略、旁白聲線設計與音色參考、旁白先行與時長對軸、混音響度交付標準（EBU R128 / ATSC A/85 / Netflix）。
 - `references/adapt/` — **小說改編（階段 1、3）**：`novel-to-manju.md` 為總規範（10 階段、6 題材模式、四道退稿閘門、100 分制），其餘為原則、故事聖經、結構節奏、劇本格式、視覺寫作、對白、可拍性、分鏡交接、授權證據各篇，`templates/` 含交接 JSON Schema。腳本在 `scripts/adapt/`（附 10 個測試案例）。
 - `references/storyboard/` — **導演分鏡（階段 4）**：`cinematic-director.md` 為總規範（v2.0），含三步法、焦距物距光學、漫劇分鏡總覽圖與連戲狀態機、武戲 90° 與多模型編譯；`combat-and-vfx-library.md`（高階武戲連招、玄幻大招五段鏈與 11 大戰場拓撲）；`acting-and-emotion-library.md`（邁斯納行為表演法、言行反差、10 大景別句型與 4D 配音）；`spatial-consistency.md`（場景母片、牆面分配層、構圖板店感鎖、白模分工三檔）；`templates/` 含 Layer 2 JSON Schema。腳本在 `scripts/storyboard/`。
-- `references/consistency.md` — **資產與一致性規範**：ID、角色設定板（洋子鎖臉規範）、生物怪獸三視圖規範、場景、道具、**音色鎖雙軌（`V-<slug>` ＋ 外部 TTS 固定聲線）**、多模態素材職責表（含**整板查表模式** `reference_view: "panel"` ＋ `panel_label_en`）、複製人防線三定律與門禁對照（E19–E27）、漂移偵測與修復、驗收門、待驗證清單。階段 2、6 必讀。
+- `references/consistency.md` — **資產與一致性規範**：ID、角色設定板（洋子鎖臉規範）、生物怪獸三視圖規範、場景、道具、**音色鎖（`V-<slug>` ＋ 固定 `voice_4d_spec_en` ＋ `<Audio N>`）**、多模態素材職責表（含**整板查表模式** `reference_view: "panel"` ＋ `panel_label_en`）、複製人防線三定律與門禁對照（E19–E27）、漂移偵測與修復、驗收門、待驗證清單。階段 2、6 必讀。
 - `references/styles.md` — **漫劇風格鎖定錨**：十餘種主流風格的錨定詞、負面錨、色盤與同角色樣圖。階段 0 選風格時讀。
 - `references/freevideo.md` — **建議搭配 FreeVideo**：連線步驟、規則、與八階段的對應。階段 6 先讀這份。
 - `references/model-profiles.md` — **生成前必問清單**，以及各圖像／影片模型的提示詞風格對照與改寫流程。
@@ -225,7 +224,7 @@ H3 的聲音與畫面在同一次 forward 生成，輸出是**單一 32 kHz 立�
   - `scenarios-commercial.md` — 情境庫 B：產品 hero、開箱、液體食物、品牌片、時尚美妝、logo 片頭、UI、電商、工業、建築。
   - `camera-and-transitions.md` — 運鏡詞表、景別鏡頭角度、各類型預設鏡頭、切鏡、轉場寫成事件、手持感、運鏡動機、rack focus。
   - `camera-moves-handbook.md` — 17 式＋Loop Forge 6 式運鏡的英文骨架、Colab 實測狀態（✅／🟡）與「場景意圖→運鏡」表；與本 repo `references/camera-moves-guide.md`／`camera_moves.py` preset 對照用（preset 是編譯器展開的定版，手冊是原始骨架與實測紀錄）。
-  - `audio-and-dialogue.md`、`audio-pipeline.md` — 三層音軌、對白預算、speaker 格式；聲音一次到位、跨片段鎖音色、外部 TTS、Openverse 後製。
+  - `audio-and-dialogue.md`、`audio-pipeline.md` — 三層音軌、對白預算、speaker 格式；聲音一次到位、跨片段鎖音色、旁白聲線設計、Openverse 後製。
   - `lighting-and-color.md` — 光影配色與跨鏡頭色彩一致；腳本 `scripts/color_qa.py`。
   - `references-and-editing.md`、`long-form-planning.md` — 素材分工、遷移、影片編輯、續接；長片分段規劃。
   - `example-fight-10s.md`、`example-spec-to-prompt-10s.md`、`example-seedance-to-h3.md` — 完整改寫範例。
@@ -241,17 +240,15 @@ H3 的聲音與畫面在同一次 forward 生成，輸出是**單一 32 kHz 立�
 - `scripts/adapt/*.py` — 劇本結構、時長、連戲、改編差異完整驗證套件。
 - `scripts/storyboard/handoff_to_skeleton.py` — 交接 JSON → Layer 2 骨架，預設每段 10.0s / 3 鏡（支援 `--max-segment-sec`、`--max-shots`）、統一 4.0 字/秒、窗口 $\ge 2.5s$、動作力學三要素結構模板（施力點 ➔ 傳導路徑 ➔ 受擊反饋）、`INDEPENDENT_REF2VA` 握手與四大連戲錨點（lighting/axis/blocking/texture）；劇本 `△【動作N】` 每個標記獨立一鏡、鏡長＝標記秒數（依 handoff `script_sequence` 排回劇本先後，fit 不壓縮）。
 - `scripts/storyboard/action_marks.py` — 【動作】標記共用規則：標記秒數、主要動作數（子句啟發式）、動作鏡判定、D1–D4／pacing_gate 用的動作鏡剝除、validate D5／D6。
-- `scripts/storyboard/compile_layer2_to_h3.py` — Layer 2 批次編譯為 H3 官方六段式提示詞（`prompts-epXX.md`）與 FreeVideo 批次分段檔（`segments-epXX.json`），支援防混臉參考圖排序（Ref2VA 預設一段一張角色圖，`--max-char-refs`；新流程改用 remix 角色卡，見 `references/consistency.md` §7.1）、切點時間軸保護（每鏡含取整後末鏡 ≥1.2s，<2s 只提醒；對話段末句後收尾就近 0.3s 的 tail-fit 取整）、光源名詞映射、官方運鏡詞微交替、LoRA 自動適配、`--narration-policy`（預設 `short-offscreen-h3`：≤18 字的畫外句與旁白留在 `<d>` 由 H3 念，長句才移出；`external`：畫外音／旁白全部移出 `<d>`、寫入 `external_narration` 與 `speaker_ids`，供階段 7 外部 TTS）與 `--check` 雙重對帳。stage5 綁定檔支援 `identity_anchor_ids`（不露臉身份錨點）、`reference_view: "panel"` ＋ `panel_label_en`（**整板查表模式**，缺格位說明即丟 `ValueError`）、`audio_references`（**音色參考 `<Audio N>`** ＋ 固定描述詞 `voice_4d_spec_en`）。
-- `scripts/storyboard/audit_refs_and_segments.py` — 分段參考圖、主體定義、說話者與字數預算多維程式對帳工具（支援雙重審查：模式 A 序對 + 模式 B 17 條自檢）。
+- `scripts/storyboard/compile_layer2_to_h3.py` — Layer 2 批次編譯為 H3 官方六段式提示詞（`prompts-epXX.md`）與 FreeVideo 批次分段檔（`segments-epXX.json`），支援防混臉參考圖排序（Ref2VA 預設一段一張角色圖，`--max-char-refs`；新流程改用 remix 角色卡，見 `references/consistency.md` §7.1）、切點時間軸保護（每鏡含取整後末鏡 ≥1.2s，<2s 只提醒；對話段末句後收尾就近 0.3s 的 tail-fit 取整）、光源名詞映射、官方運鏡詞微交替、LoRA 自動適配、`--narration-policy`（唯一 `h3-native`：所有畫外句與旁白留在 `<d>` 由 H3 念，套固定聲線與「沒人動嘴」句；舊 `external` 會報錯）與 `--check` 雙重對帳。stage5 綁定檔支援 `identity_anchor_ids`（不露臉身份錨點）、`reference_view: "panel"` ＋ `panel_label_en`（**整板查表模式**，缺格位說明即丟 `ValueError`）、`audio_references`（**音色參考 `<Audio N>`** ＋ 固定描述詞 `voice_4d_spec_en`）。
+- `scripts/storyboard/audit_refs_and_segments.py` — 分段參考圖、主體定義、說話者與字數預算多維程式對帳工具（支援雙重審查：模式 A 序對 + 模式 B 18 條自檢）。
 - `scripts/storyboard/patch_shot.py` — 單鏡局部修改與審核鎖定工具（支援秒數吸收、自動重算時間軸）。
 - `scripts/storyboard/codex_storyboard_panels.py` — Codex CLI 內建生圖的彩色分鏡圖（每鏡一張、每段總覽圖），自動綁定已核准參考圖（角色正面裁切、異獸設定圖、場景母版，依序為 <Picture N>），`--model` 必填；角色關鍵字／逐鏡覆寫放 `staging/codex-panel-refs.json`；回寫 `sketch_file`／`sketch_sha256`／`sketch_generation`（backend=codex）、鎖定鏡不覆蓋。構圖提示詞的左右一律觀眾視角（「畫左／畫右」自動改寫成「畫面左側（觀眾視角）」），已消失的物件寫 `spatial_blocking.absent_objects`（或段層 `metadata.absent_objects`）會從構圖文字拿掉並明寫「畫面中沒有：…」，鏡層 `scene_master_disabled: true` 不附場景母版（v118 SB-5／SB-6）；使用者選 `storyboard_engine=codex` 時 `h3d next` 缺構圖給這條；`h3d sketch` 已移除。
 - `scripts/storyboard/qwen_storyboard_grid.py` — Qwen-Image 2.1 電影分鏡鉛筆草圖、單格局部重繪、分鏡總覽圖拼版與去黑箭頭轉全彩首幀工具。
 - `scripts/storyboard/submit_h3_segments.py` — 階段 6 FreeVideo H3 批次提交與顯存保護工具（4.20 GiB 顯存臨界點安全保護、不足時差額診斷、--dry-run 乾跑檢查、參考圖 SHA256 快取、音色母帶（音訊參考）上傳與副檔名檢查、LoRA 自動適配與任務輪詢下載）。
 - `scripts/storyboard/verify_video_shot.py` — AI 影片自動審查與分鏡規格差異檢驗門禁工具（分段總時長精確對齊、彩度防黑白污染、分屏殘留、串聯 `color_qa.py` 輸出 `qa-report.json`）。
-- `scripts/storyboard/tts_engine.py` — 可插拔 TTS 後端封裝（標準函式庫）：本機 VoiceStudio／OmniVoice voicebox API、Fish Audio（雲端／本機）、自帶 OpenAI 相容 API、Windows SAPI、edge-tts（僅除錯）。音色解析（`voice` → `voice_map` → speaker → `default_profile`）在任何供應商呼叫前完成，產出一律正規化成 48 kHz 單聲道 WAV，失敗不留半成品，金鑰只從 `api_key`／`api_key_env` 讀取且永不外洩（錯誤訊息遮罩為 `***REDACTED***`）。
-- `scripts/storyboard/tts_doctor.py` — TTS 能力**唯讀**盤點工具（`python scripts/storyboard/tts_doctor.py`、`--json`）：ffmpeg／ffprobe、設定檔與 `voice_map`、各引擎可用性與具體下一步、VoiceStudio `/health` 摘要、GPU／VRAM 衝突警告、edge-tts 棄用提醒、Fish Audio 授權提醒、建議的 `--tts-engine`；不寫檔、不上傳、不呼叫生成端點、不印金鑰。
 - `scripts/storyboard/extract_voice_master.py` — 角色音色母帶（`V-<slug>`）產出工具：`--list` 列出可當母帶的畫內台詞（2–15 秒），再依 Layer 2 的 `speech_window` 從已生成影片切出該句、輸出 48 kHz 單聲道 WAV 與 `.provenance.json` 稽核紀錄，並印出可貼進 stage5 綁定檔的 `audio_references` 片段；母帶是「第一次出場那一句」，之後所有段落掛同一條 `<Audio N>` 達成跨段同聲。
-- `scripts/storyboard/assemble_episode.py` — 階段 7 配音分層、字幕燒錄與成片拼接交付工具（`--audio-mode auto` 逐段裁決：畫內對白留 H3 口型、外部化旁白混外部 TTS；`--tts-engine`／`--tts-config` 選引擎與設定；`adelay ...:all=1`＋`amix ...:normalize=0` 分層混音、每軌 48 kHz；整片兩遍 `loudnorm`（`--target-lufs`／`--true-peak`／`--lra`）對齊 EBU R128；段層對白錨定（`dialogue_loudness.py`，`--no-dialogue-align`／`--dialogue-anchor`／`--dialogue-max-gain`）、報告逐段 LUFS／TP 與 W49 段間落差；Windows 字幕冒號轉義；FFmpeg Concat 無縫拼接成片，附 `--self-test`）。
+- `scripts/storyboard/assemble_episode.py` — 階段 7 字幕燒錄、響度對齊與成片拼接工具（音訊一律 H3 原生，沒有 TTS／`--audio-mode`；字幕依台詞時間窗燒錄；整片兩遍 `loudnorm`（`--target-lufs`／`--true-peak`／`--lra`）對齊 EBU R128；段層對白錨定（`dialogue_loudness.py`，`--no-dialogue-align`／`--dialogue-anchor`／`--dialogue-max-gain`）、報告逐段 LUFS／TP 與 W49 段間落差；Windows 字幕冒號轉義；FFmpeg Concat 無縫拼接成片，附 `--self-test`）。
 - `scripts/storyboard/layer2_to_table.py` — Layer 2 → 人可讀 Markdown 分鏡表與時間線 CSV 匯出工具。
 - `scripts/storyboard/validate_storyboard.py` — 分鏡 Layer 2 JSON 靜態驗證工具（含台詞密度閘門 D1–D4 與【動作】鏡 D5／D6）。
 - `scripts/storyboard/director_storyboard_assistant.py` — 預設配置與多模型提示詞編譯輔助工具。

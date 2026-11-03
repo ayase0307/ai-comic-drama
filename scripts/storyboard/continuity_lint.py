@@ -101,17 +101,109 @@ def english_end_state(end_state: Any) -> Dict[str, str]:
     return {}
 
 
-def carry_sentence(end_state_en: Mapping[str, str]) -> str:
-    """前段終態 → 下一段第 1 鏡的起始狀態句（正向寫法，不用禁止句）。"""
-    bits = []
-    for who, state in end_state_en.items():
-        state = str(state).strip().rstrip(".")
-        if not state:
+def _first_state_dict(seg: Mapping[str, Any]) -> Dict[str, str]:
+    """前段終態：優先用英文，退回結構化 planned_final_state。"""
+    end = seg.get("segment_end_state")
+    if not isinstance(end, Mapping):
+        return {}
+    for key in ("planned_final_state_en", "planned_final_state"):
+        value = end.get(key)
+        if isinstance(value, Mapping):
+            return {str(k): str(v) for k, v in value.items() if str(v).strip()}
+    return {}
+
+
+def _next_anchor_dict(seg: Mapping[str, Any]) -> Dict[str, str]:
+    """下一段可對照的結構化連戲欄位：style_lock.continuity_anchors(_en) ＋ 第 1 鏡同名欄位。"""
+    out: Dict[str, str] = {}
+    meta = seg.get("metadata") or {}
+    style_lock = meta.get("style_lock") or {}
+    for key in ("continuity_anchors_en", "continuity_anchors"):
+        value = style_lock.get(key)
+        if isinstance(value, Mapping):
+            out.update({str(k): str(v) for k, v in value.items() if str(v).strip()})
+    shots = seg.get("shots") or []
+    if shots and isinstance(shots[0], dict):
+        for key in ("continuity_anchors_en", "continuity_anchors"):
+            value = shots[0].get(key)
+            if isinstance(value, Mapping):
+                out.update({str(k): str(v) for k, v in value.items() if str(v).strip()})
+    return out
+
+
+def _change_markers(seg: Mapping[str, Any]) -> set:
+    """明示的狀態變更標記：寫了就跳過該 key 的 C5 警告。"""
+    markers: set = set()
+    containers = [seg.get("metadata") or {}, seg.get("continuity_handshake") or {}]
+    shots = seg.get("shots") or []
+    if shots and isinstance(shots[0], dict):
+        containers.append(shots[0])
+    for container in containers:
+        for key in ("continuity_changes", "state_changes", "changes", "state_change",
+                    "continuity_change", "change_marker"):
+            value = container.get(key)
+            if isinstance(value, Mapping):
+                markers.update(str(k) for k in value)
+                if value.get("all") or value.get("any"):
+                    markers.add("*")
+            elif isinstance(value, (list, tuple, set)):
+                for item in value:
+                    if isinstance(item, Mapping):
+                        for k in ("key", "field", "id", "state"):
+                            if item.get(k):
+                                markers.add(str(item[k]))
+                    elif item:
+                        markers.add(str(item))
+            elif value:
+                markers.add(str(value))
+    return markers
+
+
+def _norm_state(value: Any) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip().casefold()
+
+
+def _state_value_text(value: Any) -> str:
+    """把終態值攤平成英文散文；dict／list 也不留大括號、引號或 JSON。"""
+    if isinstance(value, Mapping):
+        return state_sentence(value)
+    if isinstance(value, (list, tuple, set)):
+        return ", ".join(part for part in (_state_value_text(v) for v in value) if part)
+    text = str(value or "").strip().rstrip(".")
+    return text.strip("\"'")
+
+
+FINITE_STATE_VERB = re.compile(
+    r"^(?:lies?|sits?|stands?|crouches?|leans?|kneels?|holds?|faces?|runs?|walks?|steps?|rests?|"
+    r"hangs?|floats?|glows?|spreads?|rises?|falls?|remains?|stays?)\b",
+    re.IGNORECASE,
+)
+
+
+def state_sentence(state: Mapping[str, Any]) -> str:
+    """{'Luonian': 'back against the stone'} → 'Luonian is back against the stone'；
+    已經是動詞開頭的值（sits／lies／stands）不再硬加 is。"""
+    bits: List[str] = []
+    for key, raw in state.items():
+        value = _state_value_text(raw)
+        if not value:
             continue
-        bits.append(f"{who} {state}" if who.lower() not in ("scene", "setting", "all") else state)
-    if not bits:
+        who = str(key or "").strip()
+        if not who or who.lower() in ("scene", "setting", "all"):
+            bits.append(value)
+            continue
+        subject = f"the {who}" if who[:1].islower() else who
+        copula = " " if FINITE_STATE_VERB.match(value) else " is "
+        bits.append(f"{subject}{copula}{value}")
+    return "; ".join(bits)
+
+
+def carry_sentence(end_state_en: Mapping[str, str]) -> str:
+    """前段終態 → 下一段第 1 鏡的起始狀態句（正向寫法，不用禁止句、不吐 JSON）。"""
+    body = state_sentence(end_state_en)
+    if not body:
         return ""
-    return " Starting state carried over from the previous segment: " + "; ".join(bits) + "."
+    return " Starting state carried over from the previous segment: " + body + "."
 
 
 # ---------- 燒字來源（#138） ----------
@@ -181,6 +273,20 @@ def lint_adjacent(compiled: Sequence[Mapping[str, Any]],
                 f"{sid}: [C2: 段間姿勢矛盾] 前段 {p} 終態是 {'/'.join(down)}（{prev_text[:80]}），"
                 f"本段第 1 鏡卻寫站／走且沒有起身動作；請改成從 {down[0]} 接起，或寫出 gets up／rises 的過程。"
             )
+        # C5：前段終態 vs 本段連戲錨點的結構化 key 對照（只比兩邊都有的 key）
+        next_state = _next_anchor_dict(seg)
+        markers = _change_markers(seg)
+        for key, prev_value in prev_state.items():
+            if key not in next_state:
+                continue
+            if "*" in markers or key in markers:
+                continue
+            if _norm_state(prev_value) != _norm_state(next_state[key]):
+                warnings.append(
+                    f"{sid}: [C5: 段間狀態不一致] 同場前一段 {p} 的「{key}」終態是 {prev_value!r}，"
+                    f"本段連戲錨點卻是 {next_state[key]!r}；沒有明示變更標記"
+                    f"（metadata.continuity_changes／第 1 鏡 state_change）。請補變更過程或改成一致。"
+                )
 
     # 同場景光線鎖一致（#139）：改光線要以場景為單位
     by_scene: Dict[str, Dict[str, List[str]]] = {}

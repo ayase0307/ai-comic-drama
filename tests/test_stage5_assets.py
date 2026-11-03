@@ -3,7 +3,7 @@
 #54 沒有設定圖的道具以文字注入，不報錯也不丟描述
 #55 缺場景母版可宣告 pending_references：可編譯審稿、不可送件
 #60 同段的生物階段變體與基本型可共存；生物 retention 不沿用人類模板
-#61 17 條自檢的條數與文件一致
+#61 18 條自檢的條數與文件一致
 """
 import copy
 import inspect
@@ -177,11 +177,11 @@ class CreatureVariantTests(unittest.TestCase):
 
 
 class LintRuleCountTests(unittest.TestCase):
-    def test_lint_h3_has_exactly_the_17_documented_rules(self):
+    def test_lint_h3_has_exactly_the_18_documented_rules(self):
         src = inspect.getsource(audit.lint_h3_prompt)
         codes = set(re.findall(r"\[([EW]\d+)[:：]", src))
-        self.assertEqual(len(codes), 17, sorted(codes))
-        for text in ("17 條", ):
+        self.assertEqual(len(codes), 18, sorted(codes))
+        for text in ("18 條", ):
             self.assertIn(text, (ROOT / "references" / "tooling.md").read_text(encoding="utf-8"))
 
     def test_user_facing_messages_no_longer_say_13(self):

@@ -302,7 +302,7 @@ class CloneDefenseTests(unittest.TestCase):
         self.assertIn("(S1)", prompt)
         self.assertIn("(S2)", prompt)
 
-    def test_external_narration_is_not_written_into_the_h3_prompt(self):
+    def test_external_policy_is_rejected_with_migration_message(self):
         data = self._layer()
         shot = dict(data["shots"][0])
         shot["dialogue_and_audio"] = {
@@ -311,12 +311,9 @@ class CloneDefenseTests(unittest.TestCase):
         }
         data["shots"] = [shot]
         data["style_lock"]["anchor"] = ""
-        compiled = compiler.compile_segment_h3(data, self._registry(), auto_lora=False, narration_policy="external")
-        self.assertNotIn("<d>[Chinese] 這是一句旁白。</d>", compiled["h3_prompt"])
-        self.assertNotIn("narrates", compiled["h3_prompt"])
-        self.assertEqual(len(compiled["external_narration"]), 1)
-        self.assertEqual(compiled["external_narration"][0]["line"], "這是一句旁白。")
-        self.assertTrue(compiled["external_narration"][0]["is_voiceover"])
+        with self.assertRaises(ValueError) as ctx:
+            compiler.compile_segment_h3(data, self._registry(), auto_lora=False, narration_policy="external")
+        self.assertIn("外部 TTS 已移除", str(ctx.exception))
 
     def test_visible_mouth_dialogue_keeps_its_d_block(self):
         data = self._layer()
@@ -329,7 +326,7 @@ class CloneDefenseTests(unittest.TestCase):
         data["style_lock"]["anchor"] = ""
         compiled = compiler.compile_segment_h3(data, self._registry(), auto_lora=False)
         self.assertIn("<d>[Chinese] 看著我。</d>", compiled["h3_prompt"])
-        self.assertEqual(compiled["external_narration"], [])
+        self.assertNotIn("external_narration", compiled)
 
 
 class PanelLookupTests(unittest.TestCase):
@@ -612,7 +609,7 @@ class VoiceReferenceTests(unittest.TestCase):
             compiled["compile_notes"],
         )
 
-    def test_audio_reference_is_skipped_when_the_speaker_has_no_visible_mouth(self):
+    def test_audio_reference_is_kept_for_a_native_offscreen_voice(self):
         data = self.layer
         data["shots"][0]["dialogue_and_audio"]["voice_4d_spec"] = "voiceover"
         data["shots"][0]["dialogue_and_audio"]["lips_closed_lock"] = True
@@ -621,9 +618,8 @@ class VoiceReferenceTests(unittest.TestCase):
         binding = self._binding()
         binding["source_sha256"] = self.sha
         compiled = self._compile(binding)
-        self.assertNotIn("<Audio 1>", compiled["h3_prompt"])
-        self.assertEqual([r for r in compiled["reference_images"] if r.get("type") == "audio"], [])
-        self.assertTrue(any("音色參考" in n for n in compiled["compile_notes"]))
+        self.assertIn("<Audio 1> is the voice-timbre reference for <Subject 1> (S1)", compiled["h3_prompt"])
+        self.assertEqual(len([r for r in compiled["reference_images"] if r.get("type") == "audio"]), 1)
 
 
 if __name__ == "__main__":

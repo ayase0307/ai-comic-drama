@@ -493,7 +493,7 @@ fade=t=in:st=0:d=0.25,fade=t=out:st=0.95:d=0.25" -c:v libx264 -preset veryfast -
 | YouTube | **官方未公布**；量測約 −14 LUFS，只壓過響的、不拉高過小的 | −1 dBTP | S35 |
 | 紅果（第三方技術文，非官方） | −14～−16 LUFS；禁爆音、底噪、單聲道 | — | S39 |
 | 抖音／快手 | **查不到官方 LUFS** | — | — |
-| 本 repo 現行 | 配音 −16 LUFS／TP −1.5（`h3d voice align`）；戲劇交付預設 EBU R128 −23 | −1.5 | S45 |
+| 本 repo 現行 | H3 原生音軌；戲劇交付預設 EBU R128 −23 LUFS／TP −1.5（`h3d assemble`） | −1.5 | S45 |
 
 **採用值（推論）**：豎屏平台成片 **−14～−16 LUFS integrated、TP ≤ −1 dBTP、LRA ≤ 11**；YouTube 版可同檔。若要給電視／平台送審母帶，另出 −23 LUFS 版。
 ⚠️ 與 repo `pipeline.md` 預設 −23 衝突：−23 在手機外放偏小聲，建議在 `decisions.json` 增一個 `delivery_loudness` 決策讓使用者定（推論）。

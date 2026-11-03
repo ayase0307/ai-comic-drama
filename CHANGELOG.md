@@ -7,6 +7,13 @@
 `h3d next` 會讀這份檔案：專案版本章比目前技能舊時，列出中間各版標題提醒重驗。
 
 ## [未發布]
+- 新增：特效資產必須有參考圖（audit **E56**）——`assets.md` 的 `B-` 卡片若文字有特效／光效／VFX／effect／light form 或明寫 `類型：特效`，登錄為特效；FreeVideo 要有 `reference_paths.effects`、REMIX 要有 `kind=effect` 的包，`pack_waivers` 不能豁免。編譯器產出「copy only its shape, feather-like light streaks, colour and translucency…」與局部光源句（缺 `source_en` 出「特效缺光源位置」warning）；整片調色句（bathes the scene in red 等）出 **W56** 警告。
+- 新增：audit **E57**——單鏡動作／表演／走位／描述出現 glow／beam／aura／energy／火焰／紅芒／光幕等特效詞，卻沒有 `effect_ids` 或 `B-` 特效 id 就擋（陽光／日光／光線／lighting 與 `light` 欄位排除；可用 `effect_ids: []`＋`no_effect_reason` 單鏡宣告）。文件同步列在 E56 旁。
+- 新增：階段 6 連戲檢查——`verify_video_shot.py --continuity-pairs <out_dir>` 抽段縫與段內硬切左右影格，Pillow 併排成 `pairs-N.jpg`（每張最多 8 對）並產出 `continuity-checklist.md`（location／prop／screen side／costume／light／effect 六列＋每對 dE76）；`continuity_lint` 新增 **C5**，同場相鄰段終態與下一段連戲錨點 key 不同且沒有 `continuity_changes`／`state_change` 標記時出 warning。
+- 修正：`End state`／`Starting state` 不再把 raw dict／JSON 印進提示詞，改成英文散文；`lint_h3_prompt` 新增 **E58**，提示詞含 `{`、`}` 或 `": "` 即硬錯誤（自檢條數 18）。
+- 修正：真實專案回饋——`B-baishou` 這類「有生物設定板描述／三視圖、沒有類型」的 `B-` 卡不再被當特效（E56 不再誤報）；顯式 `類型：` 優先，關鍵詞只搜固定描述／設定板描述／類型說明。`prompt_authoring` 把編譯器固定旁白句、預設旁白聲線、特效參考句與局部光源句列為 boilerplate（不觸發 E33／W33／E35）。E57 排除 highlight／glint／reflection／sheen／catchlight 與 反光／高光／微光／光澤／眼神光。
+- 維護：移除 `doctor.py` 的 VoiceStudio 8001 探測；`decisions` 無外部 TTS 專用定案可移除；`verify_video_shot.py` 不再重建 `sys.stdout` wrapper（避免 GC 關掉共用 buffer 造成後續 import「closed file」）。
+- 變更（破壞性）：外部 TTS 全面移除，所有台詞、旁白、畫外音、內心獨白改由 MiniMax H3 原生生成。`compile_layer2_to_h3.py` 只剩 `--narration-policy h3-native`；`voice_route: "external"` 與舊政策 `external`／`short-offscreen-h3` 會報錯「外部 TTS 已移除」；不再輸出 `external_narration`。旁白改用沒有 `<Picture>` 的 `<Subject N>` (Sx) 綁定、固定英文聲線（`voice_4d_spec_en`／`h3_voice.voice`，缺省用預設旁白描述），並固定加「No one in frame speaks during this line; every visible mouth stays closed and still.」；旁白以 3.0 字／秒估時，>18 字提醒拆鏡。`decisions.py` 的 ④ 與舊值都映射 `h3-native`；audit E24 改成「殘留外部 TTS 標記即錯誤」；`assemble_episode.py` 移除 TTS 合成與 `--audio-mode`／`--tts-*`／`--bg-volume`／`--narration`，只燒字幕、做響度對齊與拼接；刪除 `tts_engine.py`、`tts_doctor.py`、`config/tts.example.json`，移除 `h3d voice align`（`voice_align.py` 保留給 Concat 剪輯 adapter 的非 TTS 對齊工具）。文件同步改寫（SKILL、pipeline、consistency 等）。
 - 修正：成片兩遍 loudnorm 後明確固定取樣率與立體聲聲道，避免 FFmpeg 5.1 在 `aresample` 到 `atrim` 間無法協商聲道配置而使組裝失敗。
 - 測試：`test_audit_stage0_3`、`test_ejindao_ep01_findings` 執行子程序時加 `PYTHONIOENCODING=utf-8` 與 `errors="replace"`，Windows（cp950／ANSI OEM）不再因解碼失敗讓斷言拿到 `NoneType`。（與 main 其他測試的 `{**os.environ, ...}` 寫法一致）
 - 維護：`.gitignore` 忽略 `graphify-out/`（graphify 本機索引產物，不進版控）。
