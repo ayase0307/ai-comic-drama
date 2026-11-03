@@ -19,6 +19,8 @@
   W30 舊編譯產物沒有指紋，無法確認是否被改寫。
   E40 清背景交差：用 empty／blank／plain background 把背景抹掉，而不是照場景圖寫出背景裡有什麼。
   W40 空泛氣氛詞：cinematic、dramatic、tense atmosphere 這類詞在同一句沒有任何可見線索。
+  W32 演完就定格：≥2.5 秒的鏡頭用「first…then…finally」三步寫結果，又沒有任何持續詞（keeps／still／all the while／at the cut）；
+      模型會在 1 秒內演完三步，剩下全是靜止（噩盡島 EP01 S03 咬人段實測 2–4.5 秒頓點）。
   W33 同段零星重複句（可能是刻意的連戲／防混臉錨）。
   W39 八成以上是固定鏡（運鏡屬階段 4 決定，只提醒）。
 
@@ -65,6 +67,13 @@ MIN_WORDS = {
 SEQUENCE_WORDS = re.compile(
     r"\b(first|then|as|while|until|finally|before|after|when|once|meanwhile|next)\b", re.IGNORECASE
 )
+# W32：持續中的動作（模型才會演到切點），以及鏡頭時間碼 [a-bs]
+SUSTAIN_WORDS = re.compile(
+    r"\b(keeps?|keeping|still|all the while|throughout|the whole (?:shot|time)|continues?|continuing|"
+    r"at the cut|when the shot (?:ends|cuts)|as the shot ends|never stops?|is still)\b", re.IGNORECASE
+)
+SHOT_SPAN = re.compile(r"\[(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)s\]")
+W32_MIN_SEC = 2.5
 
 # 「叫人別動」的句子：在 Motion 裡占一半以上就代表沒寫動作。
 STASIS_PATTERNS = re.compile(
@@ -472,6 +481,12 @@ def audit_segment(prompt: str, authored_shots: Optional[Sequence[Dict[str, Any]]
                 errors.append(f"[E32: Motion 沒有過程] {tag} Motion 沒有 first／then／as／finally 這類時間順序，寫成了狀態而不是動作。")
             elif msents and stasis * 2 >= len(msents):
                 errors.append(f"[E32: Motion 沒有過程] {tag} Motion 有 {stasis}/{len(msents)} 句在叫人別動；改寫成這一鏡實際發生的動作。")
+            span = SHOT_SPAN.search(parts.get("Camera", "") or head)
+            if (span and float(span.group(2)) - float(span.group(1)) >= W32_MIN_SEC
+                    and re.search(r"\bfirst\b", motion, re.I) and re.search(r"\bfinally\b", motion, re.I)
+                    and not SUSTAIN_WORDS.search(motion)):
+                warnings.append(f"[W32: 演完就定格] {tag} {float(span.group(2)) - float(span.group(1)):g} 秒鏡頭用 first…finally 寫三步結果、"
+                                "沒有持續動作；模型會很快演完再停住。改寫成持續過程（keeps／still／all the while），並寫切點時還在做什麼。")
 
         for term in META_TERMS:
             m = re.search(term, shot, re.I)

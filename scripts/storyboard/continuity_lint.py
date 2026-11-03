@@ -33,6 +33,7 @@ POSTURE_PATTERNS: Dict[str, re.Pattern] = {
     ),
     "kneeling": re.compile(r"\b(kneel(?:s|ing)?|knelt|on (?:his|her|their|one|both) knees?)\b", re.I),
     "swallowed": re.compile(r"\b(swallowed|inside the (?:mouth|throat|maw|gullet)|engulfed)\b", re.I),
+    "suspended": re.compile(r"\b(hanging|dangling|lifted off the (?:ground|slope|floor)|held (?:up )?in the air|in mid-?air)\b", re.I),
     "standing": re.compile(
         r"\b(stand|stands|standing|stood|upright|walk(?:s|ing)?|stride(?:s)?|striding|strides|runs|running|"
         r"steps forward|strolls?|paces)\b",
@@ -40,6 +41,13 @@ POSTURE_PATTERNS: Dict[str, re.Pattern] = {
     ),
 }
 DOWN_POSTURES = ("lying", "seated", "kneeling", "swallowed")
+# C6：終態寫了身體接觸（被咬、被按住、被抓）卻沒寫姿勢，下一段會從參考圖站姿起手
+# （噩盡島 EP01：終態只寫 left forearm bitten，下一段洛年站著被咬，咬完又分開）。
+CONTACT_STATE = re.compile(
+    r"\b(bitten|bites?|biting|clamp(?:s|ed|ing)?|pinned|pins|grabb(?:ed|ing)|grabs?|held|holds?|holding|"
+    r"grip(?:s|ped|ping)?|seized|strangl\w+|chok(?:ed|ing)|caught|dragg(?:ed|ing)|hanging)\b",
+    re.I,
+)
 # 下一段第 1 鏡若有「起身」類動詞，代表有意識地從前段終態接起，不算矛盾。
 RISE_TRANSITION = re.compile(
     r"\b(gets? up|getting up|got up|rises?|rising|rose|stands? up|standing up|stood up|push(?:es)? (?:himself|herself|themselves) up|"
@@ -266,6 +274,11 @@ def lint_adjacent(compiled: Sequence[Mapping[str, Any]],
             )
             continue
         prev_text = " ".join(prev_state.values())
+        if CONTACT_STATE.search(prev_text) and not postures(prev_text):
+            warnings.append(
+                f"{sid}: [C6: 接觸終態沒寫姿勢] 前段 {p} 終態「{prev_text[:80]}」寫了接觸／抓咬，卻沒寫身體姿勢；"
+                f"本段人物會從參考圖站姿起手。終態要寫姿勢＋接觸點＋誰抓著誰（如 lying on his back, left forearm clamped in the jaws）。"
+            )
         down = [x for x in postures(prev_text) if x in DOWN_POSTURES]
         first = _first_shot_text(str(seg.get("h3_prompt") or ""))
         if down and "standing" in postures(first) and not RISE_TRANSITION.search(first):

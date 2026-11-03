@@ -132,6 +132,8 @@
 - **id 用 `B-`**（與生物共用前綴）：卡片文字出現 `特效`／`光效`／`VFX`／`effect`／`light form` 等關鍵詞，或明寫 `類型：特效`／`類型：光效`，才會被登錄成特效；`B-` 但沒有這些關鍵詞的卡片仍當生物。
 - **必要欄位**：`類型：特效`（或 `光效`）、`固定描述片段`（英文，例 `a translucent crimson-gold light-bird made of feather-like light streaks`）、`設定圖`（已審核的 `images/B-…png`）、`光源：…`／`source_en`（光從哪裡發出）。
 - **沒有已審核參考圖就不得進階段 5**（audit **E56**）：FreeVideo 要 `reference_paths.effects`、REMIX 要 `refmods` 裡 `kind=effect` 的包。`pack_waivers` 不能豁免特效；豁免不是參考圖，H3 只會畫出便宜的線稿鳥或把整個畫面染紅。
+- **參考圖要拍到完整的特效本體**：去背景時不要直接裁掉主體的一部分。為什麼：噩盡島 EP01 的火鳥 v2 只裁上半（為了去掉下方巨岩），參考圖少了身體下半，影片就把缺的部分補成有頭、有腳爪的老鷹，還讓牠站在火口上。去背景改用鏡射、補天空等影像處理，處理後逐張檢查有沒有方塊、破洞或殘影。
+- **生圖模型不吃否定詞**：要「沒有頭、沒有腳」的特效，不要靠 `NO head, NO beak` 重生（MOSS 2/2 照樣畫出鷹頭與腳爪），從已成功的圖修。影片提示詞同時寫正面形狀（「只有兩翼羽絲匯聚的光核、下方散成兩股羽流」）和位置限制（「始終在高空、不落地」）。
 - **提示詞寫法**：編譯器會產出「`<Picture N>` is the visual reference for the effect …：copy only its shape, feather-like light streaks, colour and translucency; do not copy its layout, background or the objects around it.」；光效再加「The light is emitted locally from <source>, falls off within a short radius and only rim-lights nearby surfaces; the overall colour grade of the scene does not change.」缺 `source_en` 時出 compile warning「特效缺光源位置」。
 - **不要用整片調色假裝特效**：提示詞出現 bathes the scene in red／everything turns red／red tint／screen flashes red／colour grade shifts 會出 **W56** 警告；改成局部光源。
 - **提示詞不得出現 raw dict／JSON（E58）**：`End state`／`Starting state` 要寫英文散文（`Luonian is back against the stone, chin lifted; the red sky is spreading overhead.`），不得出現 `{`、`}` 或 `": "`。

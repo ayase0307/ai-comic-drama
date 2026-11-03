@@ -321,6 +321,41 @@ class ContinuityStaticTests(unittest.TestCase):
         warnings = continuity_lint.lint_adjacent([a, b])["warnings"]
         self.assertFalse(any("C5" in w for w in warnings), warnings)
 
+    def test_c6_warns_when_contact_end_state_has_no_posture(self):
+        a = self._seg("EP01-S03-c", end_state={"Luonian": "left forearm bitten"})
+        b = self._seg("EP01-S03-d")
+        warnings = continuity_lint.lint_adjacent([a, b])["warnings"]
+        self.assertTrue(any("C6" in w for w in warnings), warnings)
+
+    def test_c6_clears_when_posture_is_written(self):
+        for state in ("lying on his back, left forearm clamped in the jaws",
+                      "hanging by his left forearm from the beast's jaws"):
+            a = self._seg("EP01-S03-c", end_state={"Luonian": state})
+            b = self._seg("EP01-S03-d")
+            warnings = continuity_lint.lint_adjacent([a, b])["warnings"]
+            self.assertFalse(any("C6" in w for w in warnings), (state, warnings))
+
+
+class HoldAfterActionTests(unittest.TestCase):
+    """W32：長鏡頭用 first…finally 寫三步結果、沒有持續詞，模型會演完就定格。"""
+
+    def _prompt(self, motion):
+        return ("[Shot 1] A CU of Luonian. Camera: [0-3s] Close-up, 85mm lens from 1.5 metres, static. "
+                f"Motion: {motion} Performance: His eyes widen and his jaw tightens hard. "
+                "Light: Noon sun on his cheek, warm rim on his hair. Sound: Gravel scraping, a growl.")
+
+    def test_w32_warns_on_three_step_result_without_sustain(self):
+        import prompt_authoring as pa
+        res = pa.audit_segment(self._prompt(
+            "The beast first clamps its jaw, then its fangs sink into his forearm, and finally blood appears at the tooth line."))
+        self.assertTrue(any("W32" in w for w in res["warnings"]), res["warnings"])
+
+    def test_w32_clears_when_motion_keeps_going(self):
+        import prompt_authoring as pa
+        res = pa.audit_segment(self._prompt(
+            "The beast first clamps its jaw, then shakes its head while his body keeps jerking, and finally it is still dragging him at the cut."))
+        self.assertFalse(any("W32" in w for w in res["warnings"]), res["warnings"])
+
 
 class EndStateProseTests(unittest.TestCase):
     def test_state_sentence_uses_english_prose(self):
