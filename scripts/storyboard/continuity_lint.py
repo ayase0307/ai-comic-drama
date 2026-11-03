@@ -412,7 +412,9 @@ def lint_shots(compiled: Sequence[Mapping[str, Any]]) -> Dict[str, List[str]]:
                     and not EMPTY_BG.search(text)):
                 warnings.append(f"{sid} Shot {n}: [S6: 錨點帶出路人] 連戲錨 blocking 寫了多人（{CROWD_ANCHOR_RE.search(anchor_blocking).group(0)}），"
                                 f"但本鏡是 {sm0.group(1)} 單人特寫；模型會在背景畫出沒綁圖的人。請寫背景無人，或錨點只放本鏡在場者（#144）。")
-            if DIALOGUE_MARK.search(text):
+            # S3–S5 是畫內對白鏡規則；旁白／畫外句套用會把鏡頭推近臉，正是旁白被配到主角嘴上的原因（噩盡島 S02-b/d）
+            offscreen_only = bool(re.search(r"off-screen voiceover|says off-screen|off-screen voice", text, re.I))
+            if DIALOGUE_MARK.search(text) and not offscreen_only:
                 sm = SIZE_RE.search(text)
                 if sm and not sm.group(1).startswith("OTS") and (sm.group(1) in WIDE_SIZES or float(sm.group(3)) > 1.5):
                     warnings.append(f"{sid} Shot {n}: [S3: 對白鏡太遠] {sm.group(0)} 臉太小吃不到臉部參考圖、看不到對嘴；"
