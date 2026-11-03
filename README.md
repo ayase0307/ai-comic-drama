@@ -78,7 +78,7 @@ flowchart TB
     end
     subgraph L4["④ 生成層：後端與產物"]
         direction LR
-        FV["FreeVideo<br/>ref2va／remix"] ~~~ MEDIA["FFmpeg・TTS<br/>生圖工具"] ~~~ OUT["劇本・分鏡<br/>segments・成片"]
+        FV["FreeVideo<br/>ref2va／remix"] ~~~ MEDIA["FFmpeg・H3 原生音訊<br/>生圖工具"] ~~~ OUT["劇本・分鏡<br/>segments・成片"]
     end
     L1 -->|"讀規則與 reference"| L2
     L2 <-->|"呼叫 h3d・回報下一步"| L3
@@ -195,7 +195,7 @@ flowchart TB
 | **4 導演分鏡** | `shot_intent`＋`choice_why`、焦距物距、運鏡預設、人物賬與段縫末態 | `h3d imagegen --set --stage 4`（選構圖工具）→ 該工具的出圖腳本、`validate_storyboard.py` | `layer2/*.json`、構圖圖 |
 | **5 提示詞包** | 逐鏡親手寫五小節，編譯成 H3 官方六段式；段級核准 | `h3d bind／author／compile --check／refcheck／staging` | `prompts-ep01.md`、`segments-ep01.json` |
 | **6 影片生成** | 送件→收件→QA→動態 QA→交界連續性 QA→逐段結論 | `h3d run --plan／qa／motion／verdict／inbox` | `videos/`、`qa-report.json` |
-| **7 成片組裝** | 動作段後製變速、ASR 對位、響度、全集單一剪輯專案 | `h3d ramp／voice align／concat／assemble` | `final/*.mp4`、時間線 |
+| **7 成片組裝** | 動作段後製變速、字幕、響度、全集單一剪輯專案（音訊一律 H3 原生） | `h3d ramp／concat／assemble` | `final/*.mp4`、時間線 |
 
 ### 核准與失效
 
@@ -418,8 +418,7 @@ ai-comic-drama/
 | `AICD_FFMPEG`／`AICD_FFPROBE` | ffmpeg／ffprobe 完整路徑（只設 ffmpeg 時 ffprobe 取同目錄） | PATH |
 | `AICD_H3_UPSTREAM` | `sync_h3_reference.py` 的上游 clone | `E:\MinimaxH3\h3-video-prompting`，再找同層 `../h3-video-prompting` |
 | `AICD_RUNNER_LOCK` | 影片 runner 單例鎖檔位置 | `~/.ai-comic-drama/video-runner.lock` |
-| `AICD_OMNIVOICE_LAUNCHER` | tts_doctor 提示的 OmniVoice 啟動檔 | `E:\OmniVoice\啟動-OmniVoice.bat` |
-| `COMFYUI_URL`／`VOICESTUDIO_URL` | `h3d doctor`（ComfyUI 也給 `h3d imagegen --detect`）探測的服務位址 | `127.0.0.1:8188`／`127.0.0.1:8001` |
+| `COMFYUI_URL` | `h3d doctor`（ComfyUI 也給 `h3d imagegen --detect`）探測的 ComfyUI 位址 | `127.0.0.1:8188` |
 
 本機服務（127.x／localhost）的 HTTP 請求一律不走系統代理。詳見 [`references/tooling.md`](references/tooling.md) §2.7。
 
