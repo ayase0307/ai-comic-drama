@@ -124,9 +124,9 @@ class ProposeTests(unittest.TestCase):
             {"shot_id": "SH01", "start_time": 0, "end_time": 3, "dialogue_and_audio": {"has_dialogue": False}},
             {"shot_id": "SH02", "start_time": 3, "end_time": 6,
              "dialogue_and_audio": {"has_dialogue": True, "line_verbatim": "媽的！", "speech_window": {"start": 4.0, "end": 5.5}}},
-        ], "external_narration": [{"start": 0.5, "end": 1.0, "line": "旁白"}]}
+        ]}
         wins = motion_qa.protect_windows(seg, vad=[(3.8, 4.2), (1.5, 2.0)])
-        self.assertEqual([(w["start"], w["end"]) for w in wins], [(0.5, 1.0), (3.8, 5.5)])
+        self.assertEqual([(w["start"], w["end"]) for w in wins], [(3.8, 5.5)])
 
 
 @unittest.skipUnless(HAS_FFMPEG and HAS_NUMPY, "需要 ffmpeg 與 numpy")

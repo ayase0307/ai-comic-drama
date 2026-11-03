@@ -58,10 +58,13 @@ try:  # ffmpeg／ffprobe 位置（AICD_FFMPEG／AICD_FFPROBE 可覆寫）
 except ImportError:  # pragma: no cover - 套件匯入路徑
     from . import media_tools
 
-# 確保 Windows 終端以 UTF-8 輸出，避免繁體中文字元編碼異常
-if sys.platform.startswith("win"):
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+# 確保 Windows 終端以 UTF-8 輸出，避免繁體中文字元編碼異常。
+# 用 reconfigure 而不是重建 TextIOWrapper：舊 wrapper 被 GC 時會關掉共用的 buffer，
+# 讓之後所有 print／import 出現「I/O operation on closed file」。
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 
 # ==============================================================================
@@ -195,6 +198,128 @@ def extract_frame_rgb(video_path: Path, timestamp: float, w: int = 360, h: int =
     if res.returncode != 0 or len(res.stdout) < w * h * 3:
         raise RuntimeError(f"ffmpeg 抽取影格失敗 (t={timestamp:.3f}s): {res.stderr.decode('utf-8', errors='ignore')}")
     return res.stdout[:w * h * 3]
+
+
+def _rgb_pixels(raw: bytes) -> List[Tuple[int, int, int]]:
+    return [(raw[i], raw[i + 1], raw[i + 2]) for i in range(0, len(raw) - 2, 3)]
+
+
+def detect_scene_cuts(video_path: Path, threshold: float = 0.3) -> List[float]:
+    """ffmpeg 場景偵測：回傳硬切秒數（不含片頭／片尾）。"""
+    cmd = [
+        media_tools.ffmpeg_bin(), "-hide_banner", "-loglevel", "info", "-i", str(video_path),
+        "-filter:v", f"select='gt(scene,{threshold})',showinfo", "-f", "null", "-",
+    ]
+    res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    cuts = sorted({float(m.group(1)) for m in re.finditer(r"pts_time:([0-9]+(?:\.[0-9]+)?)", res.stderr or "")})
+    try:
+        duration = float(probe_video_specs(video_path).get("duration") or 0.0)
+    except Exception:
+        duration = 0.0
+    return [t for t in cuts if 0.15 <= t <= max(0.15, duration - 0.15)]
+
+
+def _label_font(size: int):
+    """Pillow 預設字型沒有中文；依序找系統 CJK 字型，都沒有才退回預設。"""
+    from PIL import ImageFont
+    for path in ("C:/Windows/Fonts/msjh.ttc", "C:/Windows/Fonts/msyh.ttc",
+                 "/System/Library/Fonts/PingFang.ttc", "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"):
+        try:
+            return ImageFont.truetype(path, size)
+        except OSError:
+            continue
+    return ImageFont.load_default()
+
+
+def _pair_frame(video_path: Path, timestamp: float, w: int, h: int) -> bytes:
+    duration = float(probe_video_specs(video_path).get("duration") or 0.0)
+    t = min(max(timestamp, 0.0), max(0.0, duration - 0.12))
+    return extract_frame_rgb(video_path, t, w=w, h=h)
+
+
+def build_continuity_pairs(entries: List[Dict[str, Any]], out_dir: Path, *,
+                           threshold: float = 0.3, max_pairs: int = 8,
+                           width: int = 480, height: int = 270) -> Dict[str, Any]:
+    """段縫＋段內硬切的成對連戲 contact sheet 與 checklist。
+
+    entries：[{segment_id, video_path}]，順序就是成片順序。
+    每對抽左右兩張圖、算 dE76，Pillow 併排加字（不用 ffmpeg drawtext），每張最多 8 對。
+    """
+    from PIL import Image, ImageDraw  # Pillow：文字與併排在 Python 做，避免 drawtext segfault
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    pairs: List[Dict[str, Any]] = []
+    videos = [(str(e.get("segment_id") or ""), Path(e["video_path"])) for e in entries]
+    for sid, video in videos:
+        if not video.is_file():
+            pairs.append({"label": f"{sid}（缺檔）", "kind": "missing", "left": b"", "right": b"",
+                          "de76": None, "error": str(video)})
+            continue
+        cuts = detect_scene_cuts(video, threshold)
+        for i, cut in enumerate(cuts, 1):
+            left = _pair_frame(video, cut - 0.06, width, height)
+            right = _pair_frame(video, cut + 0.06, width, height)
+            pairs.append({"label": f"{sid} 段內切點 {i} @ {cut:.2f}s", "kind": "cut",
+                          "left": left, "right": right, "de76": None})
+    for (prev_sid, prev_video), (next_sid, next_video) in zip(videos, videos[1:]):
+        if not prev_video.is_file() or not next_video.is_file():
+            continue
+        left = _pair_frame(prev_video, 10 ** 9, width, height)
+        right = _pair_frame(next_video, 0.0, width, height)
+        pairs.append({"label": f"{prev_sid} → {next_sid}（段縫）", "kind": "segment",
+                      "left": left, "right": right, "de76": None})
+
+    for pair in pairs:
+        if pair.get("left") and pair.get("right"):
+            try:
+                pair["de76"] = round(pal_dist(extract_palette(_rgb_pixels(pair["left"])),
+                                              extract_palette(_rgb_pixels(pair["right"]))), 2)
+            except Exception:
+                pair["de76"] = None
+
+    sheets: List[str] = []
+    for sheet_index, start in enumerate(range(0, len(pairs), max_pairs), 1):
+        chunk = pairs[start:start + max_pairs]
+        label_h = 30
+        gap = 8
+        canvas = Image.new("RGB", (width * 2 + gap * 3, (label_h + height + gap) * len(chunk)), (250, 250, 250))
+        draw = ImageDraw.Draw(canvas)
+        font = _label_font(20)
+        y = label_h
+        for local_index, pair in enumerate(chunk, 1):
+            pair["sheet"] = f"pairs-{sheet_index}.jpg"
+            pair["sheet_pair"] = local_index
+            if pair.get("left"):
+                canvas.paste(Image.frombytes("RGB", (width, height), pair["left"]), (gap, y))
+            if pair.get("right"):
+                canvas.paste(Image.frombytes("RGB", (width, height), pair["right"]), (width + gap * 2, y))
+            de = "—" if pair.get("de76") is None else f"{pair['de76']:.2f}"
+            draw.text((gap, y - label_h + 4), f"{pair['label']}  dE76={de}", fill=(20, 20, 20), font=font)
+            y += height + gap + label_h
+        sheet_path = out_dir / f"pairs-{sheet_index}.jpg"
+        canvas.save(sheet_path, quality=88)
+        sheets.append(sheet_path.name)
+
+    lines = [
+        "# 連戲檢查清單（continuity checklist）",
+        "",
+        "> 相鄰段與段內硬切都必須逐列回答；任一列 break → 重拍其中一段，不要用調色掩蓋。",
+        "",
+    ]
+    for index, pair in enumerate(pairs, 1):
+        de = "—" if pair.get("de76") is None else f"{pair['de76']:.2f}"
+        lines.append(f"## Pair {index}：{pair['label']}")
+        lines.append(f"- dE76：`{de}`　contact sheet：`{pair.get('sheet') or '—'}`")
+        if pair.get("error"):
+            lines.append(f"- ⚠️ {pair['error']}")
+        for row in ("location layout", "prop shape & state", "character screen side & facing",
+                    "costume", "light direction & colour", "effect state"):
+            lines.append(f"- [ ] {row}")
+        lines.append("")
+    (out_dir / "continuity-checklist.md").write_text("\n".join(lines), encoding="utf-8")
+    return {"pairs": pairs, "sheets": sheets, "checklist": str(out_dir / "continuity-checklist.md")}
+    return {"pairs": pairs, "sheets": sheets, "checklist": str(out_dir / "continuity-checklist.md")}
 
 
 def generate_contact_sheet(video_path: Path, duration: float, out_path: Path, width: int = 960) -> bool:
@@ -1235,6 +1360,8 @@ def main() -> int:
     parser.add_argument("--segment-mode", action="store_true", help="強制以分段 (Segment) 總時長而非單鏡時長比對影片")
     parser.add_argument("--all-shots", action="store_true", help="審查 Layer 2 中所有已設定 video_file 的鏡頭")
     parser.add_argument("--contact-dir", type=Path, help="Contact Sheet 拼圖儲存目錄 (預設為影片同目錄)")
+    parser.add_argument("--continuity-pairs", type=Path, default=None,
+                        help="輸出相鄰段／段內硬切的連戲成對圖與 continuity-checklist.md 的目錄")
     parser.add_argument("--out-report", type=Path, help="輸出 Markdown 審查報表路徑")
     parser.add_argument("--out-json", type=Path, help="輸出結構化 JSON 審查報告路徑")
     parser.add_argument("--write-back", action="store_true", help="將審查結果回寫至 Layer 2 JSON")
@@ -1260,6 +1387,20 @@ def main() -> int:
                 one = json.load(f)
             seg_data = one if seg_data is None else seg_data
             raw_list.extend(one if isinstance(one, list) else one.get("segments", [one]))
+        if args.continuity_pairs:
+            v_dir = args.videos_dir or segment_files[0].parent / "videos"
+            entries: List[Dict[str, Any]] = []
+            for seg in raw_list:
+                sid = str(seg.get("segment_id") or seg.get("group") or seg.get("id") or "")
+                if not sid:
+                    continue
+                found_v, _ambiguous = find_exact_segment_video(v_dir, sid)
+                if found_v is not None:
+                    entries.append({"segment_id": sid, "video_path": found_v})
+            report = build_continuity_pairs(entries, args.continuity_pairs)
+            print(f"✅ 連戲成對圖：{len(report['pairs'])} 對、{len(report['sheets'])} 張 contact sheet")
+            print(f"📄 checklist：{report['checklist']}")
+            return 0
         multi = len(segment_files) > 1
         # 單檔時沿用舊行為（args.segments 當成單一 Path）；多檔時 episode 標成 ALL。
         args.segments = segment_files[0]

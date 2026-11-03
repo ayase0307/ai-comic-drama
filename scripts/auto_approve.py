@@ -135,7 +135,7 @@ def evaluate(root: Path, stage: Optional[int] = None) -> Dict[str, Any]:
         if errors:
             blockers.append(f"產物檢查失敗：{errors[0]}")
     if not blockers and stage in (4, 5):
-        # 人工路線要先過審核頁 builder（階段 4 validate_storyboard／跨段罐頭詞；階段 5 參考圖對帳＋17 條自檢＋
+        # 人工路線要先過審核頁 builder（階段 4 validate_storyboard／跨段罐頭詞；階段 5 參考圖對帳＋18 條自檢＋
         # 逐鏡撰寫審查）才會進 awaiting；自動核准不經過審核頁，所以在這裡跑同一套，不然 TODO 分鏡也能自動過。
         review_errors = _review_builder_errors(root, stage, state)
         if review_errors:

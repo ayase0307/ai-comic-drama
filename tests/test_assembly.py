@@ -49,147 +49,45 @@ class AssemblyRegressionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             assembly.timeline_segment_id({"shot_id": "unparseable"})
 
-    def test_any_tts_line_failure_fails_segment(self):
-        with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[1]) as td:
-            root = Path(td)
-            source = root / "source.mp4"
-            source.write_bytes(b"video")
-            output = root / "processed.mp4"
-            def synthesize(text, path, **kwargs):
-                if text == "second":
-                    raise RuntimeError("failed")
-                self._write_wav(path, 0.2)
-                return "sapi"
-            with mock.patch.object(assembly, "synthesize_speech", side_effect=synthesize):
-                ok, message = assembly.process_single_segment(
-                    source, output,
-                    [{"subtitle": "first", "start": 0, "end": 1}, {"subtitle": "second", "start": 1, "end": 2}], 2,
-                    audio_mode="tts_replace", tts_engine="sapi",
-                )
-        self.assertFalse(ok)
-        self.assertIn("second", message)
-
-    def test_tts_without_native_audio_builds_audio_from_voice(self):
-        with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[1]) as td:
-            root = Path(td)
-            source = root / "source.mp4"
-            self._make_video(source, 2.0)
-            output = root / "processed.mp4"
-            def make_tts(text, path, **kwargs):
-                self._write_wav(path, 0.2)
-                return "sapi"
-            with mock.patch.object(assembly, "synthesize_speech", side_effect=make_tts):
-                ok, message = assembly.process_single_segment(
-                    source, output, [{"subtitle": "hello", "start": 0.2, "end": 0.8}], 2,
-                    audio_mode="tts_replace", tts_engine="sapi", burn_subtitles=False,
-                )
-            self.assertTrue(ok, message)
-            specs = assembly.probe_video_specs(output)
-            self.assertTrue(specs["has_audio"])
-            self.assertAlmostEqual(specs["duration"], 2.0, delta=0.1)
-
-    def test_tts_longer_than_dialogue_window_fails_without_trimming(self):
+    def test_native_audio_is_preserved_and_padded_to_segment_duration(self):
         with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[1]) as td:
             root = Path(td)
             source, output = root / "source.mp4", root / "processed.mp4"
-            self._make_video(source, 2.0)
-            def make_tts(text, path, **kwargs):
-                self._write_wav(path, 1.4)
-                return "offline-test"
-            with mock.patch.object(assembly, "synthesize_speech", side_effect=make_tts):
-                ok, message = assembly.process_single_segment(
-                    source, output, [{"subtitle": "long line", "start": 0.2, "end": 1.2}], 2.0,
-                    audio_mode="tts_replace", burn_subtitles=False,
-                )
-        self.assertFalse(ok)
-        self.assertIn("TTS", message)
-        self.assertIn("窗口", message)
-        self.assertFalse(output.exists())
-
-    def test_short_tts_is_padded_to_segment_duration(self):
-        with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[1]) as td:
-            root = Path(td)
-            source, output = root / "source.mp4", root / "processed.mp4"
-            self._make_video(source, 1.0)
-            def make_tts(text, path, **kwargs):
-                self._write_wav(path, 0.15)
-                return "offline-test"
-            with mock.patch.object(assembly, "synthesize_speech", side_effect=make_tts):
-                ok, message = assembly.process_single_segment(
-                    source, output, [{"subtitle": "short line", "start": 0.3, "end": 0.8}], 1.0,
-                    audio_mode="tts_replace", burn_subtitles=False,
-                )
+            self._make_video(source, 1.0, audio=True)
+            ok, message = assembly.process_single_segment(
+                source, output, [{"subtitle": "short line", "start": 0.3, "end": 0.8}], 1.0,
+                burn_subtitles=False,
+            )
             self.assertTrue(ok, message)
             specs = assembly.probe_video_specs(output)
         self.assertTrue(specs["has_audio"])
         self.assertAlmostEqual(specs["duration"], 1.0, delta=0.1)
 
-    def test_external_narration_markdown_is_rejected(self):
+    def test_missing_native_audio_fails_when_dialogue_is_required(self):
         with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[1]) as td:
             root = Path(td)
-            with mock.patch.object(sys, "argv", [
-                "assemble_episode.py", "--segments", str(root / "segments.json"),
-                "--videos-dir", str(root), "--output", str(root / "final.mp4"),
-                "--narration", str(root / "narration.md"),
-            ]), contextlib.redirect_stderr(io.StringIO()) as stderr:
-                with self.assertRaises(SystemExit) as raised:
-                    assembly.main()
-        self.assertEqual(raised.exception.code, 2)
-        self.assertIn("--narration", stderr.getvalue())
+            source, output = root / "source.mp4", root / "processed.mp4"
+            self._make_video(source, 1.0, audio=False)
+            ok, message = assembly.process_single_segment(
+                source, output, [{"subtitle": "line", "start": 0.1, "end": 0.8}], 1.0,
+                audio_required=True, burn_subtitles=False,
+            )
+        self.assertFalse(ok)
+        self.assertIn("沒有音訊流", message)
+        self.assertFalse(output.exists())
 
-    def test_narration_only_without_inline_narration_fails(self):
+    def test_tts_cli_options_are_removed(self):
         with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[1]) as td:
             root = Path(td)
-            source_dir = root / "videos"
-            source_dir.mkdir()
-            self._make_video(source_dir / "SEG-A.mp4", 1.0)
-            segments = root / "segments.json"
-            segments.write_text(json.dumps({"segments": [{
-                "segment_id": "SEG-A", "seconds": 1.0,
-                "shots": [{"subtitle": "text only", "dialogue_and_audio": {"line_verbatim": "spoken text"}}],
-            }]}), encoding="utf-8")
-            output = root / "final.mp4"
-            with mock.patch.object(sys, "argv", [
-                "assemble_episode.py", "--segments", str(segments), "--videos-dir", str(source_dir),
-                "--output", str(output), "--audio-mode", "narration_only", "--no-burn-subtitles",
-            ]), mock.patch.object(assembly, "synthesize_speech") as synth, contextlib.redirect_stdout(io.StringIO()):
-                code = assembly.main()
-            manifest = json.loads((root / "delivery-final.json").read_text(encoding="utf-8"))
-        self.assertNotEqual(code, 0)
-        synth.assert_not_called()
-        self.assertEqual(manifest["delivery_status"], "failed")
-        self.assertIn("narration", " ".join(manifest["errors"]).lower())
-
-    def test_narration_only_uses_inline_narration_only(self):
-        with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[1]) as td:
-            root = Path(td)
-            videos = root / "videos"
-            videos.mkdir()
-            (videos / "SEG-A.mp4").write_bytes(b"source")
-            segments = root / "segments.json"
-            segments.write_text(json.dumps({"segments": [{
-                "segment_id": "SEG-A", "seconds": 2,
-                "shots": [{"narration": "voice over", "subtitle": "caption",
-                           "dialogue_and_audio": {"line_verbatim": "dialogue"}}],
-            }]}), encoding="utf-8")
-            captured = {}
-            def fake_process(source, dest, lines, *args, **kwargs):
-                captured["lines"] = lines
-                dest.write_bytes(b"processed")
-                return True, "ok"
-            def fake_concat(paths, dest, **kwargs):
-                dest.write_bytes(b"final")
-                return True, "ok"
-            with mock.patch.object(sys, "argv", [
-                "assemble_episode.py", "--segments", str(segments), "--videos-dir", str(videos),
-                "--output", str(root / "final.mp4"), "--audio-mode", "narration_only",
-            ]), mock.patch.object(assembly, "process_single_segment", side_effect=fake_process), \
-                    mock.patch.object(assembly, "concat_videos", side_effect=fake_concat), \
-                    mock.patch.object(assembly, "validate_video_decode", return_value={"decode_ok": True, "duration": 2.0}), \
-                    contextlib.redirect_stdout(io.StringIO()):
-                code = assembly.main()
-        self.assertEqual(code, 0)
-        self.assertEqual([line["subtitle"] for line in captured["lines"]], ["voice over"])
+            for extra in (["--tts-engine", "auto"], ["--tts-config", "config/tts.json"],
+                          ["--audio-mode", "native_sub"], ["--narration", str(root / "narration.md")]):
+                with self.subTest(extra=extra), mock.patch.object(sys, "argv", [
+                    "assemble_episode.py", "--segments", str(root / "segments.json"),
+                    "--videos-dir", str(root), "--output", str(root / "final.mp4"),
+                ] + extra), contextlib.redirect_stderr(io.StringIO()):
+                    with self.assertRaises(SystemExit) as raised:
+                        assembly.main()
+                self.assertEqual(raised.exception.code, 2)
 
     def test_concat_uses_paths_with_spaces_and_apostrophes(self):
         with tempfile.TemporaryDirectory(prefix="episode's path ", dir=Path(__file__).resolve().parents[1]) as td:
@@ -254,7 +152,7 @@ class AssemblyRegressionTests(unittest.TestCase):
             with mock.patch.object(sys, "argv", [
                 "assemble_episode.py", "--segments", str(segments),
                 "--videos-dir", str(videos), "--output", str(output),
-                "--audio-mode", "native_sub", "--no-burn-subtitles",
+                "--no-burn-subtitles",
             ]), mock.patch.object(assembly, "process_single_segment", side_effect=fake_process):
                 try:
                     exit_code = assembly.main()
@@ -284,7 +182,7 @@ class AssemblyRegressionTests(unittest.TestCase):
             with mock.patch.object(sys, "argv", [
                 "assemble_episode.py", "--segments", str(segments),
                 "--videos-dir", str(videos), "--output", str(output),
-                "--audio-mode", "native_sub", "--no-burn-subtitles",
+                "--no-burn-subtitles",
             ]), mock.patch.object(assembly, "process_single_segment", side_effect=fake_process), \
                     mock.patch.object(assembly, "concat_videos", side_effect=fake_concat), \
                     mock.patch.object(assembly, "validate_video_decode", return_value={
@@ -323,7 +221,7 @@ class AssemblyRegressionTests(unittest.TestCase):
                 return True, "ok"
             with mock.patch.object(sys, "argv", [
                 "assemble_episode.py", "--segments", str(segments), "--videos-dir", str(videos),
-                "--output", str(output), "--audio-mode", "native_sub", "--no-burn-subtitles",
+                "--output", str(output), "--no-burn-subtitles",
             ]), mock.patch.object(assembly, "process_single_segment", side_effect=fake_process), \
                     mock.patch.object(assembly, "concat_videos", side_effect=fake_concat), \
                     mock.patch.object(assembly, "validate_video_decode", return_value={"decode_ok": True, "duration": 3.25}), \
@@ -356,7 +254,7 @@ class AssemblyRegressionTests(unittest.TestCase):
             with mock.patch.object(sys, "argv", [
                 "assemble_episode.py", "--segments", str(segments),
                 "--videos-dir", str(videos), "--output", str(output),
-                "--audio-mode", "native_sub", "--no-burn-subtitles",
+                "--no-burn-subtitles",
             ]), contextlib.redirect_stdout(io.StringIO()):
                 exit_code = assembly.main()
             manifest = json.loads((root / "delivery-final's episode.json").read_text(encoding="utf-8"))

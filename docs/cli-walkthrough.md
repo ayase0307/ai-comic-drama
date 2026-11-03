@@ -85,11 +85,10 @@ python "$skillRoot/scripts/storyboard/submit_h3_segments.py" --segments segments
 # 8. 階段 6 批次影片審查（分段總時長精確比對、黑白防漏、分鏡總覽圖邊框檢驗、串聯 color_qa.py 輸出報告）
 python "$skillRoot/scripts/storyboard/verify_video_shot.py" --segments segments-ep01.json --videos-dir videos/ --out-report videos/qa-report.md --out-json videos/qa-report.json
 
-# 9. 階段 7 選用組裝（需實際可用的影片／音訊工具）（外部 TTS 盤點與配音、Windows 冒號轉義、多軌混音、Concat 拼接）
-python "$skillRoot/scripts/storyboard/tts_doctor.py"
+# 9. 階段 7 選用組裝（需實際可用的影片／音訊工具）
+# 音訊一律 H3 原生（所有台詞、旁白、畫外音都由 H3 生成）；組裝器只燒字幕、對齊響度與拼接
 python "$skillRoot/scripts/storyboard/layer2_to_table.py" segments-ep01.json --check --timeline timeline-ep01.csv
-python "$skillRoot/scripts/storyboard/assemble_episode.py" --segments segments-ep01.json --videos-dir videos/ --output final/ep01_final.mp4 --audio-mode auto --tts-engine auto --tts-config config/tts.json --target-lufs -23 --delivery-report final/delivery-ep01.md
-# 外部 narration-ep01.md 不會由組裝器解析；將旁白轉為支援的 inline 欄位，或交由剪輯工具處理
+python "$skillRoot/scripts/storyboard/assemble_episode.py" --segments segments-ep01.json --videos-dir videos/ --output final/ep01_final.mp4 --target-lufs -23 --delivery-report final/delivery-ep01.md
 ```
 
 `review/project-state.json` 是唯一階段狀態來源；核准會綁定輸入 hash，內容變更後須重審。Compiler 要求 stage 4 核准，實際提交要求 stage 5 核准；dry-run 可用於預檢。影片 QA 的技術通過結果不會自動成為人工核准。

@@ -65,7 +65,7 @@ KNOWN_DECISIONS: Dict[str, Dict[str, Any]] = {
     "aspect_ratio": {"label": "畫面比例", "stages": [2, 4, 5, 6, 7], "required_by": 2,
                      "reference": "references/model-profiles.md"},
     # 台詞政策固定為「原著對白優先」（references/adapt/dialogue-first-adaptation.md），不再詢問使用者。
-    # required_by=99：沒定案就走預設，不擋路；舊專案的 ①–④ 定案值仍可讀（④ 仍對應 external 編譯政策）。
+    # required_by=99：沒定案就走預設，不擋路；舊專案的 ①–④ 定案值仍可讀（④ 已改對應 h3-native）。
     "dialogue_policy": {"label": "台詞政策（固定預設：原著對白優先，不詢問）", "stages": [3, 5, 7],
                         "required_by": 99, "reference": "references/adapt/dialogue-first-adaptation.md"},
     # 生圖後端由使用者選，不自行預設：`h3d imagegen --detect` 列出偵測到的工具，`h3d imagegen --set` 寫入（scripts/image_backends.py）。
@@ -481,13 +481,15 @@ def parse_value(decision_id: str, raw: str) -> Any:
 
 
 # dialogue_policy 的定案值對應到 --narration-policy 的規則：
-# - 值是編譯器政策名 → 直接對應。
-# - ④（無台詞純旁白）→ external：所有旁白都由外部 TTS 合成。
+# - 值是編譯器政策名 → 直接對應（現在只有 h3-native）。
+# - ④（無台詞純旁白）→ h3-native：所有旁白都由 H3 原生生成。
+# - 舊專案的 external／short-offscreen-h3 → 對應 h3-native，不報錯（它們只表示誰念旁白）。
 # - ①②③（原文逐字／只留重點句／影視化改寫）與空值 → 只影響原著對白保留量，不影響旁白由誰念，
-#   回傳 None，沿用預設 short-offscreen-h3，不報錯。
+#   回傳 None，沿用預設 h3-native，不報錯。
 # - 其他無法辨識的值 → 明確報錯，由使用者重新定案。
-NARRATION_POLICY_NAMES = ("short-offscreen-h3", "external", "h3-native")
-DIALOGUE_POLICY_CHOICE_NARRATION = {"④": "external"}
+NARRATION_POLICY_NAMES = ("h3-native",)
+LEGACY_NARRATION_POLICY_NAMES = ("external", "short-offscreen-h3")
+DIALOGUE_POLICY_CHOICE_NARRATION = {"④": "h3-native"}
 DIALOGUE_POLICY_NEUTRAL_CHOICES = ("①", "②", "③")
 DEFAULT_DIALOGUE_POLICY = "原著對白優先"  # 固定預設，不詢問；見 references/adapt/dialogue-first-adaptation.md
 
@@ -502,6 +504,8 @@ def narration_policy_of(data: Dict[str, Any]) -> Optional[str]:
         return None
     if value in NARRATION_POLICY_NAMES:
         return value
+    if value in LEGACY_NARRATION_POLICY_NAMES:
+        return "h3-native"
     if value.startswith(DEFAULT_DIALOGUE_POLICY):
         return None
     head = value[:1]

@@ -68,7 +68,7 @@
 - **旁白**：說話人固定寫 `旁白`（不是角色，不需在 Story Bible 註冊；`check_continuity.py` 已豁免 `旁白／畫外音／字幕／narrator／narration／V.O.`）。不要寫成 `敘事者`、`作者`、`（畫外）` 等變體，下游才認得。
 - **角色的畫外音／內心聲**：用對白行加括注 `（畫外音）`、`（內心獨白）`、`（門外）`、`（電話音）`；說話人仍是標準角色名，Layer 2 對應 `audio_type`＝`voiceover`／`offscreen`／`phone`，該角色不必在畫面裡。
 - **字數**：旁白同樣受單句 `≤ 28` 字建議、`≤ 35` 字硬上限，並計入台詞預算（階段 3 審計）。
-- **下游**：預設 `--narration-policy short-offscreen-h3`：約 ≤15 字的畫外句與旁白由 H3 直接念（官方 O.S.／V.O. 句式＋逐字 `<d>`，畫面露臉者嘴唇閉合，E23），長句才走外部 TTS 並抄一份到 `narration-epXX.md` 供階段 7 混音（見 `references/pipeline.md` §5.4）。所以畫外句與旁白盡量寫短、一鏡一句。
+- **下游**：唯一政策 `--narration-policy h3-native`：所有畫外句與旁白都由 H3 直接念（官方 O.S.／V.O. 句式＋逐字 `<d>`，旁白綁沒有 `<Picture>` 的 `<Subject N>`，固定英文聲線，並加「No one in frame speaks…」句）；沒有外部 TTS、也沒有 `narration-epXX.md` 混音。旁白窗以 3.0 字／秒估時，>18 字提醒拆鏡（見 `references/pipeline.md` §5.4）。所以畫外句與旁白盡量寫短、一鏡一句。
 
 ### 6. 換場分隔
 - 不同場景之間必須以**至少一個空行**分隔。

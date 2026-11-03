@@ -307,17 +307,17 @@ footer{margin-top:44px;padding-top:14px;border-top:1px solid var(--line);font-si
      "files": [["videos/", "每段影片"], ["videos/qa-report.json", "技術 QA"], ["review/verdicts.json", "逐段結論"]],
      "gates": ["duration_drift：長度不符，片子隔離", "PARTIAL：缺段或沒達 VERIFIED", "已有 waiting 的工作"],
      "pins": ["opt"]},
-    {"n": 7, "name": "配音剪輯", "ask": "這部成片可以交付了嗎？",
-     "why": "選用關卡。動作段後製變速（台詞原速），ASR 對位、畫外句壓原聲、響度 −23 LUFS，全集一個剪輯專案。",
+    {"n": 7, "name": "字幕剪輯", "ask": "這部成片可以交付了嗎？",
+     "why": "選用關卡。所有台詞、旁白、畫外音都由 H3 原生生成；本階段只做動作段後製變速（台詞原速）、字幕燒錄、響度 −23 LUFS 與全集剪輯。",
      "steps": [
        {"who": "user", "do": "定每個角色的音色", "means": "音色一次定案，永遠由你本人決定。", "cmd": "h3d decide voice:<角色>", "writes": "decisions.json"},
        {"who": "agent", "do": "後製變速", "means": "照已核准的變速清單，原片不動、台詞區 1 倍速。", "cmd": "h3d ramp", "writes": "videos/ramped/"},
-       {"who": "agent", "do": "配音對位與響度", "means": "長旁白走外部 TTS，短畫外句留 H3。", "cmd": "h3d voice align", "writes": ""},
-       {"who": "agent", "do": "組成剪輯專案與成片", "means": "影片、字幕、畫外音三軌一個專案。", "cmd": "h3d concat plan/build、h3d assemble", "writes": "final/"},
+       {"who": "agent", "do": "字幕、響度與成片", "means": "字幕依台詞時間窗燒錄；音訊保留 H3 原生音軌，段層對白錨定＋整片 loudnorm。", "cmd": "h3d assemble", "writes": "final/"},
+       {"who": "agent", "do": "組成剪輯專案", "means": "影片與字幕進同一個剪輯專案。", "cmd": "h3d concat plan/build", "writes": "final/"},
        {"who": "agent", "do": "剪輯建議（只給建議）", "means": "剪點、轉場、登場卡、配樂閃避的提醒，不擋關。", "cmd": "scripts/craft/edit_review.py", "writes": ""}
      ],
      "human": ["每個角色的音色", "成片是否交付"],
-     "files": [["final/", "成片與交付檔"], ["narration-ep01.md", "旁白與字幕稿"]],
+     "files": [["final/", "成片與交付檔"], ["segments-ep01.json", "台詞時間窗（字幕來源）"]],
      "gates": ["有畫外台詞的角色沒有你定的音色", "變速區碰到台詞"],
      "pins": ["user", "opt"]}
   ],
@@ -377,9 +377,8 @@ footer{margin-top:44px;padding-top:14px;border-top:1px solid var(--line);font-si
     ["verdict", 6, "逐段目視結論"],
     ["deps", 6, "segment 級依賴帳本"],
     ["ramp", 7, "依核准清單後製變速"],
-    ["voice", 7, "ASR 對位、壓原聲、響度"],
     ["concat", 7, "全集單一剪輯專案"],
-    ["assemble", 7, "配音、字幕與成片組裝"]
+    ["assemble", 7, "字幕燒錄、響度與成片組裝"]
   ]
 }
 </script>

@@ -23,7 +23,7 @@ H3／FreeVideo 出的片是 **24 fps 原生、沒有插幀**，幀數＝送件 `
 | `impact` 撞擊、`dialogue` 台詞 | 1× | 台詞保護區見下 |
 
 - 倍率上限 3×；短於 0.25 s 的變速區段併回 1×，避免頻繁換速。
-- **台詞保護區**一律 1×：segments 的 `speech_window`、`external_narration`、有台詞但沒有 speech_window 的整鏡；`--vad` 會再用 ffmpeg 偵測人聲，把與台詞窗重疊的人聲區併進來。人工補的保護區在 `protect[]` 加 `"manual": true`，重跑提案不會被洗掉。
+- **台詞保護區**一律 1×：segments 的 `speech_window`、有台詞但沒有 speech_window 的整鏡；`--vad` 會再用 ffmpeg 偵測人聲，把與台詞窗重疊的人聲區併進來。人工補的保護區在 `protect[]` 加 `"manual": true`，重跑提案不會被洗掉。
 - 音訊：1× 原音；加速區 `atempo`（WSOLA，不變調）；剪掉的區段音畫一起剪；接縫各 8 ms 淡入淡出。
 - **原片永遠不覆寫**，變速版輸出 `videos/ramped/<段>.mp4`。
 

@@ -42,8 +42,8 @@ class DecisionsTests(unittest.TestCase):
 
     def test_custom_decision_requires_stages(self):
         with self.assertRaises(decisions.DecisionError):
-            decisions.decide(self.root, "voice_engine", "edge-tts", "配音用 edge")
-        entry = decisions.decide(self.root, "voice_engine", "edge-tts", "配音用 edge", stages=[7])
+            decisions.decide(self.root, "custom_note", "任意值", "自訂決策")
+        entry = decisions.decide(self.root, "custom_note", "任意值", "自訂決策", stages=[7])
         self.assertEqual(entry["stages"], [7])
 
     def test_redeciding_keeps_history(self):

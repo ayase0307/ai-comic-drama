@@ -41,7 +41,19 @@ NEGATED_SPEAK_RE = re.compile(
     r"\b(?:says|speaks|asks) (?:nothing|no word|not a word)\b|\bis the visible speaking character\b",
     re.IGNORECASE,
 )
-OFFSCREEN_LINE_RE = re.compile(r"says in an off-screen voiceover|heard from [^<]{0,200}?off-screen", re.IGNORECASE)
+OFFSCREEN_LINE_RE = re.compile(
+    r"says in an off-screen voiceover|heard from [^<\n]{0,200}?(?:<Subject \d+>\s*)?(?:\(S\d+\)\s*)?off-screen",
+    re.IGNORECASE,
+)
+WHOLE_FRAME_TINT_RE = re.compile(
+    r"\b(?:bathes? (?:the )?(?:whole |entire )?(?:scene|frame) in (?:red|blue|green|gold|white|black)|"
+    r"everything (?:turns?|goes|becomes) (?:red|blue|green|gold|white|black)|"
+    r"(?:red|blue|green|gold|white|black) tint(?:s|ed)?(?: the (?:scene|frame))?|"
+    r"screen flashes? (?:red|blue|green|gold|white)|"
+    r"colou?r grade (?:shifts?|changes?)|"
+    r"floods? (?:the )?(?:scene|frame) with (?:red|blue|green|gold|white|black))\b",
+    re.IGNORECASE,
+)
 MOUTH_OPEN_RE = re.compile(
     r"\b(?:mouths? (?:hangs? |falls? |drops? |is |are |half |slightly |wide )*open|open[- ]mouthed|"
     r"gasp(?:s|ing|ed)?|lips? (?:part|parts|parted|parting)|jaw (?:drops|dropping|hangs|falls) open)\b",
@@ -67,6 +79,17 @@ def voice_issues(prompt_text: str) -> List[Dict[str, str]]:
             continue
         tag = _shot_tag(block)
         no_lines = D_BLOCK.sub(" ", block)
+        tint = WHOLE_FRAME_TINT_RE.search(block)
+        if tint:
+            issues.append({
+                "code": "W56",
+                "shot": tag,
+                "message": (
+                    f"[W56: 整片調色不是特效] {tag} 寫了「{tint.group(0)}」這類整片色偏；"
+                    f"H3 會把整個畫面染紅／染色，看起來像便宜濾鏡。請改成局部光源"
+                    f"（例如 the light is emitted locally from the glowing bird, rim-lighting nearby surfaces）。"
+                ),
+            })
         if "<d>" not in block:
             cleaned = NEGATED_SPEAK_RE.sub(" ", no_lines)
             m = SPEAK_RE.search(cleaned)
@@ -76,8 +99,8 @@ def voice_issues(prompt_text: str) -> List[Dict[str, str]]:
                     "shot": tag,
                     "message": (
                         f"[E43: 有說話動詞卻沒給台詞] {tag} 寫了「{m.group(0)}」但這一鏡沒有 <d> 逐字台詞；"
-                        f"H3 會自編亂語。要 H3 念就寫官方畫外句式加 <d>[Chinese] 台詞</d>，"
-                        f"走外部 TTS 就刪掉說話句、只留嘴閉合與環境音（#122）。"
+                        f"H3 會自編亂語。要 H3 念就寫官方旁白句式加 <d>[Chinese] 台詞</d>；"
+                        f"沒有台詞的鏡不要寫說話動詞，只留嘴閉合與環境音（#122）。"
                     ),
                 })
         elif OFFSCREEN_LINE_RE.search(block) and "lips remain completely closed" in block.lower():
@@ -95,5 +118,8 @@ def voice_issues(prompt_text: str) -> List[Dict[str, str]]:
 
 
 def voice_lint(prompt_text: str, strict: bool = False) -> Dict[str, List[str]]:
-    msgs = [i["message"] for i in voice_issues(prompt_text)]
-    return {"errors": msgs if strict else [], "warnings": [] if strict else msgs}
+    issues = voice_issues(prompt_text)
+    # W56（整片調色）永遠只是警告；strict 只把 E43／E44 升級成錯誤。
+    warnings = [i["message"] for i in issues if i["code"] == "W56"]
+    errors = [i["message"] for i in issues if i["code"] != "W56"]
+    return {"errors": errors if strict else [], "warnings": warnings + ([] if strict else errors)}

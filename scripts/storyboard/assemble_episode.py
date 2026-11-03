@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-assemble_episode.py — AI 漫劇階段 7 配音分層、字幕燒錄與 FFmpeg 拼接交付工具 (v1.0)
+assemble_episode.py — AI 漫劇階段 7 字幕燒錄、響度對齊與 FFmpeg 拼接交付工具
 
-用途：
-實作階段 7 配音分層決策方案 A（外部清晰 TTS 重配 + H3 原生背景音保留壓低混音）與方案 B/C，
-自動讀取 timeline / segments / narration，一鍵完成：
-  1. 多後端 TTS 語音生成（微軟 Edge-TTS 優先，遇 403 自動無縫降級至 Windows 原生 SAPI 離線生成）；
-  2. 精確時間軸混音（adelay + amix 保留打擊擬音與環境音）；
-  3. SRT 字幕自動生成與高對比樣式燒錄（內建 Windows 路徑 C\\:/ 冒號轉義）；
+使用者定案：所有台詞、旁白、畫外音都由 MiniMax H3 原生生成，沒有外部 TTS。
+本工具只負責：
+  1. 依 segments 的台詞時間窗（speech_window／shot 時間）產生 SRT 字幕；
+  2. 保留每段 H3 原生音軌，做段層「以對白為錨」電平對齊與整片 loudnorm；
+  3. 高對比樣式燒錄字幕（內建 Windows 路徑 C\\:/ 冒號轉義）；
   4. FFmpeg Concat 協議無縫拼接交付最終完整成片 mp4；
   5. 自動產出階段 7 交付清單 (delivery-epXX.md)。
 
@@ -21,12 +20,9 @@ CLI 用法：
 from __future__ import annotations
 
 import argparse
-import asyncio
 import csv
 import hashlib
-import io
 import json
-import math
 import os
 from pathlib import Path
 import re
@@ -34,10 +30,7 @@ import subprocess
 import sys
 import tempfile
 import time
-import struct
 from typing import Any, Dict, List, Optional, Tuple
-import wave
-from unittest.mock import patch
 
 try:  # ffmpeg／ffprobe 位置（AICD_FFMPEG／AICD_FFPROBE 可覆寫）
     import media_tools
@@ -61,127 +54,6 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-
-
-# ==============================================================================
-# TTS 引擎封裝 (Edge-TTS + Windows SAPI 離線備案)
-# ==============================================================================
-
-try:  # 多後端 TTS 模組（VoiceStudio／Fish Audio／自帶 API）
-    import tts_engine as tts_module  # type: ignore
-except Exception:  # pragma: no cover - 模組缺失時退回內建實作
-    tts_module = None  # type: ignore
-
-SAPI_PS_SCRIPT = """param ([string]$text, [string]$outFile)
-Add-Type -AssemblyName System.Speech
-$speak = New-Object System.Speech.Synthesis.SpeechSynthesizer
-$speak.SetOutputToWaveFile($outFile)
-$speak.Speak($text)
-$speak.Dispose()
-"""
-
-def generate_sapi_tts(text: str, out_wav: Path) -> bool:
-    """使用 Windows 原生 SAPI (PowerShell) 離線生成語音 WAV。"""
-    out_wav.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile("w", suffix=".ps1", encoding="utf-8", delete=False) as tf:
-        tf.write(SAPI_PS_SCRIPT)
-        ps1_path = Path(tf.name)
-
-    try:
-        cmd = [
-            "powershell", "-ExecutionPolicy", "Bypass", "-File", str(ps1_path),
-            "-text", text, "-outFile", str(out_wav)
-        ]
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-        return res.returncode == 0 and out_wav.exists() and out_wav.stat().st_size > 1000
-    except Exception as e:
-        print(f"   [!] SAPI TTS 例外: {e}")
-        return False
-    finally:
-        try:
-            ps1_path.unlink()
-        except Exception:
-            pass
-
-
-async def _edge_tts_async(text: str, voice: str, out_file: Path) -> bool:
-    import edge_tts
-    communicate = edge_tts.Communicate(text, voice)
-    await communicate.save(str(out_file))
-    return out_file.exists() and out_file.stat().st_size > 1000
-
-
-def generate_edge_tts(text: str, out_file: Path, voice: str = "zh-TW-YunJheNeural") -> bool:
-    """調用 edge-tts 生成語音檔。"""
-    try:
-        asyncio.run(_edge_tts_async(text, voice, out_file))
-        return out_file.exists() and out_file.stat().st_size > 1000
-    except Exception as e:
-        return False
-
-
-def synthesize_speech(
-    text: str,
-    out_wav: Path,
-    engine: str = "auto",
-    speaker: str = "",
-    config: Optional[Dict[str, Any]] = None,
-    voice: Optional[str] = None,
-    language: Optional[str] = None,
-) -> str:
-    """智慧語音合成器。
-
-    主線走 `tts_engine` 模組的多後端介面：voicestudio（本機 VoiceStudio／OmniVoice）
-    → fish（Fish Audio）→ openai_compat（自帶 API）→ sapi（Windows 離線備援）依序降級。
-    `tts_engine` 模組不可用時才退回本檔內建的 edge／sapi 實作。
-    角色音色以資產 ID（如 V-lin-zhao）交由設定檔 voice_map 對映到供應商音色。
-    """
-    clean_text = re.sub(r"[^\w\u4e00-\u9fff，。！？、 ]", "", text).strip()
-    if not clean_text:
-        return ""
-
-    out_wav.parent.mkdir(parents=True, exist_ok=True)
-
-    module_reason = ""
-    if tts_module is not None:
-        result = tts_module.synthesize(
-            clean_text, out_wav, engine=engine, speaker=speaker,
-            voice=voice, language=language, config=config,
-        )
-        if result.get("ok"):
-            return str(result.get("engine") or engine)
-        if engine != "auto":
-            raise RuntimeError(f"TTS 合成失敗 ({engine}): {result.get('reason')}")
-        # auto：多後端都失敗才退回內建備援；保留原因，否則最後只看到「Edge 與 SAPI 失敗」而不知道主線為何不行。
-        module_reason = str(result.get("reason") or "")
-
-    # ---- 內建離線備援 ----
-    # 角色音色推測（僅備援路徑使用；主線以設定檔 voice_map 為準）
-    is_female = any(k in speaker.lower() for k in ["female", "woman", "girl", "ye", "shan", "女", "珊"])
-    edge_voice = "zh-TW-HsiaoChenNeural" if is_female else "zh-TW-YunJheNeural"
-
-    if engine == "edge":
-        if generate_edge_tts(clean_text, out_wav, edge_voice):
-            return "edge-tts"
-        raise RuntimeError("Edge-TTS 生成失敗 (2026-10-10 起微軟要求 v2 Sec-MS-GEC token，edge-tts 7.2.8 會 403)")
-
-    elif engine == "sapi":
-        if generate_sapi_tts(clean_text, out_wav):
-            return "windows-sapi"
-        raise RuntimeError("Windows SAPI 生成失敗")
-
-    elif engine == "auto":
-        # 優先 Edge-TTS
-        if generate_edge_tts(clean_text, out_wav, edge_voice):
-            return "edge-tts"
-        # 降級至 SAPI 備案
-        if generate_sapi_tts(clean_text, out_wav):
-            return "windows-sapi (fallback)"
-        detail = f"；多後端 tts_engine 失敗原因：{module_reason}" if module_reason else ""
-        raise RuntimeError("語音生成雙引擎 (Edge-TTS 與 SAPI) 均失敗！" + detail
-                           + "（先跑 tts_doctor.py 看哪個引擎可用，再用 --tts-engine 指定）")
-
-    return "none"
 
 
 # ==============================================================================
@@ -220,25 +92,6 @@ def probe_video_specs(video_path: Path) -> Dict[str, Any]:
         "has_audio": any(s.get("codec_type") == "audio" for s in streams),
         "duration": duration,
     }
-
-
-def probe_audio_duration(audio_path: Path) -> float:
-    """Return decoded audio stream duration, rejecting missing/invalid audio."""
-    result = subprocess.run([
-        media_tools.ffprobe_bin(), "-v", "error", "-show_entries", "format=duration:stream=codec_type,duration",
-        "-of", "json", str(audio_path),
-    ], capture_output=True, text=True, encoding="utf-8", errors="replace")
-    if result.returncode != 0:
-        raise RuntimeError(f"ffprobe 無法讀取 TTS 音訊: {result.stderr[:300]}")
-    info = json.loads(result.stdout)
-    audio_streams = [s for s in info.get("streams", []) if s.get("codec_type") == "audio"]
-    if not audio_streams:
-        raise RuntimeError("TTS 檔案沒有 audio stream")
-    raw_duration = audio_streams[0].get("duration") or (info.get("format") or {}).get("duration")
-    duration = float(raw_duration or 0)
-    if not math.isfinite(duration) or duration <= 0:
-        raise RuntimeError("TTS 音訊時長無效")
-    return duration
 
 
 def validate_video_decode(video_path: Path) -> Dict[str, Any]:
@@ -341,36 +194,32 @@ def _window_bounds(window: Any) -> Optional[Tuple[float, float]]:
     return None
 
 
-def collect_dialogue_lines(seg: Dict[str, Any], audio_mode: str = "auto") -> List[Dict[str, Any]]:
-    """一段要燒字幕／合成的台詞（段內秒、雙人引子未剪前的原片時間）。
+def collect_dialogue_lines(seg: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """一段要燒字幕的台詞（段內秒、雙人引子未剪前的原片時間）。
 
     每鏡主句：dialogue_and_audio.line_verbatim（或 subtitle／narration），時間窗優先 speech_window，
     沒有才退回鏡頭時間。#120 同鏡接話：dialogue_and_audio.extra_lines[] 每句依它自己的 speech_window
     一起收進來（speaker 用該句的 speaker）；接話一定要有 speech_window，缺了丟 ValueError（不猜位置，
-    以免和主句字幕疊在一起）。narration_only 只收旁白，不收接話。回傳依 start 排序。
-    雙人引子（dual_lead_in）在 process_single_segment 統一前移／剪除，這裡不處理。"""
+    以免和主句字幕疊在一起）。回傳依 start 排序。
+    雙人引子（dual_lead_in）在 process_single_segment 統一前移／剪除，這裡不處理。
+    聲音一律是 H3 原生音軌；本函式只決定字幕位置，不合成任何語音。"""
     lines_info: List[Dict[str, Any]] = []
     for s in seg.get("shots", []) or []:
         if not isinstance(s, dict):
             continue
         dlg = s.get("dialogue_and_audio") or {}
-        if audio_mode == "narration_only":
-            text = s.get("narration") or ""
-        else:
-            text = dlg.get("line_verbatim") or s.get("subtitle") or s.get("narration") or ""
+        text = dlg.get("line_verbatim") or s.get("subtitle") or s.get("narration") or ""
         if text and str(text).strip() not in NO_LINE_TEXTS:
             st = float(s.get("start_time") or s.get("start") or 0.0)
             et = float(s.get("end_time") or s.get("end") or (st + float(s.get("duration", 2.5))))
             # 對白窗口優先用 speech_window（段內秒），沒有才退回鏡頭時間；
-            # 這是 TTS 落點與畫面嘴型的對齊基準。
+            # 這是字幕落點與畫面嘴型的對齊基準。
             bounds = _window_bounds(dlg.get("speech_window"))
             if bounds:
                 st, et = bounds
             spk = dlg.get("speaker") or s.get("speaker") or ""
             lines_info.append({"start": st, "end": et, "subtitle": text, "speaker": spk,
                                "window_source": "speech_window" if bounds else "shot_window"})
-        if audio_mode == "narration_only":
-            continue
         for i, ex in enumerate(dlg.get("extra_lines") or [], start=1):
             if not isinstance(ex, dict):
                 continue
@@ -380,7 +229,7 @@ def collect_dialogue_lines(seg: Dict[str, Any], audio_mode: str = "auto") -> Lis
             bounds = _window_bounds(ex.get("speech_window"))
             if not bounds:
                 raise ValueError(f"{s.get('shot_id') or '?'} extra_lines[{i}]「{ex_text}」缺 speech_window"
-                                 f"（start/end 段內秒），組裝無法定位這句接話的字幕／配音")
+                                 f"（start/end 段內秒），組裝無法定位這句接話的字幕")
             lines_info.append({"start": bounds[0], "end": bounds[1], "subtitle": ex_text,
                                "speaker": ex.get("speaker") or "", "extra_line": True,
                                "window_source": "speech_window"})
@@ -393,16 +242,12 @@ def process_single_segment(
     out_video: Path,
     lines_info: List[Dict[str, Any]],
     seg_duration: float,
-    audio_mode: str = "tts_replace",
-    tts_engine: str = "auto",
-    tts_config: Optional[Dict[str, Any]] = None,
-    bg_volume: float = 0.15,
     burn_subtitles: bool = True,
     temp_dir: Optional[Path] = None,
     audio_required: bool = False,
     lead_in_s: float = 0.0,
 ) -> Tuple[bool, str]:
-    """針對單個分段執行 TTS 生成、adelay 混音與字幕燒錄。
+    """單段處理：剪雙人引子、燒字幕、保留 H3 原生音軌（不合成任何語音）。
 
     lead_in_s>0（雙人引子，spatial-consistency.md §7）：先剪掉片頭 lead_in_s 秒，台詞時間窗一併前移；
     seg_duration 仍是來源影片長度，輸出長度＝seg_duration − lead_in_s。預設 0＝不剪，行為與舊版相同。
@@ -424,52 +269,25 @@ def process_single_segment(
         lines_info = shifted
         seg_duration = source_duration - lead
 
-    # 1. 生成字幕 SRT
+    # 1. 生成字幕 SRT（字幕仍由台詞時間窗產生；聲音是 H3 原生音軌）
     srt_file = t_dir / f"{in_video.stem}.srt"
     srt_lines = []
-    tts_tracks: List[Tuple[Path, int]] = []  # (wav_path, delay_ms)
-
-    tts_failures: List[str] = []
     for idx, item in enumerate(lines_info, 1):
         line_text = item.get("subtitle") or item.get("line_verbatim") or item.get("text") or ""
         if not line_text:
             continue
         start_sec = float(item.get("start", 0.0))
         end_sec = float(item.get("end", start_sec + 2.5))
+        # 編譯器把鏡頭時間取到 3 位小數（7.292 vs 175/24=7.2917），一格內的溢出夾回段尾
+        if seg_duration < end_sec <= seg_duration + 1 / 24:
+            end_sec = seg_duration
         if start_sec < 0 or end_sec <= start_sec or end_sec > seg_duration + 1e-6:
             return False, f"台詞 #{idx} 時間窗口無效或超出分段時長"
-
         srt_lines.append(f"{idx}\n{sec_to_srt_time(start_sec)} --> {sec_to_srt_time(end_sec)}\n{line_text}\n")
-
-        # 準備 TTS 音訊
-        if audio_mode in {"tts_replace", "narration_only"}:
-            wav_path = t_dir / f"{in_video.stem}_line_{idx:02d}.wav"
-            wav_path.unlink(missing_ok=True)
-            speaker = item.get("speaker", "")
-            try:
-                synthesize_speech(
-                    line_text, wav_path, engine=tts_engine, speaker=speaker, config=tts_config,
-                )
-                if not wav_path.exists() or wav_path.stat().st_size == 0:
-                    raise RuntimeError("TTS 沒有產生有效音訊檔")
-                actual_audio_duration = probe_audio_duration(wav_path)
-                if actual_audio_duration > end_sec - start_sec + 0.02 or start_sec + actual_audio_duration > seg_duration + 0.02:
-                    raise RuntimeError(
-                        f"TTS 時長 {actual_audio_duration:.3f}s 超出台詞窗口 {end_sec - start_sec:.3f}s "
-                        f"或分段結尾 {seg_duration:.3f}s；不會截斷/加速語音"
-                    )
-                delay_ms = max(0, int(start_sec * 1000))
-                tts_tracks.append((wav_path, delay_ms))
-            except Exception as e:
-                tts_failures.append(f"台詞 #{idx}「{line_text}」合成失敗: {e}")
-
-    if tts_failures:
-        return False, "；".join(tts_failures)
 
     srt_file.write_text("\n".join(srt_lines), encoding="utf-8")
 
-    # 2. 構建 FFmpeg 濾鏡鏈
-    has_tts = len(tts_tracks) > 0 and audio_mode in {"tts_replace", "narration_only"}
+    # 2. 構建 FFmpeg 濾鏡鏈：只保留 H3 原生音軌與字幕
     has_sub = len(srt_lines) > 0 and burn_subtitles
     try:
         source_specs = probe_video_specs(in_video)
@@ -480,14 +298,10 @@ def process_single_segment(
     if abs(float(source_specs.get("duration", 0)) - source_duration) > 0.1:
         return False, f"來源影片時長 {source_specs.get('duration', 0):.3f}s 與預期分段 {source_duration:.3f}s 相差超過 0.1s"
     has_native_audio = bool(source_specs.get("has_audio"))
-    if audio_required and audio_mode == "native_sub" and not has_native_audio:
-        return False, "分鏡要求音訊，但來源影片沒有音訊流"
-    if audio_required and audio_mode in {"tts_replace", "narration_only"} and not tts_tracks:
-        return False, "分鏡要求音訊，但沒有成功生成任何 TTS 音軌"
+    if audio_required and not has_native_audio:
+        return False, "分鏡要求音訊，但來源影片沒有音訊流（H3 原生音軌遺失）"
 
     cmd = [media_tools.ffmpeg_bin(), "-y", "-hide_banner", "-loglevel", "error", "-i", str(in_video)]
-    for wav_p, _ in tts_tracks:
-        cmd.extend(["-i", str(wav_p)])
 
     v_filter = ""
     if has_sub:
@@ -495,42 +309,19 @@ def process_single_segment(
         sub_style = "FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2"
         v_filter = f"subtitles=filename={esc_srt}:force_style='{sub_style}'"
 
-    # 原生音軌降音量只會降低其中的語音與環境音；不會分離或移除原生人聲。
     filter_complex_parts = []
     trim_a = f"atrim=start={lead:.6f},asetpts=PTS-STARTPTS," if lead else ""
     if lead:
         v_filter = f"trim=start={lead:.6f},setpts=PTS-STARTPTS" + ("," + v_filter if v_filter else "")
     if v_filter:
         filter_complex_parts.append(f"[0:v]{v_filter}[vout]")
-
-    if has_tts:
-        mix_inputs = []
-        mix_native_audio = has_native_audio and audio_mode == "tts_replace"
-        if mix_native_audio:
-            filter_complex_parts.append(f"[0:a]{trim_a}aresample=48000,volume={bg_volume}[native]")
-            mix_inputs.append("[native]")
-        for i, (_, delay_ms) in enumerate(tts_tracks, 1):
-            # adelay 的 all=1 才是單聲道來源的安全寫法；用 "|" 只對雙聲道有效。
-            filter_complex_parts.append(f"[{i}:a]aresample=48000,adelay={delay_ms}:all=1[v{i}]")
-            mix_inputs.append(f"[v{i}]")
-        mix_str = "".join(mix_inputs)
-        mix_duration = "longest"
-        # amix 預設 normalize=1 會把輸出除以輸入數，等於把 TTS 人聲壓低約 3 dB
-        # （實測：兩軌 440/880Hz 混音 −24.1 dB vs 來源 −21.1 dB）。
-        # 改用 normalize=0 保住人聲電平，峰值交給後段的 loudnorm／alimiter 處理。
-        filter_complex_parts.append(
-            f"{mix_str}amix=inputs={len(mix_inputs)}:duration={mix_duration}:normalize=0:dropout_transition=0[mixed];"
-            f"[mixed]apad,atrim=duration={seg_duration:.6f}[aout]"
-        )
-    elif has_native_audio:
+    if has_native_audio:
         filter_complex_parts.append(f"[0:a]{trim_a}aresample=48000,apad,atrim=duration={seg_duration:.6f}[aout]")
 
     if filter_complex_parts:
         cmd.extend(["-filter_complex", ";".join(filter_complex_parts)])
         cmd.extend(["-map", "[vout]" if v_filter else "0:v"])
-        if has_tts:
-            cmd.extend(["-map", "[aout]"])
-        elif has_native_audio:
+        if has_native_audio:
             cmd.extend(["-map", "[aout]"])
         else:
             cmd.append("-an")
@@ -543,7 +334,7 @@ def process_single_segment(
 
     if filter_complex_parts:
         cmd.extend(["-c:v", "libx264", "-pix_fmt", "yuv420p"])
-        if has_tts or has_native_audio:
+        if has_native_audio:
             # 256k：ffmpeg 原生 aac 在 192k 遇密集低頻會過衝（EP01 重跑 E1-11 實測限幅後 −2.49 dBFS → 解碼 +0.45 dBFS）
             cmd.extend(["-c:a", "aac", "-b:a", AAC_BITRATE])
     else:
@@ -816,7 +607,7 @@ def _fill_loudness_report(report: Dict[str, Any], final_video: Path, specs: List
 # ==============================================================================
 
 def run_self_test() -> bool:
-    """離線合成測試音與短片，驗證混音、字幕燒錄、拼接，不呼叫雲端或系統 TTS。"""
+    """離線產生測試短片，驗證原生音軌保留、字幕燒錄與拼接；不呼叫雲端或任何 TTS。"""
     print("\n" + "=" * 70)
     print("🧪 啟動 assemble_episode 階段 7 全鏈路自動化自檢 (--self-test)")
     print("=" * 70)
@@ -841,37 +632,24 @@ def run_self_test() -> bool:
         subprocess.run(cmd2, capture_output=True, check=True)
         print("✅ 成功產生 2 段測試短片 (4.0s 藍底 + 4.0s 綠底)")
 
-        # 2. 測試配音、字幕與混音
+        # 2. 測試原生音軌保留、字幕燒錄（不合成任何語音）
         lines1 = [{"start": 1.0, "end": 3.0, "subtitle": "第一段測試台詞，清晰度確認。", "speaker": "A"}]
         lines2 = [{"start": 1.0, "end": 3.0, "subtitle": "第二段測試台詞，拼接連貫性確認。", "speaker": "B"}]
 
         out_seg1 = t_path / "proc_seg01.mp4"
         out_seg2 = t_path / "proc_seg02.mp4"
 
-        def synthetic_tts(text: str, out_wav: Path, engine: str = "auto", speaker: str = "", **kwargs) -> str:
-            out_wav.parent.mkdir(parents=True, exist_ok=True)
-            sample_rate = 16000
-            samples = [int(7000 * math.sin(2 * math.pi * 440 * n / sample_rate)) for n in range(sample_rate // 2)]
-            with wave.open(str(out_wav), "wb") as wav_file:
-                wav_file.setnchannels(1)
-                wav_file.setsampwidth(2)
-                wav_file.setframerate(sample_rate)
-                wav_file.writeframes(b"".join(struct.pack("<h", sample) for sample in samples))
-            return "offline-synthetic-tone"
-
-        with patch(__name__ + ".synthesize_speech", side_effect=synthetic_tts):
-            ok1, msg1 = process_single_segment(vid1, out_seg1, lines1, 4.0, audio_mode="tts_replace", tts_engine="sapi")
+        ok1, msg1 = process_single_segment(vid1, out_seg1, lines1, 4.0)
         if not ok1:
             print(f"❌ 分段 1 處理失敗: {msg1}")
             return False
-        print("✅ 成功完成分段 1 離線合成測試音、混音與字幕燒錄")
+        print("✅ 成功完成分段 1 原生音軌保留與字幕燒錄")
 
-        with patch(__name__ + ".synthesize_speech", side_effect=synthetic_tts):
-            ok2, msg2 = process_single_segment(vid2, out_seg2, lines2, 4.0, audio_mode="tts_replace", tts_engine="sapi")
+        ok2, msg2 = process_single_segment(vid2, out_seg2, lines2, 4.0)
         if not ok2:
             print(f"❌ 分段 2 處理失敗: {msg2}")
             return False
-        print("✅ 成功完成分段 2 離線合成測試音、混音與字幕燒錄")
+        print("✅ 成功完成分段 2 原生音軌保留與字幕燒錄")
 
         # 3. 測試 Concat 拼接
         final_mp4 = t_path / "final_test_ep.mp4"
@@ -953,28 +731,15 @@ def _default_episode_label(args: argparse.Namespace) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="assemble_episode.py — AI 漫劇階段 7 配音分層、字幕燒錄與拼接成片工具"
+        description="assemble_episode.py — AI 漫劇階段 7 字幕燒錄、響度對齊與拼接成片工具（音訊一律 H3 原生）"
     )
     parser.add_argument("--segments", type=Path, help="segments-epXX.json 批次分段檔")
     parser.add_argument("--layer2-dir", type=Path, help="包含 layer2-*.json 檔案之目錄")
     parser.add_argument("--timeline", type=Path, help="timeline-epXX.csv 時間線檔案")
-    parser.add_argument("--narration", type=Path, help="narration-epXX.md 旁白字幕對照稿")
     parser.add_argument("--videos-dir", type=Path, default=Path("videos"), help="影片片段來源目錄 (預設 videos/)")
     parser.add_argument("--output", type=Path, default=None,
                         help="最終成片輸出路徑（預設 <videos-dir>/final-<集數>.mp4；集數取自 segments 的 episode 或檔名，"
                              "取不到時為 final-ep01.mp4）")
-    parser.add_argument("--audio-mode", type=str, default="auto",
-                        choices=["auto", "tts_replace", "native_sub", "narration_only"],
-                        help="配音模式 (預設 auto 逐段裁決：有可見嘴對白→native_sub 留 H3 口型；"
-                             "只有外部化旁白→tts_replace 混外部 TTS；"
-                             "tts_replace=強制外部 TTS 覆蓋；native_sub=保留 H3 原生配音；narration_only=只播旁白)")
-    parser.add_argument("--tts-engine", type=str, default="auto",
-                        choices=["auto", "edge", "sapi", "voicestudio", "fish", "openai_compat"],
-                        help="TTS 後端引擎 (預設 auto 依可用性挑選；voicestudio=本機 VoiceStudio/OmniVoice；"
-                             "fish=Fish Audio；openai_compat=自帶 API；edge 已於 2026-10-10 起 403 且非商用)")
-    parser.add_argument("--tts-config", type=Path, default=None,
-                        help="TTS 設定檔路徑 (預設 config/tts.json；含引擎、憑證與音色對映)")
-    parser.add_argument("--bg-volume", type=float, default=0.15, help="壓低原生 H3 背景音量 (預設 0.15)")
     parser.add_argument("--target-lufs", type=float, default=-23.0,
                         help="成片整合響度目標 (預設 -23 LUFS，符合 EBU R128 戲劇交付；串流可用 -14)")
     parser.add_argument("--true-peak", type=float, default=-1.5, help="成片 true peak 上限 dBTP (預設 -1.5)")
@@ -999,17 +764,6 @@ def main() -> int:
     parser.add_argument("--no-speed-ramps", action="store_true", help="不套用後製變速，一律用原片")
 
     args = parser.parse_args()
-
-    if args.narration:
-        parser.error("--narration 外部 Markdown 尚未支援；narration_only 僅讀取 segments 中 shots[].narration")
-
-    # TTS 設定（引擎端點、憑證、音色對映）；缺檔時退回內建 edge/sapi 備援
-    tts_config: Optional[Dict[str, Any]] = None
-    if tts_module is not None:
-        try:
-            tts_config = tts_module.load_config(args.tts_config)
-        except Exception as exc:
-            print(f"⚠️ [警告] TTS 設定檔載入失敗，將使用內建備援引擎: {exc}")
 
     if args.self_test:
         success = run_self_test()
@@ -1089,7 +843,7 @@ def main() -> int:
     print("🎬 AI 漫劇階段 7 組裝與交付工具 (assemble_episode)")
     print("=" * 70)
     print(f"待組裝分段數: {len(segments_data)} 段")
-    print(f"配音方案模式: {args.audio_mode} (引擎: {args.tts_engine}, 背景音量: {args.bg_volume})")
+    print("音訊來源: H3 原生音軌（不合成任何外部語音）")
     print(f"字幕燒錄狀態: {'開啟 (高對比黑邊白字)' if not args.no_burn_subtitles else '關閉'}")
     print(f"成片輸出目標: {args.output.resolve()}")
 
@@ -1171,27 +925,13 @@ def main() -> int:
 
         # 收集台詞資訊（每鏡主句＋ dialogue_and_audio.extra_lines 同鏡接話，依各自 speech_window）
         try:
-            lines_info = collect_dialogue_lines(seg, args.audio_mode)
+            lines_info = collect_dialogue_lines(seg)
         except ValueError as exc:
             print(f"     ❌ {exc}")
             processing_failures.append({"segment_id": sid, "error": str(exc)})
             continue
         shots = seg.get("shots", [])
 
-        # 外部化旁白／畫外音：編譯器已把這類台詞移出 H3 的 <d>，改由這裡用外部 TTS 合成
-        for entry in (seg.get("external_narration") or []):
-            text = str(entry.get("line") or "").strip()
-            if not text:
-                continue
-            st = entry.get("start")
-            et = entry.get("end")
-            st = float(st) if st is not None else 0.0
-            et = float(et) if et is not None else (st + 3.0)
-            lines_info.append({
-                "start": st, "end": et, "subtitle": text,
-                "speaker": entry.get("speaker") or "", "external": True,
-            })
-        lines_info.sort(key=lambda item: float(item["start"]))  # 字幕依時間排序（主句、接話、外部旁白混排）
 
         # 後製變速：rendered 段換成 videos/ramped/<段>.mp4，所有時間窗從原片時間換算到變速版時間。
         # 後續段的起點由 concat 自然平移（每段長度改用變速版長度）。
@@ -1233,25 +973,9 @@ def main() -> int:
             ))
             for shot in shots
         )
-        if args.audio_mode == "narration_only":
-            dialogue_required = True
-            if not lines_info:
-                processing_failures.append({"segment_id": sid, "error": "narration_only 需要 inline shots[].narration；本分段沒有旁白"})
-                continue
-
         print(f"  [+] 處理分段 #{idx:02d} [{sid}] (台詞: {len(lines_info)} 句)...")
-        # auto 模式逐段裁決：有可見嘴的畫內對白要留 H3 原生語音做口型；
-        # 只有外部化旁白的段落，H3 原生軌本來就沒有人聲，直接混外部 TTS 即可。
-        segment_audio_mode = args.audio_mode
-        if args.audio_mode == "auto":
-            has_visible_dialogue = any(not item.get("external") for item in lines_info)
-            segment_audio_mode = "native_sub" if has_visible_dialogue or not lines_info else "tts_replace"
         ok, msg = process_single_segment(
             found_in, out_seg_v, lines_info, seg_dur,
-            audio_mode=segment_audio_mode,
-            tts_engine=args.tts_engine,
-            tts_config=tts_config,
-            bg_volume=args.bg_volume,
             burn_subtitles=not args.no_burn_subtitles,
             temp_dir=temp_dir,
             audio_required=dialogue_required,
@@ -1261,14 +985,13 @@ def main() -> int:
             processed_videos.append(out_seg_v)
             out_dur = seg_dur - lead_in_s
             voiced = [item for item in lines_info if str(item.get("subtitle") or "").strip()]
-            sources = {str(item.get("window_source") or ("external" if item.get("external") else "shot_window"))
-                       for item in voiced}
+            sources = {str(item.get("window_source") or "shot_window") for item in voiced}
             segment_audio.append({
                 "segment_id": sid,
                 "has_dialogue": bool(voiced),
                 "windows": dialogue_loudness.clip_windows(
                     [(float(item["start"]), float(item["end"])) for item in voiced], out_dur, offset=lead_in_s),
-                "window_source": "speech_window" if sources <= {"speech_window", "external"} else "shot_window",
+                "window_source": "speech_window" if sources <= {"speech_window"} else "shot_window",
             })
             segment_records.append({
                 "segment_id": sid,
@@ -1368,7 +1091,7 @@ def main() -> int:
         f"",
         f"- **輸出成品**：`{args.output.name}` ({size_mb:.2f} MB)",
         f"- **交付時間**：`{time.strftime('%Y-%m-%d %H:%M:%S')}`",
-        f"- **配音模式**：`{args.audio_mode}` (TTS 引擎: `{args.tts_engine}`)",
+        f"- **音訊來源**：H3 原生音軌（沒有外部 TTS；台詞、旁白、畫外音皆由 H3 生成）",
         f"- **字幕燒錄**：`{'是' if not args.no_burn_subtitles else '否'}`",
         f"- **技術狀態**：`complete`；人工審核：`pending_review`",
         f"- **成片 SHA256**：`{final_hash}`",
@@ -1395,8 +1118,8 @@ def main() -> int:
         "final_decode_ok": bool(decode_report["decode_ok"]),
         "final_duration_seconds": decode_report["duration"],
         "expected_duration_seconds": expected_duration,
-        "audio_mode": args.audio_mode,
-        "native_audio_handling": "retained_at_bg_volume; native speech is not separated from ambience",
+        "audio_mode": "h3_native",
+        "native_audio_handling": "retained; native H3 speech and ambience are kept together",
         "loudness": loudness_report,
         "warnings": list(loudness_report.get("warnings", [])),
     })

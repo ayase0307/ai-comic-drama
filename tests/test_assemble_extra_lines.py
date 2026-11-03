@@ -62,7 +62,7 @@ class CollectExtraLines(unittest.TestCase):
                  extra=[reply("沒有。", 1.9, 2.6), reply("真的？", 2.9, 3.6, speaker="C-lai")]),
             shot("SH02", 4.0, 6.0, ["C-shen"], "走吧。", (4.3, 5.0)),
         ]}
-        lines = assembly.collect_dialogue_lines(seg, "native_sub")
+        lines = assembly.collect_dialogue_lines(seg)
         self.assertEqual([l["subtitle"] for l in lines], ["受傷了嗎？", "沒有。", "真的？", "走吧。"])
         self.assertEqual([(l["start"], l["end"]) for l in lines], [(0.3, 1.6), (1.9, 2.6), (2.9, 3.6), (4.3, 5.0)])
         self.assertEqual([l["speaker"] for l in lines], ["C-lai", "C-shen", "C-lai", "C-shen"])
@@ -70,7 +70,7 @@ class CollectExtraLines(unittest.TestCase):
     def test_no_extra_lines_keeps_old_behaviour(self):
         seg = {"shots": [shot("SH01", 0.0, 3.0, ["C-lai"], "受傷了嗎？", (0.5, 2.0)),
                          shot("SH02", 3.0, 5.0, ["C-shen"], "沒有。")]}
-        lines = assembly.collect_dialogue_lines(seg, "native_sub")
+        lines = assembly.collect_dialogue_lines(seg)
         self.assertEqual([(l["subtitle"], l["start"], l["end"]) for l in lines],
                          [("受傷了嗎？", 0.5, 2.0), ("沒有。", 3.0, 5.0)])  # 無 speech_window 退回鏡頭時間
 
@@ -78,15 +78,13 @@ class CollectExtraLines(unittest.TestCase):
         seg = {"shots": [shot("SH01", 0.0, 4.0, ["C-lai"], "受傷了嗎？", (0.3, 1.6),
                               extra=[{"speaker": "C-shen", "line_verbatim": "沒有。"}])]}
         with self.assertRaises(ValueError) as cm:
-            assembly.collect_dialogue_lines(seg, "native_sub")
+            assembly.collect_dialogue_lines(seg)
         self.assertIn("extra_lines[1]", str(cm.exception))
 
-    def test_blank_extra_lines_ignored_and_narration_only_skips_replies(self):
+    def test_blank_extra_lines_ignored(self):
         seg = {"shots": [shot("SH01", 0.0, 4.0, ["C-lai"], "受傷了嗎？", (0.3, 1.6), narration="旁白",
                               extra=[{"line_verbatim": "  "}, "bad", reply("沒有。", 1.9, 2.6)])]}
-        self.assertEqual(len(assembly.collect_dialogue_lines(seg, "native_sub")), 2)
-        only = assembly.collect_dialogue_lines(seg, "narration_only")
-        self.assertEqual([l["subtitle"] for l in only], ["旁白"])
+        self.assertEqual(len(assembly.collect_dialogue_lines(seg)), 2)
 
 
 class ExtraLinesWithDualLeadIn(unittest.TestCase):
@@ -97,12 +95,12 @@ class ExtraLinesWithDualLeadIn(unittest.TestCase):
 
     def test_extra_line_subtitle_shifted_after_lead_in_trim(self):
         self.assertEqual(dual_lead_in.check(self.SEG), [])
-        lines = assembly.collect_dialogue_lines(self.SEG, "native_sub")
+        lines = assembly.collect_dialogue_lines(self.SEG)
         with tempfile.TemporaryDirectory(dir=ROOT) as td:
             root = Path(td)
             src, out = root / "SEG.mp4", root / "proc.mp4"
             _make_video(src, 107 / 24)
-            ok, msg = assembly.process_single_segment(src, out, lines, 107 / 24, audio_mode="native_sub",
+            ok, msg = assembly.process_single_segment(src, out, lines, 107 / 24,
                                                       temp_dir=root / "tmp", lead_in_s=2.0)
             self.assertTrue(ok, msg)
             srt = (root / "tmp" / "SEG.srt").read_text(encoding="utf-8")
@@ -113,13 +111,13 @@ class ExtraLinesWithDualLeadIn(unittest.TestCase):
         seg = json.loads(json.dumps(self.SEG, ensure_ascii=False))
         seg["shots"][1]["dialogue_and_audio"]["extra_lines"][0]["speech_window"] = {"start": 1.5, "end": 1.9}
         self.assertTrue(dual_lead_in.check(seg))  # W48／assemble 擋
-        lines = assembly.collect_dialogue_lines(seg, "native_sub")
+        lines = assembly.collect_dialogue_lines(seg)
         with tempfile.TemporaryDirectory(dir=ROOT) as td:
             root = Path(td)
             src = root / "SEG.mp4"
             _make_video(src, 107 / 24)
             ok, msg = assembly.process_single_segment(src, root / "proc.mp4", lines, 107 / 24,
-                                                      audio_mode="native_sub", temp_dir=root / "tmp", lead_in_s=2.0)
+                                                      temp_dir=root / "tmp", lead_in_s=2.0)
         self.assertFalse(ok)
         self.assertIn("雙人引子", msg)
 
@@ -142,7 +140,7 @@ class ExtraLinesWithDualLeadIn(unittest.TestCase):
 
             with mock.patch.object(sys, "argv", [
                 "assemble_episode.py", "--segments", str(segments), "--videos-dir", str(videos),
-                "--output", str(output), "--audio-mode", "native_sub",
+                "--output", str(output),
             ]), mock.patch.object(assembly, "process_single_segment", side_effect=spy), \
                     contextlib.redirect_stdout(io.StringIO()):
                 code = assembly.main()
@@ -164,7 +162,7 @@ class ExtraLinesWithDualLeadIn(unittest.TestCase):
             segments.write_text(json.dumps({"episode": "ep01", "segments": [seg]}, ensure_ascii=False), encoding="utf-8")
             with mock.patch.object(sys, "argv", [
                 "assemble_episode.py", "--segments", str(segments), "--videos-dir", str(videos),
-                "--output", str(root / "final.mp4"), "--audio-mode", "native_sub", "--no-burn-subtitles",
+                "--output", str(root / "final.mp4"), "--no-burn-subtitles",
             ]), contextlib.redirect_stdout(io.StringIO()):
                 code = assembly.main()
             manifest = json.loads((root / "delivery-final.json").read_text(encoding="utf-8"))

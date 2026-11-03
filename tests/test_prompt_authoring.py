@@ -122,6 +122,21 @@ class PromptAuthoringTests(unittest.TestCase):
         segs = [seg(f"S{i}", prompt(f"{HEAD1} {line} {GOOD1}")) for i in range(3)]
         self.assertNotIn("跨段套句", " ".join(pa.audit_segments(segs)["errors"]))
 
+    def test_narration_and_effect_fixed_sentences_are_boilerplate(self):
+        lines = [
+            "No one in frame speaks during this line; every visible mouth stays closed and still.",
+            "a disembodied voice with no source in the frame, low and unhurried, slower than normal speech with clear pauses between phrases",
+            "<Picture 3> is the visual reference for the effect a translucent crimson-gold light-bird: copy only its shape, feather-like light streaks, colour and translucency; do not copy its layout, background or the objects around it.",
+            "The light is emitted locally from its own glowing core, falls off within a short radius and only rim-lights nearby surfaces; the overall colour grade of the scene does not change.",
+        ]
+        for line in lines:
+            self.assertTrue(pa._is_boilerplate(line), line)
+        segs = []
+        for i in range(3):
+            g1 = GOOD1.replace("Sound:", f"{lines[0]} Sound:").replace("1.2 s", f"1.{i} s")
+            segs.append(seg(f"S{i}", prompt(f"{HEAD1} {g1}")))
+        self.assertNotIn("跨段套句", " ".join(pa.audit_segments(segs)["errors"]))
+
     def test_unfingerprinted_segments_only_warn(self):
         p = prompt(f"{HEAD1} {GOOD1}")
         res = pa.audit_segments([seg("A", p)])

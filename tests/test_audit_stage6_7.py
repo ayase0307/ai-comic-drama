@@ -26,7 +26,6 @@ for extra in (ROOT / "scripts", ROOT / "scripts" / "storyboard"):
 from scripts.storyboard import submit_h3_segments as submit  # noqa: E402
 from scripts.storyboard import assemble_episode as assemble  # noqa: E402
 from scripts.storyboard import verify_video_shot as verify  # noqa: E402
-from scripts.storyboard import tts_engine  # noqa: E402
 from scripts.storyboard import media_tools  # noqa: E402
 from scripts import doctor  # noqa: E402
 from scripts import next_step  # noqa: E402
@@ -379,18 +378,6 @@ class AssembleTests(unittest.TestCase):
             lufs = float(integrated[-1].split()[1])
             self.assertAlmostEqual(lufs, -23.0, delta=1.0)  # EBU R128 預設目標
 
-    def test_auto_tts_failure_keeps_backend_reason(self):
-        with tempfile.TemporaryDirectory(dir=ROOT) as td:
-            fake = mock.Mock()
-            fake.synthesize.return_value = {"ok": False, "reason": "voicestudio 未啟動"}
-            with mock.patch.object(assemble, "tts_module", fake), \
-                 mock.patch.object(assemble, "generate_edge_tts", return_value=False), \
-                 mock.patch.object(assemble, "generate_sapi_tts", return_value=False):
-                with self.assertRaises(RuntimeError) as ctx:
-                    assemble.synthesize_speech("你好", Path(td) / "a.wav", engine="auto")
-        self.assertIn("voicestudio 未啟動", str(ctx.exception))
-
-
 @unittest.skipUnless(FFMPEG, "需要 ffmpeg")
 class QaFramesTests(unittest.TestCase):
     def test_expected_duration_comes_from_frames_and_frame_match_is_recorded(self):
@@ -408,43 +395,6 @@ class QaFramesTests(unittest.TestCase):
             self.assertEqual(bad["duration_check"]["measured_frames_approx"], 112)
 
 
-class LocalServiceProxyTests(unittest.TestCase):
-    def test_loopback_detection(self):
-        self.assertTrue(tts_engine._is_loopback_url("http://127.0.0.1:8001/health"))
-        self.assertTrue(tts_engine._is_loopback_url("http://localhost:8001"))
-        self.assertTrue(tts_engine._is_loopback_url("http://[::1]:8001"))
-        self.assertFalse(tts_engine._is_loopback_url("https://api.fish.audio/v1"))
-
-    def test_loopback_request_bypasses_system_proxy(self):
-        class Health(BaseHTTPRequestHandler):
-            def log_message(self, *a):
-                pass
-
-            def do_GET(self):
-                body = b'{"status":"ok","model_loaded":true}'
-                self.send_response(200)
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-
-        server = ThreadingHTTPServer(("127.0.0.1", 0), Health)
-        threading.Thread(target=server.serve_forever, daemon=True).start()
-        try:
-            dead_proxy = "http://127.0.0.1:9"  # discard port：走代理就會失敗
-            env = {"http_proxy": dead_proxy, "HTTP_PROXY": dead_proxy, "no_proxy": "", "NO_PROXY": ""}
-            with mock.patch.dict(os.environ, env):
-                response = tts_engine._default_transport(
-                    "GET", f"http://127.0.0.1:{server.server_address[1]}/health", timeout=3)
-            self.assertEqual(response.status, 200)
-        finally:
-            server.shutdown()
-            server.server_close()
-
-    def test_omnivoice_hint_env(self):
-        with mock.patch.dict(os.environ, {"AICD_OMNIVOICE_LAUNCHER": "/opt/omni/start.sh"}):
-            self.assertIn("/opt/omni/start.sh", tts_engine._next_steps("voicestudio", {"available": False}))
-
-
 class HardcodedPathTests(unittest.TestCase):
     def test_media_tools_env_override(self):
         with tempfile.TemporaryDirectory(dir=ROOT) as td:
@@ -460,12 +410,12 @@ class HardcodedPathTests(unittest.TestCase):
 
     def test_doctor_service_endpoints_follow_env(self):
         env = {"FREEVIDEO_API_URL": "http://192.168.1.20:9189/freevideo/agent/v1",
-               "COMFYUI_URL": "", "VOICESTUDIO_URL": "localhost:8101"}
+               "COMFYUI_URL": ""}
         with mock.patch.dict(os.environ, env):
             endpoints = doctor.service_endpoints()
         self.assertEqual(endpoints["freevideo_8189"], ("192.168.1.20", 9189))
         self.assertEqual(endpoints["comfyui_8188"], ("127.0.0.1", 8188))
-        self.assertEqual(endpoints["voicestudio_8001"], ("localhost", 8101))
+        self.assertNotIn("voicestudio_8001", endpoints)
 
     def test_sync_reference_upstream_env_and_sibling(self):
         with tempfile.TemporaryDirectory(dir=ROOT) as td:

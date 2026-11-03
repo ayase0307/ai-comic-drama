@@ -69,15 +69,16 @@ def _compile(data, **kw):
 
 
 class OffscreenH3CompilerTests(unittest.TestCase):
-    def test_default_policy_is_short_offscreen_h3(self):
-        self.assertEqual(compiler.DEFAULT_NARRATION_POLICY, "short-offscreen-h3")
+    def test_default_policy_is_h3_native(self):
+        self.assertEqual(compiler.DEFAULT_NARRATION_POLICY, "h3-native")
         compiled = _compile(_segment({}))
-        self.assertEqual(compiled["metadata"]["narration_policy"], "short-offscreen-h3")
+        self.assertEqual(compiled["metadata"]["narration_policy"], "h3-native")
 
     def test_short_os_line_goes_to_h3_with_voice_outside_d_and_face_lips_closed(self):
         prompt = _compile(_segment({}))["h3_prompt"]
-        self.assertIn(f"the line is heard from the crimson bird (S2) off-screen, {BIRD_VOICE}: <d>[Chinese] 看不到？</d>"
+        self.assertIn(f"the line is heard from <Subject 2> (S2) off-screen, {BIRD_VOICE}: <d>[Chinese] 看不到？</d>"
                       f" while <Subject 1>'s lips remain completely closed", prompt)
+        self.assertIn("No one in frame speaks during this line; every visible mouth stays closed and still.", prompt)
         # 聲線描述在 <d> 外，<d> 內只有逐字台詞
         self.assertIn("<d>[Chinese] 看不到？</d>", prompt)
         self.assertNotIn("voiceover", prompt)
@@ -100,42 +101,53 @@ class OffscreenH3CompilerTests(unittest.TestCase):
         self.assertIn("says in an off-screen voiceover, a calm, flat teenage male voice, quiet and wry: "
                       "<d>[Chinese] 人生用這種方式結束，也算得上別緻。</d> while no face is on screen, "
                       "so all lips remain completely closed", prompt)
-        self.assertEqual(compiled["external_narration"], [])
+        self.assertNotIn("external_narration", compiled)
         # E23 仍滿足
         self.assertEqual([e for e in audit.audit_refs_and_subjects(compiled)["errors"] if "E23" in e], [])
 
-    def test_long_line_goes_external_without_a_speaking_sentence(self):
+    def test_long_narration_stays_in_h3_and_asks_to_split(self):
         long_line = "這是一句很長很長的旁白，超過十五個字，不適合讓模型直接念出來。"
         data = _segment({"dialogue_and_audio": {"line_verbatim": long_line}})
         compiled = _compile(data)
         prompt = compiled["h3_prompt"]
-        self.assertNotIn(long_line, prompt)
-        self.assertEqual([e["line"] for e in compiled["external_narration"]], [long_line])
-        self.assertNotIn("heard from", prompt)
-        self.assertNotRegex(prompt, r"\(S\d+\) (speaks|narrates|says)")
-        self.assertIn("lips completely closed", prompt)
+        self.assertIn(f"<d>[Chinese] {long_line}</d>", prompt)
+        self.assertNotIn("external_narration", compiled)
+        self.assertTrue(any("旁白過長：請拆到多鏡" in n for n in compiled["compile_notes"]))
+        self.assertIn("No one in frame speaks during this line", prompt)
         self.assertEqual([i["code"] for i in voice_lint.voice_issues(prompt)], [])
 
-    def test_voice_route_override_wins_over_policy(self):
-        forced_ext = _compile(_segment({"dialogue_and_audio": {"voice_route": "external"}}))
-        self.assertEqual(len(forced_ext["external_narration"]), 1)
-        long_line = "這是一句很長很長的旁白，超過十五個字，但這一段需要模型直接念。"
-        forced_h3 = _compile(_segment({"dialogue_and_audio": {"voice_route": "h3", "line_verbatim": long_line}}),
-                             narration_policy="external")
-        self.assertIn(f"<d>[Chinese] {long_line}</d>", forced_h3["h3_prompt"])
-        self.assertTrue(any("超過實測範圍" in n for n in forced_h3["compile_notes"]))
+    def test_voice_route_external_raises_migration_error(self):
+        with self.assertRaises(ValueError) as ctx:
+            _compile(_segment({"dialogue_and_audio": {"voice_route": "external"}}))
+        self.assertIn("外部 TTS 已移除", str(ctx.exception))
 
-    def test_h3_native_keeps_long_lines_and_external_drops_short_ones(self):
+    def test_voice_route_h3_is_accepted(self):
+        long_line = "這是一句很長很長的旁白，超過十五個字，但這一段需要模型直接念。"
+        forced = _compile(_segment({"dialogue_and_audio": {"voice_route": "h3", "line_verbatim": long_line}}))
+        self.assertIn(f"<d>[Chinese] {long_line}</d>", forced["h3_prompt"])
+        self.assertTrue(any("旁白過長：請拆到多鏡" in n for n in forced["compile_notes"]))
+
+    def test_h3_native_keeps_long_lines(self):
         long_line = "這是一句很長很長的旁白，超過十五個字，不適合讓模型直接念出來。"
         native = _compile(_segment({"dialogue_and_audio": {"line_verbatim": long_line}}), narration_policy="h3-native")
         self.assertIn(f"<d>[Chinese] {long_line}</d>", native["h3_prompt"])
-        external = _compile(_segment({}), narration_policy="external")
-        self.assertNotIn("<d>", external["h3_prompt"])
-        self.assertEqual(len(external["external_narration"]), 1)
+
+    def test_legacy_external_policy_is_rejected(self):
+        for policy in ("external", "short-offscreen-h3"):
+            with self.subTest(policy=policy):
+                with self.assertRaises(ValueError) as ctx:
+                    _compile(_segment({}), narration_policy=policy)
+                self.assertIn("外部 TTS 已移除", str(ctx.exception))
 
     def test_unknown_policy_is_rejected(self):
         with self.assertRaises(ValueError):
             _compile(_segment({}), narration_policy="tts")
+
+    def test_narration_without_descriptor_uses_default_narrator_voice(self):
+        data = _segment({"dialogue_and_audio": {"voice_4d_spec_en": ""}})
+        prompt = _compile(data)["h3_prompt"]
+        self.assertIn(compiler.DEFAULT_NARRATOR_VOICE_EN, prompt)
+        self.assertIn("No one in frame speaks during this line; every visible mouth stays closed and still.", prompt)
 
     def test_mouth_open_expression_on_os_shot_adds_a_compile_note(self):
         data = _segment({"action_and_performance": {"observable_expression": "eyes wide, mouth hanging open, gasping"}})
@@ -152,13 +164,13 @@ class OffscreenH3CompilerTests(unittest.TestCase):
         self.assertEqual(dlg["offscreen_voice_en"], BIRD_VOICE)
         self.assertEqual(dlg["offscreen_where_en"], "from above the ridge")
         data = _segment({"dialogue_and_audio": dict(dlg, line_verbatim="這是一句很長很長的旁白，超過十五個字，仍然留給模型。")})
-        prompt = _compile(data, narration_policy="external")["h3_prompt"]
+        prompt = _compile(data)["h3_prompt"]
         self.assertIn("off-screen from above the ridge, " + BIRD_VOICE + ": <d>", prompt)
 
-    def test_cli_default_is_short_offscreen_h3(self):
-        # 沒給旗標、也沒有 dialogue_policy 定案時，解析結果就是 short-offscreen-h3
+    def test_cli_default_is_h3_native(self):
+        # 沒給旗標、也沒有 dialogue_policy 定案時，解析結果就是 h3-native
         with tempfile.TemporaryDirectory() as tmp:
-            self.assertEqual(compiler.resolve_narration_policy(None, Path(tmp)), "short-offscreen-h3")
+            self.assertEqual(compiler.resolve_narration_policy(None, Path(tmp)), "h3-native")
 
 
 class VoiceLintTests(unittest.TestCase):
