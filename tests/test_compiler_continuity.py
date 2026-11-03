@@ -113,6 +113,11 @@ class ShotLintTests(unittest.TestCase):
         ok = continuity_lint.lint_shots(self._c("CU (85mm, 1.2m) of Shen, as the camera holds a static shot. Shen is the visible speaking character: <d>hi</d> Blocking: the background behind him is empty."))["warnings"]
         self.assertEqual(ok, [])
 
+    def test_voiceover_shot_is_not_pushed_onto_a_face(self):
+        vo = continuity_lint.lint_shots(self._c("MS (35mm, 3m) of Shen, as the camera dollies in. The narrator (S1) says in an "
+                                                "off-screen voiceover, a deep voice: <d>hi</d> while no face is on screen."))["warnings"]
+        self.assertEqual([x for x in vo if "[S3" in x or "[S4" in x], [], vo)
+
 
 class CompilerContinuityTests(_Base):
     def test_previous_end_state_is_injected_into_first_shot_only(self):

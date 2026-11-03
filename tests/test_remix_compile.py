@@ -101,6 +101,20 @@ class RemixOverlayOverrideTests(RemixProject):
         self.assertIn("C-YE", seg["shots"][0]["pack_ids"])   # 包還在，只是不算可見主體
 
 
+class RemixNarratorTests(RemixProject):
+    """REMIX 沒有 <Subject N>：旁白者的「只有聲音、不入鏡」宣告要寫在第 1 鏡介紹句裡。"""
+
+    def test_narrator_declared_voice_only_in_intro(self):
+        self.make()
+        layer2 = json.loads(self.layer2_path.read_text(encoding="utf-8"))
+        layer2["shots"][1]["dialogue_and_audio"] = {"has_dialogue": True, "speaker": "旁白",
+                                                    "line_verbatim": "看不到？", "offscreen_form": "voiceover"}
+        seg = self.compile(layer2=layer2)
+        head = seg["h3_prompt"].split("[Shot 2]")[0]
+        self.assertIn("is a voice-only presence heard off-screen", head)
+        self.assertIn("no visible character's mouth moves for this voice", head)
+
+
 class RemixGoldenTests(RemixProject):
     def test_golden_prompt_verbatim(self):
         self.make()

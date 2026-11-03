@@ -2438,6 +2438,16 @@ def compile_segment_h3(
     remix_intros: List[str] = []
     if remix:
         remix_intros, remix_names = remix_intro_sentences(remix_mods, registry, remix_packs, seg_wardrobe, notes)
+        # REMIX 沒有 <Subject N>：旁白者的「只有聲音、不入鏡」宣告改寫在介紹句裡（噩盡島 S02-b/d 少了這句，旁白被配成洛年）
+        for spk in _collect_narration_speakers(shots, registry):
+            if spk in selected:
+                continue
+            sid = speaker_ids.get(str(spk))
+            spk_label = _dialogue_speaker_label(spk, registry)
+            remix_intros.append(
+                f"{spk_label[:1].upper() + spk_label[1:]}{f' ({sid})' if sid else ''} is a voice-only presence "
+                f"heard off-screen: it has no reference, never appears in frame, its voice is clearly a different "
+                f"person from everyone on screen, and no visible character's mouth moves for this voice.")
         for cid in selected:
             tag_of[cid] = remix_names[cid]
         reference_images = []
