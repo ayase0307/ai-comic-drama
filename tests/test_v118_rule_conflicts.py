@@ -279,7 +279,7 @@ class AdaptGateAlignment(unittest.TestCase):
 
 
 class VoiceoverRouting(_CompilerFixture):
-    """#10：16–18 字 VO 預設留 H3（不多一道外部 TTS），只提醒超過實測範圍。"""
+    """旁白全部由 H3 原生生成；16–18 字只提醒實測範圍，>18 字提醒拆鏡。"""
 
     def _vo(self, line):
         data = self.single([(0.0, 6.0)], lines={0: line}, target=6.0)
@@ -291,13 +291,15 @@ class VoiceoverRouting(_CompilerFixture):
         line = "媽的，人生用這種方式結束，也算得上別緻呢。"  # 18 字
         compiled = self._vo(line)
         self.assertIn(f"<d>[Chinese] {line}</d>", compiled["h3_prompt"])
-        self.assertEqual(compiled["external_narration"], [])
+        self.assertNotIn("external_narration", compiled)
         self.assertTrue(any("超過實測範圍" in n for n in compiled["compile_notes"]))
 
-    def test_over_18_goes_external(self):
+    def test_over_18_stays_native_and_asks_to_split(self):
         line = "媽的，人生用這種方式結束，也算得上相當別緻吧。"  # 20 字
         compiled = self._vo(line)
-        self.assertEqual([e["line"] for e in compiled["external_narration"]], [line])
+        self.assertIn(f"<d>[Chinese] {line}</d>", compiled["h3_prompt"])
+        self.assertNotIn("external_narration", compiled)
+        self.assertTrue(any("旁白過長：請拆到多鏡" in n for n in compiled["compile_notes"]))
 
 
 if __name__ == "__main__":

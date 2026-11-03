@@ -33,6 +33,7 @@ POSTURE_PATTERNS: Dict[str, re.Pattern] = {
     ),
     "kneeling": re.compile(r"\b(kneel(?:s|ing)?|knelt|on (?:his|her|their|one|both) knees?)\b", re.I),
     "swallowed": re.compile(r"\b(swallowed|inside the (?:mouth|throat|maw|gullet)|engulfed)\b", re.I),
+    "suspended": re.compile(r"\b(hanging|dangling|lifted off the (?:ground|slope|floor)|held (?:up )?in the air|in mid-?air)\b", re.I),
     "standing": re.compile(
         r"\b(stand|stands|standing|stood|upright|walk(?:s|ing)?|stride(?:s)?|striding|strides|runs|running|"
         r"steps forward|strolls?|paces)\b",
@@ -40,6 +41,13 @@ POSTURE_PATTERNS: Dict[str, re.Pattern] = {
     ),
 }
 DOWN_POSTURES = ("lying", "seated", "kneeling", "swallowed")
+# C6：終態寫了身體接觸（被咬、被按住、被抓）卻沒寫姿勢，下一段會從參考圖站姿起手
+# （噩盡島 EP01：終態只寫 left forearm bitten，下一段洛年站著被咬，咬完又分開）。
+CONTACT_STATE = re.compile(
+    r"\b(bitten|bites?|biting|clamp(?:s|ed|ing)?|pinned|pins|grabb(?:ed|ing)|grabs?|held|holds?|holding|"
+    r"grip(?:s|ped|ping)?|seized|strangl\w+|chok(?:ed|ing)|caught|dragg(?:ed|ing)|hanging)\b",
+    re.I,
+)
 # 下一段第 1 鏡若有「起身」類動詞，代表有意識地從前段終態接起，不算矛盾。
 RISE_TRANSITION = re.compile(
     r"\b(gets? up|getting up|got up|rises?|rising|rose|stands? up|standing up|stood up|push(?:es)? (?:himself|herself|themselves) up|"
@@ -101,17 +109,109 @@ def english_end_state(end_state: Any) -> Dict[str, str]:
     return {}
 
 
-def carry_sentence(end_state_en: Mapping[str, str]) -> str:
-    """前段終態 → 下一段第 1 鏡的起始狀態句（正向寫法，不用禁止句）。"""
-    bits = []
-    for who, state in end_state_en.items():
-        state = str(state).strip().rstrip(".")
-        if not state:
+def _first_state_dict(seg: Mapping[str, Any]) -> Dict[str, str]:
+    """前段終態：優先用英文，退回結構化 planned_final_state。"""
+    end = seg.get("segment_end_state")
+    if not isinstance(end, Mapping):
+        return {}
+    for key in ("planned_final_state_en", "planned_final_state"):
+        value = end.get(key)
+        if isinstance(value, Mapping):
+            return {str(k): str(v) for k, v in value.items() if str(v).strip()}
+    return {}
+
+
+def _next_anchor_dict(seg: Mapping[str, Any]) -> Dict[str, str]:
+    """下一段可對照的結構化連戲欄位：style_lock.continuity_anchors(_en) ＋ 第 1 鏡同名欄位。"""
+    out: Dict[str, str] = {}
+    meta = seg.get("metadata") or {}
+    style_lock = meta.get("style_lock") or {}
+    for key in ("continuity_anchors_en", "continuity_anchors"):
+        value = style_lock.get(key)
+        if isinstance(value, Mapping):
+            out.update({str(k): str(v) for k, v in value.items() if str(v).strip()})
+    shots = seg.get("shots") or []
+    if shots and isinstance(shots[0], dict):
+        for key in ("continuity_anchors_en", "continuity_anchors"):
+            value = shots[0].get(key)
+            if isinstance(value, Mapping):
+                out.update({str(k): str(v) for k, v in value.items() if str(v).strip()})
+    return out
+
+
+def _change_markers(seg: Mapping[str, Any]) -> set:
+    """明示的狀態變更標記：寫了就跳過該 key 的 C5 警告。"""
+    markers: set = set()
+    containers = [seg.get("metadata") or {}, seg.get("continuity_handshake") or {}]
+    shots = seg.get("shots") or []
+    if shots and isinstance(shots[0], dict):
+        containers.append(shots[0])
+    for container in containers:
+        for key in ("continuity_changes", "state_changes", "changes", "state_change",
+                    "continuity_change", "change_marker"):
+            value = container.get(key)
+            if isinstance(value, Mapping):
+                markers.update(str(k) for k in value)
+                if value.get("all") or value.get("any"):
+                    markers.add("*")
+            elif isinstance(value, (list, tuple, set)):
+                for item in value:
+                    if isinstance(item, Mapping):
+                        for k in ("key", "field", "id", "state"):
+                            if item.get(k):
+                                markers.add(str(item[k]))
+                    elif item:
+                        markers.add(str(item))
+            elif value:
+                markers.add(str(value))
+    return markers
+
+
+def _norm_state(value: Any) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip().casefold()
+
+
+def _state_value_text(value: Any) -> str:
+    """把終態值攤平成英文散文；dict／list 也不留大括號、引號或 JSON。"""
+    if isinstance(value, Mapping):
+        return state_sentence(value)
+    if isinstance(value, (list, tuple, set)):
+        return ", ".join(part for part in (_state_value_text(v) for v in value) if part)
+    text = str(value or "").strip().rstrip(".")
+    return text.strip("\"'")
+
+
+FINITE_STATE_VERB = re.compile(
+    r"^(?:lies?|sits?|stands?|crouches?|leans?|kneels?|holds?|faces?|runs?|walks?|steps?|rests?|"
+    r"hangs?|floats?|glows?|spreads?|rises?|falls?|remains?|stays?)\b",
+    re.IGNORECASE,
+)
+
+
+def state_sentence(state: Mapping[str, Any]) -> str:
+    """{'Luonian': 'back against the stone'} → 'Luonian is back against the stone'；
+    已經是動詞開頭的值（sits／lies／stands）不再硬加 is。"""
+    bits: List[str] = []
+    for key, raw in state.items():
+        value = _state_value_text(raw)
+        if not value:
             continue
-        bits.append(f"{who} {state}" if who.lower() not in ("scene", "setting", "all") else state)
-    if not bits:
+        who = str(key or "").strip()
+        if not who or who.lower() in ("scene", "setting", "all"):
+            bits.append(value)
+            continue
+        subject = f"the {who}" if who[:1].islower() else who
+        copula = " " if FINITE_STATE_VERB.match(value) else " is "
+        bits.append(f"{subject}{copula}{value}")
+    return "; ".join(bits)
+
+
+def carry_sentence(end_state_en: Mapping[str, str]) -> str:
+    """前段終態 → 下一段第 1 鏡的起始狀態句（正向寫法，不用禁止句、不吐 JSON）。"""
+    body = state_sentence(end_state_en)
+    if not body:
         return ""
-    return " Starting state carried over from the previous segment: " + "; ".join(bits) + "."
+    return " Starting state carried over from the previous segment: " + body + "."
 
 
 # ---------- 燒字來源（#138） ----------
@@ -174,6 +274,11 @@ def lint_adjacent(compiled: Sequence[Mapping[str, Any]],
             )
             continue
         prev_text = " ".join(prev_state.values())
+        if CONTACT_STATE.search(prev_text) and not postures(prev_text):
+            warnings.append(
+                f"{sid}: [C6: 接觸終態沒寫姿勢] 前段 {p} 終態「{prev_text[:80]}」寫了接觸／抓咬，卻沒寫身體姿勢；"
+                f"本段人物會從參考圖站姿起手。終態要寫姿勢＋接觸點＋誰抓著誰（如 lying on his back, left forearm clamped in the jaws）。"
+            )
         down = [x for x in postures(prev_text) if x in DOWN_POSTURES]
         first = _first_shot_text(str(seg.get("h3_prompt") or ""))
         if down and "standing" in postures(first) and not RISE_TRANSITION.search(first):
@@ -181,6 +286,20 @@ def lint_adjacent(compiled: Sequence[Mapping[str, Any]],
                 f"{sid}: [C2: 段間姿勢矛盾] 前段 {p} 終態是 {'/'.join(down)}（{prev_text[:80]}），"
                 f"本段第 1 鏡卻寫站／走且沒有起身動作；請改成從 {down[0]} 接起，或寫出 gets up／rises 的過程。"
             )
+        # C5：前段終態 vs 本段連戲錨點的結構化 key 對照（只比兩邊都有的 key）
+        next_state = _next_anchor_dict(seg)
+        markers = _change_markers(seg)
+        for key, prev_value in prev_state.items():
+            if key not in next_state:
+                continue
+            if "*" in markers or key in markers:
+                continue
+            if _norm_state(prev_value) != _norm_state(next_state[key]):
+                warnings.append(
+                    f"{sid}: [C5: 段間狀態不一致] 同場前一段 {p} 的「{key}」終態是 {prev_value!r}，"
+                    f"本段連戲錨點卻是 {next_state[key]!r}；沒有明示變更標記"
+                    f"（metadata.continuity_changes／第 1 鏡 state_change）。請補變更過程或改成一致。"
+                )
 
     # 同場景光線鎖一致（#139）：改光線要以場景為單位
     by_scene: Dict[str, Dict[str, List[str]]] = {}
@@ -293,7 +412,9 @@ def lint_shots(compiled: Sequence[Mapping[str, Any]]) -> Dict[str, List[str]]:
                     and not EMPTY_BG.search(text)):
                 warnings.append(f"{sid} Shot {n}: [S6: 錨點帶出路人] 連戲錨 blocking 寫了多人（{CROWD_ANCHOR_RE.search(anchor_blocking).group(0)}），"
                                 f"但本鏡是 {sm0.group(1)} 單人特寫；模型會在背景畫出沒綁圖的人。請寫背景無人，或錨點只放本鏡在場者（#144）。")
-            if DIALOGUE_MARK.search(text):
+            # S3–S5 是畫內對白鏡規則；旁白／畫外句套用會把鏡頭推近臉，正是旁白被配到主角嘴上的原因（噩盡島 S02-b/d）
+            offscreen_only = bool(re.search(r"off-screen voiceover|says off-screen|off-screen voice", text, re.I))
+            if DIALOGUE_MARK.search(text) and not offscreen_only:
                 sm = SIZE_RE.search(text)
                 if sm and not sm.group(1).startswith("OTS") and (sm.group(1) in WIDE_SIZES or float(sm.group(3)) > 1.5):
                     warnings.append(f"{sid} Shot {n}: [S3: 對白鏡太遠] {sm.group(0)} 臉太小吃不到臉部參考圖、看不到對嘴；"

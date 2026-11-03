@@ -168,19 +168,13 @@ class Stage5BindingTests(unittest.TestCase):
         data["shots"][0]["dialogue_and_audio"] = {
             "has_dialogue": True, "speaker": "C-VOICE", "line_verbatim": "往前走。", "voice_4d_spec": "voiceover",
         }
-        compiled = compiler.compile_segment_h3(data, registry, auto_lora=False, stage5_binding=self.binding,
-                                               narration_policy="external")
-        # external 政策：台詞不進 H3 的 <d>，改由外部 TTS 合成
-        self.assertNotIn("<d>[Chinese] 往前走。</d>", compiled["h3_prompt"])
+        compiled = compiler.compile_segment_h3(data, registry, auto_lora=False, stage5_binding=self.binding)
+        # 全部由 H3 原生生成：台詞進 <d>，但說話人是沒有參考圖的 voice-only 旁白
+        self.assertIn("<d>[Chinese] 往前走。</d>", compiled["h3_prompt"])
         self.assertNotIn("is the visible speaking character", compiled["h3_prompt"])
         self.assertNotIn("C-VOICE", [ref["id"] for ref in compiled["reference_images"]])
-        narration = compiled["external_narration"]
-        self.assertEqual(len(narration), 1)
-        self.assertEqual(narration[0]["line"], "往前走。")
-        self.assertEqual(narration[0]["speaker"], "C-VOICE")
-        # #122：外部化的句子不得留下「有人說話卻不給字」的句子
-        self.assertNotIn("narrates off-screen", compiled["h3_prompt"])
-        self.assertNotIn("off-screen over this shot", compiled["h3_prompt"])
+        self.assertIn("No one in frame speaks during this line", compiled["h3_prompt"])
+        self.assertNotIn("external_narration", compiled)
 
     def test_native_narration_policy_keeps_the_voiceover_line_in_h3(self):
         registry = compiler.AssetRegistry(project_root=self.root)
@@ -200,7 +194,7 @@ class Stage5BindingTests(unittest.TestCase):
         self.assertIn("<d>[Chinese] 往前走。</d>", compiled["h3_prompt"])
         self.assertIn("says in an off-screen voiceover", compiled["h3_prompt"])
         self.assertIn("lips remain completely closed", compiled["h3_prompt"])
-        self.assertEqual(compiled["external_narration"], [])
+        self.assertNotIn("external_narration", compiled)
 
     def test_authored_camera_hold_stage_does_not_duplicate_camera_movement_clause(self):
         registry = compiler.AssetRegistry(project_root=self.root)

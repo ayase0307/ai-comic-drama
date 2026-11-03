@@ -101,7 +101,7 @@ class PlanGainsTests(unittest.TestCase):
             {"start_time": 0, "end_time": 2, "dialogue_and_audio": {"line_verbatim": "甲", "speech_window": {"start": 0.2, "end": 1.5}}},
             {"start_time": 2, "end_time": 4, "dialogue_and_audio": {"line_verbatim": "乙"}},
         ]}
-        lines = assembly.collect_dialogue_lines(seg, "native_sub")
+        lines = assembly.collect_dialogue_lines(seg)
         self.assertEqual([l["window_source"] for l in lines], ["speech_window", "shot_window"])
 
 

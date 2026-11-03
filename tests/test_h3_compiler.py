@@ -415,7 +415,7 @@ class H3CompilerRegressionTests(unittest.TestCase):
         compiled = self.compile(data)
         self.assertIn("is the visible speaking character", compiled["h3_prompt"])
         self.assertNotIn("off-screen: <d>", compiled["h3_prompt"])
-        self.assertEqual(compiled["external_narration"], [])
+        self.assertNotIn("external_narration", compiled)
 
     def test_offscreen_and_inner_voice_dialogue_never_becomes_visible_speech(self):
         cases = [
@@ -452,19 +452,8 @@ class H3CompilerRegressionTests(unittest.TestCase):
                 self.assertIn("<d>[Chinese] 你聽得見嗎？</d>", prompt)
                 self.assertRegex(prompt, r"(heard from .* off-screen|says in an off-screen voiceover)")
                 self.assertIn("lips remain completely closed", prompt)
-                self.assertEqual(compiled["external_narration"], [])
-
-                # external：整句外部 TTS；提示詞不得寫「有人說話卻不給字」（#122）
-                compiled = self.compile(data, narration_policy="external")
-                prompt = compiled["h3_prompt"]
-                self.assertIn("segment_seconds 0.500–2.000", prompt)
-                self.assertNotIn("<d>[Chinese] 你聽得見嗎？</d>", prompt)
-                # 編譯器自己不得產生說話句（分鏡原文的動作句另由 audit E26 抓）
-                self.assertNotRegex(prompt, r"\(S\d+\) (speaks|narrates|says)")
-                self.assertNotIn("off-screen over this shot", prompt)
-                self.assertEqual(len(compiled["external_narration"]), 1)
-                self.assertEqual(compiled["external_narration"][0]["line"], "你聽得見嗎？")
-                self.assertIn("lips completely closed", prompt)
+                self.assertIn("No one in frame speaks during this line", prompt)
+                self.assertNotIn("external_narration", compiled)
 
     def test_visible_back_only_speaker_respects_lip_closed_lock(self):
         data = self.segment()
@@ -479,16 +468,14 @@ class H3CompilerRegressionTests(unittest.TestCase):
         shot["action_and_performance"]["action_stages_en"] = ["The driver stays in a back view while speaking from offscreen."]
         data["shots"] = [shot]
 
-        compiled = self.compile(data, narration_policy="external")
+        compiled = self.compile(data)
         prompt = compiled["h3_prompt"]
 
-        # 背影說話沒有可見的嘴 → external 政策整句改由外部 TTS，H3 不生成人聲，也不提有人說話
-        self.assertNotRegex(prompt, r"\b(speaks|narrates|says)\b")
-        self.assertIn("lips completely closed", prompt)
-        self.assertIn("segment_seconds 0.500–2.000", prompt)
-        self.assertNotIn("<d>[Chinese] 先送你回去。</d>", prompt)
-        self.assertEqual(len(compiled["external_narration"]), 1)
-        self.assertEqual(compiled["external_narration"][0]["line"], "先送你回去。")
+        # 背影說話沒有可見的嘴 → 由 H3 原生生成，用旁白句式並說明沒有人動嘴
+        self.assertIn("<d>[Chinese] 先送你回去。</d>", prompt)
+        self.assertIn("lips remain completely closed", prompt)
+        self.assertIn("No one in frame speaks during this line", prompt)
+        self.assertNotIn("external_narration", compiled)
 
     def test_null_speaker_is_valid_for_a_nondialogue_shot(self):
         data = self.segment()

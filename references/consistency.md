@@ -122,59 +122,48 @@
 - 板下附場景固定描述片段與**實體錨點家具**（如「站在紅木辦公桌右側邊角」），分鏡用它定站位。
 - 場景的光色句要與全域光色句相容；不相容時場景句只能微調色溫。
 
-## 5. 道具
+## 5. 道具與特效
 
 - 正／側／細節各一，旁邊放**手掌或人物比例參照**。
 - **狀態表**：完好／破損／已開啟…，每個狀態一張圖；寫明持有人與出現的鏡號。不可逆變化（杯子碎、信封皺）進 Layer 2 的 `persistent_world_state`，後續鏡頭一律承襲。
 
-## 6. 音色鎖（雙軌：H3 音色參考 ＋ 外部 TTS 固定聲線）
+### 5.1 特效卡（每個劇本特效一張，沒有圖不得進階段 5）
 
-- 每個有聲角色建 `V-<slug>`：**2–15 秒、單人、無配樂、無回聲**的**母帶**（master recording），附原句文字與語氣說明。
-- 試聽驗收：無他人聲、無底噪、語氣符合人設，使用者確認。
-- 情緒寫成文字（語速、停頓、氣息），不寫「聲帶閉合 45%」這類 H3 不吃的數值。
-- **母帶挑語氣平穩的句子**（抖音蒸餾 2026-10 A 批）：選平常說話、情緒強度低的一句，不要拿哭喊、吼叫、喘著說的句子當母帶；挑的時候看五項：自然、乾淨、清楚、狀態平、夠長（2–15 秒）。極端語氣的母帶會把那個狀態帶進每一段。
-- **聲音身份和本場狀態分開寫**：固定聲音描述（`voice_4d_spec_en`，見 §6.1）只寫「這個人是誰」（年齡感、音色、口音、說話習慣），每段都一樣；這一場哭過、受凍、喘、壓著嗓子這類狀態，寫在該句的表演描述（語速、停頓、氣息），不寫進固定描述。
-- 來源：抖音蒸餾 2026-10，影核Ai 7698742787948154154、李一帆 7657924748714648049（口述＋示範：另做平常說話的取聲片段）。證據強度：外部，未經 H3 實測。
+- **id 用 `B-`**（與生物共用前綴）：卡片文字出現 `特效`／`光效`／`VFX`／`effect`／`light form` 等關鍵詞，或明寫 `類型：特效`／`類型：光效`，才會被登錄成特效；`B-` 但沒有這些關鍵詞的卡片仍當生物。
+- **必要欄位**：`類型：特效`（或 `光效`）、`固定描述片段`（英文，例 `a translucent crimson-gold light-bird made of feather-like light streaks`）、`設定圖`（已審核的 `images/B-…png`）、`光源：…`／`source_en`（光從哪裡發出）。
+- **沒有已審核參考圖就不得進階段 5**（audit **E56**）：FreeVideo 要 `reference_paths.effects`、REMIX 要 `refmods` 裡 `kind=effect` 的包。`pack_waivers` 不能豁免特效；豁免不是參考圖，H3 只會畫出便宜的線稿鳥或把整個畫面染紅。
+- **參考圖要拍到完整的特效本體**：去背景時不要直接裁掉主體的一部分。為什麼：噩盡島 EP01 的火鳥 v2 只裁上半（為了去掉下方巨岩），參考圖少了身體下半，影片就把缺的部分補成有頭、有腳爪的老鷹，還讓牠站在火口上。去背景改用鏡射、補天空等影像處理，處理後逐張檢查有沒有方塊、破洞或殘影。
+- **生圖模型不吃否定詞**：要「沒有頭、沒有腳」的特效，不要靠 `NO head, NO beak` 重生（MOSS 2/2 照樣畫出鷹頭與腳爪），從已成功的圖修。影片提示詞同時寫正面形狀（「只有兩翼羽絲匯聚的光核、下方散成兩股羽流」）和位置限制（「始終在高空、不落地」）。
+- **提示詞寫法**：編譯器會產出「`<Picture N>` is the visual reference for the effect …：copy only its shape, feather-like light streaks, colour and translucency; do not copy its layout, background or the objects around it.」；光效再加「The light is emitted locally from <source>, falls off within a short radius and only rim-lights nearby surfaces; the overall colour grade of the scene does not change.」缺 `source_en` 時出 compile warning「特效缺光源位置」。
+- **不要用整片調色假裝特效**：提示詞出現 bathes the scene in red／everything turns red／red tint／screen flashes red／colour grade shifts 會出 **W56** 警告；改成局部光源。
+- **提示詞不得出現 raw dict／JSON（E58）**：`End state`／`Starting state` 要寫英文散文（`Luonian is back against the stone, chin lifted; the red sky is spreading overhead.`），不得出現 `{`、`}` 或 `": "`。
+- **文字寫了特效就要列 id（E57）**：鏡頭的動作／表演／走位／描述出現 glow／beam／aura／energy／火焰／紅芒／光幕等特效詞，但沒有 `effect_ids` 或任何 `B-` 特效 id → audit **E57** 擋。陽光、日光、光線、lighting 這類燈光詞與 `light`／`lighting` 欄位不計；若只是環境光，在該鏡寫 `"effect_ids": []`＋`"no_effect_reason": "<原因>"`。
 
-### 6.0 母帶從哪來：兩條路，先做的那段就是錨
+## 6. 音色鎖（全部 H3 原生）
 
-母帶不必一開始就有。**角色第一次出場的那一句，就是最自然的母帶來源**——這也是 FreeVideo 導演台的做法（cast 卡片的 `voice` 欄位本來就能從 `from_job` 取已生成片段的音軌）。
+使用者定案：**所有台詞、旁白、畫外音、內心獨白都由 H3 原生生成，外部 TTS 已從技能移除。** 跨段音色一致靠兩件事，不需要第二條配音軌道：
 
-| 來源 | 怎麼做 | 乾淨度 | 何時選它 |
-|---|---|---|---|
-| **A. 事前用 TTS 克隆做一條** | 用 VoiceStudio／Fish Audio 克隆出 2–15 秒乾淨人聲，存成 `assets/voices/V-<slug>-master-v1.wav` | **最乾淨**（無環境音、無其他聲音） | 角色有明確音色設定、要做多語版、或 H3 第一次生成的音色你不滿意 |
-| **B. 事後從第一次出場的生成片抽出** | `scripts/storyboard/extract_voice_master.py`：用 Layer 2 的 `speech_window` 切出那一句 | **帶著該場景的環境音**（已知取捨，FreeVideo 自己也這樣做） | 已經生成過、而且那個音色你滿意 —— **不滿意就重抽那一段，不要拿來當母帶**；`--list` 有多句可選時，**優先挑語氣平穩的那一句**，不挑哭喊或吼叫（見 §6 開頭） |
+1. **每一段都貼同一句英文聲線描述**（`voice_4d_spec_en`／`voice_profile_en`，或階段 5 `en_overlay.shots.<gsid>.h3_voice.voice`）。只寫「這個聲音是誰」（年齡感、音色、口音、語速習慣），不寫本場狀態（哭過、喘、壓嗓子寫在該句表演）。
+2. **有音色母帶就掛 `<Audio N>`**：stage5 `audio_references` → 編譯器產出官方綁定句＋`reference` 保留標記。
 
-**B 路線的指令**：
+### 6.1 音色母帶從哪來（`extract_voice_master.py`）
+
+母帶不必事前用 TTS 克隆；**角色在 H3 片段裡第一次清楚出聲的那一句就是最自然的來源**。
 
 ```bash
-# 1) 先看哪些角色、在哪些段落有「畫內有可見嘴」且長度 2–15 秒的台詞可以當母帶
+# 1) 列出可當母帶的段落（畫內有可見嘴、2–15 秒）
 python scripts/storyboard/extract_voice_master.py --segments segments-ep01.json --list
 
-# 2) 從第一次出場那一段抽出母帶（切點直接取自 Layer 2 的 speech_window，不猜、不靠 ASR）
-python scripts/storyboard/extract_voice_master.py \
-  --segments segments-ep01.json \
-  --segment-id EP01-S01-c \
-  --character C-luonien \
-  --videos-dir videos/ \
-  --output assets/voices/V-luonien-master-v1.wav
+# 2) 抽母帶（切點取自 Layer 2 speech_window，不靠 ASR 反推）
+python scripts/storyboard/extract_voice_master.py   --segments segments-ep01.json   --segment-id EP01-S01-c   --character C-luonien   --videos-dir videos/   --output assets/voices/V-luonien-master-v1.wav
 ```
 
-- 產出 `assets/voices/V-luonien-master-v1.wav`（48 kHz／單聲道／16-bit PCM）與同名 `.provenance.json`（來源檔 SHA256、切的時間窗、原句、輸出 SHA256），可稽核、可重跑。
-- 工具會直接把可貼進 stage5 綁定檔的 `audio_references` 片段印出來。
-- **壞掉長怎樣**：母帶太短（< 2 秒）不足以代表音色 → 工具直接擋下並請你挑同一角色更長的一句；畫外音／鎖嘴的台詞不能當母帶（H3 不會自己念，掛上去也不會被用到）→ `--list` 會標成 ✘。
-- **取捨要講清楚**：B 路线的母帶會帶進該場景的環境音（例如海風、腳步）。H3 的音色參考是「參考音色與語氣」，多一層環境音通常不致命，但若要乾淨母帶就走 A 路線。
+- 產出 48 kHz／單聲道／16-bit PCM 母帶與同名 `.provenance.json`（來源 SHA256、時間窗、原句、輸出 SHA256），可稽核、可重跑。
+- 工具會印出可貼進 stage5 綁定檔的 `audio_references` 片段。
+- **壞掉長怎樣**：母帶太短（< 2 秒）→ 工具擋下並請你挑更長的一句；畫外音／鎖嘴台詞不能當母帶（沒有可見嘴、也不適合當音色樣本）。
+- **取捨**：從生成片抽的母帶會帶該場景環境音；H3 只參考音色與語氣，通常不致命，但越乾淨越好。
 
-### 6.1 一個 `V-<slug>` 驅動兩條軌道
-
-社群講的「直出影片、每段聲音都一致且富有感情」，拆開看其實是**同一份音色被每一句重新合成**——不是影片模型「記住」了誰的聲音：掛音色母帶時是 **H3 自己照 `<Audio N>` 的音色重新發聲**（官方只保證「參考音色與語氣」，原訊號不複製），走外部 TTS 時則是**同一條複製音色重合成每一句**。本專案把這件事拆成**兩條軌道**，兩邊共用**同一個 `V-<slug>` 作為 join key**：
-
-| 軌道 | 怎麼做 | 產出 | 保證程度 |
-|---|---|---|---|
-| **軌道 1：H3 音色參考** | stage5 `audio_references` 把母帶掛到角色 → 編譯器產出 `<Audio N>` 綁定句 ＋ `reference` 保留標記 ＋ 固定描述詞 `voice_4d_spec_en` | H3 **自己生成**的那把聲音會「聽起來像同一個人」 | **是參考，不是保證**【官方】；本機 FreeVideo 路徑**送得進**音訊參考（見下），但官方標註 **Experimental; does not lock the output soundtrack or lip sync**——只給音色方向，不鎖輸出音軌與口型 |
-| **軌道 2：外部 TTS** | `config/tts.json` 的 `voice_map["V-<slug>"]` → 供應商音色 id（VoiceStudio profile 名稱／Fish Audio voice id／OpenAI 相容端點的 voice） | 每一句台詞都由**同一條複製音色**重新合成 | **完全確定的選項**（軌道 1 是「像同一個人」，這裡是「每段一模一樣」） |
-
-**軌道 1 怎麼做**（stage5 綁定檔）：
+### 6.2 `<Audio N>` 怎麼綁
 
 ```json
 "audio_references": [
@@ -184,46 +173,27 @@ python scripts/storyboard/extract_voice_master.py \
 ]
 ```
 
-編譯器**只**把音色參考掛給**本段真的有可見嘴在說話**的角色；畫外音／旁白已外部化成 TTS 的**不掛**（編譯器會在 `compile_notes` 記一條說明）。產出的提示詞片段（英文，逐字）：
+**畫內對白與旁白說話人都可以掛**——現在所有台詞都由 H3 生成，沒有「畫外音不掛」這條舊規則。產出的提示詞片段（英文，逐字）：
 
 ```text
 <Audio 1> is the voice-timbre reference for <Subject 1> (S1), containing a single teenage boy's Mandarin line recorded dry with no music.
-```
-
-```text
 <Audio 1>: reference - <Subject 1> (S1) follows <Audio 1>'s voice timbre and measured delivery without copying the original signal; the words in <Audio 1> are not spoken in the target video.
 ```
 
-說話那一句會多一段綁定（`voice_4d_spec_en` 描述詞在前、音色參考在後；`<d>` 內是台詞原文，逐字照錄）：
+旁白／voice-only 的 `<Subject N>` 沒有 `<Picture>`，`<Audio N>` 仍然可以綁在它身上（`<Audio 1> is the voice-timbre reference for <Subject 2>, …`）。
 
-```text
-<Subject 1> is the visible speaking character, a clear dry teenage boy voice, matching the voice timbre referenced from <Audio 1>, and says: <d>[Chinese] ……</d>
-```
+**參考順序與編號**：官方節點原文 *"References enter the presentation in fixed order: images, then videos, then standalone audio. Ordinals are 1-based per type."*——圖 → 影片 → 獨立音訊，`<Picture i>`／`<Video k>`／`<Audio j>` 各自從 1 開始。編譯器已把音訊項目排在所有圖像之後。
 
-**兩種音色綁定寫法並存（來源不同，別搞混）**：
-
-| 寫法 | 來源 | 長相（逐字） |
-|---|---|---|
-| **官方綁定式** | 官方 ref-en §2.4；本專案 `compile_layer2_to_h3.py` 產出 | `<Audio 1> is the voice-timbre reference for <Subject 1> (S1), containing a single teenage boy's Mandarin line recorded dry with no music.` |
-| **導演台自動前綴** | FreeVideo 導演台 `freevideo_engine/agent/drama.py` 的 `subject_definitions()`：把「這個角色的聲音是第幾個音檔」寫在主體那一行，與 `<Picture N> shows its appearance` 對稱 | `<Subject 1> is the character in <Picture 2>, a teenage boy in a light short-sleeved shirt. <Audio 1> is its voice.` |
-
-**怎麼做**：兩種寫法可以同時出現在同一份提示詞裡——官方那行負責說明**音色是誰的、來源是什麼**，導演台那行負責把**主體 ↔ 音檔序號**綁在主體身上（程式裡的標籤字串就是 `'<Audio %d> is its voice'`，旁邊是 `'<Picture %d> shows its appearance'`）。FreeVideo 導演台的 cast 卡片本來就有 `voice` 欄位（`card['voice']['clip']`），會**連同角色一起送成參考**，再由 `subject_definitions()` 編成 `<Audio j>`。
-**為什麼／壞掉長怎樣**：兩種寫法來源不同，**`<Audio j>` 的編號規則卻必須一致**（`j` = 這一段的第幾個音檔）。壞掉長怎樣：導演台那行寫 `<Audio 2>`、官方那行卻綁 `<Subject 1>`，帳對不上，角色就會發出**別人的音色**。
-
-**參考進入順序與編號規則（官方節點原文）**：官方 ComfyUI 節點 `MiniMaxH3ReferenceToVideo` 的說明寫著：*"References enter the presentation in fixed order: images, then videos (each soundtrack's `<Audio j>` label right before its `<Video k>`), then standalone audio. Ordinals are 1-based per type, so the prompt refers to them as `<Picture i>` / `<Video k>` / `<Audio j>`."*——**圖 → 影片 → 獨立音訊**，序號**各類型各自從 1 開始**。
-**上限**：每段音色參考 **≤ 3**（導演台 `MAX_VOICES`，模型限制）、參考總數 **≤ 32**（`MAX_REFERENCES`；FreeVideo 引擎端 `comfy_assets` 同樣是 32 個媒體項目上限，圖片＋影片＋音訊合計）。**壞掉長怎樣**：塞不下時導演台**不報錯**，而是把角色降級——`voice_omitted`（有圖但聲音沒帶上）或 `omitted`（整個角色不帶參考），成片就會突然換一把聲音。
+**上限**：每段音色參考 ≤ 3（導演台 `MAX_VOICES`，模型限制）、參考總數 ≤ 32（圖片＋影片＋音訊合計）。塞不下時導演台會把角色降級成 `voice_omitted`／`omitted`，成片會突然換聲音。
 
 **為什麼／壞掉長怎樣**：
 
-- **官方用語是「參考」，不是「保證一致」**。官方 ref-en §4.1 給音訊的保留標記是 `reference`：*"the target speaker follows <Audio 1>'s voice timbre and measured delivery without copying the original signal"*【官方】——**音色與語氣被參考，原訊號不被複製**。官方同時明令 *"When only timbre, rhythm, emotion, or delivery is referenced, do not carry the original dialogue from the reference audio into the target video."*【官方】所以母帶裡的原句**不會**被念出來（編譯器照這句寫成 `the words in <Audio 1> are not spoken in the target video.`）。**壞掉長怎樣**：把母帶原句也放進 `<d>`，觀眾會聽到同一句話出現兩次（一次母帶、一次角色台詞）。
-- **上游實測有 voice crossover（聲音串到別人身上）**，且官方不保證跨片段一致【社群實測】（`h3/audio-pipeline.md` 已記）。**壞掉長怎樣**：段 A 的說話人音色被套到段 B 的角色身上。
-- **本機 FreeVideo 路徑送得進音訊參考（媒體型態看副檔名，不看 `role`）**：官方 ComfyUI 節點 `MiniMaxH3ReferenceToVideo` 有四個參考槽，其中 `ref_audios` → `io.Audio.Input("ref_audio", "Standalone reference audio")` 就是**獨立的音訊參考槽**；FreeVideo 操作面板 `FreeVideo · Media` 也有對應的 **`Reference audio`** 上傳／連接槽（`io.Audio.Input('reference_audio', ...)`，可接 `Load Audio` 等 AUDIO 輸出），另有 `FreeVideo · Reference (experimental)` 節點的 `image` / `video` / `audio` 三合一槽（每節點接一個，最多 32 個有序參考）。**怎麼做**：把音色母帶（`.wav` / `.mp3` / `.flac` / `.ogg` / `.m4a` / `.aac` / `.opus`）放進 `media.references` 就送得出去——**媒體型態依副檔名判定**（`EXTENSIONS` 的 `image` / `video` / `audio` 三組副檔名），`resolve_assets()` 把非圖片檔收成 `{'kind': kind, 'path': str(path)}`，`submit_h3_segments.py` 的 `upload_reference_media()` 照圖片的方式 POST `/media`，並印 🎙️ 說明本段帶了幾個 `<Audio N>`。**不需要** `role: reference_audio` 這種欄位：先前「media 物件沒有 `reference_audio` 角色」的說法，是把*媒體項目的修飾欄位*（`file` / `from_job` / `library` / `frame` / `edit`）誤當成*媒體型態*。**為什麼／壞掉長怎樣**：副檔名不在 `EXTENSIONS['audio']` 內時，`media_kind()` 判成不支援而送不進去——`submit_h3_segments.py` 在 dry-run 就用 `SUPPORTED_AUDIO_SUFFIXES` 擋下並印 ❌ 訊息；參考順序必須是**圖 → 影片 → 獨立音訊**（官方節點原文與編號規則見本節上面的「參考進入順序與編號規則」），音訊項目排在所有圖像之後（`compile_layer2_to_h3.py` 已如此輸出，`<Audio N>` 各自從 1 編號）；音訊也佔 32 個參考名額（`connect_assets()` 把連接的 `reference_audio` 算進去），一張圖配一條母帶時別把名額用光。
-- **但官方把音訊參考標成實驗性，不是「保證鎖音色」**：FreeVideo 面板註明 *"Experimental; does not lock the output soundtrack or lip sync."*——音色參考是讓 H3 **重新合成**一把像母帶的聲音，**不是音軌複製**，也**不鎖**輸出音軌與口型。**壞掉長怎樣**：期待母帶原音被搬進成片（會聽到母帶原句），或期待音色參考順便鎖住口型（聲音對得上、嘴型對不上）。
-- **結論：跨片段音色「聽起來像同一個人」，軌道 1 就做得到（而且本機送得進去）；「每一段都一模一樣」才需要軌道 2**。軌道 1 讓 H3 每一段都照同一個母帶**重新合成**一把聲音，接近但不是位元相同，且官方不保證跨片段一致（社群已有 voice crossover 報告）；要**完全確定**的同一把聲線，就靠同一條複製音色（`voice_map` 固定音色 id）重合成每一句——這也是多語配音那一行的正解。兩軌可以同時開：H3 負責畫面與口型錨點，最後用外部 TTS 覆蓋（此時需要 lipsync，見 `references/pipeline.md` §7.1）。
-- **`voice_4d_spec_en` 是必需的固定描述詞**：H3 提示詞正文是英文，所以描述詞也必須用英文寫在 Layer 2 的 `voice_4d_spec_en`（或 `voice_profile_en`）。編譯器會把它插進說話那一句，與 `<Audio N>` 一起固定「聽起來像誰」。**只寫身份、不寫本場狀態**：例如 `a clear dry teenage boy voice, slightly husky, Taipei Mandarin` 可以；`a sobbing, out-of-breath teenage boy voice` 不行——哭過、喘這類狀態寫在該句的表演描述，否則每一段都會帶著哭腔（抖音蒸餾 2026-10 A 批，外部，未經 H3 實測；見 §6 開頭）。**壞掉長怎樣**：只給中文 `voice_4d_spec`，編譯器**不會**把它貼進英文提示詞（會變成未翻譯的噪音），只在 `compile_notes` 回報提醒；於是同一角色在不同段的音色描述不一致。
-- 細節見 `h3/audio-pipeline.md`（上游版）；`voice_map` 與引擎選擇見 `references/pipeline.md` §7.3。
-
-**音色母帶與 TTS 聲線的映射（軌道 2 的落地）**：`V-<slug>` 是「音色基準」，不是可以直接播的對白音檔；兩者要靠 TTS 設定檔的 `voice_map` 接起來。**怎麼做**：在 TTS 設定檔（`config/tts.json`，範例見 `config/tts.example.json`）補一條 `voice_map` 對應（`V-<slug>` → 供應商音色／profile 名稱；語速、音高、情緒等引擎參數寫在 `engines.<engine>` 區段），階段 7 配音時依 `voice_map` 取聲線，並用同一句測試台詞跑一次、把輸出與 `V-<slug>` 母帶並排比對音色是否一致。**為什麼／壞掉長怎樣**：`voice_map` 缺一條時，解析會一路退到「拿 speaker 原文當音色名去送」，同一個角色在不同段落、甚至不同機器上就會換聲；而母帶與 TTS 輸出是兩件事，只聽母帶驗不出這個問題。**旁白與畫外音不得由 H3 內建語音生成**（H3 原生中文語音的 ASR 置信度只有 0.43–0.54，普遍吞字），一律外部 TTS 合成後於階段 7 混入：聲音三層的取捨見 `references/pipeline.md` §7.1，`voice_map` 與引擎選擇見 `references/pipeline.md` §7.3。
+- 官方用語是「參考」，不是「保證一致」：`reference` 只參考音色與語氣，原訊號不被複製；母帶原句不得被念出來（編譯器寫 `the words in <Audio 1> are not spoken in the target video.`）。若把母帶原句也放進 `<d>`，觀眾會聽到同一句話兩次。
+- 上游實測有 voice crossover（聲音串到別人身上），官方不保證跨片段一致。**壞掉長怎樣**：段 A 的說話人音色被套到段 B 的角色。
+- 本機 FreeVideo **送得進**音訊參考：音色母帶（`.wav`／`.mp3`／`.flac`／`.ogg`／`.m4a`／`.aac`／`.opus`）放進 `media.references`，媒體型態由副檔名判定，`submit_h3_segments.py` 的 `upload_reference_media()` 會 POST `/media`。副檔名不在清單內時 dry-run 會用 `SUPPORTED_AUDIO_SUFFIXES` 擋下。
+- 官方把音訊參考標成實驗性：*Experimental; does not lock the output soundtrack or lip sync.*——只給音色方向，不鎖輸出音軌與口型。
+- **`voice_4d_spec_en` 是必需的固定描述詞**：H3 提示詞正文是英文，只給中文 `voice_4d_spec` 不會被貼進提示詞，只在 `compile_notes` 回報。只寫身份、不寫本場狀態；哭過、喘寫在該句表演描述。
+- 細節見 `h3/audio-pipeline.md`（上游版）；聲音策略見 `references/pipeline.md` §7.1，旁白聲線設計見 §7.3。
 
 ## 7. 參考鏈與多模態輸入（哪一步用哪些圖）
 
@@ -232,8 +202,7 @@ python scripts/storyboard/extract_voice_master.py \
 場景主圖 ────────┐
 角色設定板（1張）─┼→ 每段獨立 Ref2VA（7~10秒）→ verify_video_shot.py 審查
 [可選道具/生物] ──┘
-音色母帶 ──┬─→ 影片（Audio ref；本機 FreeVideo 送得進，但只是參考）
-            └─→ 外部 TTS 固定音色 id（保證路徑）
+音色母帶 ────→ 影片（Audio ref；本機 FreeVideo 送得進，但只是參考）
 
 【⚠️ 選用實驗：全片統一首幀流程】
 Qwen/GPT 首幀（全彩）──→ I2VA 影片 ──→ 與既有 H3 片段【並排對照畫風】

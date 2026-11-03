@@ -20,7 +20,7 @@
   * review/project-state.json（階段狀態、核准／覆寫／自動核准紀錄）
   * 選用：videos/qa-report.json（技術 QA）、videos/*.mp4（抽 10 幀條，需要 ffmpeg）
   * 例外：階段 7 的「待定音色角色」需要知道誰有畫外台詞，只讀 segments-ep*.json 的
-    external_narration[].speaker（不讀 prompt）。
+    shots[].dialogue_and_audio（畫外／旁白發聲者；不讀 prompt）；舊 external_narration 仍相容讀取。
 
 輸出 review/inbox.html（standalone，縮圖以 webp 內嵌，手機優先，目標 < 5 MB）與 review/inbox.json。
 用法：
@@ -114,8 +114,16 @@ def current_stage(state: Dict[str, Any]) -> int:
 
 
 def narration_speakers(root: Path) -> List[str]:
-    """有畫外台詞（要外部配音）的角色 id；只讀 segments-ep*.json 的 external_narration。"""
+    """有畫外台詞／旁白的角色 id（由 H3 原生生成，仍需要使用者定音色）。
+
+    主來源是 segments-ep*.json 的 shots[].dialogue_and_audio：畫外 O.S.、旁白 V.O.、
+    內心獨白、voice-only 或不在畫面 character_ids 內的發聲者。舊專案若還留著
+    external_narration（E24 會擋），這裡也一併讀取，讓音色定案卡不會先消失。
+    """
     found: List[str] = []
+    def _add(who: Any) -> None:
+        if who and str(who) not in found:
+            found.append(str(who))
     for path in sorted(Path(root).glob("segments-ep*.json")):
         raw = _read_json(path)
         if raw is None:
@@ -124,14 +132,34 @@ def narration_speakers(root: Path) -> List[str]:
         for seg in items:
             if not isinstance(seg, dict):
                 continue
+            for shot in seg.get("shots") or []:
+                if not isinstance(shot, dict):
+                    continue
+                dlg = shot.get("dialogue_and_audio") or {}
+                lines = [dlg] + [ex for ex in (dlg.get("extra_lines") or []) if isinstance(ex, dict)]
+                for line in lines:
+                    text = str(line.get("line_verbatim") or "").strip()
+                    if not text:
+                        continue
+                    speaker = line.get("speaker")
+                    if not speaker:
+                        continue
+                    form = str(line.get("offscreen_form") or "").lower()
+                    audio_type = str(line.get("audio_type") or "").strip().lower()
+                    offscreen = (
+                        form in ("voiceover", "offscreen")
+                        or audio_type in ("narration", "voiceover", "vo", "inner", "v.o.")
+                        or bool(line.get("voice_only"))
+                        or speaker not in (shot.get("character_ids") or [])
+                    )
+                    if offscreen:
+                        _add(speaker)
             narration = seg.get("external_narration") or []
             if isinstance(narration, dict):
                 narration = [narration]
             for line in narration:
                 if isinstance(line, dict):
-                    who = line.get("speaker") or line.get("character_id")
-                    if who and who not in found:
-                        found.append(str(who))
+                    _add(line.get("speaker") or line.get("character_id"))
     return found
 
 
@@ -653,16 +681,16 @@ def build_cards(root: Path, *, state: Optional[Dict[str, Any]] = None,
             open_cards.append({
                 "id": "D7-voice-cast", "kind": "voice", "stage": 7, "segment": f"{len(missing_voice)} 個角色",
                 "title": f"{len(missing_voice)} 個角色的配音音色還沒定案",
-                "impact": f"畫外台詞要外部配音：{shown}。音色一經定案全集沿用，這是觀眾聽到的聲音。",
-                "recommendation": "有畫內台詞的主角用自己的畫內聲複製；沒有畫內台詞的小角色用內建音色，我先切好試聽給你挑。",
+                "impact": f"畫外台詞／旁白由 H3 原生生成，音色待定：{shown}。音色一經定案全集沿用，這是觀眾聽到的聲音。",
+                "recommendation": "有畫內台詞的主角用自己的畫內聲當 <Audio N> 音色參考；沒有畫內台詞的角色用固定音色描述，我先切好試聽給你挑。",
                 "options": [
-                    {"label": "照建議＋給我試聽", "reply": "音色：主角用畫內聲複製、小角色用內建音色，先切試聽給我挑"},
+                    {"label": "照建議＋給我試聽", "reply": "音色：主角用畫內聲參考、小角色用固定描述，先切試聽給我挑"},
                     {"label": "全部用畫內聲", "reply": "音色：全部角色都用畫內 H3 聲複製"},
                     {"label": "逐個角色問我", "reply": "音色：逐個角色附試聽問我"},
                 ],
                 "if_ignored": "這些角色的畫外台詞沒有聲音，階段 7 不能核准。",
                 "blocking": 2, "blocking_label": "擋配音定案", "evidence_paths": [], "links": [],
-                "source": "segments-ep*.json external_narration＋decisions.json voice:*",
+                "source": "segments-ep*.json shots[].dialogue_and_audio（畫外／旁白）＋decisions.json voice:*",
                 "characters": missing_voice})
 
     # 4b) 階段 2／4／5 的例外（manifest 自檢不通過、缺構圖／退回、缺參考圖／混臉）

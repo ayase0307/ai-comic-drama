@@ -1,4 +1,4 @@
-"""dialogue_policy 定案必須真正進到編譯：④ 對應 external，①②③ 與空值沿用預設，無法辨識的值明確報錯。"""
+"""dialogue_policy 定案必須真正進到編譯：④ 與舊 external 都對應 h3-native，①②③ 與空值沿用預設。"""
 import json
 import sys
 import tempfile
@@ -39,9 +39,13 @@ class NarrationPolicyOfTests(unittest.TestCase):
         for name in decisions.NARRATION_POLICY_NAMES:
             self.assertEqual(_policy(name), name)
 
-    def test_choice_4_pure_narration_maps_to_external(self):
-        self.assertEqual(_policy("④"), "external")
-        self.assertEqual(_policy("④ 無台詞純旁白"), "external")
+    def test_choice_4_pure_narration_maps_to_h3_native(self):
+        self.assertEqual(_policy("④"), "h3-native")
+        self.assertEqual(_policy("④ 無台詞純旁白"), "h3-native")
+
+    def test_legacy_policy_names_map_to_h3_native(self):
+        for value in ("external", "short-offscreen-h3"):
+            self.assertEqual(_policy(value), "h3-native", value)
 
     def test_choices_1_2_3_do_not_change_compilation(self):
         for value in ("①", "②", "③", "② 只留重點句", "③ 影視化改寫"):
@@ -70,11 +74,11 @@ class ResolveNarrationPolicyTests(unittest.TestCase):
 
     def test_choice_4_is_used_when_flag_omitted(self):
         _write_decision(self.root, "④")
-        self.assertEqual(compiler.resolve_narration_policy(None, self.root), "external")
+        self.assertEqual(compiler.resolve_narration_policy(None, self.root), "h3-native")
 
-    def test_decision_name_is_used_when_flag_omitted(self):
+    def test_legacy_decision_name_maps_to_h3_native(self):
         _write_decision(self.root, "external")
-        self.assertEqual(compiler.resolve_narration_policy(None, self.root), "external")
+        self.assertEqual(compiler.resolve_narration_policy(None, self.root), "h3-native")
 
     def test_matching_flag_and_decision_is_accepted(self):
         _write_decision(self.root, "h3-native")
@@ -82,18 +86,16 @@ class ResolveNarrationPolicyTests(unittest.TestCase):
 
     def test_explicit_flag_is_accepted_with_neutral_choice(self):
         _write_decision(self.root, "①")
-        self.assertEqual(compiler.resolve_narration_policy("external", self.root), "external")
+        self.assertEqual(compiler.resolve_narration_policy("h3-native", self.root), "h3-native")
 
-    def test_conflicting_flag_and_decision_raises(self):
-        _write_decision(self.root, "external")
-        with self.assertRaises(ValueError) as ctx:
-            compiler.resolve_narration_policy("short-offscreen-h3", self.root)
-        self.assertIn("衝突", str(ctx.exception))
-
-    def test_choice_4_conflicts_with_default_flag(self):
-        _write_decision(self.root, "④")
+    def test_legacy_flag_is_rejected(self):
+        _write_decision(self.root, "①")
         with self.assertRaises(ValueError):
-            compiler.resolve_narration_policy("short-offscreen-h3", self.root)
+            compiler.resolve_narration_policy("external", self.root)
+
+    def test_choice_4_is_compatible_with_native_flag(self):
+        _write_decision(self.root, "④")
+        self.assertEqual(compiler.resolve_narration_policy("h3-native", self.root), "h3-native")
 
     def test_unrecognized_decision_raises_instead_of_falling_back(self):
         _write_decision(self.root, UNRECOGNIZED)
@@ -109,10 +111,10 @@ class Stage5NextStepTests(unittest.TestCase):
     def tearDown(self):
         self._tmp.cleanup()
 
-    def test_choice_4_compile_command_carries_external(self):
+    def test_choice_4_compile_command_carries_h3_native(self):
         _write_decision(self.root, "④")
         cmd, _ = next_step.stage5_producer(self.root, [])
-        self.assertIn("--narration-policy external", cmd)
+        self.assertIn("--narration-policy h3-native", cmd)
 
     def test_policy_name_compile_command_carries_flag(self):
         _write_decision(self.root, "h3-native")

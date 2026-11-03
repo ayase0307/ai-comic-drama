@@ -1,3 +1,5 @@
+> 2026-11-03：技能已移除外部 TTS，本文僅留作歷史研究。
+
 # AI 漫劇／短劇產線：外接 TTS 旁白方案技術評估報告
 
 > 評估日期：2026-10-19　│　目標機器：Windows 11 / NVIDIA RTX 4060 Ti 8GB / 16GB RAM / 本機 ComfyUI 於 `E:\Comfy-Desktop\ComfyUI-Shared`
