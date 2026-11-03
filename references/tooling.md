@@ -358,6 +358,7 @@ python scripts/h3d.py compile --layer2 layer2/ --bible video-bible.json --bindin
 - **`--check` 連戲警告**（只警告不擋，已核准的包不受影響）：
   - `C1 前段無終態`：同場景前一段沒有英文終態，本段無從接起。
   - `C2 段間姿勢矛盾`：前段終態是躺／坐／跪／被吞，本段第 1 鏡卻寫站／走，且沒有 gets up／rises／pushes himself up 這類起身過程。
+  - `C6 接觸終態沒寫姿勢`：前段終態寫了被咬／被按住／被抓／懸吊（bitten、pinned、clamped、grabbed、held…），卻沒有任何姿勢詞（躺、坐、跪、懸空…）。下一段人物會從參考圖站姿起手（噩盡島 EP01：終態只寫 `left forearm bitten`，下一段洛年站著被咬，咬完下一鏡又分開）。終態寫成「姿勢＋接觸點＋誰抓著誰」：`lying on his back, left forearm clamped in the jaws`。
   - `C3 同場光線分裂`：同一場景的段落用了不同光線鎖（例如只為生物段改成中性白光）。改光線以整個場景為單位，或改用後製統一調色。劇情本來就換光（火光亮起）時可忽略。
   - `C4 同場配樂跟著生成段走`：同一場景相鄰兩段（依段號排序）只要有一段的 `non_diegetic_music` 不是 N/A（空白、`N/A`、`none`、`no music` 都算 N/A）就警告；文字不同會寫「描述不同」，相同則寫「兩段都寫了配樂」（H3 仍會每段各生一次）。做法：同場各段寫 N/A，配樂到後製統一鋪（`references/edit/manju-editing-playbook.md` §8.1）。刻意每段換曲時可忽略。只比這次編譯輸入裡有提示詞的段。
 - **無文字句**：角色描述、走位、動作或五小節出現 crest／badge／emblem／logo／taxi／bus／car door／sign／poster／banner／斑駁或水泥牆這類燒字來源時，逐鏡前的總述行自動補 `Badges, crests, vehicle doors, signs and wall surfaces stay plain and unmarked, with no lettering, no logos and no graffiti.`。需要可讀文字的段（招牌是劇情重點）在 Layer 2 `metadata.allow_lettering: true`；全專案關掉：`--no-lettering-guard`。物件描述本身也建議寫正向的 `plain embroidered badge with no lettering`。
