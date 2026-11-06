@@ -7,6 +7,7 @@
 `h3d next` 會讀這份檔案：專案版本章比目前技能舊時，列出中間各版標題提醒重驗。
 
 ## [未發布]
+- 新增：REMIX 送件 adapter（**PR-R7**）——`scripts/storyboard/submit_remix.py`＋`h3d submit/collect/resume --backend remix`：只送 remix 段，送件前照跑 stage-5 門禁、audit remix 分支、lint(backend="remix")、失敗目錄、撰寫審查、編譯指紋（E38）與能力表校驗；`POST /jobs` 帶 `prompt=h3_prompt`／`refmods`／`seconds=frames/24`／`shot=segment_id`／`plan{title_zh,start_state,end_state}`；帳本 `videos/remix-jobs.json`，收件記**後端實際影格數**（16g）並查 identity；`--mode`（新定案 `remix_mode`，預設 pika768）／`--seed`／`--reroll`／`--dry-run`。令牌永不印出。`tests/test_submit_remix.py`（假 REMIX server 六測）。
 - 新增：REMIX 能力表對齊 5070 Ti＋REMIX v0.8（Pika H3 Flex 家族）——`providers/remix.json` 全表重寫（modes 改 draft/refine/long＋pika480/768/1440/pikaff480/768、秒數 2–15 s、包數分級改 16GB ok 4、新增 audio_refs／identity／upscale／extend／storyboard_import／plan_fields 欄位與 recheck 清單）；`h3_spec` remix 改 **56–362 幀、往上取**（2026-11-07 本機 probe 實測：2 s → 56 幀、15 s → 362 幀；舊 V1.3 引擎的 floor 量測標註退役、draft/refine/long 未重測）；`test_remix_backend` 對帳更新。
 - 修正：`test_action_shot_allocation`／`test_dual_lead_in_pacing`／`test_v118_rule_conflicts` 的子程序改 UTF-8 解碼＋`PYTHONIOENCODING=utf-8`（Windows cp950 下 stdout 解碼失敗回 None，10 個測試 ERROR）。
 - 新增：特效資產必須有參考圖（audit **E56**）——`assets.md` 的 `B-` 卡片若文字有特效／光效／VFX／effect／light form 或明寫 `類型：特效`，登錄為特效；FreeVideo 要有 `reference_paths.effects`、REMIX 要有 `kind=effect` 的包，`pack_waivers` 不能豁免。編譯器產出「copy only its shape, feather-like light streaks, colour and translucency…」與局部光源句（缺 `source_en` 出「特效缺光源位置」warning）；整片調色句（bathes the scene in red 等）出 **W56** 警告。

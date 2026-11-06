@@ -56,12 +56,12 @@ COMMANDS: Dict[str, str] = {
     "qa": "影片自動審查（時長／色彩／分鏡總覽圖／證據分級）；--continuity：交界連續性 QA（實際切點＋交界拼貼＋一側靜止，只警告）",
     "motion": "階段 6 動態 QA（光流量凍結／定住／起手延遲）＋自動提案變速清單 videos/speed-ramps.json",
     "ramp": "依已核准的變速清單產 videos/ramped/<段>.mp4（原片不動，台詞區 1×＋音訊相關驗證）",
-    "submit": "送件到 FreeVideo（含能力校驗與時長斷言）",
-    "collect": "只收已完成但沒下載的工作（不送新件）",
+    "submit": "送件（FreeVideo 預設；--backend remix 送家機 REMIX Studio，PR-R7）",
+    "collect": "只收已完成但沒下載的工作（不送新件；--backend remix 收 REMIX 帳本）",
     "run": "階段 6 送件 runner（--plan）：單例鎖、佇列檢查、暫停／續跑（--pause）、進度檔（--status）",
     "probe": "送件前查 API schema 與已安裝 LoRA，缺的直接擋並列替代",
     "concat": "Concat adapter：plan／build 全集單一剪輯專案（T1 影片、T2 字幕）",
-    "resume": "先 collect，再補送尚未產出的分段（ledger 去重）",
+    "resume": "先 collect，再補送尚未產出的分段（ledger 去重；--backend remix 走 REMIX 帳本）",
     "assemble": "字幕燒錄、響度對齊與成片拼接（音訊一律 H3 原生）",
     "deps": "segment 級依賴帳本（--record／--status）",
     "catalog": "失敗目錄（--list／--check／--acks）",
@@ -144,6 +144,14 @@ def _load(command: str):
         return importlib.import_module(name)
     except ImportError as exc:  # pragma: no cover - 檔案缺失時
         raise SystemExit(f"❌ 找不到模組 {name}：{exc}")
+
+
+def _load_remix():
+    """PR-R7：--backend remix 時的送件 adapter。"""
+    try:
+        return importlib.import_module("submit_remix")
+    except ImportError as exc:  # pragma: no cover - 檔案缺失時
+        raise SystemExit(f"❌ 找不到模組 submit_remix：{exc}")
 
 
 def _invoke(module, argv: List[str]) -> int:
@@ -318,6 +326,15 @@ def main(argv: Optional[List[str]] = None) -> int:
             passthrough.append("--json")
         return _invoke(importlib.import_module("continuity_qa"), passthrough)
     module = _load(command)
+    # PR-R7：submit／collect／resume 帶 --backend remix 時改走 REMIX 送件 adapter（submit_remix）。
+    if command in ROOT_DIR_COMMANDS:
+        for i, flag in enumerate(passthrough):
+            if flag == "--backend" and i + 1 < len(passthrough) and str(passthrough[i + 1]).strip().lower() == "remix":
+                module = _load_remix()
+                break
+            if flag.startswith("--backend=") and flag.split("=", 1)[1].strip().lower() == "remix":
+                module = _load_remix()
+                break
     passthrough = IMPLIED_FLAGS.get(command, []) + passthrough
     if command in ("next", "decide", "verdict", "inbox", "approve", "run", "refcheck", "staging", "version", "imagegen"):
         # 允許 `h3d --root X next` 與 `h3d next --root X` 兩種寫法

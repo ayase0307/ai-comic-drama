@@ -96,6 +96,9 @@ KNOWN_DECISIONS: Dict[str, Dict[str, Any]] = {
     # 選填：英文影片風格錨句。remix 沒有 negative 欄位，提示詞開頭必須是這句（audit E55）。
     "style_anchor": {"label": "影片風格錨句（英文；remix 提示詞開頭必須一致）", "stages": [5, 6],
                      "required_by": 99, "reference": "references/styles.md"},
+    # 選填：REMIX 送件模式（PR-R7）。預設 pika768（11-03 噩盡島 16 段實測路線）；抽卡用 pika480（4 步）。
+    "remix_mode": {"label": "REMIX 送件模式（pika768 預設／pika480 抽卡／pika1440 定稿）", "stages": [5, 6],
+                   "required_by": 99, "reference": "references/tooling.md"},
     # 選填：站位／視線／運鏡閘門（PR-R6，h3d staging）的嚴重度。warn＝預設，全部只警告；
     # strict＝measured 的三條（D06 面向鏡頭、D07 對話缺視線、D08 多人缺左到右）擋。證據只有 ch02 EP04，故預設保守。
     "staging_gate": {"label": "站位／視線閘門嚴重度（warn 預設／strict）", "stages": [5, 6],
@@ -115,6 +118,9 @@ DEFAULT_VIDEO_BACKEND = "ref2va"
 # 與 scripts/storyboard/providers/remix.json 的 max_refmods（GET /capabilities refmods_max）一致；
 # tests/test_remix_backend.py 會對帳。
 REMIX_MAX_REFMODS = 8
+# REMIX 送件模式（PR-R7）：與 providers/remix.json 的 modes.value 一致；tests/test_remix_backend.py 對帳。
+REMIX_MODES = ("draft", "refine", "long", "pika480", "pika768", "pika1440", "pikaff480", "pikaff768")
+DEFAULT_REMIX_MODE = "pika768"
 
 # 交付範圍：只寫需要的 key；沒定案＝全流程（end_stage 7、要圖要影片）。
 # 文字草稿可交付：script-only（終點 3）、storyboard-only（終點 4）、prompts-only（終點 5）。
@@ -438,6 +444,8 @@ def value_warnings(decision_id: str, value: Any) -> List[str]:
         except ValueError:
             out.append(f"dialogue_policy 值 {value!r} 不是「原著對白優先」、①–④ 開頭或編譯器政策名；階段 5 編譯會報「無法辨識」。"
                        "台詞政策已固定為「原著對白優先」，通常不需定案")
+    if decision_id == "remix_mode" and isinstance(value, str) and value.strip() not in REMIX_MODES:
+        out.append(f"remix_mode 值 {value!r} 不是 REMIX 認得的模式（{'／'.join(REMIX_MODES)}）；送件端會回退預設 {DEFAULT_REMIX_MODE}")
     return out
 
 
@@ -453,6 +461,10 @@ def parse_value(decision_id: str, raw: str) -> Any:
     if decision_id == "video_backend":
         text = raw.strip().lower()
         return {"角色卡": "remix", "ref2va": "ref2va", "remix": "remix"}.get(text, raw.strip())
+    if decision_id == "remix_mode":
+        text = raw.strip().lower()
+        return {"草稿": "pika480", "抽卡": "pika480", "定稿": "pika768", "高清": "pika1440",
+                "1440": "pika1440", "首幀": "pikaff768", "首帧": "pikaff768"}.get(text, text)
     if decision_id == "submit_endpoint":
         text = raw.strip().lower()
         return {"本地": "local", "本機": "local", "家機": "local", "comfyui": "local", "freevideo": "local",

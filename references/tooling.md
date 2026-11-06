@@ -256,7 +256,7 @@ python scripts/h3d.py compile --layer2 "layer2/layer2-EP04-*.json" --episode EP0
 - **segments 欄位**：`metadata.video_backend: "remix"`、`metadata.style_anchor_en`、`refmods`（含 `label`）、`pack_waivers`、`positions`、逐鏡 `visual_subject_ids`／`no_visual_reference_ids`／`pack_ids`、`reference_images: []`；編譯指紋 `compiled_prompt_sha256` 照舊（REMIX 取 `integrated_multimodal_description`，E38）。
 - **`--check`**：audit 走 remix 分支（E50–E57＋refcheck 文字比對＋站位 D06–D14）、`lint_h3_prompt(backend="remix")`（三欄沒有 summary，時長改以 authored 時間軸與切點時間戳對帳）、失敗目錄、段間連戲、逐鏡撰寫審查（E30–E40、W41–W45；E40／E41 改看 refmods 與介紹句英文名，帶原話的 `pack_waivers` 視為已處置）。
 - **backend 一致**：綁定是 remix 就產三欄；`--backend ref2va` 配 remix 綁定、或定案 remix 卻沒有 remix 綁定 → 報錯，先用同一個 backend 重跑 `h3d bind`。定案和綁定不同時照綁定編、印提示。
-- **送件**：`h3d submit`／`h3d run`（FreeVideo）看到 remix 段一律拒送；remix 送件 adapter 是 PR-R7，完成前在家機 REMIX Studio 手動送 `h3_prompt`＋`refmods`（依順序）。
+- **送件（PR-R7 已接上）**：`h3d submit --backend remix --segments segments-epXX.json --project <studio專案>`（`scripts/storyboard/submit_remix.py`）——只送 remix 段（ref2va 段拒送、反向亦然）；送件前照跑 stage-5 門禁、audit remix 分支、`lint(backend="remix")`、失敗目錄、撰寫審查、編譯指紋（E38）與能力表校驗。送件 body：`prompt=h3_prompt`、`refmods`（依順序）、`seconds=frames/24` 精確值、`aspect`、`mode`（decisions `remix_mode`，預設 pika768；抽卡 `--mode pika480 --seed N`）、`shot=segment_id`（審片室版本疊同一鏡）、`plan{title_zh, start_state, end_state}`。帳本 `videos/remix-jobs.json`；收件 `h3d collect --backend remix`（輪詢→下載→ffprobe→**記後端實際影格數**（16g）→identity）；`--reroll` 覆送、`--dry-run` 只跑檢查。令牌從 `--token-file`／`REMIX_API_TOKEN`／`REMIX_TOKEN_FILE` 讀，**永不印出**。尚未做：`h3d pack`（R8）、抽卡→定稿的自動兩段流程（R9）、verdict／失敗目錄接 identity（R10）。
 
 **審查（`audit_refs_and_segments.py`，依 backend 分支）**：backend 判定順序＝`--backend` > 段落 `metadata.video_backend` > 段落帶 `refmods` > `--project-root` 的 decisions > ref2va。
 
@@ -274,7 +274,7 @@ python scripts/h3d.py compile --layer2 "layer2/layer2-EP04-*.json" --episode EP0
 | **E56** 特效缺參考圖 | 擋 | 照用：段落用到 `B-` 特效（shot／asset_refs），FreeVideo 沒有 `reference_paths.effects`、REMIX 沒有 `kind=effect` 的包 → 擋；`pack_waivers` 不算 |
 | **E57** 有特效詞但沒有效果 id | 擋 | 照用：單鏡動作／表演／走位／描述出現 glow／beam／aura／energy／火焰／紅芒／光幕等，但沒有 `effect_ids`／`B-` id → 擋（陽光、日光、光線、lighting／highlight／glint／反光／微光等詞與 `light` 欄位排除）；可用 `effect_ids: []`＋`no_effect_reason` 單鏡宣告不是特效 |
 
-`lint_h3_prompt(..., backend="remix")` 的必填區塊改成三欄 `integrated_multimodal_description`／`overall_soundscape`／`non_diegetic_music`，其餘規則照用。refcheck（R4）與站位閘門（R6）見 §2.3.1d。REMIX 三欄輸出（R5）已接上（見上方「編譯」）。尚未做：送件 adapter（R7，含送件前自動跑 refcheck）、`h3d pack`（R8）、single480 抽卡流程（R9）、verdict／失敗目錄（R10）。
+`lint_h3_prompt(..., backend="remix")` 的必填區塊改成三欄 `integrated_multimodal_description`／`overall_soundscape`／`non_diegetic_music`，其餘規則照用。refcheck（R4）與站位閘門（R6）見 §2.3.1d。REMIX 三欄輸出（R5）與送件 adapter（R7，`h3d submit --backend remix`）已接上。尚未做：`h3d pack`（R8）、抽卡→定稿自動兩段流程（R9）、verdict／失敗目錄接 identity（R10）。
 
 ### 2.3.1d 參考包涵蓋 `h3d refcheck`（PR-R4）與站位／視線閘門 `h3d staging`（PR-R6）
 

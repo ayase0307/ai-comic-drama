@@ -78,7 +78,7 @@
         "id": {
           "type": "string",
           "minLength": 1,
-          "description": "已知：style、series_format（longform 預設／short 需使用者明確選擇）、aspect_ratio、dialogue_policy、design_engine（階段 2 設定圖生圖工具：codex／grok／manual，用 h3d imagegen --set 寫）、storyboard_engine（階段 4 構圖生圖工具：codex／qwen／manual）、acceptance_policy、edit_method、auto_approve、delivery_scope、video_backend（ref2va 預設／remix）、remix_pack_cap（1–8，只能加嚴）、style_anchor、staging_gate（warn 預設／strict）、submit_endpoint（local 預設／hosted）；角色音色用 voice:<角色id>（只能 by=user）；也可自訂"
+          "description": "已知：style、series_format（longform 預設／short 需使用者明確選擇）、aspect_ratio、dialogue_policy、design_engine（階段 2 設定圖生圖工具：codex／grok／manual，用 h3d imagegen --set 寫）、storyboard_engine（階段 4 構圖生圖工具：codex／qwen／manual）、acceptance_policy、edit_method、auto_approve、delivery_scope、video_backend（ref2va 預設／remix）、remix_pack_cap（1–8，只能加嚴）、remix_mode（pika768 預設）、style_anchor、staging_gate（warn 預設／strict）、submit_endpoint（local 預設／hosted）；角色音色用 voice:<角色id>（只能 by=user）；也可自訂"
         },
         "rule": {
           "type": "string",
@@ -225,6 +225,32 @@
             }
           },
           "description": "REMIX 每段包數上限（含場景）；只能比能力表嚴，8＝伺服器 refmods_max"
+        },
+        {
+          "if": {
+            "properties": {
+              "id": {
+                "const": "remix_mode"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "enum": [
+                  "draft",
+                  "refine",
+                  "long",
+                  "pika480",
+                  "pika768",
+                  "pika1440",
+                  "pikaff480",
+                  "pikaff768"
+                ]
+              }
+            }
+          },
+          "description": "REMIX 送件模式；沒定案＝pika768（PR-R7）"
         },
         {
           "if": {
