@@ -79,6 +79,12 @@ PROGRESSIVE_ACTION = re.compile(
     r"\b(?:starts?|begins?|continues?|resumes?|keeps?|carries|goes) \w+ing\b"
     r"|\b(?:is|are|was|were) \w+ing\b", re.IGNORECASE
 )
+# W53（11-03 噩盡島 #4）：同鏡同時出現「嘴唇張開」與「嘴唇閉合」。兩個不同人各說各話是合法的
+# （ch02 寫法：說話者張嘴、其他人 while … lips remain completely closed），所以只警告、列出兩句讓人判斷。
+LIPS_OPEN_RE = re.compile(
+    r"[^.!?]*\b(?:lips part(?:s|ing)?|parts? (?:his|her|their) lips|mouth opens?|opens? (?:his|her|their) mouth|"
+    r"lips curl|mouth curves)\b[^.!?]*", re.IGNORECASE)
+LIPS_CLOSED_RE = re.compile(r"[^.!?]*\blips remain(?:s)? (?:completely )?closed\b[^.!?]*", re.IGNORECASE)
 SHOT_SPAN = re.compile(r"\[(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)s\]")
 W32_MIN_SEC = 2.5
 
@@ -530,6 +536,14 @@ def audit_segment(prompt: str, authored_shots: Optional[Sequence[Dict[str, Any]]
                 warnings.append(f"[W52: 台詞鏡缺持續動作] {tag} 有台詞且 {_dur:g}s，Motion 沒有持續中的動作；"
                                 "說話時整個人會靜止（11-03 #31：說台詞的 3 秒幾乎不動）。"
                                 "加一個還在進行的動作：喘氣、往後縮、手臂發抖、手指敲桌。")
+
+        # W53（11-03 噩盡島 #4）：同鏡又張嘴又閉嘴——不同人各說各話合法，同一人衝突；列出兩句讓審查者判斷。
+        open_hits = LIPS_OPEN_RE.findall(shot)
+        closed_hits = LIPS_CLOSED_RE.findall(shot)
+        if open_hits and closed_hits:
+            warnings.append(f"[W53: 又張嘴又閉嘴] {tag} 同鏡出現「{open_hits[0].strip()[:60]}」與"
+                            f"「{closed_hits[0].strip()[:60]}」；兩個不同人各說各話是合法的（說話者張嘴、其他人閉嘴），"
+                            "同一個人又張又閉才是衝突——逐句確認主體。")
 
         sents = [s for s in _sentences(shot) if not _is_boilerplate(s)]
         prohib = [s for s in sents if PROHIBITIVE.search(s) and CONTROL_WORDS.search(s)]

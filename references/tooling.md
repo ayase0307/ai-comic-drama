@@ -115,6 +115,7 @@ python scripts/h3d.py deps --root . --status --strict
 - E38：`detailed_description`（REMIX 三欄：`integrated_multimodal_description`）與 `metadata.compiled_prompt_sha256` 不符＝編譯後被改寫。
 - W50（只警告，LoveUolanda 寫法、噩盡島 EP01 A/B 2 seed）：分鏡標了【動作】（`source_action`＋`action_mark`、無台詞，同 validate D5 的 `action_marks.is_action_shot`；只標 `source_action` 的【建立】【停頓】鏡不算）的鏡，Motion 沒有 `Force chain:`；在 `action_and_performance.force_chain_en` 寫施力因果鏈（§2.3.4）。編譯器加的 `Forbidden:` 句是固定句，不算 E32／E33／E35。
 - W51／W52（只警告，11-03 噩盡島 #29／#31）：≥2.5s 的鏡 Motion 沒有持續動作——【動作】鏡缺 keeps／still／all the while 是 **W51**（模型一秒演完就停）；有 `<d>` 的台詞鏡缺持續中的動作是 **W52**（說話時整個人靜止）。修法：寫成持續過程並寫切點時還在做什麼。
+- W53（只警告，11-03 噩盡島 #4）：同鏡同時出現「嘴唇張開」與「lips remain closed」。兩個不同人各說各話是合法的（說話者張嘴、其他人閉嘴），同一個人又張又閉才是衝突；列出兩句讓審查者逐句確認主體。
 - W41–W45（只警告，D40–D46，來源 Foyege、H3 0 實測）：W41 台詞鏡視線沒寫螢幕方向（和 `h3d staging` D07 共用 `staging_lint.find_gaze`：沒有視線句只由 D07 報）、W42 `subject_definitions` 寫位置或姿態、W43 寫實畫風全身／遠景寫毛孔（定版皮膚段豁免）、W44 Performance 只有情緒詞或 AU 代碼、W45 中段鏡重列全場世界站位（`left to right` 名單不算）。
 - 處置：回 Layer 2 的 `five_part_en` 逐鏡改稿再編譯。不准改檢查器門檻、不准手改 segments 過關。規範見 `references/prompt-authoring.md`。
 
@@ -123,6 +124,8 @@ python scripts/h3d.py deps --root . --status --strict
 Layer 2 每鏡新增必填欄位 `shot_intent`（audience、story_beat、pov、emotional_shift）與 `choice_why`（shot_size、lens_distance、movement、blocking、background；有對白加 line_timing），schema 見 `references/storyboard/templates/layer2-storyboard.schema.json`。`handoff_to_skeleton.py` 會放 TODO 佔位；`validate_storyboard.py` 擋：I01 缺意圖、I02 缺理由、I03 佔位／過短、I04 同段意圖重複、I05 理由抄技術值或同段三鏡同一句、I06 跨段同一句 ≥5 鏡。邏輯在 `scripts/storyboard/shot_intent.py`。提示詞端另有 E40（抹背景）、W40（無線索氣氛詞）。
 
 **景別節奏（W:R1／W:R2，只警告，11-03 噩盡島 #5）**：`validate_storyboard` 另跑 `shot_size_rhythm_warnings`——同一主體連續 ≥3 鏡同一景別級（CU/ECU 算一級）出 **W:R1**（換景別或切反應鏡）；≥6 鏡的段完全沒有 ELS/LS 出 **W:R2**（空間交代缺建立鏡）。
+
+**背景錨（W:B1，只警告，11-03 噩盡島 #5b）**：CU／MCU／ECU／OTS 鏡的 `spatial_blocking.anchor_objects` 為空出 **W:B1**——H3 可能拿角色設定圖的純灰底當背景；在 anchor_objects 寫背景看得到的東西（牆面、窗格、地平線、桌面器物），編譯器才帶得進 Light／Performance。
 
 **段級生成方式（`metadata.generation_mode`，P1-1 導演大師對照）**：`t2v／i2v／fl2v／r2v`，預設 `r2v`（參考生，唯一實測路線）。validate 驗枚舉與幀來源（i2v 要第 1 鏡 `sketch_file`、fl2v 要首尾鏡都有；t2v 掛 character_ids 出 W:G1）；**非 r2v 的 Base 三字段編譯與送件尚未實作，compile 會 fail closed**（W:G2 提醒），要走首幀／首尾幀請先改回 r2v。
 

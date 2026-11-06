@@ -318,6 +318,7 @@ def validate_storyboard_data(data: dict, original_script_dialogues: list = None,
     warnings += lint_segment_moves(shots)  # PR-14c 運鏡導演助手（warning）
     warnings += lint_director(shots)  # PR-15c 導演層 lint（warning）
     warnings += shot_size_rhythm_warnings(shots)  # P1-5 景別節奏（11-03 噩盡島 #5，warning）
+    warnings += background_anchor_warnings(shots)  # P1-7 檢查片（11-03 噩盡島 #5b，warning）
 
     # Check 1b: H3 取整後的切點可行性（與 audit_refs_and_segments E4、編譯器同一組常數 h3_spec.MIN_SHOT_SEC／
     # SHOT_SOFT_MIN_SEC，提前到階段 4 攔截）：每鏡平均 < 1.2 s 擋；1.2–2.0 s 只提醒（未在 H3 實測）。
@@ -723,6 +724,28 @@ def generation_mode_checks(meta: dict, shots: list) -> tuple:
         warnings.append(f"[W:G2 編譯路線未實作] generation_mode={mode}：Base 三字段編譯與送件尚未實作，"
                         "compile 會擋；先改回 r2v 或等 P1-1 分流落地。")
     return errors, warnings
+
+
+# P1-7 檢查片（11-03 噩盡島 #5b）：特寫／過肩鏡的背景沒寫明，H3 會把角色設定圖的純灰底當背景
+# （S01-d 兩次：seed 4401 一鏡、4402 兩鏡全灰）。anchor_objects 是結構化的背景錨欄位。
+CLOSE_SHOT_SIZES = {"CU", "ECU", "MCU", "OTS_MS", "OTS_CU"}
+
+
+def background_anchor_warnings(shots: list) -> list:
+    """特寫／過肩鏡缺 anchor_objects → W:B1（只警告）：在 spatial_blocking.anchor_objects 寫
+    背景看得到的東西（牆面、窗格、地平線、桌面器物），編譯器才帶得進 Light／Performance。"""
+    warnings: list = []
+    for shot in shots:
+        size = str(((shot.get("camera_optics") or {}).get("shot_size")) or "").strip().upper()
+        if size not in CLOSE_SHOT_SIZES:
+            continue
+        anchors = [a for a in ((shot.get("spatial_blocking") or {}).get("anchor_objects") or []) if str(a).strip()]
+        if anchors:
+            continue
+        warnings.append(
+            f"[W:B1 背景錨缺失] {shot.get('shot_id', '?')} 是 {size} 特寫／過肩鏡，spatial_blocking.anchor_objects 為空；"
+            "H3 可能拿角色設定圖的純灰底當背景（噩盡島 11-03 #5b）。寫背景看得到的東西：牆面、窗格、地平線、桌面器物。")
+    return warnings
 
 
 def check_cross_segment_slop(datas: list) -> list:

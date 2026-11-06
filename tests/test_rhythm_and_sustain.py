@@ -61,6 +61,32 @@ class ShotSizeRhythmTests(unittest.TestCase):
         self.assertEqual(vs.shot_size_rhythm_warnings(shots), [])
 
 
+class BackgroundAnchorTests(unittest.TestCase):
+    def _close(self, shot_id="A", anchors=None):
+        return {"shot_id": shot_id, "camera_optics": {"shot_size": "CU"},
+                "spatial_blocking": {"anchor_objects": anchors or []}}
+
+    def test_close_shot_without_anchors_warns(self):
+        out = vs.background_anchor_warnings([self._close()])
+        self.assertTrue(any("W:B1" in w for w in out), out)
+
+    def test_close_shot_with_anchors_is_silent(self):
+        out = vs.background_anchor_warnings([self._close(anchors=["cracked wall", "window grille"])])
+        self.assertEqual(out, [])
+
+    def test_wide_shot_is_not_checked(self):
+        out = vs.background_anchor_warnings([{"shot_id": "W", "camera_optics": {"shot_size": "LS"},
+                                              "spatial_blocking": {"anchor_objects": []}}])
+        self.assertEqual(out, [])
+
+    def test_mixed_segment_reports_only_close_shots(self):
+        shots = [self._close("A"), {"shot_id": "W", "camera_optics": {"shot_size": "MS"},
+                                    "spatial_blocking": {"anchor_objects": []}}]
+        out = vs.background_anchor_warnings(shots)
+        self.assertEqual(len(out), 1)
+        self.assertIn("A", out[0])
+
+
 # --- W51／W52：audit_segment 的持續動作警告 -----------------------------------
 
 BASE_PROMPT = (
@@ -143,6 +169,41 @@ class SustainWarningTests(unittest.TestCase):
         # is_action_shot 要求無台詞；有 <d> 的鏡不會同時觸發 W51
         res = _audit([self.dialogue_shot()])
         self.assertFalse(any("W51" in w for w in res["warnings"]), res["warnings"])
+
+
+class LipsConflictTests(unittest.TestCase):
+    """W53（11-03 #4）：同鏡又張嘴又閉嘴——列出兩句讓人判斷，不同人各說各話合法。"""
+
+    def test_open_and_closed_in_same_shot_warns(self):
+        prompt = (
+            "integrated_multimodal_description: anchor. "
+            "[Shot 1] The shot opens on a medium shot. "
+            "Camera: static medium shot. "
+            "Motion: first Friend's lips part in a smirk, then his lips remain closed as the line lands. "
+            "Performance: Friend smirks while Hero speaks. "
+            "Light: warm lamp from the left. "
+            "Sound: footsteps while Hero says (S1): <d>[Chinese] 走吧。</d>\n"
+            "\noverall_soundscape: quiet alley.\n"
+            "\nnon_diegetic_music: None."
+        )
+        res = pa.audit_segment(prompt, [], "EP01-S01-a")
+        self.assertTrue(any("W53" in w for w in res["warnings"]), res["warnings"])
+
+    def test_closed_only_is_silent(self):
+        prompt = (
+            "integrated_multimodal_description: anchor. "
+            "[Shot 1] The shot opens on a medium shot. "
+            "Camera: static medium shot. "
+            "Motion: first Hero glances back, then he nods as the camera holds. "
+            "Performance: Hero keeps his eyes forward. "
+            "Light: warm lamp from the left. "
+            "Sound: footsteps while Hero says (S1): <d>[Chinese] 走吧。</d> "
+            "while Friend's lips remain completely closed.\n"
+            "\noverall_soundscape: quiet alley.\n"
+            "\nnon_diegetic_music: None."
+        )
+        res = pa.audit_segment(prompt, [], "EP01-S01-a")
+        self.assertFalse(any("W53" in w for w in res["warnings"]), res["warnings"])
 
 
 if __name__ == "__main__":
