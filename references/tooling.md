@@ -202,19 +202,23 @@ python scripts/h3d.py decide style_anchor "<英文錨句>" --quote "<原話>" --
 
 | 欄位 | 值 | 等級 |
 |---|---|---|
-| fps | 24（175 幀＝7.29 s） | measured |
-| 秒數 → 幀 | 17n+5 **往下取**（5.5 s → 124 幀）；FreeVideo 是往上取 | measured |
-| seconds／frames | 2–10.125 s；56–243 幀（56＝≥2 s 的最小量子，推定） | docs |
+| fps | 24（probe 影片 meta 實測） | measured |
+| 秒數 → 幀 | 17n+5 **往上取**（Pika 引擎：2 s → 56 幀、15 s → 362 幀、5 s → 124 幀，2026-11-07 probe＋11-03 實測）；舊 V1.3 引擎（draft/refine/long）量到的是往下取（5.5 s → 124），現版未重測 | measured |
+| seconds／frames | 2–15 s（mode long 上限 15.125 s）；56–362 幀 | docs（秒數）＋measured（幀界） |
 | aspects | 1:1、2:3、3:2、3:4、4:3、9:16、16:9、21:9（只量過 16:9） | docs |
 | max_refmods | 8（`refmods_max`） | docs |
-| 每段包數（含場景，8GB） | ok 4（measured）／slow 5（measured：draft 726–1924 s、1 抽 57 分逾時）／fail 6（**inferred**：只有 1 抽 draft 63 分逾時沒產出；逾時是 measured、OOM 是推定，fast／single480 沒試） | 分級各自標 |
-| modes | draft／refine／detail／fast／standard／high／ultra／single480／single720；本專案只跑過 draft、fast、standard、single480、single720 | docs |
-| steps | 2–10（預設 4），只限 single480／single720 | docs |
-| continue_from | single 模式不支援 | docs |
-| requires_project | 必帶 `project`（不帶回 400 `project_required`） | measured |
+| 每段包數（含場景，16GB） | ok 4（docs：11-03 十六段 pika768 混合 2–4 包全數成功）；>4 包未探測，只警告，要擋就定 `remix_pack_cap` | docs |
+| modes | draft／refine／long（V1.3 配方）＋pika480／pika768／pika1440／pikaff480／pikaff768（Pika 家族）；技能端量過 pika 家族，draft/refine/long 沒跑過 | docs |
+| steps（pika_steps） | 4／6（抽卡預設 4、定稿預設 6），只限 pika480／pika768／pikaff480／pikaff768 | docs |
+| continue_from | overlap 22／39；pikaff480／pikaff768／pika1440 不支援；pika480／768 兩份文件矛盾，未驗證前不送 | docs |
+| requires_project | 必帶 `project`（不帶回 400 `project_required`；包不屬於目標專案回 `project_mismatch`） | measured |
 | negative_field | 沒有 negative 欄位 → 風格只能靠提示詞開頭錨句（E55） | docs |
-| first_frame | 沒有首幀輸入（v0.8 時期紀錄，V1.3 沒查） | docs |
-| ref_dedup | 同一個 `ref` 直接回舊 job | measured |
+| first_frame | generate（V1.3）沒有首幀欄位；pikaff480／768 用 `first_frame` 參數（art:／job:／pack:／upload:／本機路徑） | docs |
+| audio_refs | 角色包 `voice.<ext>` 母帶，最多 3 個、合計 ≤15 s；pika480／768／1440 可用，pikaff 無音訊槽 | docs |
+| identity | `GET /jobs/{id}/identity` 五格人臉比對：fail 先重抽、warn 逐格人工、no_face 不算過 | docs |
+| upscale | `kind:upscale` engine esrgan（約 22 s/影片秒）／tessera（約 116 s/影片秒，5 s 2× 實測 578.6 s） | docs |
+| storyboard import | `POST /projects/{p}/storyboard/import` 直接吃本技能 segments／layer2 | docs |
+| ref_dedup | 同一個 `ref` 直接回舊 job（舊引擎量測，Pika 世代未重測） | measured |
 | tag | 單圖包 `<Picture N>`、多圖包 `<Video N>`，各自從 1 編號；tag 看圖片張數不看 kind（2 張圖的道具包是 Video） | docs＋measured |
 
 `--check`／送件前：measured 違反就擋，其餘只警告。**6 包**刻意只給強烈警告（fail 證據只有一抽 draft 逾時、OOM 推定），要擋就定 `remix_pack_cap`；專案上限只會多擋、不會放行任何預設會擋的東西。`h3_spec.server_frames(seconds, provider)` 依 provider 往上／往下取；編譯器送 `frames/24` 精確值，兩邊都落在同一個量子。
@@ -248,7 +252,7 @@ python scripts/h3d.py compile --layer2 "layer2/layer2-EP04-*.json" --episode EP0
 - **標籤**：`<Picture N>`／`<Video N>` 依 refmods 的 `tag` **各自**從 1 編號、順序＝refmods 順序、場景包第一（綁定的 `label` 和順序不符、場景包不在第一、同包掛兩次都直接報錯，同 E52／E53）。介紹句**只寫是誰與外觀，不寫位置或姿態**（站位、坐站寫在各鏡五小節；W42 會對介紹句裡的位置／姿態詞提醒）。鏡內一律用英文名：五小節的 `{C-id}` 換成英文名（ref2va 是換成 `<Subject N>`）。
 - **英文名**（介紹句、refcheck、站位閘門都靠它對人）：refmods `name_en` > 計畫表 `packs.<id>.name_en` > bible `name_en` > 英文的 `display_name`／`name`；演員／生物／群演找不到英文名就報錯。**外觀錨**：refmods `description_en` > 計畫表 `description_en`（服裝變體寫在 `costumes.<W-id>.description_en`）> bible `visual_prompt_en`（含服裝）；建包時的描述和 bible 不同時，把包的描述寫進計畫表，兩邊要一致。`h3d bind` 產的 `video-bible.json` 會帶上 `name_en`／`aliases_en`。
 - **台詞與畫外音**：與 ref2va 同一套（`<d>[Chinese] …</d>`、`(Sx)`、畫外 O.S.／V.O. 官方句式＋閉唇、長句外部化、E22–E25、E43／E44）；說話者代號依第一次發聲順序 `(S1)`、`(S2)`（沒有 `<Subject k>` 可對齊）。remix 多人同框的可見台詞，同鏡其他演員另加 `while A's and B's lips remain completely closed`（ch02 寫法）。
-- **其他**：秒數→影格照 ref2va（台詞段往上取，`metadata.frames` 送 `frames/24` 精確值，家機往下取也落在同一量子），超出 REMIX 區間 56–243 幀記 compile note；`audio_references`、`en_overlay.show` 不輸出（REMIX 沒有音訊參考；可見度寫進五小節）；Combat_Impact 段不自動掛 LoRA（FreeVideo LoRA 目錄在 V1.3 未驗證）。
+- **其他**：秒數→影格照 ref2va（台詞段往上取，`metadata.frames` 送 `frames/24` 精確值，Pika 引擎往上取也落在同一量子），超出 REMIX 區間 56–362 幀記 compile note；`audio_references`、`en_overlay.show` 不輸出（REMIX 沒有音訊參考；可見度寫進五小節）；Combat_Impact 段不自動掛 LoRA（FreeVideo LoRA 目錄在 V1.3 未驗證）。
 - **segments 欄位**：`metadata.video_backend: "remix"`、`metadata.style_anchor_en`、`refmods`（含 `label`）、`pack_waivers`、`positions`、逐鏡 `visual_subject_ids`／`no_visual_reference_ids`／`pack_ids`、`reference_images: []`；編譯指紋 `compiled_prompt_sha256` 照舊（REMIX 取 `integrated_multimodal_description`，E38）。
 - **`--check`**：audit 走 remix 分支（E50–E57＋refcheck 文字比對＋站位 D06–D14）、`lint_h3_prompt(backend="remix")`（三欄沒有 summary，時長改以 authored 時間軸與切點時間戳對帳）、失敗目錄、段間連戲、逐鏡撰寫審查（E30–E40、W41–W45；E40／E41 改看 refmods 與介紹句英文名，帶原話的 `pack_waivers` 視為已處置）。
 - **backend 一致**：綁定是 remix 就產三欄；`--backend ref2va` 配 remix 綁定、或定案 remix 卻沒有 remix 綁定 → 報錯，先用同一個 backend 重跑 `h3d bind`。定案和綁定不同時照綁定編、印提示。

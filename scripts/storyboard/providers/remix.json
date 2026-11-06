@@ -1,54 +1,81 @@
 {
   "provider": "remix",
-  "label": "REMIX Studio（家機 RefMod 角色包，Singularity ref2va V1.3 int8＋4step turbo）",
-  "updated": "2026-10-27",
-  "notes": "source=measured 是《噩盡島》ch02 在 8GB RTX 4060 Ti、H3 Singularity ref2va Pruned V1.3 int8＋4step turbo 上真的量過，違反即硬擋；docs=家機 REMIX 指南或 GET /capabilities 回報，inferred=從量測推出、未直接觀察，兩者只警告。其他顯存、其他底模（含 v0.8）都沒量過。frames 的權威常數在 h3_spec.PROVIDER_FRAME_SPECS，本檔只鏡像。",
-  "measured_on": {"gpu": "RTX 4060 Ti 8GB", "model": "Singularity ref2va Pruned V1.3 int8 + 4step turbo", "project": "噩盡島 ch02 EP04"},
-  "fps": {"value": 24, "source": "measured", "note": "175 幀＝7.29s"},
-  "seconds": {"min": 2, "max": 10.125, "source": "docs"},
+  "label": "REMIX Studio（家機 REMIX v0.8＋Pika H3 Flex；RefMod 角色包）",
+  "updated": "2026-11-07",
+  "notes": "source=measured 是本機真的量過、違反即硬擋；docs=家機 REMIX 指南或 GET /capabilities 回報；inferred=從量測推出。2026-11-07 全表對齊 5070 Ti 16GB＋REMIX v0.8（Pika H3 Flex 家族）；舊 Singularity V1.3（8GB 世代）的量測已退役，歷史數據見 git 歷史與 _research/2026-11-07-director-master-vs-skill.md。frames 權威常數在 h3_spec.PROVIDER_FRAME_SPECS，本檔只鏡像。",
+  "measured_on": {
+    "gpu": "RTX 5070 Ti 16GB",
+    "model": "Pika H3 Flex（pika_h3_flex_ref2va_v1_bf16＋minimax_h3_video_vae_int8_convrot，dense attention）",
+    "project": "MJ3 衝擊幀復刻（frames-probe）＋噩盡島 MOSS 實測 1103",
+    "probes": {
+      "2s": "job 1107010240-da92 → 56 幀（2.333s）",
+      "15s": "job 1107010333-5a4b → 362 幀（15.083s）",
+      "5s": "2026-11-03 噩盡島 pika768 → 124 幀（5.167s）"
+    }
+  },
+  "fps": {"value": 24, "source": "measured", "note": "probe 影片 meta fps=24.0"},
+  "seconds": {"min": 2, "max": 15.0, "max_long": 15.125, "source": "docs",
+    "note": "GET /capabilities generate.seconds：min 2／max 15.0（mode long 上限 15.125）。超過 8 秒且 3 個角色包可能 OOM（8GB 世代的提醒，16GB 未重測）"},
   "frames": {
     "min": 56,
-    "max": 243,
+    "max": 362,
     "quantum": "17n+5",
-    "rounding": "floor",
-    "source": "docs",
-    "rounding_source": "measured",
-    "note": "伺服器往下取 17n+5（measured：5.5s → 124 幀，job 1026155645-b9e8），與 FreeVideo 往上取相反。56–243 由秒數 2–10.125（docs）換算：56 是 ≥2s 的最小量子（推定；2s 往下取會得 39 幀，是否被接受未驗證）。"
+    "rounding": "ceil",
+    "source": "measured",
+    "note": "Pika 引擎把請求秒數往上取到 17n+5（2s→56、15s→362、5s→124、4.4583s→124 四個實測點一致）。送 frames/24 精確值會原樣回到同一量子。舊 V1.3 引擎（draft/refine/long 模式）2026-10-27 量到的是往下取（5.5s→124），現版未重測——送件端一律記後端實際影格數，不靠預估（PR-R7）。"
   },
   "aspects": {
     "value": ["1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9", "21:9"],
     "source": "docs",
-    "note": "本專案只量過 16:9"
+    "note": "本技能只量過 16:9"
   },
   "max_refmods": {"value": 8, "source": "docs", "note": "GET /capabilities 的 refmods_max"},
   "practical_pack_cap_by_vram": {
-    "8GB": {
+    "16GB": {
       "ok": 4,
-      "slow": 5,
-      "fail": 6,
-      "source": "measured",
-      "ok_source": "measured",
-      "slow_source": "measured",
-      "fail_source": "inferred",
-      "slow_evidence": "draft 實測 726／1658／1924 s，另 1 抽 57 分逾時；建議先用 single480 抽卡（273／294 s）",
-      "fail_evidence": "6 包 draft 一抽（job 1027005738-caab）63 分逾時、沒有產出；逾時是 measured，「爆顯存」是推定",
-      "modes_tested": {"4": ["draft", "fast", "single480"], "5": ["draft", "fast", "single480"], "6": ["draft"]},
-      "note": "含場景包。4 包：draft 14 抽、fast 2 抽、single480 5 抽全部完成。5 包：draft 3 成功＋1 抽 57 分逾時（726／1658／1924 s），fast 460／482 s，single480 273／294 s。6 包只試過 1 抽 draft（job 1027005738-caab），63 分逾時、沒有產出；逾時是 measured，「爆顯存（OOM）」是推定，fast／single480 的 6 包沒試過，所以 fail 等級標 inferred。"
+      "source": "docs",
+      "note": "2026-11-03 噩盡島 16 段 pika768 混合（每段場景包＋角色包，2–4 包）全數成功、無 OOM；>4 包在 16GB 的上限未探測。超過 4 包只警告，要擋就定 remix_pack_cap。"
     }
   },
   "modes": {
-    "value": ["draft", "refine", "detail", "fast", "standard", "high", "ultra", "single480", "single720"],
-    "measured": ["draft", "fast", "standard", "single480", "single720"],
-    "single": ["single480", "single720"],
+    "value": ["draft", "refine", "long", "pika480", "pika768", "pika1440", "pikaff480", "pikaff768"],
+    "measured": ["pika480", "pika768", "pika1440", "pikaff480", "pikaff768"],
     "source": "docs",
-    "note": "refine／detail／high／ultra 本專案沒跑過；detail 構圖會變（docs）"
+    "note": "measured=家機文件有實測數字（pika480 5s≈48–65s、pika768 5s≈99s／15s≈324s 峰值 15.6GB、pika1440 5s≈609s／10s≈1420s 峰值 15.7GB、pikaff480 5s≈60s、pikaff768 5s≈100s）；draft/refine/long 是 V1.3 配方（draft 5s 1包≈413s），本技能端沒跑過。技能端預設路線：pika480 抽卡（4 步）→ pika768 定稿（6 步）。"
   },
-  "steps": {"min": 2, "max": 10, "default": 4, "only_modes": ["single480", "single720"], "source": "docs"},
-  "continue_from": {"value": true, "unsupported_modes": ["single480", "single720"], "source": "docs"},
-  "requires_project": {"value": true, "source": "measured", "note": "POST /packs、/jobs 不帶 project 回 400 project_required"},
-  "negative_field": {"value": false, "source": "docs", "note": "/jobs 沒有 negative 欄位；風格只能靠提示詞開頭錨句＋Style lock＋場景包（audit E55）"},
-  "first_frame": {"value": false, "source": "docs", "note": "v0.8 時期 generate.first_frame:false；換 V1.3 後沒查"},
-  "loras": {"fixed_ids": ["weapon", "melee", "motion_repair", "realism", "cinematic", "speed"], "max_total_weight": 1.8, "weight_excludes": ["speed"], "source": "docs"},
-  "ref_dedup": {"value": true, "source": "measured", "note": "同一個 ref 會直接回舊 job；每抽要重新產生 ref"},
-  "tags": {"value": {"Picture": "單圖包（場景）", "Video": "多圖包（演員 4 張、生物、2 張以上的道具）"}, "source": "docs", "note": "tag 看圖片張數不看 kind（measured：2 張圖的 prop 包 tag=Video）；兩種標籤各自從 1 編號"}
+  "steps": {"min": 4, "max": 6, "default": 6, "only_modes": ["pika480", "pika768", "pikaff480", "pikaff768"], "source": "docs",
+    "note": "pika_steps 4／6；抽卡預設 4（5s 77s、身分 0.810）、定稿預設 6（5s 95s、身分 0.832）。pika1440 不吃 pika_steps"},
+  "pika_sparse": {"value": ["off", "first", "all"], "default": "first", "source": "docs",
+    "note": "Sol-Attn 稀疏注意力；768p 預設 first（5s 99s），off 5s 199s；480p 預設 off（all 掉身分）。pika1440 只能 off"},
+  "continue_from": {"value": true, "unsupported_modes": ["pikaff480", "pikaff768", "pika1440"], "source": "docs",
+    "note": "overlap 22／39。⚠️ pika480／pika768 的接續支援兩份文件矛盾（README 說可用、capabilities mode note 說不支援）——未驗證前送件端先不對 pika 模式送 continue_from"},
+  "requires_project": {"value": true, "source": "measured",
+    "note": "POST /packs、/jobs 不帶 project 回 400 project_required；包不屬於目標專案回 400 project_mismatch（2026-11-07 probe 實測）"},
+  "negative_field": {"value": false, "source": "docs",
+    "note": "/jobs 沒有 negative 欄位；風格只能靠提示詞開頭錨句＋Style lock＋場景包（audit E55）"},
+  "first_frame": {"value": false, "source": "docs",
+    "note": "generate（V1.3）無首幀欄位；pikaff480／pikaff768 用 first_frame 參數（art:／job:／pack:／upload:／本機路徑／base64），不用角色包"},
+  "loras": {"fixed_ids": ["weapon", "melee", "motion_repair", "realism", "cinematic", "speed"],
+    "max_total_weight": 1.8, "weight_excludes": ["speed"], "source": "docs",
+    "note": "觸發詞由伺服器自動加到提示詞最前（順序 BUNNY → r34l1sm → prfight2）。pika 家族模式不支援額外 LoRA（Pika LoRA 固定掛）"},
+  "audio_refs": {"max": 3, "total_max_seconds": 15, "modes": ["pika480", "pika768", "pika1440"], "source": "docs",
+    "note": "角色包放 voice.<ext>（2–15s）母帶；省略＝自動綁到說話者；pikaff 無音訊槽"},
+  "identity": {"get": "/jobs/{id}/identity", "statuses": ["ok", "warn", "fail", "no_face"], "source": "docs",
+    "note": "五格本機人臉比對（輔助判斷）；fail 先自行重抽、warn 逐格人工確認、no_face 不算通過"},
+  "upscale": {"engines": {"esrgan": "RealESRGAN 2×，約 22 s/影片秒", "tessera": "生成式精修＋SAM3 hero mask，約 116 s/影片秒（5s 2× 實測 578.6s）"},
+    "source": "docs", "note": "kind:upscale，成品掛來源 result.hd；tessera_hero 不可關"},
+  "extend": {"overlap": [22, 39], "source": "docs", "note": "continue_from 可指向未完成工作，自動沿用 quality/aspect/refmods"},
+  "storyboard_import": {"path": "/projects/{p}/storyboard/import", "source": "docs",
+    "note": "直接吃本技能 compile 產的 segments 陣列或單一 layer2 分鏡（segment_id 需 EP01-S02-a 格式）"},
+  "plan_fields": {"title_zh": 60, "storyboard_zh": 3000, "start_state": 600, "end_state": 600, "prompt_zh": 4000,
+    "source": "docs", "note": "POST /jobs 帶 plan；title_zh 是審片室卡片標題，缺了暫用 label"},
+  "ref_dedup": {"value": true, "source": "measured", "note": "同一個 ref 會直接回舊 job；每抽要重新產生 ref（舊引擎量測，Pika 世代未重測）"},
+  "tags": {"value": {"Picture": "單圖包（場景）", "Video": "多圖包（演員 4 張、生物、2 張以上的道具）"}, "source": "docs",
+    "note": "tag 看圖片張數不看 kind；兩種標籤各自從 1 編號"},
+  "recheck": [
+    "draft/refine/long（V1.3 配方）的秒數→影格方向：舊量測是 floor，現版未重測",
+    "pika480／pika768 的 continue_from 支援：README 與 capabilities note 矛盾",
+    "16GB 的包數上限（>4 包）未探測",
+    "ref_dedup 在 Pika 世代是否仍成立"
+  ]
 }

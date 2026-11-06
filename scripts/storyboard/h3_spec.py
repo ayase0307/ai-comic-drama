@@ -45,17 +45,21 @@ SHOT_SOFT_MIN_SEC = 2.0
 
 # 伺服器端「秒數 → 影格」的取整方向依 provider 而定（PR-R1，video_backend）：
 #   - freevideo（Ref2VA，VDN-H3）：往上取到 17n+5（2026-10-19 實測 11.542s → 294 幀）。
-#   - remix（REMIX Studio＋RefMod 角色包，Singularity ref2va V1.3 int8）：往下取
-#     （measured：5.5s → 124 幀＝5.17s，三人測試 job 1026155645-b9e8）。
-#     秒數 2–10.125s 為家機指南（docs）；frames 區間 56–243 是「≥2s 的最小量子」到
-#     10.125s×24=243 換算而來（推定），2s 往下取會得 39 幀，伺服器是否接受未驗證。
+#   - remix（REMIX Studio）：**引擎分兩代，方向不同**——
+#     · 現行 Pika H3 Flex（pika480/768/1440、pikaff480/768）：**往上取**。
+#       2026-11-07 本機實測（RTX 5070 Ti，job 1107010240-da92／1107010333-5a4b）：
+#       2s → 56 幀（2.333s）、15s → 362 幀（15.083s）；另 2026-11-03 噩盡島實測 5s → 124 幀。
+#     · 舊 Singularity ref2va V1.3 int8（draft/refine/long 仍是 V1.3 配方）：往下取
+#       （2026-10-27 measured：5.5s → 124 幀，job 1026155645-b9e8；現版未重測）。
+#     PROVIDER_FRAME_SPECS 登記現行 Pika 的行為（ceil、56–362）；draft/refine/long 的方向
+#     未重測前，送件端以「記下後端實際影格數」為準（PR-R7），不靠預估。
 # 編譯器送的是 frames/24 的精確值（IEEE754 下 n/24*24 == n，對 22–362 全部量子成立），
 # 所以兩種取整方向都會落在同一個量子；取整方向只影響「手寫秒數」時的預估。
 DEFAULT_PROVIDER = "freevideo"
 PROVIDER_FRAME_SPECS: Dict[str, Dict[str, Any]] = {
     "freevideo": {"min_frames": MIN_SUPPORTED_FRAMES, "max_frames": MAX_SUPPORTED_FRAMES,
                   "server_rounding": "ceil", "source": "measured"},
-    "remix": {"min_frames": 56, "max_frames": 243, "server_rounding": "floor", "source": "measured"},
+    "remix": {"min_frames": 56, "max_frames": 362, "server_rounding": "ceil", "source": "measured"},
 }
 
 

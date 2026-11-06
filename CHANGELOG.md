@@ -7,6 +7,8 @@
 `h3d next` 會讀這份檔案：專案版本章比目前技能舊時，列出中間各版標題提醒重驗。
 
 ## [未發布]
+- 新增：REMIX 能力表對齊 5070 Ti＋REMIX v0.8（Pika H3 Flex 家族）——`providers/remix.json` 全表重寫（modes 改 draft/refine/long＋pika480/768/1440/pikaff480/768、秒數 2–15 s、包數分級改 16GB ok 4、新增 audio_refs／identity／upscale／extend／storyboard_import／plan_fields 欄位與 recheck 清單）；`h3_spec` remix 改 **56–362 幀、往上取**（2026-11-07 本機 probe 實測：2 s → 56 幀、15 s → 362 幀；舊 V1.3 引擎的 floor 量測標註退役、draft/refine/long 未重測）；`test_remix_backend` 對帳更新。
+- 修正：`test_action_shot_allocation`／`test_dual_lead_in_pacing`／`test_v118_rule_conflicts` 的子程序改 UTF-8 解碼＋`PYTHONIOENCODING=utf-8`（Windows cp950 下 stdout 解碼失敗回 None，10 個測試 ERROR）。
 - 新增：特效資產必須有參考圖（audit **E56**）——`assets.md` 的 `B-` 卡片若文字有特效／光效／VFX／effect／light form 或明寫 `類型：特效`，登錄為特效；FreeVideo 要有 `reference_paths.effects`、REMIX 要有 `kind=effect` 的包，`pack_waivers` 不能豁免。編譯器產出「copy only its shape, feather-like light streaks, colour and translucency…」與局部光源句（缺 `source_en` 出「特效缺光源位置」warning）；整片調色句（bathes the scene in red 等）出 **W56** 警告。
 - 新增：audit **E57**——單鏡動作／表演／走位／描述出現 glow／beam／aura／energy／火焰／紅芒／光幕等特效詞，卻沒有 `effect_ids` 或 `B-` 特效 id 就擋（陽光／日光／光線／lighting 與 `light` 欄位排除；可用 `effect_ids: []`＋`no_effect_reason` 單鏡宣告）。文件同步列在 E56 旁。
 - 新增：階段 6 連戲檢查——`verify_video_shot.py --continuity-pairs <out_dir>` 抽段縫與段內硬切左右影格，Pillow 併排成 `pairs-N.jpg`（每張最多 8 對）並產出 `continuity-checklist.md`（location／prop／screen side／costume／light／effect 六列＋每對 dE76）；`continuity_lint` 新增 **C5**，同場相鄰段終態與下一段連戲錨點 key 不同且沒有 `continuity_changes`／`state_change` 標記時出 warning。

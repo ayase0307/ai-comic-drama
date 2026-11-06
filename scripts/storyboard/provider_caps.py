@@ -220,7 +220,7 @@ def consistency_warnings(caps: Dict[str, Any]) -> List[str]:
     """能力表必須與 `h3_spec` 的權威常數一致；不一致就是設定漂移。
 
     依 caps["provider"] 對照 h3_spec.PROVIDER_FRAME_SPECS（freevideo 124–362 往上取、
-    remix 56–243 往下取）；能力表有寫 frames.rounding 時也要一致。
+    remix 56–362 往上取，Pika H3 Flex；舊 V1.3 引擎為往下取、未重測）；能力表有寫 frames.rounding 時也要一致。
     """
     try:
         import h3_spec

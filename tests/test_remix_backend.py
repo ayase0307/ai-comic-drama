@@ -73,9 +73,9 @@ class RemixCapsTests(unittest.TestCase):
 
     def test_remix_caps_load_and_match_h3_spec(self):
         self.assertEqual(provider_caps.consistency_warnings(self.caps), [])
-        self.assertIn("往下取", provider_caps.describe(self.caps))
+        self.assertNotIn("往下取", provider_caps.describe(self.caps))
         self.assertEqual(self.caps["fps"]["source"], "measured")
-        self.assertEqual(self.caps["frames"]["rounding"], "floor")
+        self.assertEqual(self.caps["frames"]["rounding"], "ceil")
         self.assertEqual(self.caps["requires_project"], {"value": True, "source": "measured",
                                                          "note": self.caps["requires_project"]["note"]})
 
@@ -86,24 +86,25 @@ class RemixCapsTests(unittest.TestCase):
 
     def test_rounding_drift_is_detected(self):
         caps = json.loads(json.dumps(self.caps))
-        caps["frames"]["rounding"] = "ceil"
+        caps["frames"]["rounding"] = "floor"
         self.assertTrue(any("rounding" in p for p in provider_caps.consistency_warnings(caps)))
 
-    def test_pack_tiers_on_8gb(self):
+    def test_pack_tiers_on_16gb(self):
         for count in (1, 3, 4):
             verdict = provider_caps.validate_segment({}, self.caps, refmod_count=count)
             self.assertEqual(verdict, {"errors": [], "warnings": []}, count)
         five = provider_caps.validate_segment({}, self.caps, refmod_count=5)
+        # 16GB 只量到 4 包全數成功（docs）；>4 包只警告，沒有量到的失敗級不硬擋
         self.assertFalse(five["errors"])
         self.assertTrue(any("慢" in w for w in five["warnings"]))
         six = provider_caps.validate_segment({}, self.caps, refmod_count=6)
-        # 6 包只有一抽 draft 逾時，OOM 為推定 → 強烈警告而非硬擋
         self.assertFalse(six["errors"])
-        self.assertTrue(any("失敗級" in w and "inferred" in w and "推定" in w for w in six["warnings"]))
+        self.assertTrue(any("慢" in w for w in six["warnings"]))
 
     def test_fail_tier_blocks_once_it_is_measured(self):
         caps = json.loads(json.dumps(self.caps))
-        caps["practical_pack_cap_by_vram"]["8GB"]["fail_source"] = "measured"
+        caps["practical_pack_cap_by_vram"]["16GB"]["fail"] = 6
+        caps["practical_pack_cap_by_vram"]["16GB"]["fail_source"] = "measured"
         verdict = provider_caps.validate_segment({}, caps, refmod_count=6)
         self.assertTrue(verdict["errors"])
 
@@ -133,11 +134,11 @@ class RemixCapsTests(unittest.TestCase):
         refine = provider_caps.validate_segment({}, self.caps, mode="refine")
         self.assertFalse(refine["errors"])
         self.assertTrue(any("沒跑過" in w for w in refine["warnings"]))
-        self.assertEqual(provider_caps.validate_segment({}, self.caps, mode="single480", steps=4),
+        self.assertEqual(provider_caps.validate_segment({}, self.caps, mode="pika480", steps=4),
                          {"errors": [], "warnings": []})
         self.assertTrue(provider_caps.validate_segment({}, self.caps, mode="draft", steps=4)["warnings"])
-        self.assertTrue(provider_caps.validate_segment({}, self.caps, mode="single480", continue_from=True)["warnings"])
-        self.assertTrue(provider_caps.validate_segment({}, self.caps, seconds=11.0)["warnings"])
+        self.assertTrue(provider_caps.validate_segment({}, self.caps, mode="pikaff480", continue_from=True)["warnings"])
+        self.assertTrue(provider_caps.validate_segment({}, self.caps, seconds=16.0)["warnings"])
         self.assertTrue(provider_caps.validate_segment({}, self.caps, has_negative=True)["warnings"])
         self.assertTrue(provider_caps.validate_segment({}, self.caps, has_first_frame=True)["warnings"])
 
@@ -146,15 +147,18 @@ class RemixCapsTests(unittest.TestCase):
 
 
 class QuantumRoundingTests(unittest.TestCase):
-    def test_remix_floors_and_freevideo_ceils(self):
-        self.assertEqual(h3_spec.server_rounding("remix"), "floor")
+    def test_remix_pika_ceils_and_freevideo_ceils(self):
+        self.assertEqual(h3_spec.server_rounding("remix"), "ceil")
         self.assertEqual(h3_spec.server_rounding("freevideo"), "ceil")
         self.assertEqual(h3_spec.server_rounding(), "ceil")
-        # measured：REMIX 5.5s → 124 幀；FreeVideo 11.542s → 294 幀（2026-10-19 事故）
-        self.assertEqual(h3_spec.server_frames(5.5, "remix"), 124)
-        self.assertEqual(h3_spec.server_frames(5.5, "freevideo"), 141)
+        # measured（2026-11-07 probe，Pika H3 Flex）：2s → 56 幀、15s → 362 幀；
+        # 2026-11-03 噩盡島 pika768：5s → 124 幀。FreeVideo 11.542s → 294 幀（2026-10-19 事故）不變。
+        self.assertEqual(h3_spec.server_frames(2.0, "remix"), 56)
+        self.assertEqual(h3_spec.server_frames(5.0, "remix"), 124)
+        self.assertEqual(h3_spec.server_frames(15.0, "remix"), 362)
         self.assertEqual(h3_spec.server_frames(11.542, "freevideo"), 294)
-        self.assertEqual(h3_spec.server_frames(11.542, "remix"), 277)
+        # 舊 V1.3 引擎（draft/refine/long）量到的是 floor（5.5s → 124）；現版未重測，
+        # 送件端以「記後端實際影格數」為準（PR-R7），這裡只鎖 Pika 的行為。
 
     def test_exact_wire_seconds_round_trip_for_both_providers(self):
         for provider in ("remix", "freevideo"):
@@ -164,11 +168,12 @@ class QuantumRoundingTests(unittest.TestCase):
 
     def test_remix_frame_bounds(self):
         self.assertTrue(h3_spec.in_supported_range(243, "remix"))
-        self.assertFalse(h3_spec.in_supported_range(260, "remix"))
+        self.assertTrue(h3_spec.in_supported_range(362, "remix"))
+        self.assertFalse(h3_spec.in_supported_range(380, "remix"))
         self.assertTrue(h3_spec.in_supported_range(56, "remix"))
         self.assertFalse(h3_spec.in_supported_range(39, "remix"))
         self.assertTrue(h3_spec.in_supported_range(362))  # 預設 freevideo 不變
-        self.assertEqual(h3_spec.provider_spec("remix")["max_frames"], math.floor(10.125 * 24))
+        self.assertEqual(h3_spec.provider_spec("remix")["max_frames"], 362)
 
     def test_unknown_provider_raises(self):
         with self.assertRaises(ValueError):
@@ -509,7 +514,8 @@ class RemixAuditTests(unittest.TestCase):
         seg["h3_prompt"] = REMIX_PROMPT.replace("standing on the right.", "standing on the right." + lines)
         res = audit.audit_refs_and_subjects(seg)
         self.assertEqual(res["errors"], [])
-        self.assertTrue(any(w.startswith("[E54") and "推定" in w for w in res["warnings"]))
+        # 16GB 只量到 4 包（docs）：6 包是「可行但慢」警告，沒有量到的失敗級不硬擋
+        self.assertTrue(any(w.startswith("[E54") and "慢" in w and "docs" in w for w in res["warnings"]))
         (ROOT / "tmp").mkdir(exist_ok=True)
         with tempfile.TemporaryDirectory(dir=ROOT / "tmp") as td:
             decisions.decide(Path(td), "remix_pack_cap", "5", "最多五包")
