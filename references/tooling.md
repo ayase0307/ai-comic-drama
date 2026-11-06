@@ -235,7 +235,7 @@ python scripts/h3d.py decide style_anchor "<英文錨句>" --quote "<原話>" --
 
 - 產出 `video-bindings.json`：頂層 `video_backend: "remix"`＋`packs`；段層 `refmods`（順序＝標籤順序：**場景第一**、演員、最後生物／道具／群眾，每項帶 `pack`／`tag`／`kind`／`label`／`costume_id`／`variant_of`…）、`pack_waivers`（必附使用者原話）、`positions`（`[{id, order_lr, axis_side, facing}]`，手寫保留，給 R6 站位閘門）；逐鏡只有 `visual_subject_ids`／`no_visual_reference_ids`／`pack_ids`。
 - **不產生** `face_subject_ids`／`identity_anchor_ids`／`reference_view`／`panel_label_en`；舊綁定或計畫表寫了只警告「remix 不使用」，重產時拿掉。
-- 在場角色／生物／群眾、場景、`asset_refs.props` 沒有包也沒有豁免 → 列出缺口（換服裝＝換包，沒登記變體不退回預設包；**預設包本身穿的就是這套服裝**時在 `packs.<id>` 寫 `"default_costume": "W-x-01"`（或陣列 `default_costumes`），該服裝直接用預設包、不算缺口）、**不寫任何檔案**。`h3d pack build` 尚未提供（PR-R8），先在家機建包、回讀確認後寫進計畫表。沒寫 `tag` 時依 kind 推定並警告。
+- 在場角色／生物／群眾、場景、`asset_refs.props` 沒有包也沒有豁免 → 列出缺口（換服裝＝換包，沒登記變體不退回預設包；**預設包本身穿的就是這套服裝**時在 `packs.<id>` 寫 `"default_costume": "W-x-01"`（或陣列 `default_costumes`），該服裝直接用預設包、不算缺口）、**不寫任何檔案**。建包在家機 REMIX Studio 做（`POST /packs`，約 380 s）；建完跑 `h3d pack check --root . --project <studio專案>`（PR-R8）對帳：計畫表每個包（含服裝變體）都要存在且 kind／tag 一致，缺包 exit 1。沒寫 `tag` 時依 kind 推定並警告。
 - `--backend ref2va|remix` 可覆蓋定案。
 
 **編譯（PR-R5，REMIX 三欄輸出）**：`--bindings` 是 remix 綁定（頂層或段落 `video_backend: remix`、段落帶 `refmods`）時，`compile_layer2_to_h3.py` 改產 REMIX 三欄；ref2va 綁定照舊產六段式，單臉模式、`<Subject k>`↔`<Picture k+1>` 序對只在 ref2va 執行。
@@ -274,7 +274,7 @@ python scripts/h3d.py compile --layer2 "layer2/layer2-EP04-*.json" --episode EP0
 | **E56** 特效缺參考圖 | 擋 | 照用：段落用到 `B-` 特效（shot／asset_refs），FreeVideo 沒有 `reference_paths.effects`、REMIX 沒有 `kind=effect` 的包 → 擋；`pack_waivers` 不算 |
 | **E57** 有特效詞但沒有效果 id | 擋 | 照用：單鏡動作／表演／走位／描述出現 glow／beam／aura／energy／火焰／紅芒／光幕等，但沒有 `effect_ids`／`B-` id → 擋（陽光、日光、光線、lighting／highlight／glint／反光／微光等詞與 `light` 欄位排除）；可用 `effect_ids: []`＋`no_effect_reason` 單鏡宣告不是特效 |
 
-`lint_h3_prompt(..., backend="remix")` 的必填區塊改成三欄 `integrated_multimodal_description`／`overall_soundscape`／`non_diegetic_music`，其餘規則照用。refcheck（R4）與站位閘門（R6）見 §2.3.1d。REMIX 三欄輸出（R5）與送件 adapter（R7，`h3d submit --backend remix`）已接上。尚未做：`h3d pack`（R8）、抽卡→定稿自動兩段流程（R9）、verdict／失敗目錄接 identity（R10）。
+`lint_h3_prompt(..., backend="remix")` 的必填區塊改成三欄 `integrated_multimodal_description`／`overall_soundscape`／`non_diegetic_music`，其餘規則照用。refcheck（R4）與站位閘門（R6）見 §2.3.1d。REMIX 三欄輸出（R5）、送件 adapter（R7，`h3d submit --backend remix`）、包對帳（R8，`h3d pack check`）、抽卡重送（R9，`--mode pika480 --seed`＋`--reroll-failed`）與 QA 報告（R10，`h3d collect --backend remix --report` 寫 `videos/remix-qa.json`：每段 frames_drift／identity／file，verdict 證據）已接上。建包本身仍在家機 REMIX Studio 做（`POST /packs` 生成八視角＋RefMod，約 380 s）；挑版用審片室 `POST /jobs/{id}/pick`（人工）。
 
 ### 2.3.1d 參考包涵蓋 `h3d refcheck`（PR-R4）與站位／視線閘門 `h3d staging`（PR-R6）
 

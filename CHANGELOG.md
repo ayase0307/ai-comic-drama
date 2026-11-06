@@ -7,6 +7,11 @@
 `h3d next` 會讀這份檔案：專案版本章比目前技能舊時，列出中間各版標題提醒重驗。
 
 ## [未發布]
+- 文件：`references/revision-and-retry.md` 新增 §1.1「修復回聲驗證」——為修某條檢查而改稿時，交稿前重跑原檢查、逐碼確認原碼消失且無新碼、並確認不是把警告藏掉（來源：導演大師 `_issueStillVisible` 模式，2026-11-07 併入）。
+- 維護：`docs/skill-roadmap.html` 的 roadmap-data 補 `h3d pack` 指令、submit 說明加 `--backend remix`（`test_skill_roadmap` 對帳）。
+- 新增：REMIX 包對帳（**PR-R8**）——`scripts/storyboard/remix_pack.py`＋`h3d pack check --root . --project <studio專案>`：計畫表 `assets/character-packs.json`（含服裝變體）逐包對家機 `GET /packs`，缺包／kind／tag 不一致 exit 1；`--json` 機器可讀。建包仍在家機做，本指令是「回讀確認」。
+- 新增：REMIX 抽卡重送（**PR-R9**）——`h3d submit --backend remix --reroll-failed` 只重送帳本裡 failed／timeout／unverified 的段（抽卡失敗自動重抽）；`--mode pika480 --seed N` 抽卡、`--mode pika768` 定稿照舊。
+- 新增：REMIX QA 報告（**PR-R10**）——`h3d collect --backend remix --report` 收件後寫 `videos/remix-qa.json`：每段 `frames_requested／frames_actual／frames_drift／duration_actual／identity／file`，作為階段 6 verdict 證據；identity fail 先重抽、warn 逐格人工、no_face 不算過。
 - 新增：REMIX 送件 adapter（**PR-R7**）——`scripts/storyboard/submit_remix.py`＋`h3d submit/collect/resume --backend remix`：只送 remix 段，送件前照跑 stage-5 門禁、audit remix 分支、lint(backend="remix")、失敗目錄、撰寫審查、編譯指紋（E38）與能力表校驗；`POST /jobs` 帶 `prompt=h3_prompt`／`refmods`／`seconds=frames/24`／`shot=segment_id`／`plan{title_zh,start_state,end_state}`；帳本 `videos/remix-jobs.json`，收件記**後端實際影格數**（16g）並查 identity；`--mode`（新定案 `remix_mode`，預設 pika768）／`--seed`／`--reroll`／`--dry-run`。令牌永不印出。`tests/test_submit_remix.py`（假 REMIX server 六測）。
 - 新增：REMIX 能力表對齊 5070 Ti＋REMIX v0.8（Pika H3 Flex 家族）——`providers/remix.json` 全表重寫（modes 改 draft/refine/long＋pika480/768/1440/pikaff480/768、秒數 2–15 s、包數分級改 16GB ok 4、新增 audio_refs／identity／upscale／extend／storyboard_import／plan_fields 欄位與 recheck 清單）；`h3_spec` remix 改 **56–362 幀、往上取**（2026-11-07 本機 probe 實測：2 s → 56 幀、15 s → 362 幀；舊 V1.3 引擎的 floor 量測標註退役、draft/refine/long 未重測）；`test_remix_backend` 對帳更新。
 - 修正：`test_action_shot_allocation`／`test_dual_lead_in_pacing`／`test_v118_rule_conflicts` 的子程序改 UTF-8 解碼＋`PYTHONIOENCODING=utf-8`（Windows cp950 下 stdout 解碼失敗回 None，10 個測試 ERROR）。

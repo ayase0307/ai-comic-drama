@@ -472,6 +472,12 @@ def submit_segments(args: argparse.Namespace) -> int:
         if existing and existing.get("status") in ("waiting", "running", "downloaded") and not args.reroll:
             print(f"  ⏭️ [{sid}] 帳本已有 {existing.get('status')} 的工作（job {existing.get('id')}）；--reroll 重送")
             continue
+        if (existing and existing.get("status") in ("failed", "timeout", "unverified", "download_failed")
+                and not (args.reroll or args.reroll_failed)):
+            print(f"  ⚠️ [{sid}] 帳本記錄是 {existing.get('status')}（job {existing.get('id')}）；"
+                  f"--reroll-failed 只重送失敗段、--reroll 全部重送")
+            failed += 1
+            continue
         status, resp = studio_request(args.api_url, token, "/jobs", method="POST", body=body)
         if status not in (200, 201):
             print(f"  ❌ [{sid}] POST /jobs 失敗（HTTP {status}）：{resp.get('error') or resp}", file=sys.stderr)
@@ -574,6 +580,27 @@ def collect_segments(args: argparse.Namespace) -> int:
               f"identity={entry['identity']}）")
         downloaded += 1
     print(f"📥 REMIX 收件結束: 下載 {downloaded} | 失敗 {failed}")
+    if args.report:
+        report_path = root_dir / "videos" / "remix-qa.json"
+        rows = []
+        for entry in ledger.get("jobs", []):
+            if not isinstance(entry, dict):
+                continue
+            requested = entry.get("frames_requested")
+            actual = entry.get("frames_actual")
+            rows.append({
+                "segment_id": entry.get("segment_id"), "job_id": entry.get("id"),
+                "status": entry.get("status"), "mode": entry.get("mode"),
+                "frames_requested": requested, "frames_actual": actual,
+                "frames_drift": (actual - requested) if isinstance(actual, int) and isinstance(requested, int) else None,
+                "duration_actual": entry.get("duration_actual"),
+                "identity": entry.get("identity"), "file": entry.get("file"),
+                "error": entry.get("error"),
+            })
+        report_path.write_text(json.dumps({"generated_at": datetime.now(timezone.utc).isoformat(),
+                                           "studio_project": ledger.get("studio_project"),
+                                           "segments": rows}, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"📋 QA 報告已寫 {report_path}（verdict 證據：frames_drift／identity／file）")
     return 0 if not failed else 1
 
 
@@ -608,7 +635,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--seed", type=int, default=None, help="固定 seed（抽卡對照用）")
     parser.add_argument("--segment-id", default=None, help="只送指定段（逗號分隔）")
     parser.add_argument("--reroll", action="store_true", help="帳本已有工作也重送（覆蓋舊紀錄）")
+    parser.add_argument("--reroll-failed", action="store_true",
+                        help="只重送帳本裡 failed／timeout／unverified 的段（抽卡失敗自動重抽用）")
     parser.add_argument("--collect", action="store_true", help="只收件：輪詢帳本中等待的工作、下載、identity")
+    parser.add_argument("--report", action="store_true",
+                        help="收件後寫 videos/remix-qa.json（每段 frames_drift／identity／file，verdict 證據）")
     parser.add_argument("--wait-timeout", type=int, default=DEFAULT_JOB_TIMEOUT, help="單工作輪詢上限秒數")
     parser.add_argument("--api-url", default=DEFAULT_API_URL, help="REMIX Agent API 位址")
     parser.add_argument("--token-file", default=None, help="令牌檔路徑（內容不會被印出）")

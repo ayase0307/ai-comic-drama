@@ -227,7 +227,7 @@ class CollectRemixTests(StudioTestBase):
             "jobs": [{"id": "J1", "segment_id": "EP01-S01-a", "status": "queued",
                       "frames_requested": FRAMES, "seconds": FRAMES / 24, "mode": "pika768"}],
         }, ensure_ascii=False), encoding="utf-8")
-        code = sr.main(self.base_args(["--collect"]))
+        code = sr.main(self.base_args(["--collect", "--report"]))
         self.assertEqual(code, 0)
         self.assertTrue((self.root / "videos" / "EP01-S01-a.mp4").exists())
         entry = json.loads(ledger_path.read_text(encoding="utf-8"))["jobs"][0]
@@ -235,6 +235,33 @@ class CollectRemixTests(StudioTestBase):
         self.assertEqual(entry["frames_actual"], FRAMES)
         self.assertEqual(entry["identity"], "ok")
         self.assertGreater(entry["duration_actual"], 6.0)
+        report = json.loads((self.root / "videos" / "remix-qa.json").read_text(encoding="utf-8"))
+        row = report["segments"][0]
+        self.assertEqual(row["segment_id"], "EP01-S01-a")
+        self.assertEqual(row["frames_drift"], 0)
+        self.assertEqual(row["identity"], "ok")
+
+    def test_reroll_failed_only_resubmits_failed_entries(self):
+        ledger_path = self.root / "videos" / "remix-jobs.json"
+        ledger_path.parent.mkdir(parents=True, exist_ok=True)
+        ledger_path.write_text(json.dumps({
+            "api_scope": self.api, "studio_project": "測試專案",
+            "jobs": [{"id": "J0", "segment_id": "EP01-S01-a", "status": "timeout",
+                      "frames_requested": FRAMES, "mode": "pika768"}],
+        }, ensure_ascii=False), encoding="utf-8")
+        self.write_segments([compiled_segment()])
+        with mock.patch.object(sr, "verify_stage5_gate", return_value=True):
+            # 沒有 --reroll-failed：失敗段被跳過、不送
+            code = sr.main(self.base_args())
+            self.assertEqual(code, 1)
+            posts = [r for r in _StudioHandler.requests if r["method"] == "POST" and r["path"].endswith("/jobs")]
+            self.assertEqual(posts, [])
+            # --reroll-failed：失敗段重送
+            _StudioHandler.requests.clear()
+            code = sr.main(self.base_args(["--reroll-failed"]))
+            self.assertEqual(code, 0)
+            posts = [r for r in _StudioHandler.requests if r["method"] == "POST" and r["path"].endswith("/jobs")]
+            self.assertEqual(len(posts), 1)
 
 
 if __name__ == "__main__":
