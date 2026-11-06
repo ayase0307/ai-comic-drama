@@ -63,6 +63,7 @@ PROBE_TIMEOUT = 0.8      # TCP 連線秒數（本機拒絕連線是瞬間；遠�
 HTTP_TIMEOUT = 1.5
 DEFAULT_FREEVIDEO = "http://127.0.0.1:8189"
 DEFAULT_COMFYUI = "http://127.0.0.1:8188"
+DEFAULT_REMIX = "http://127.0.0.1:8190"
 AGENT_TOOL_ENV = "AICD_AGENT_IMAGE_TOOL"
 
 #: 後端登記表。順序＝收件匣選項順序（會生圖的在前、手繪最後）。
@@ -70,6 +71,7 @@ BACKENDS: Dict[str, Dict[str, Any]] = {
     "codex": {"label": "Codex CLI 內建生圖", "short": "Codex", "stages": (2, 4), "selectable": True},
     "qwen": {"label": "Qwen-Image（經本機 FreeVideo）", "short": "Qwen-Image", "stages": (4,), "selectable": True},
     "grok": {"label": "Grok 內建 GenerateImage（Agent 工具）", "short": "Grok", "stages": (2,), "selectable": True},
+    "remix": {"label": "REMIX Studio 美術室（Qwen-Image／MOSS，P1-12）", "short": "REMIX", "stages": (2,), "selectable": True},
     "manual": {"label": "手繪／外部上傳 PNG", "short": "手繪／上傳", "stages": (2, 4), "selectable": True},
     "comfyui": {"label": "ComfyUI 端點（僅回報）", "short": "ComfyUI", "stages": (), "selectable": False},
 }
@@ -184,6 +186,23 @@ def detect_qwen(env: Mapping[str, str], probe: Callable[..., bool],
             "reason": f"FreeVideo {host}:{port} 在線、Agent API 已啟用（是否已裝 Qwen-Image 需帶 token，未檢查）"}
 
 
+def detect_remix(env: Mapping[str, str], probe: Callable[..., bool],
+                 fetch: Callable[..., Optional[Dict[str, Any]]]) -> Dict[str, Any]:
+    host, port, base = _endpoint(env.get("REMIX_API_URL", ""), DEFAULT_REMIX)
+    if not probe(host, port):
+        return {"available": False, "status": "unavailable",
+                "reason": f"REMIX Studio {host}:{port} 連不上（美術室生圖；可用 REMIX_API_URL 指到別台）"}
+    info = fetch(f"{base}/remix/agent/v1/status")
+    if info is None:
+        return {"available": None, "status": "unknown",
+                "reason": f"{host}:{port} 有服務在聽，但讀不到 REMIX status"}
+    if not info.get("ready", False):
+        return {"available": False, "status": "unavailable",
+                "reason": f"REMIX Studio {host}:{port} 在線，但 ready={info.get('ready')!r}（problem={info.get('problem')}）"}
+    return {"available": True, "status": "available",
+            "reason": f"REMIX Studio {host}:{port} ready（美術室 Qwen-Image／MOSS；令牌由 scripts/imagegen_remix.py 讀，不印出）"}
+
+
 def detect_grok(env: Mapping[str, str]) -> Dict[str, Any]:
     declared = {t.strip().lower() for t in env.get(AGENT_TOOL_ENV, "").replace("，", ",").split(",") if t.strip()}
     if "grok" in declared:
@@ -211,6 +230,7 @@ def detect(stage: Optional[int] = None, *, env: Optional[Mapping[str, str]] = No
         "codex": lambda: detect_codex(env, which),
         "qwen": lambda: detect_qwen(env, probe, fetch),
         "grok": lambda: detect_grok(env),
+        "remix": lambda: detect_remix(env, probe, fetch),
         "manual": lambda: {"available": True, "status": "available",
                            "reason": "永遠可用：使用者手繪或用其他工具出圖後上傳 PNG"},
         "comfyui": lambda: detect_comfyui(env, probe),
@@ -236,6 +256,10 @@ def command_for(backend: str, stage: int, episode: Optional[str] = None) -> Opti
                     f" && {CODEX_ASSETS} --prompts tmp/asset-prompts.json --output-dir images --model <使用者指定模型>")
         if backend == "grok":
             return f"{EXPORT} --assets-md assets.md --project-dir ."
+        if backend == "remix":
+            return (f"{EXPORT} --assets-md assets.md --project-dir . --out-json tmp/asset-prompts.json"
+                    f" && python scripts/storyboard/imagegen_remix.py --purpose character --prompt \"<tmp/asset-prompts.json 的提示詞>\""
+                    f" --out <assets.md 登記的路徑> --project <studio專案>")
     if stage == 4:
         if backend == "codex":
             return f"{CODEX_PANELS} --root .{ep} --model <使用者指定模型>"
@@ -251,6 +275,9 @@ def action_for(backend: str, stage: int) -> str:
                      "生成後親眼驗收臉和服裝。",
             "grok": "匯出 Grok 生圖清單（images/grok-manifest.json＋.md），再用 Grok 內建 GenerateImage 逐張生成到 output_path，"
                     "生成後把 status 改 done 並親眼驗收。",
+            "remix": "用 REMIX Studio 美術室逐張生成設定圖（scripts/imagegen_remix.py：--purpose character、"
+                     "--out 填 assets.md 登記的路徑；engine=qwen 預設、moss 要 --style；--project 填 studio 專案名）。"
+                     "生成後親眼驗收臉和服裝。",
             "manual": "請使用者把手繪／外部工具出的設定圖 PNG 放到 assets.md 登記的路徑（images/…），放好後再跑 h3d next。",
         }.get(backend, "")
     if stage == 4:

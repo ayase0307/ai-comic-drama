@@ -418,6 +418,7 @@ python scripts/h3d.py compile --layer2 layer2/ --bible video-bible.json --bindin
 | `codex` | 2、4 | `codex` 在 PATH（生圖腳本只從 PATH 找）；登入只看 `CODEX_HOME`（預設 `~/.codex`）`/auth.json` 有沒有憑證欄位，不跑 `codex login status` | 2：`export_asset_prompts.py … --out-json tmp/asset-prompts.json && run_codex_asset_gen.py … --model <使用者指定模型>`；4：`codex_storyboard_panels.py --root . [--episode] --model <使用者指定模型>` |
 | `qwen` | 4 | Qwen-Image 經本機 FreeVideo：`FREEVIDEO_API_URL`（預設 127.0.0.1:8189）短 timeout TCP＋不帶 token 的 `GET /freevideo/agent`（看 `enabled`，不走 proxy） | `qwen_storyboard_grid.py --layer2-dir layer2 [--episode] --generate-all --assemble-grid` |
 | `grok` | 2 | Agent 內建 GenerateImage，腳本偵測不到 → 「未知」；Agent 設 `AICD_AGENT_IMAGE_TOOL=grok` 宣告時才算可用 | `export_asset_prompts.py`（產 `images/grok-manifest.json`，再逐張用 GenerateImage） |
+| `remix` | 2 | REMIX Studio 美術室：`REMIX_API_URL`（預設 127.0.0.1:8190）TCP＋不帶 token 的 `GET /remix/agent/v1/status`（看 `ready`） | `export_asset_prompts.py … --out-json tmp/asset-prompts.json && python scripts/storyboard/imagegen_remix.py --purpose character --prompt "<提示詞>" --out <assets.md 登記的路徑> --project <studio專案>`（engine=qwen 預設、moss 要 `--style`；moss 拒 ref_image；令牌由 `--token-file`／`REMIX_API_TOKEN`／`REMIX_TOKEN_FILE` 讀，不印出） |
 | `manual` | 2、4 | 永遠可用（使用者手繪／其他工具出圖後上傳） | 停下，請使用者把 PNG 放到登記路徑（階段 4 回寫 `sketch_file`） |
 | `comfyui` | — | 只回報 `COMFYUI_URL`（預設 127.0.0.1:8188）端點狀態；repo 沒有直連生圖 adapter，不能選 | — |
 
@@ -508,6 +509,8 @@ python scripts/h3d.py compile --layer2 layer2/ --bible video-bible.json --bindin
 | `FREEVIDEO_TOKEN`／`FREEVIDEO_TOKEN_FILE` | 令牌本身／令牌檔路徑 | 依序找 `E:\FreeVideo\agent\token`、`~/.freevideo/agent/token`、`C:\FreeVideo\agent\token`（非 Windows 只看家目錄） |
 | `AICD_FFMPEG`／`AICD_FFPROBE` | ffmpeg／ffprobe 完整路徑（只設 ffmpeg 時 ffprobe 取同目錄） | PATH |
 | `COMFYUI_URL` | `h3d doctor`／`h3d imagegen --detect` 探測的 ComfyUI 位址 | `127.0.0.1:8188` |
+| `REMIX_API_URL` | `h3d imagegen --detect` 探測 REMIX 美術室、`h3d submit/collect --backend remix`、`h3d pack check`、`imagegen_remix.py` 的 API 位址 | `http://127.0.0.1:8190/remix/agent/v1` |
+| `REMIX_TOKEN_FILE` | REMIX 令牌檔的預設路徑（`--token-file`／`REMIX_API_TOKEN` 優先；令牌永不印出） | 不設＝三處都找不到就報錯 |
 | `AICD_AGENT_IMAGE_TOOL` | Agent 宣告自己有的內建生圖工具（目前認 `grok`），`h3d imagegen --detect` 才會把 Grok 標可用 | 不設＝Grok 標「未知」 |
 | `AICD_H3_UPSTREAM` | `sync_h3_reference.py` 的上游 clone | 依序 `E:\MinimaxH3\h3-video-prompting`、本 repo 同層 `../h3-video-prompting` |
 

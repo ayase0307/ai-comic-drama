@@ -144,7 +144,7 @@ class DetectTests(_Tmp):
     def test_stage_filter_and_commands(self):
         s2 = {r["id"] for r in ib.detect(2, env=self.env(), probe=lambda h, p: False)}
         s4 = {r["id"] for r in ib.detect(4, env=self.env(), probe=lambda h, p: False)}
-        self.assertEqual(s2, {"codex", "grok", "manual"})
+        self.assertEqual(s2, {"codex", "grok", "remix", "manual"})
         self.assertEqual(s4, {"codex", "qwen", "manual"})
         self.assertIn('codex_storyboard_panels.py" --root . --episode EP03 --model <使用者指定模型>',
                       ib.command_for("codex", 4, "EP03"))
