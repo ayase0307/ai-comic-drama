@@ -3326,6 +3326,17 @@ def compile_segment_h3(
                 end_text = continuity_lint.state_sentence(final_state)
                 if end_text:
                     tail += " End state: " + end_text + "."
+        # P1-7（11-03 #5b）：特寫／過肩鏡固定帶背景錨——H3 會把角色設定圖的純灰底當背景
+        # （S01-d 兩次：seed 4401 一鏡、4402 兩鏡全灰）。從場景卡帶出看得到的環境，寫明不得用設定圖底色。
+        if shot_size in ("CU", "ECU", "MCU", "OTS_MS", "OTS_CU"):
+            scene_rec = registry.locations.get(str(layer2_data.get("scene_id") or ""), {}) or {}
+            scene_desc = _clean(scene_rec.get("desc_en") or "")
+            scene_name = _ascii_name(scene_rec.get("name_en")) or _ascii_name(scene_rec.get("name")) or ""
+            if scene_desc or scene_name:
+                detail = (scene_desc[:160].rstrip() if scene_desc else scene_name)
+                tail += (f" The background behind the figures is the bound scene itself ({detail}) — "
+                         f"with its own sky, ground and props, never the plain studio backdrop of the "
+                         f"character reference sheet.")
         action = action[:1].upper() + action[1:]
         marker = ""
         if embed_cut_markers:
