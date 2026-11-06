@@ -1848,6 +1848,11 @@ def remix_intro_sentences(refmods: List[Dict[str, Any]], registry: "AssetRegistr
     return sentences, names
 
 
+# P1-8（11-03 #18）：特效光源句寫身體部位會擴散到角色身上（每段長出胸口亮點／紅眼）。
+EFFECT_LIGHT_BODY_RE = re.compile(
+    r"\b(?:chest|eye|eyes|hand|palm|face|body|arm|heart)\b|胸口|眼睛|手掌|臉上|身上|心口", re.IGNORECASE)
+
+
 def effect_reference_sentence(label: str, info: Dict[str, Any],
                               notes: Optional[List[str]] = None) -> str:
     """特效參考句：只參考形狀／色／透光；光效再加局部光源與「不改整片調色」。"""
@@ -1862,6 +1867,11 @@ def effect_reference_sentence(label: str, info: Dict[str, Any],
             if notes is not None:
                 notes.append(f"特效缺光源位置（{info.get('id') or name}）：請在 assets.md 卡片補 `光源：…` 或 `source_en`")
             source = "its own core"
+        elif EFFECT_LIGHT_BODY_RE.search(source) and notes is not None:
+            # P1-8（11-03 #18）：光源句寫身體部位會擴散——每段都長出胸口亮點／紅眼。
+            notes.append(f"特效光源句寫了身體部位「{EFFECT_LIGHT_BODY_RE.search(source).group(0)}」"
+                         f"（{info.get('id') or name}）：光源只寫特效本體的位置（如 the light curtain itself），"
+                         "角色身上的反光另寫成被照亮（rim-lights），不寫成從身體發光")
         sentence += (f" The light is emitted locally from {source}, falls off within a short radius "
                      f"and only rim-lights nearby surfaces; the overall colour grade of the scene does not change.")
     return sentence
