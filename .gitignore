@@ -16,3 +16,8 @@ config/*.local.json
 
 # graphify 索引產物（不進版控）
 graphify-out/
+
+# 本機工作區（2026-11-07 整理）：agent worktree、研究/重製稿、專案暫放
+.claude/
+_research/
+projects/
