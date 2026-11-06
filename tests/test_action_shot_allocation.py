@@ -13,6 +13,7 @@
 """
 import copy
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -394,7 +395,9 @@ class DialogueGatesExcludeActionShots(unittest.TestCase):
 def _gate(seg):
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as f:
         json.dump({"segments": [seg]}, f, ensure_ascii=False)
-    return subprocess.run([sys.executable, str(GATE), f.name], capture_output=True, text=True).stdout
+    env = dict(os.environ, PYTHONIOENCODING="utf-8")
+    return subprocess.run([sys.executable, str(GATE), f.name], capture_output=True, text=True,
+                          encoding="utf-8", errors="replace", env=env).stdout
 
 
 class PacingGateExcludesActionShots(unittest.TestCase):
