@@ -7,6 +7,7 @@
 `h3d next` 會讀這份檔案：專案版本章比目前技能舊時，列出中間各版標題提醒重驗。
 
 ## [未發布]
+- 新增：風格查表（**P1-4**，11-03 #1）——`assets/styles/styles.json`（1–11＋14 號：name／anchor／negative，逐字取自 `references/styles.md`；face_bias 欄留給有實測依據的風格）；`style_rules.load_style_table／table_anchor／table_negative`；remix 風格錨解析順序變成「段落錨 > 定案 style_anchor > 14 號固定錨 > **查表**」——任何在表內的風格都有影片錨，模型不得改寫（E55 照舊逐字比對）。`tests/test_style_table.py` 5 測（含與 styles.md 逐字對帳）。
 - 修正：前段終態帶入改寫成第 1 鏡的**開頭第一句**（**P1-9**，11-03 #30）——`carry_sentence` 改產 `At the very first frame, <who> <state> — carried over from the previous segment.`，編譯器把它插在 `[Shot 1]` 之後、鏡頭描述之前（舊寫法接在鏡頭描述後面，模型忽略、角色先站回參考圖站姿：S03-d 兩個 seed 實測）；`continuity_lint._first_shot_text` 的 strip regex 同步。相關測試改斷新句與「姿勢在第 1 鏡開頭」。
 - 新增：特效參考圖紀律（**P1-8**，11-03 #18／#19／#26／#27）——`compile` 對特效 `source_en` 寫身體部位（chest／eyes／胸口…）出 note（光源句會擴散成胸口亮點／紅眼；只寫特效本體位置，角色反光另寫被照亮）；`vfx-design-and-review.md` 新增 §7：參考圖只含特效本體（純天空／純黑底）、完整形狀不裁半、生圖模型不吃否定詞、送件前人工勾選「已去背景」「含完整形狀」。`tests/test_effect_light_discipline.py` 4 測。
 - 新增：REMIX Studio 美術室生圖後端（**P1-12**，11-03 #8）——`scripts/storyboard/imagegen_remix.py`（`POST /images` → 輪詢 → 成品落檔到 assets.md 登記的路徑；engine=qwen 預設／moss 要 --style、moss 拒 ref_image）＋`image_backends` 新增 `remix` 後端（階段 2 可選；`detect` 探 8190 `/status` ready；`command_for` 給匯出提示詞＋逐張生成指令）。`h3d imagegen --detect` 現在認得 REMIX 美術室。`tests/test_imagegen_remix.py` 6 測。

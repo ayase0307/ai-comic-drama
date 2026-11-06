@@ -1,0 +1,87 @@
+{
+  "_comment": "風格查表（P1-4，2026-11-07）：style id → 影片風格錨／負面錨，逐字來自 references/styles.md（1–11 號）與 style_rules.VIDEO_ANCHOR（14 號影片錨）。h3d decide style <id> 之後，編譯器與 audit E55 用這裡的錨逐字比對，模型不得改寫。face_bias 只有實測依據才填（目前無）。",
+  "1": {
+    "key": "3d-donghua",
+    "name": "3D 國漫（CG 質感）",
+    "anchor": "3D donghua CG character model render, visible smooth 3D mesh surfaces, glossy skin shader, cel-like shading, specular highlights on hair and silk, real-time 3D game cinematic look, clean studio gradient backdrop with soft glowing particles, soft rim lighting",
+    "negative": "flat 2D line art, sketchy, hand-painted texture, watercolor paper, blurry, distorted face, extra fingers, text watermark",
+    "source": "references/styles.md §1"
+  },
+  "2": {
+    "key": "2d-motion-comic",
+    "name": "2D 動態漫（分層少動作）",
+    "anchor": "flat 2D donghua illustration, clean vector lineart, unlit flat color fills, simple cel shadow blocks, minimal background with soft solid tones, character sheet consistency, static medium shot, single clear action, vertical 9:16 composition, graphic and readable composition, limited palette",
+    "negative": "3D render, photorealistic, volumetric light, glossy plastic, motion blur, extra limbs, warped outline",
+    "source": "references/styles.md §2"
+  },
+  "3": {
+    "key": "cel-anime",
+    "name": "日系賽璐璐 TV 動畫",
+    "anchor": "traditional anime cel-shading, 2D animation look, flat color fills with hard-edged shadows, clean vector lineart with constant line weight, sakuga-style dynamic pose, high-contrast composition, simple background with flat tone, limited animation feel, consistent character model sheet",
+    "negative": "3D render, CGI texture, Unreal Engine, ambient occlusion, subsurface scattering, volumetric light, photorealistic skin",
+    "source": "references/styles.md §3"
+  },
+  "4": {
+    "key": "cinematic-anime",
+    "name": "日系電影感",
+    "anchor": "Japanese anime background art, golden-hour backlight, detailed sky with soft clouds, subtle lens flare, cel-shaded character with soft lineart, detailed street and window background, gentle slow push-in camera feel, warm nostalgic color grade, calm atmospheric mood",
+    "negative": "oversaturated, excessive light particles, blurry background, photorealistic, 3D render, extra fingers",
+    "source": "references/styles.md §4"
+  },
+  "5": {
+    "key": "webtoon",
+    "name": "韓漫條漫",
+    "anchor": "Korean webtoon manhwa style, clean digital lineart with soft cel coloring, large glossy expressive eyes, pastel highlights, delicate thin outlines, soft gradient background with simple panel-like framing, no detailed city backdrop",
+    "negative": "3D render, photorealistic, low-poly, blurry line, mismatched hair color, extra fingers, watermark",
+    "source": "references/styles.md §5"
+  },
+  "6": {
+    "key": "ink-wash",
+    "name": "新國風水墨／工筆",
+    "anchor": "Chinese ink wash painting style, xuan paper texture, gradated sumi ink tones, generous negative space, fine gongbi line work on robes, muted ochre and sage palette, vermilion seal accent, mist-covered mountain backdrop, poised figure",
+    "negative": "photorealistic, 3D render, neon colors, heavy digital gloss, oversaturated, cluttered background",
+    "source": "references/styles.md §6"
+  },
+  "7": {
+    "key": "xianxia-painterly",
+    "name": "仙俠古風厚塗",
+    "anchor": "painterly xianxia fantasy illustration, visible thick brushwork on robes, soft cel-like skin, flowing silk ribbons, subtle glowing qi particles, misty mountain peaks and cloud sea, Chinese palace architecture, heroic low-angle composition, muted jade and vermilion palette",
+    "negative": "3D render, CGI, plastic skin, overexposed glow, cluttered pattern, distorted face, text",
+    "source": "references/styles.md §7"
+  },
+  "8": {
+    "key": "urban-semi-real",
+    "name": "都市霸總半寫實厚塗",
+    "anchor": "semi-realistic painted urban romance illustration, refined proportions, soft painterly skin shading, warm champagne rim light, modern penthouse interior, subtle lineart, restrained muted palette",
+    "negative": "photorealistic skin, photograph, plastic face, distorted hands, extra fingers, cartoon exaggeration",
+    "source": "references/styles.md §8"
+  },
+  "9": {
+    "key": "chibi",
+    "name": "Q 版二頭身喜劇",
+    "anchor": "chibi comedic donghua style, big head small body two-head-tall proportions, exaggerated expressive faces, bold flat color blocks, thick uniform outlines, simple cel shadow, bright playful palette, static punchline framing, consistent character proportions",
+    "negative": "realistic proportions, photorealistic, 3D render, detailed skin pores, blurry, extra limbs",
+    "source": "references/styles.md §9"
+  },
+  "10": {
+    "key": "american-comic",
+    "name": "美漫／硬派線稿",
+    "anchor": "American comic book style, bold black ink lineart, halftone dot shading, high-contrast hard shadows, dynamic foreshortening, flat primary color accents, dramatic action pose, graphic panel composition, gritty textured background",
+    "negative": "3D render, photorealistic, soft gradient, watercolor, blurry lines, extra fingers, unreadable text",
+    "source": "references/styles.md §10"
+  },
+  "11": {
+    "key": "cyberpunk",
+    "name": "賽博科幻平塗霓虹",
+    "anchor": "cyberpunk donghua illustration, flat neon color blocks with hard-edged shadows, cel-shaded characters, rigid mecha armor with clean panel lines, rain-slick city street with signage, high-contrast neon boundaries, low-angle hero shot, restrained palette of night blue and magenta",
+    "negative": "volumetric light, ray tracing, 3D render, photorealistic, glossy plastic, unreadable signage text, deformed mecha joints",
+    "source": "references/styles.md §11"
+  },
+  "14": {
+    "key": "xianxia-cinematic-semireal",
+    "name": "古風寫實厚塗・電影感",
+    "anchor": "semi-realistic cinematic painting exactly like <Picture 1>, realistic proportions, never cel-shaded anime, no outlines, muted jade and vermilion palette",
+    "negative": "3D render, CGI, plastic skin, overexposed glow, cluttered pattern, distorted face, text, cel shading, outlines",
+    "source": "references/styles.md §14（影片錨，H3 Ref2VA）"
+  }
+}

@@ -51,6 +51,42 @@ def normalize(value: Any) -> str:
     return str(value or "").strip().lower().lstrip("#").replace("號", "").replace("号", "")
 
 
+# P1-4（2026-11-07）：風格查表——style id → 影片風格錨／負面錨，逐字來自 references/styles.md。
+# 用途：remix E55 的風格錨解析多一層「查表」（decisions style_anchor > 段落錨 > 查表 > 14 號固定錨），
+# 模型不得改寫錨句。face_bias 欄位留給有實測依據的風格（目前無）。
+STYLE_TABLE_PATH = Path(__file__).resolve().parents[2] / "assets" / "styles" / "styles.json"
+
+
+def load_style_table() -> Dict[str, Dict[str, Any]]:
+    try:
+        data = json.loads(STYLE_TABLE_PATH.read_text(encoding="utf-8"))
+        return {k: v for k, v in data.items() if isinstance(v, dict)} if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def table_entry(style_value: Any) -> Optional[Dict[str, Any]]:
+    """style 值（index／key／名稱）→ 查表條目；查不到回 None。"""
+    table = load_style_table()
+    want = normalize(style_value)
+    if not want:
+        return None
+    for sid, entry in table.items():
+        if normalize(sid) == want or want in normalize(entry.get("key") or ""):
+            return entry
+    return None
+
+
+def table_anchor(style_value: Any) -> str:
+    entry = table_entry(style_value)
+    return str(entry.get("anchor") or "") if entry else ""
+
+
+def table_negative(style_value: Any) -> str:
+    entry = table_entry(style_value)
+    return str(entry.get("negative") or "") if entry else ""
+
+
 def is_style14(value: Any) -> bool:
     text = normalize(value)
     if not text or text.startswith("<"):  # 範本佔位字（<角色設定板風格…>）不算定案

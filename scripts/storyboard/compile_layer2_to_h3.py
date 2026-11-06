@@ -1892,6 +1892,10 @@ def remix_style_anchor(layer2_data: Dict[str, Any], registry: "AssetRegistry") -
                                              or style_rules.project_style(registry.project_root)):
         anchor = style_rules.VIDEO_ANCHOR
     if not anchor:
+        # P1-4：風格查表——任何在 assets/styles/styles.json 登記的風格，錨句逐字取表，模型不得改寫。
+        anchor = style_rules.table_anchor(meta.get("style_key") or registry.style.get("style_index")
+                                          or style_rules.project_style(registry.project_root))
+    if not anchor:
         raise ValueError(
             "remix 沒有 negative 欄位，提示詞開頭的風格錨是唯一防線（E55）；請先 "
             "`h3d decide style_anchor \"<英文錨句>\" --quote \"<使用者原話>\"`（或在 Layer 2 metadata.style_anchor_en 寫段落錨）")
