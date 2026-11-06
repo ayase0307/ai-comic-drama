@@ -346,6 +346,11 @@ def validate_storyboard_data(data: dict, original_script_dialogues: list = None,
     if pacing and pacing not in PACING_PROFILES:
         errors.append(f"[enum 錯誤] metadata.pacing_profile '{pacing}' 不在 {PACING_PROFILES}")
 
+    # P1-1：段級生成方式（t2v/i2v/fl2v/r2v，預設 r2v；導演大師對照 2026-11-07）
+    gm_errors, gm_warnings = generation_mode_checks(meta, shots)
+    errors += gm_errors
+    warnings += gm_warnings
+
     # 收集所有分鏡台詞與文本
     close_up_count = 0
 
@@ -681,6 +686,43 @@ def shot_size_rhythm_warnings(shots: list) -> list:
     if len(shots) >= 6 and not any(_shot_size_tier(s) == "WIDE" for s in shots):
         warnings.append("[W:R2 無遠景] 本段 ≥6 鏡完全沒有 ELS/LS 遠景；空間關係與環境缺一鏡交代，考慮加一鏡建立鏡。")
     return warnings
+
+
+# P1-1：段級生成方式（導演大師對照，2026-11-07）。r2v＝參考生（唯一實測路線）；
+# t2v／i2v／fl2v 的 Base 三字段編譯與送件尚未實作（compile fail closed），這裡先驗宣告與幀來源。
+GENERATION_MODES = ("t2v", "i2v", "fl2v", "r2v")
+
+
+def generation_mode_checks(meta: dict, shots: list) -> tuple:
+    """回 (errors, warnings)：
+    - 未知 mode → 錯誤；
+    - i2v 缺第 1 鏡 sketch_file、fl2v 缺首或尾鏡 sketch_file → 錯誤（幀來源缺失）；
+    - t2v 卻掛 character_ids → W:G1（要鎖角色用 r2v）；
+    - 非 r2v → W:G2（Base 三字段編譯路線尚未實作，compile 會擋）。"""
+    errors: list = []
+    warnings: list = []
+    mode = str((meta or {}).get("generation_mode") or "r2v").strip().lower()
+    if mode not in GENERATION_MODES:
+        return [f"[enum 錯誤] metadata.generation_mode '{mode}' 不在 {list(GENERATION_MODES)}"], warnings
+    if mode == "t2v":
+        if any(s.get("character_ids") for s in shots):
+            warnings.append("[W:G1 t2v 掛了角色] generation_mode=t2v（純文生）的段卻有 character_ids；"
+                            "要鎖角色請用 r2v（預設），純空鏡才用 t2v。")
+    elif mode in ("i2v", "fl2v"):
+        if not shots:
+            errors.append(f"[G2 幀來源缺失] generation_mode={mode} 需要 shots，本段 shots 為空")
+            return errors, warnings
+        first = shots[0]
+        if not str(first.get("sketch_file") or "").strip():
+            errors.append(f"[G2 幀來源缺失] generation_mode={mode} 需要第 1 鏡的 sketch_file（首幀來源）；"
+                          "先用生圖工具補構圖，或改回 r2v")
+        if mode == "fl2v" and len(shots) >= 1 and not str(shots[-1].get("sketch_file") or "").strip():
+            errors.append("[G2 幀來源缺失] generation_mode=fl2v 需要末鏡的 sketch_file（尾幀來源）；"
+                          "首尾同一鏡時至少要有那一鏡的 sketch_file")
+    if mode != "r2v":
+        warnings.append(f"[W:G2 編譯路線未實作] generation_mode={mode}：Base 三字段編譯與送件尚未實作，"
+                        "compile 會擋；先改回 r2v 或等 P1-1 分流落地。")
+    return errors, warnings
 
 
 def check_cross_segment_slop(datas: list) -> list:

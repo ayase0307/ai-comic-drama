@@ -7,6 +7,8 @@
 `h3d next` 會讀這份檔案：專案版本章比目前技能舊時，列出中間各版標題提醒重驗。
 
 ## [未發布]
+- 新增：段級生成方式 `metadata.generation_mode`（**P1-1 第一片**，導演大師對照）——`t2v／i2v／fl2v／r2v`（預設 r2v）進 schema 與 `validate_storyboard`（枚舉錯誤、i2v/fl2v 幀來源缺 sketch_file 擋、t2v 掛角色 W:G1、非 r2v 未實作 W:G2）；`compile_segment_h3` 對非 r2v **fail closed**（Base 三字段編譯與送件尚未實作，不靜默產出錯誤結構）。`tests/test_generation_mode.py` 11 測。
+- 新增：`extract_chapter.py --input` 直接吃 **.epub**（**P1-11**）——標準庫 zipfile＋html.parser：container.xml → OPF spine 順序讀 XHTML，標題轉 `## 標題` 餵章節掃描，script/style 丟棄；不再要操作員自己找 pandoc。`tests/test_epub_input.py` 4 測。
 - 新增：景別節奏與持續動作警告（11-03 噩盡島 #5／#29／#31，全部只警告）——`validate_storyboard` 新增 **W:R1**（同一主體連續 ≥3 鏡同景別級，CU/ECU 算一級）與 **W:R2**（≥6 鏡完全沒有 ELS/LS）；`prompt_authoring` 新增 **W51**（≥2.5s 的【動作】鏡 Motion 沒有持續動詞／進行式動作）與 **W52**（有 `<d>` 且 ≥2.5s 的鏡 Motion 沒有持續中的動作；keeps／still／all the while 與 starts pushing 這類進行式都算持續）。`tests/test_rhythm_and_sustain.py` 14 測。
 - 文件：`references/revision-and-retry.md` 新增 §1.1「修復回聲驗證」——為修某條檢查而改稿時，交稿前重跑原檢查、逐碼確認原碼消失且無新碼、並確認不是把警告藏掉（來源：導演大師 `_issueStillVisible` 模式，2026-11-07 併入）。
 - 維護：`docs/skill-roadmap.html` 的 roadmap-data 補 `h3d pack` 指令、submit 說明加 `--backend remix`（`test_skill_roadmap` 對帳）。

@@ -209,6 +209,16 @@
             "Fast_Dialogue"
           ]
         },
+        "generation_mode": {
+          "type": "string",
+          "enum": [
+            "t2v",
+            "i2v",
+            "fl2v",
+            "r2v"
+          ],
+          "description": "段級生成方式（P1-1，導演大師對照）：r2v＝參考生（預設、唯一實測路線）；t2v＝純文生（純空鏡）；i2v＝單張首幀驅動（第 1 鏡 sketch_file 為首幀來源）；fl2v＝首尾幀（首尾鏡 sketch_file）。t2v/i2v/fl2v 的 Base 三字段編譯與送件尚未實作，compile 會 fail closed。"
+        },
         "palette_preset": {
           "type": "string"
         },

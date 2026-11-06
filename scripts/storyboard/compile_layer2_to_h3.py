@@ -1414,6 +1414,10 @@ def _strip_dialogue_from_soundscape(foley: str, spoken_lines: List[str]) -> str:
 # 逐句 dialogue_and_audio.voice_route 只接受 "h3"（或省略）；"external" 會報錯。
 NARRATION_POLICIES = ("h3-native",)
 DEFAULT_NARRATION_POLICY = "h3-native"
+# P1-1：段級生成方式（導演大師對照）。r2v＝參考生（唯一實測路線）；t2v／i2v／fl2v 的
+# Base 三字段編譯與送件尚未實作，compile 先 fail closed（見 compile_segment_h3 開頭）。
+GENERATION_MODES = ("t2v", "i2v", "fl2v", "r2v")
+DEFAULT_GENERATION_MODE = "r2v"
 # 實測（噩盡島 EP01 S02-b／S02-d／S03-e，拼音相似度 1.00）都是 ≤15 字的短句。
 # v118 #10：路由上限改用 #116「單句建議 ≤18 字」，16–18 字仍留 H3，
 # 只在 compile_notes 提醒「超過實測範圍」；>18 字改提醒「旁白過長：請拆到多鏡」。
@@ -1930,6 +1934,16 @@ def compile_segment_h3(
         if narration_policy in ("external", "short-offscreen-h3"):
             raise ValueError(EXTERNAL_TTS_REMOVED_MESSAGE)
         raise ValueError(f"narration_policy 必須是 {'、'.join(NARRATION_POLICIES)} 之一，收到 {narration_policy!r}")
+    # P1-1（導演大師對照，2026-11-07）：段級生成方式。r2v（參考生）是本技能唯一實測過的路線；
+    # t2v／i2v／fl2v 的 Base 三字段編譯與送件（FreeVideo first/last 與 references 互斥、REMIX pikaff）
+    # 尚未實作——先收欄位並 fail closed，不靜默產出錯誤結構。
+    generation_mode = str((layer2_data.get("metadata") or {}).get("generation_mode") or "r2v").strip().lower()
+    if generation_mode not in GENERATION_MODES:
+        raise ValueError(f"metadata.generation_mode {generation_mode!r} 不在 {'、'.join(GENERATION_MODES)}")
+    if generation_mode != "r2v":
+        raise ValueError(
+            f"metadata.generation_mode={generation_mode}：Base 三字段編譯路線（t2v／i2v／fl2v）尚未實作，"
+            "本版只接受 r2v（參考生）。要走首幀／首尾幀請先把這段改回 r2v，或等編譯器分流落地（P1-1）。")
     # 舊 Layer 2 若還寫 voice_route=external（或任何非 h3 路由），在編譯前就擋下。
     _validate_voice_routes(layer2_data)
     # 正規化層（P3）：先把同義欄位與時間軸收斂，避免「合法欄位被誤報缺」

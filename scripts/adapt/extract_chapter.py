@@ -23,6 +23,9 @@ import argparse
 import io
 import json
 import os
+import posixpath
+import zipfile
+from html.parser import HTMLParser
 from pathlib import Path
 import re
 import string
@@ -43,6 +46,92 @@ if sys.platform.startswith("win"):
             _stream.reconfigure(encoding="utf-8", errors="replace")
 
 _ASCII_PUNCT = frozenset(string.punctuation)
+
+
+# ---------------------------------------------------------------------------
+# EPUB 入口（P1-11，2026-11-07）：--input 直接吃 .epub，標準庫解析，不再要操作員自己找 pandoc。
+# ---------------------------------------------------------------------------
+
+class _EPUBHTMLParser(HTMLParser):
+    """抽一個 XHTML 文件的（第一個 h1/h2/h3）標題與正文；script/style 內容丟棄。"""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.skip = 0
+        self.parts: List[str] = []
+        self.title_parts: List[str] = []
+        self._in_title = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag in ("script", "style"):
+            self.skip += 1
+        elif tag in ("h1", "h2", "h3") and not self.title_parts:
+            self._in_title = 1
+        if tag in ("p", "div", "br", "li", "h1", "h2", "h3", "h4") and not self._in_title:
+            self.parts.append("\n")
+
+    def handle_endtag(self, tag):
+        if tag in ("script", "style"):
+            self.skip = max(0, self.skip - 1)
+        elif tag in ("h1", "h2", "h3") and self._in_title:
+            self._in_title = 0
+
+    def handle_data(self, data):
+        if self.skip:
+            return
+        if self._in_title:
+            self.title_parts.append(data)
+        else:
+            self.parts.append(data)
+
+
+def _epub_html_to_text(raw: bytes) -> Tuple[str, str]:
+    parser = _EPUBHTMLParser()
+    parser.feed(raw.decode("utf-8", errors="replace"))
+    lines = [ln.strip() for ln in "".join(parser.parts).splitlines()]
+    body = "\n".join(ln for ln in lines if ln)
+    return body, "".join(parser.title_parts).strip()
+
+
+def read_epub_text(path: Path) -> str:
+    """EPUB → 純文字：container.xml → OPF spine 順序讀每個 XHTML；標題轉成 `## 標題` 餵章節掃描。"""
+    with zipfile.ZipFile(path) as zf:
+        docs: List[str] = []
+        try:
+            container = zf.read("META-INF/container.xml").decode("utf-8", errors="replace")
+            m = re.search(r'full-path="([^"]+)"', container)
+            if m:
+                opf_path = m.group(1)
+                opf = zf.read(opf_path).decode("utf-8", errors="replace")
+                base = posixpath.dirname(opf_path)
+                manifest: Dict[str, str] = {}
+                for tag in re.findall(r"<item\b[^>]*>", opf):
+                    mid = re.search(r'\bid="([^"]+)"', tag)
+                    mhref = re.search(r'\bhref="([^"]+)"', tag)
+                    if mid and mhref:
+                        manifest[mid.group(1)] = mhref.group(1)
+                for idref in re.findall(r'<itemref\b[^>]*\bidref="([^"]+)"', opf):
+                    href = manifest.get(idref)
+                    if href:
+                        docs.append(posixpath.normpath(posixpath.join(base, href)) if base else href)
+        except (KeyError, zipfile.BadZipFile):
+            pass
+        if not docs:
+            docs = sorted(n for n in zf.namelist() if n.lower().endswith((".xhtml", ".html", ".htm")))
+        out: List[str] = []
+        for name in docs:
+            if not name.lower().endswith((".xhtml", ".html", ".htm")):
+                continue
+            try:
+                body, title = _epub_html_to_text(zf.read(name))
+            except (KeyError, zipfile.BadZipFile):
+                continue
+            if title:
+                out.append(f"## {title}")
+            if body:
+                out.append(body)
+            out.append("")
+        return "\n".join(out)
 
 CN_NUM_MAP = {
     "零": 0, "〇": 0, "一": 1, "二": 2, "兩": 2, "三": 3, "四": 4,
@@ -317,7 +406,7 @@ def analyze_chapter_metrics(cleaned_lines: List[str]) -> Dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="小說大檔目錄掃描、單章抽取與 Pandoc 清洗工具")
-    parser.add_argument("--input", type=str, required=True, help="小說大檔路徑 (Markdown / txt)")
+    parser.add_argument("--input", type=str, required=True, help="小說大檔路徑 (Markdown / txt / epub)")
     parser.add_argument("--list", action="store_true", help="列出小說章節目錄結構與字數統計")
     parser.add_argument("--volume", type=str, default=None, help="指定集數/卷號 (支援 1 或 '第一集')")
     parser.add_argument("--chapter", type=str, default=None, help="指定章號 (支援 1 或 '第一章')")
@@ -331,7 +420,10 @@ def main() -> int:
         return 1
 
     try:
-        text, detected_encoding = read_novel_text(input_path)
+        if input_path.suffix.lower() == ".epub":
+            text, detected_encoding = read_epub_text(input_path), "utf-8"
+        else:
+            text, detected_encoding = read_novel_text(input_path)
         lines = text.splitlines(keepends=True)
     except Exception as exc:
         print(f"[錯誤] 讀取檔案失敗：{exc}", file=sys.stderr)

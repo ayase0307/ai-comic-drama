@@ -124,6 +124,8 @@ Layer 2 每鏡新增必填欄位 `shot_intent`（audience、story_beat、pov、e
 
 **景別節奏（W:R1／W:R2，只警告，11-03 噩盡島 #5）**：`validate_storyboard` 另跑 `shot_size_rhythm_warnings`——同一主體連續 ≥3 鏡同一景別級（CU/ECU 算一級）出 **W:R1**（換景別或切反應鏡）；≥6 鏡的段完全沒有 ELS/LS 出 **W:R2**（空間交代缺建立鏡）。
 
+**段級生成方式（`metadata.generation_mode`，P1-1 導演大師對照）**：`t2v／i2v／fl2v／r2v`，預設 `r2v`（參考生，唯一實測路線）。validate 驗枚舉與幀來源（i2v 要第 1 鏡 `sketch_file`、fl2v 要首尾鏡都有；t2v 掛 character_ids 出 W:G1）；**非 r2v 的 Base 三字段編譯與送件尚未實作，compile 會 fail closed**（W:G2 提醒），要走首幀／首尾幀請先改回 r2v。
+
 **骨架與構圖的 ID／比例**：
 - `handoff_to_skeleton.py handoff-epXX.json --out-dir layer2 [--bible adapt/bible.json]`：用聖經的 `canonical_name`／`name`／`aliases`（及 ID 本身）把 handoff 的中文名對到聖經 ID（`C-`／`S-`／`P-`）；沒給 `--bible` 時自動找 `<handoff 所在目錄>/adapt/bible.json`，`--bible none` 關閉。查不到的名稱退回雜湊 ID 並逐一警告——不補 `aliases` 的話 `h3d bind` 會判成「未在 bible.json 登記」。
   - `--force` 重建既有段時保留構圖綁定（`sketch_file`／`sketch_sha256`／`sketch_status`／`sketch_prompt`／`sketch_generation`／`sketch_qc`）：以 shot_id 對應，構圖檔目前的 sha256 仍等於 `sketch_sha256` 才保留，圖換過、檔案不見或沒記 sha256 的鏡不保留（照常重綁／重審）。專案自己的重建腳本可直接呼叫 `scripts/storyboard/sketch_bindings.py` 的 `carry_over(old, new, roots)`。
