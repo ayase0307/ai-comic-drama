@@ -7,6 +7,7 @@
 `h3d next` 會讀這份檔案：專案版本章比目前技能舊時，列出中間各版標題提醒重驗。
 
 ## [未發布]
+- 新增：景別節奏與持續動作警告（11-03 噩盡島 #5／#29／#31，全部只警告）——`validate_storyboard` 新增 **W:R1**（同一主體連續 ≥3 鏡同景別級，CU/ECU 算一級）與 **W:R2**（≥6 鏡完全沒有 ELS/LS）；`prompt_authoring` 新增 **W51**（≥2.5s 的【動作】鏡 Motion 沒有持續動詞／進行式動作）與 **W52**（有 `<d>` 且 ≥2.5s 的鏡 Motion 沒有持續中的動作；keeps／still／all the while 與 starts pushing 這類進行式都算持續）。`tests/test_rhythm_and_sustain.py` 14 測。
 - 文件：`references/revision-and-retry.md` 新增 §1.1「修復回聲驗證」——為修某條檢查而改稿時，交稿前重跑原檢查、逐碼確認原碼消失且無新碼、並確認不是把警告藏掉（來源：導演大師 `_issueStillVisible` 模式，2026-11-07 併入）。
 - 維護：`docs/skill-roadmap.html` 的 roadmap-data 補 `h3d pack` 指令、submit 說明加 `--backend remix`（`test_skill_roadmap` 對帳）。
 - 新增：REMIX 包對帳（**PR-R8**）——`scripts/storyboard/remix_pack.py`＋`h3d pack check --root . --project <studio專案>`：計畫表 `assets/character-packs.json`（含服裝變體）逐包對家機 `GET /packs`，缺包／kind／tag 不一致 exit 1；`--json` 機器可讀。建包仍在家機做，本指令是「回讀確認」。

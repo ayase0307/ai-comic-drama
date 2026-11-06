@@ -35,6 +35,8 @@ Foyege 導演法併入（PR-F2，D40–D46；來源 Foyege、H3 0 實測，所�
 LoveUolanda 寫法（噩盡島 EP01 A/B 盲評 2 seed，physical_camera.py；只警告）：
   W50 動作鏡沒寫施力因果鏈：分鏡標了【動作】（source_action＋action_mark、無台詞，action_marks.is_action_shot），Motion 卻沒有「Force chain:」；
       在 action_and_performance.force_chain_en 寫「誰的哪個部位先動 → 力量傳到哪 → 結果」。
+  W51 動作鏡沒有持續動詞：≥2.5s 的【動作】鏡 Motion 沒有 keeps／still／all the while（11-03 #29：演完就停）。
+  W52 台詞鏡缺持續動作：有 <d> 且 ≥2.5s 的鏡 Motion 沒有持續中的動作（11-03 #31：說台詞時整個人靜止）。
   編譯器加的「Forbidden: …」失敗模式句是固定句：不算套句（E33）、不算 Motion 叫人別動（E32）、不算禁止句堆疊（E35）。
 """
 from __future__ import annotations
@@ -71,6 +73,11 @@ SEQUENCE_WORDS = re.compile(
 SUSTAIN_WORDS = re.compile(
     r"\b(keeps?|keeping|still|all the while|throughout|the whole (?:shot|time)|continues?|continuing|"
     r"at the cut|when the shot (?:ends|cuts)|as the shot ends|never stops?|is still)\b", re.IGNORECASE
+)
+# W51／W52 也認的「進行式動作」：starts pushing／is backing away 這類持續過程寫法（11-03 #29／#31）。
+PROGRESSIVE_ACTION = re.compile(
+    r"\b(?:starts?|begins?|continues?|resumes?|keeps?|carries|goes) \w+ing\b"
+    r"|\b(?:is|are|was|were) \w+ing\b", re.IGNORECASE
 )
 SHOT_SPAN = re.compile(r"\[(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)s\]")
 W32_MIN_SEC = 2.5
@@ -511,6 +518,18 @@ def audit_segment(prompt: str, authored_shots: Optional[Sequence[Dict[str, Any]]
             warnings.append(f"[W50: 動作鏡沒寫施力因果鏈] {tag} 是【動作】鏡，Motion 沒有 Force chain；"
                             "在 action_and_performance.force_chain_en 寫「誰的哪個部位先動 → 力量傳到哪 → 結果」"
                             "（噩盡島 EP01 A/B：甩 1/2→2/2，2 seed，傾向有效；references/h3/prompt-formats.md）。")
+
+        # W51／W52（11-03 噩盡島 #29／#31）：≥2.5s 的鏡要有「持續中的動作」，否則模型演完就停。
+        _dur = float((a or {}).get("duration") or 0.0)
+        if motion and _dur >= 2.5 and not (SUSTAIN_WORDS.search(motion) or PROGRESSIVE_ACTION.search(motion)):
+            if a is not None and action_marks.is_action_shot(a):
+                warnings.append(f"[W51: 動作鏡沒有持續動詞] {tag} 是 {_dur:g}s 的【動作】鏡，Motion 沒有 keeps／still／"
+                                "all the while 這類持續動作；模型會一秒演完就停住（噩盡島 11-03 #29：2 秒鏡演完剩靜止）。"
+                                "寫成持續過程，並寫切點時還在做什麼。")
+            elif "<d>" in shot:
+                warnings.append(f"[W52: 台詞鏡缺持續動作] {tag} 有台詞且 {_dur:g}s，Motion 沒有持續中的動作；"
+                                "說話時整個人會靜止（11-03 #31：說台詞的 3 秒幾乎不動）。"
+                                "加一個還在進行的動作：喘氣、往後縮、手臂發抖、手指敲桌。")
 
         sents = [s for s in _sentences(shot) if not _is_boilerplate(s)]
         prohib = [s for s in sents if PROHIBITIVE.search(s) and CONTROL_WORDS.search(s)]

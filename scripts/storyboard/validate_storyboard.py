@@ -317,6 +317,7 @@ def validate_storyboard_data(data: dict, original_script_dialogues: list = None,
 
     warnings += lint_segment_moves(shots)  # PR-14c 運鏡導演助手（warning）
     warnings += lint_director(shots)  # PR-15c 導演層 lint（warning）
+    warnings += shot_size_rhythm_warnings(shots)  # P1-5 景別節奏（11-03 噩盡島 #5，warning）
 
     # Check 1b: H3 取整後的切點可行性（與 audit_refs_and_segments E4、編譯器同一組常數 h3_spec.MIN_SHOT_SEC／
     # SHOT_SOFT_MIN_SEC，提前到階段 4 攔截）：每鏡平均 < 1.2 s 擋；1.2–2.0 s 只提醒（未在 H3 實測）。
@@ -632,6 +633,54 @@ def validate_storyboard_data(data: dict, original_script_dialogues: list = None,
         "warnings": warnings,
         "checks_passed": checks_passed
     }
+
+
+# P1-5（11-03 噩盡島 #5）：景別節奏——同景別級的連續鏡與遠景比例。CU/ECU 算一級（都是臉部特寫）。
+SHOT_SIZE_TIER = {"ELS": "WIDE", "LS": "WIDE", "MLS": "MID", "MS": "MID",
+                  "MCU": "CLOSE", "CU": "CLOSE", "ECU": "CLOSE",
+                  "OTS_MS": "OTS", "OTS_CU": "OTS"}
+
+
+def _shot_size_tier(shot: dict) -> str:
+    size = str(((shot.get("camera_optics") or {}).get("shot_size")) or "").strip().upper()
+    return SHOT_SIZE_TIER.get(size, "")
+
+
+def shot_size_rhythm_warnings(shots: list) -> list:
+    """景別節奏（只警告）：
+    R1 同一主體連續 ≥3 鏡同一景別級 → 觀眾疲勞（噩盡島 11-03 #5：S02 連續四段全是洛年 CU/ECU）；
+    R2 ≥6 鏡的段完全沒有 ELS/LS → 空間與環境交代缺建立鏡。"""
+    warnings: list = []
+    runs: list = []
+    current: list = []
+    current_tier = ""
+    for shot in shots:
+        tier = _shot_size_tier(shot)
+        if not tier:
+            if len(current) >= 3:
+                runs.append(current)
+            current, current_tier = [], ""
+            continue
+        if tier == current_tier:
+            current.append(shot)
+        else:
+            if len(current) >= 3:
+                runs.append(current)
+            current, current_tier = [shot], tier
+    if len(current) >= 3:
+        runs.append(current)
+    for run in runs:
+        shared = set(run[0].get("character_ids") or [])
+        for shot in run[1:]:
+            shared &= set(shot.get("character_ids") or [])
+        who = f"（同一主體 {'、'.join(sorted(shared))}）" if shared else ""
+        ids = "、".join(str(s.get("shot_id") or "?") for s in run)
+        warnings.append(
+            f"[W:R1 景別單調] 連續 {len(run)} 鏡同景別級 {_shot_size_tier(run[0])}{who}：{ids}；"
+            "換景別或切反應鏡，避免觀眾疲勞（噩盡島 11-03 #5）。")
+    if len(shots) >= 6 and not any(_shot_size_tier(s) == "WIDE" for s in shots):
+        warnings.append("[W:R2 無遠景] 本段 ≥6 鏡完全沒有 ELS/LS 遠景；空間關係與環境缺一鏡交代，考慮加一鏡建立鏡。")
+    return warnings
 
 
 def check_cross_segment_slop(datas: list) -> list:

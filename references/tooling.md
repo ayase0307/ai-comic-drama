@@ -114,12 +114,15 @@ python scripts/h3d.py deps --root . --status --strict
 - E36／E37：違背分鏡運鏡、嘴部可見的對白被寫成畫外音。
 - E38：`detailed_description`（REMIX 三欄：`integrated_multimodal_description`）與 `metadata.compiled_prompt_sha256` 不符＝編譯後被改寫。
 - W50（只警告，LoveUolanda 寫法、噩盡島 EP01 A/B 2 seed）：分鏡標了【動作】（`source_action`＋`action_mark`、無台詞，同 validate D5 的 `action_marks.is_action_shot`；只標 `source_action` 的【建立】【停頓】鏡不算）的鏡，Motion 沒有 `Force chain:`；在 `action_and_performance.force_chain_en` 寫施力因果鏈（§2.3.4）。編譯器加的 `Forbidden:` 句是固定句，不算 E32／E33／E35。
+- W51／W52（只警告，11-03 噩盡島 #29／#31）：≥2.5s 的鏡 Motion 沒有持續動作——【動作】鏡缺 keeps／still／all the while 是 **W51**（模型一秒演完就停）；有 `<d>` 的台詞鏡缺持續中的動作是 **W52**（說話時整個人靜止）。修法：寫成持續過程並寫切點時還在做什麼。
 - W41–W45（只警告，D40–D46，來源 Foyege、H3 0 實測）：W41 台詞鏡視線沒寫螢幕方向（和 `h3d staging` D07 共用 `staging_lint.find_gaze`：沒有視線句只由 D07 報）、W42 `subject_definitions` 寫位置或姿態、W43 寫實畫風全身／遠景寫毛孔（定版皮膚段豁免）、W44 Performance 只有情緒詞或 AU 代碼、W45 中段鏡重列全場世界站位（`left to right` 名單不算）。
 - 處置：回 Layer 2 的 `five_part_en` 逐鏡改稿再編譯。不准改檢查器門檻、不准手改 segments 過關。規範見 `references/prompt-authoring.md`。
 
 ### (h) 鏡頭意圖（shot_intent／choice_why，I01–I06）
 
 Layer 2 每鏡新增必填欄位 `shot_intent`（audience、story_beat、pov、emotional_shift）與 `choice_why`（shot_size、lens_distance、movement、blocking、background；有對白加 line_timing），schema 見 `references/storyboard/templates/layer2-storyboard.schema.json`。`handoff_to_skeleton.py` 會放 TODO 佔位；`validate_storyboard.py` 擋：I01 缺意圖、I02 缺理由、I03 佔位／過短、I04 同段意圖重複、I05 理由抄技術值或同段三鏡同一句、I06 跨段同一句 ≥5 鏡。邏輯在 `scripts/storyboard/shot_intent.py`。提示詞端另有 E40（抹背景）、W40（無線索氣氛詞）。
+
+**景別節奏（W:R1／W:R2，只警告，11-03 噩盡島 #5）**：`validate_storyboard` 另跑 `shot_size_rhythm_warnings`——同一主體連續 ≥3 鏡同一景別級（CU/ECU 算一級）出 **W:R1**（換景別或切反應鏡）；≥6 鏡的段完全沒有 ELS/LS 出 **W:R2**（空間交代缺建立鏡）。
 
 **骨架與構圖的 ID／比例**：
 - `handoff_to_skeleton.py handoff-epXX.json --out-dir layer2 [--bible adapt/bible.json]`：用聖經的 `canonical_name`／`name`／`aliases`（及 ID 本身）把 handoff 的中文名對到聖經 ID（`C-`／`S-`／`P-`）；沒給 `--bible` 時自動找 `<handoff 所在目錄>/adapt/bible.json`，`--bible none` 關閉。查不到的名稱退回雜湊 ID 並逐一警告——不補 `aliases` 的話 `h3d bind` 會判成「未在 bible.json 登記」。
