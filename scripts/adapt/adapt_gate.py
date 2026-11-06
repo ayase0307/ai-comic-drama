@@ -153,6 +153,53 @@ def _plain_anchor(line_text: str, plain: str, pos: List[int], after: int) -> Opt
     return None
 
 
+# G15–G21（P1-2，2026-11-07 併入導演大師 12 條劇本檢查的缺項；全部只警告、啟發式）
+NON_HUMAN_SPEAKERS = ("儀器", "讀數", "時間", "螢幕", "系統", "字幕", "錄音", "廣播", "手機", "簡訊", "通知")
+CROWD_SPEAKERS = ("眾人", "大家", "所有人", "群眾", "兩人", "三人", "幾人", "眾人齊聲")
+CAMERA_TERMS_RE = re.compile(r"特寫|近景|中景|遠景|全景|俯拍|仰拍|淡入|淡出|切至|切到|鏡頭|運鏡|POV|畫面切|空鏡")
+THIRD_PERSON_THOUGHT_RE = re.compile(r"[他她它]心想|心中暗道|暗自想道")
+TRAILING_ACTION_RE = re.compile(r"[」』][^「」』]{1,30}$")
+
+
+def hygiene_warnings(script: Script) -> List[str]:
+    """劇本格式衛生（導演大師 12 條裡本技能沒有的五條；啟發式，只警告）：
+
+    G15 非人主體寫成對白（儀器／讀數／螢幕／系統…）→ 改 △ action；
+    G16 括號動作寫成台詞（整句（…））→ 改 action 去括號；
+    G18 引號內寫「他心想…」的第三人称敘述 → 心理留給 action，台詞只放說出口的話；
+    G19 引號後面接動作（一行疊兩件事）→ 拆行；crowd speaker（眾人／大家）→ 誰說話寫誰；
+    G21 鏡號／場記寫進正文（特寫／淡入／切至…）→ 分鏡是階段 4 的事。
+    """
+    out: List[str] = []
+    for scene in script.scenes:
+        for ln in scene.lines:
+            loc = f"L{ln.lineno}"
+            if ln.kind == "dialogue":
+                speaker = (ln.speaker or "").strip()
+                if any(term in speaker for term in NON_HUMAN_SPEAKERS):
+                    out.append(f"G15 {loc} 非人主體「{speaker}」寫成對白：改成 △ action 行（儀器聲、讀數、系統音不是說話的人）")
+                if speaker in CROWD_SPEAKERS or speaker.endswith("等人"):
+                    out.append(f"G19 {loc} 說話人寫成「{speaker}」：誰說話就寫誰；獨白禁寫眾人（多人齊聲拆成多行）")
+                body = (ln.text or "").strip()
+                if len(body) >= 2 and body.startswith("（") and body.endswith("）"):
+                    out.append(f"G16 {loc} 整句括號動作寫成台詞：{body[:24]}…；改成 △ action 行並去掉括號")
+                if THIRD_PERSON_THOUGHT_RE.search(body):
+                    out.append(f"G18 {loc} 引號內是「{THIRD_PERSON_THOUGHT_RE.search(body).group(0)}」的第三人稱心理敘述："
+                               "沒說出口的心理留在 △ action（保留「心想」），台詞只放說出口的話")
+                m = TRAILING_ACTION_RE.search(body)
+                if m and len(m.group(0).strip()) >= 2:
+                    out.append(f"G19 {loc} 引號後面接了動作（一行疊兩件事）：「…{m.group(0)[-20:]}」；動作與對白拆行")
+                if CAMERA_TERMS_RE.search(body):
+                    out.append(f"G21 {loc} 台詞裡出現鏡號／場記用語：分鏡是階段 4 的事，劇本正文不寫特寫／淡入／切至")
+            else:
+                if CAMERA_TERMS_RE.search(ln.raw):
+                    out.append(f"G21 {loc} 動作行出現鏡號／場記用語：{CAMERA_TERMS_RE.search(ln.raw).group(0)}；"
+                               "分鏡是階段 4 的事，劇本正文不寫鏡頭調度")
+    if len(out) > G14_LIST_MAX:
+        out = out[:G14_LIST_MAX] + [f"G15–G21 另有 {len(out) - G14_LIST_MAX} 處同類提醒（未逐條列出）"]
+    return out
+
+
 def action_beat_warnings(script: Script, novel_text: Optional[str]) -> List[str]:
     """G14：原著無台詞動作 beat 要標【動作】、一個標記一個主要動作（啟發式，只警告）。"""
     names = sorted({ln.speaker for s in script.scenes for ln in s.dialogue if ln.speaker})
@@ -317,6 +364,7 @@ def run_gate(script_text: str, novel_text: Optional[str] = None, quotes: Optiona
         if last and last.is_vo and HOOK_NARRATION_RE.search(last.text):
             fails.append(f"G9 L{last.lineno} 集尾加了鉤子旁白：{last.text}")
     warns += action_beat_warnings(sc, novel_text)
+    warns += hygiene_warnings(sc)
     if st["invented_lines"]:
         warns.append(f"記帳：補寫台詞 {st['invented_lines']} 行（須寫入 adaptation-diff.md）")
 
