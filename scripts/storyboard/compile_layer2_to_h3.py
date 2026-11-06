@@ -1935,7 +1935,8 @@ def compile_segment_h3(
       逐句 dialogue_and_audio.voice_route 只接受 "h3"（或省略）；舊的 "external" 會報錯。
 
     previous_end_state：同場景前一段的 segment_end_state（#133）。有英文終態時，
-    寫成本段第 1 鏡的「Starting state carried over from the previous segment」句，
+    寫成本段第 1 鏡的**開頭第一句**「At the very first frame, … — carried over from the previous segment.」
+    （P1-9，11-03 #30：放後面模型會忽略，角色先站回參考圖站姿），
     讓人物從前段終態接起，而不是回到參考圖站姿。
     no_lettering：提示詞出現校徽、計程車、斑駁牆這類燒字來源時，自動補一句
     「表面素淨、無文字無塗鴉」（#138）；metadata.allow_lettering=true 的段不加。
@@ -3307,7 +3308,9 @@ def compile_segment_h3(
         elif _show:
             head += _on_screen_sentence(_show, [(k, c, subject_picture_no[c]) for k, c in enumerate(selected, start=1)])
         if idx == 1 and carry_text:
-            head += carry_text
+            # P1-9（11-03 #30）：前段終態（姿勢）要是第 1 鏡的**第一句**，不是接在鏡頭描述後面——
+            # 放後面模型會忽略，角色先站回參考圖站姿（S03-d 兩個 seed 實測）。
+            head = head.replace("[Shot 1] ", "[Shot 1] " + carry_text.strip() + " ", 1)
         tail = " The final second holds still before the cut." if (idx == n_shots and tail_hold) else ""
         if idx == n_shots and layer2_data.get("segment_end_state"):
             end_state = layer2_data["segment_end_state"]

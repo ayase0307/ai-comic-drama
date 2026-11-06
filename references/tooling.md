@@ -365,7 +365,7 @@ python scripts/h3d.py compile --layer2 layer2/ --bible video-bible.json --bindin
 
 ### 2.3.3 段間連戲、無文字句、同場光線、同場配樂（#133 #138 #139；C4 抖音蒸餾 2026-10）
 
-- **前段終態自動帶入**：同一 `scene_id` 內依段號排序（`-a`、`-b`…`-z`、`-aa`），前一段有英文終態（`segment_end_state.planned_final_state_en` 或 binding `en_overlay.end_state_en`）時，本段第 1 鏡會加一句 `Starting state carried over from the previous segment: <who> <state>.`，人物從前段終態接起，不再回到參考圖站姿。只編部分段時，前一段從同目錄的 `layer2-*.json` 找。跨場景不帶入。關掉：`--no-carry-end-state`。前段終態只有中文 → 不寫，記 compile note。
+- **前段終態自動帶入**：同一 `scene_id` 內依段號排序（`-a`、`-b`…`-z`、`-aa`），前一段有英文終態（`segment_end_state.planned_final_state_en` 或 binding `en_overlay.end_state_en`）時，本段第 1 鏡的**開頭第一句**會是 `At the very first frame, <who> <state> — carried over from the previous segment.`（P1-9，11-03 #30：姿勢放鏡頭描述後面模型會忽略，角色先站回參考圖站姿），人物從前段終態接起，不再回到參考圖站姿。只編部分段時，前一段從同目錄的 `layer2-*.json` 找。跨場景不帶入。關掉：`--no-carry-end-state`。前段終態只有中文 → 不寫，記 compile note。
 - **終態要寫成姿勢**：例如 `{"Shen Luonian": "lies on his back at the bottom of the crater, pinned under the rock"}`；寫「結束」「同上」帶不出東西。
 - **`--check` 連戲警告**（只警告不擋，已核准的包不受影響）：
   - `C1 前段無終態`：同場景前一段沒有英文終態，本段無從接起。

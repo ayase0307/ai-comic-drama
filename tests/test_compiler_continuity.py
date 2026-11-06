@@ -47,7 +47,8 @@ class ContinuityLintUnitTests(unittest.TestCase):
 
     def test_carry_sentence_is_positive(self):
         text = continuity_lint.carry_sentence({"Shen": "lies on his back, pinned under the rock."})
-        self.assertIn("Starting state carried over from the previous segment: Shen lies on his back", text)
+        self.assertIn("At the very first frame, Shen lies on his back", text)
+        self.assertIn("carried over from the previous segment", text)
         self.assertNotRegex(text, r"\b(no|not|never)\b")
 
     def test_no_lettering_triggers(self):
@@ -75,7 +76,8 @@ class ContinuityLintUnitTests(unittest.TestCase):
 
     def test_carry_sentence_itself_does_not_count_as_first_shot_posture(self):
         a = self._seg("EP01-S02-c", "x", {"planned_final_state_en": {"Shen": "stands at the rail"}})
-        b = self._seg("EP01-S02-d", "MS. Starting state carried over from the previous segment: Shen lies flat. Shen sits up.")
+        b = self._seg("EP01-S02-d",
+                      "MS. At the very first frame, Shen lies flat — carried over from the previous segment. Shen sits up.")
         self.assertEqual(continuity_lint.lint_adjacent([a, b])["warnings"], [])
 
     def test_missing_previous_end_state_warns(self):
@@ -127,8 +129,10 @@ class CompilerContinuityTests(_Base):
         )
         prompt = compiled["h3_prompt"]
         shot1 = prompt.split("[Shot 1]")[1].split("[Shot 2]")[0]
-        self.assertIn("Starting state carried over from the previous segment: Mira sits slumped against the door.", shot1)
-        self.assertEqual(prompt.count("Starting state carried over"), 1)
+        # P1-9（11-03 #30）：姿勢要是第 1 鏡的**第一句**，不是接在鏡頭描述後面
+        self.assertTrue(shot1.strip().startswith("At the very first frame"), shot1[:120])
+        self.assertIn("At the very first frame, Mira sits slumped against the door", shot1)
+        self.assertEqual(prompt.count("At the very first frame"), 1)
         self.assertTrue(compiled["metadata"].get("carried_end_state"))
 
     def test_chinese_previous_end_state_is_not_written_and_noted(self):
@@ -136,12 +140,12 @@ class CompilerContinuityTests(_Base):
             copy.deepcopy(self.segment()), registry=self.registry, auto_lora=False,
             previous_end_state={"planned_final_state": {"米拉": "癱坐"}},
         )
-        self.assertNotIn("Starting state carried over", compiled["h3_prompt"])
+        self.assertNotIn("At the very first frame", compiled["h3_prompt"])
         self.assertTrue(any("沒有英文終態" in n for n in compiled["compile_notes"]))
 
     def test_no_previous_state_keeps_prompt_unchanged(self):
         base = self.compile()
-        self.assertNotIn("Starting state carried over", base["h3_prompt"])
+        self.assertNotIn("At the very first frame", base["h3_prompt"])
         self.assertNotIn("carried_end_state", base["metadata"])
 
     def test_no_lettering_sentence_added_only_for_trigger_words(self):
@@ -190,7 +194,7 @@ class CompilerContinuityTests(_Base):
                 status = compiler.main()
             self.assertEqual(status, 0, buf.getvalue())
             seg = json.loads(out.read_text(encoding="utf-8"))["segments"][0]
-            self.assertNotIn("Starting state carried over", seg["h3_prompt"])
+            self.assertNotIn("At the very first frame", seg["h3_prompt"])
 
 
 if __name__ == "__main__":

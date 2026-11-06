@@ -373,7 +373,8 @@ class EndStateProseTests(unittest.TestCase):
             "Luonian": "back against the stone, chin lifted",
             "red sky": "spreading overhead",
         })
-        self.assertIn("Starting state carried over from the previous segment: Luonian is back", text)
+        self.assertIn("At the very first frame, Luonian is back", text)
+        self.assertIn("carried over from the previous segment", text)
         self.assertNotIn("{", text)
         self.assertNotIn("}", text)
 

@@ -207,11 +207,17 @@ def state_sentence(state: Mapping[str, Any]) -> str:
 
 
 def carry_sentence(end_state_en: Mapping[str, str]) -> str:
-    """前段終態 → 下一段第 1 鏡的起始狀態句（正向寫法，不用禁止句、不吐 JSON）。"""
+    """前段終態 → 下一段第 1 鏡的**開頭第一句**（P1-9，11-03 #30）。
+
+    舊寫法把終態放在鏡頭描述之後（「Starting state carried over…」），模型會忽略、
+    讓角色先站回參考圖站姿再被咬（噩盡島 S03-d 兩個 seed 都這樣）。新寫法把姿勢寫成
+    第 1 鏡的第一句：「At the very first frame, {body} — carried over from the previous segment.」
+    正向寫法，不用禁止句、不吐 JSON。
+    """
     body = state_sentence(end_state_en)
     if not body:
         return ""
-    return " Starting state carried over from the previous segment: " + body + "."
+    return " At the very first frame, " + body + " — carried over from the previous segment."
 
 
 # ---------- 燒字來源（#138） ----------
@@ -238,7 +244,7 @@ def _first_shot_text(prompt: str) -> str:
         return ""
     text = m.group(1)
     # 帶入句本身會含前段終態（躺／坐），不能拿來判斷本段的起手姿勢。
-    return re.sub(r"Starting state carried over from the previous segment:[^.]*\.", "", text)
+    return re.sub(r" At the very first frame,[^.]*— carried over from the previous segment\.", "", text)
 
 
 def lint_adjacent(compiled: Sequence[Mapping[str, Any]],

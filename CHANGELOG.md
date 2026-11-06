@@ -7,6 +7,7 @@
 `h3d next` 會讀這份檔案：專案版本章比目前技能舊時，列出中間各版標題提醒重驗。
 
 ## [未發布]
+- 修正：前段終態帶入改寫成第 1 鏡的**開頭第一句**（**P1-9**，11-03 #30）——`carry_sentence` 改產 `At the very first frame, <who> <state> — carried over from the previous segment.`，編譯器把它插在 `[Shot 1]` 之後、鏡頭描述之前（舊寫法接在鏡頭描述後面，模型忽略、角色先站回參考圖站姿：S03-d 兩個 seed 實測）；`continuity_lint._first_shot_text` 的 strip regex 同步。相關測試改斷新句與「姿勢在第 1 鏡開頭」。
 - 新增：特效參考圖紀律（**P1-8**，11-03 #18／#19／#26／#27）——`compile` 對特效 `source_en` 寫身體部位（chest／eyes／胸口…）出 note（光源句會擴散成胸口亮點／紅眼；只寫特效本體位置，角色反光另寫被照亮）；`vfx-design-and-review.md` 新增 §7：參考圖只含特效本體（純天空／純黑底）、完整形狀不裁半、生圖模型不吃否定詞、送件前人工勾選「已去背景」「含完整形狀」。`tests/test_effect_light_discipline.py` 4 測。
 - 新增：REMIX Studio 美術室生圖後端（**P1-12**，11-03 #8）——`scripts/storyboard/imagegen_remix.py`（`POST /images` → 輪詢 → 成品落檔到 assets.md 登記的路徑；engine=qwen 預設／moss 要 --style、moss 拒 ref_image）＋`image_backends` 新增 `remix` 後端（階段 2 可選；`detect` 探 8190 `/status` ready；`command_for` 給匯出提示詞＋逐張生成指令）。`h3d imagegen --detect` 現在認得 REMIX 美術室。`tests/test_imagegen_remix.py` 6 測。
 - 新增：閉唇衝突與背景錨警告（11-03 噩盡島 #4／#5b，全部只警告）——`prompt_authoring` 新增 **W53**（同鏡同時出現「嘴唇張開」與「lips remain closed」：兩個不同人各說各話合法、同一人衝突，列出兩句讓審查者判斷）；`validate_storyboard` 新增 **W:B1**（CU/MCU/ECU/OTS 鏡的 `spatial_blocking.anchor_objects` 為空：H3 可能拿角色設定圖的純灰底當背景）。
