@@ -1414,8 +1414,8 @@ def _strip_dialogue_from_soundscape(foley: str, spoken_lines: List[str]) -> str:
 # 逐句 dialogue_and_audio.voice_route 只接受 "h3"（或省略）；"external" 會報錯。
 NARRATION_POLICIES = ("h3-native",)
 DEFAULT_NARRATION_POLICY = "h3-native"
-# P1-1：段級生成方式（導演大師對照）。r2v＝參考生（唯一實測路線）；t2v／i2v／fl2v 的
-# Base 三字段編譯與送件尚未實作，compile 先 fail closed（見 compile_segment_h3 開頭）。
+# P1-1：段級生成方式（導演大師對照）。r2v＝參考生（六段式）；t2v／i2v／fl2v 走
+# compile_segment_h3_base 的 Base 三字段分流（P1-1 第二片，2026-11-07）。
 GENERATION_MODES = ("t2v", "i2v", "fl2v", "r2v")
 DEFAULT_GENERATION_MODE = "r2v"
 # 實測（噩盡島 EP01 S02-b／S02-d／S03-e，拼音相似度 1.00）都是 ≤15 字的短句。
@@ -1904,99 +1904,41 @@ def remix_style_anchor(layer2_data: Dict[str, Any], registry: "AssetRegistry") -
     return anchor
 
 
-def compile_segment_h3(
+# ==============================================================================
+# P1-1 第二片：Base 三字段編譯分流（t2v／i2v／fl2v；導演大師對照 2026-11-07）
+# ==============================================================================
+
+# Base 模式不吃任何參考素材：FreeVideo 官方 generation_media schema 規定 references
+# 有內容時 first/last 必須為 null（互斥，2026-10-18 實測 422）；REMIX pikaff 只吃
+# first_frame、不用角色包。所以 Base 段一律不產生 reference_images／refmods／<Audio N>。
+BASE_GENERATION_MODES = ("t2v", "i2v", "fl2v")
+# 官方 Base 對齊指令（拆解 skills-pack/022_drama-05-shot-h3.md L99-117；秒數填真實有效時長）。
+# t2v 的 instruction 必須是空字串。fl2v 官方模板寫「Picture 2 (from Shot 1)」；多鏡段時
+# 尾幀其實來自末鏡，這裡把 Shot 編號換成真實末鏡號（單鏡段＝1，與官方模板逐字相同）。
+I2V_INSTRUCTION_EN = (
+    "For the target video, at 0.00 seconds into the target video, "
+    "<Picture 1> (from [Shot 1]) is fully referenced."
+)
+FL2V_INSTRUCTION_EN = (
+    "How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with "
+    "the 0.00-second mark of the target video; Picture 2 (from Shot {last_shot}) aligns with the "
+    "{end_sec:.2f}-second mark of the target video."
+)
+
+
+def _normalize_segment_timeline(
     layer2_data: Dict[str, Any],
-    registry: AssetRegistry,
-    max_char_refs: int = 1,
-    auto_lora: bool = True,
-    rounding_mode: str = "floor",
-    stage5_binding: Optional[Dict[str, Any]] = None,
-    narration_policy: str = DEFAULT_NARRATION_POLICY,
-    allow_normalize_warnings: bool = False,
-    embed_cut_markers: bool = False,
-    previous_end_state: Optional[Dict[str, Any]] = None,
-    no_lettering: bool = True,
-    compact_description: bool = False,
-    backend: Optional[str] = None,
-    remix_packs: Optional[Dict[str, Any]] = None,
+    metadata: Dict[str, Any],
+    target_dur: float,
+    rounding_mode: str,
 ) -> Dict[str, Any]:
-    """將單個 Layer 2 JSON 分鏡檔編譯為符合 H3 官方六段式規範的資料結構。
+    """r2v 與 Base 三字段共用的時間軸正規化（P1-1 第二片自 compile_segment_h3 抽出）。
 
-    backend="remix"（或 stage5_binding 是 remix 綁定，PR-R5）：改產 REMIX 三欄
-    （integrated_multimodal_description／overall_soundscape／non_diegetic_music），
-    角色改用綁定的 refmods（<Picture N>／<Video N>），五小節、台詞、畫外音規則與 Ref2VA 相同。
-    remix_packs：video-bindings.json 頂層 packs（計畫表），用來找英文名與建包描述。
-
-    主角參考圖：asset_refs.primary_character / metadata.primary_character 優先；
-    否則取臉戲權重（景別越近權重越高）最重的角色。旁白與畫外音永不成為主體。
-
-    narration_policy（沒有可見嘴的台詞：畫外 O.S.、旁白／內心獨白 V.O.、旁白者、謎之聲）：
-      - "h3-native"（唯一政策）：全部留給 H3，用官方句式寫逐字 <d>
-        （O.S.：the line is heard from <Subject N> (Sn) off-screen, <聲線>: <d>…</d>；
-        V.O.：<Subject N> (Sn) says in an off-screen voiceover, <聲線>: <d>…</d>），
-        並固定加一句「No one in frame speaks during this line; every visible mouth stays closed and still.」
-        聲線優先用 offscreen_voice_en／voice_4d_spec_en，沒有就用預設旁白描述。
-      逐句 dialogue_and_audio.voice_route 只接受 "h3"（或省略）；舊的 "external" 會報錯。
-
-    previous_end_state：同場景前一段的 segment_end_state（#133）。有英文終態時，
-    寫成本段第 1 鏡的**開頭第一句**「At the very first frame, … — carried over from the previous segment.」
-    （P1-9，11-03 #30：放後面模型會忽略，角色先站回參考圖站姿），
-    讓人物從前段終態接起，而不是回到參考圖站姿。
-    no_lettering：提示詞出現校徽、計程車、斑駁牆這類燒字來源時，自動補一句
-    「表面素淨、無文字無塗鴉」（#138）；metadata.allow_lettering=true 的段不加。
+    輸入未處理的 shots；回傳 dict：shots（複本、末鏡對齊 17n+5 有效時長）、eff_d、frames、
+    cuts、rounding_mode、contains_dialogue、speaker_ids、notes（tail-fit／短鏡／normalize 訊息）、
+    tail_fit_note（供 rounding_reason 使用；沒有 tail-fit 時為 None）。
     """
-    if narration_policy not in NARRATION_POLICIES:
-        if narration_policy in ("external", "short-offscreen-h3"):
-            raise ValueError(EXTERNAL_TTS_REMOVED_MESSAGE)
-        raise ValueError(f"narration_policy 必須是 {'、'.join(NARRATION_POLICIES)} 之一，收到 {narration_policy!r}")
-    # P1-1（導演大師對照，2026-11-07）：段級生成方式。r2v（參考生）是本技能唯一實測過的路線；
-    # t2v／i2v／fl2v 的 Base 三字段編譯與送件（FreeVideo first/last 與 references 互斥、REMIX pikaff）
-    # 尚未實作——先收欄位並 fail closed，不靜默產出錯誤結構。
-    generation_mode = str((layer2_data.get("metadata") or {}).get("generation_mode") or "r2v").strip().lower()
-    if generation_mode not in GENERATION_MODES:
-        raise ValueError(f"metadata.generation_mode {generation_mode!r} 不在 {'、'.join(GENERATION_MODES)}")
-    if generation_mode != "r2v":
-        raise ValueError(
-            f"metadata.generation_mode={generation_mode}：Base 三字段編譯路線（t2v／i2v／fl2v）尚未實作，"
-            "本版只接受 r2v（參考生）。要走首幀／首尾幀請先把這段改回 r2v，或等編譯器分流落地（P1-1）。")
-    # 舊 Layer 2 若還寫 voice_route=external（或任何非 h3 路由），在編譯前就擋下。
-    _validate_voice_routes(layer2_data)
-    # 正規化層（P3）：先把同義欄位與時間軸收斂，避免「合法欄位被誤報缺」
-    # 或「duration 與 end-start 不一致卻照算」。strict=False 只把可自動修正的
-    # 問題降級為 warning；結構性錯誤（缺時間軸、重複 shot_id、panel 缺格位）仍會拋錯。
-    try:
-        layer2_data = normalize_mod.normalize_layer2(layer2_data, strict=False, strict_aliases=False)
-    except normalize_mod.NormalizationError as exc:
-        raise ValueError(f"Layer 2 正規化失敗（{layer2_data.get('segment_id', 'unknown')}）：{exc}") from exc
-    normalization = layer2_data.get("_normalization") or {}
-    norm_warnings = list(normalization.get("warnings") or [])
-    if norm_warnings and not allow_normalize_warnings:
-        # 警告不是裝飾：時間軸（shot 級）不一致或台詞窗越界會直接產生錯片與錯字幕。
-        raise ValueError(
-            "Layer 2 正規化警告不得靜默通過（時間軸／台詞窗；如確認可接受請加 "
-            "--allow-normalize-warnings）：\n- " + "\n- ".join(norm_warnings)
-        )
-    if stage5_binding is not None and layer2_data.get("_stage5_binding") is not stage5_binding:
-        layer2_data = apply_stage5_binding(layer2_data, stage5_binding)
-    if stage5_binding is None:
-        stage5_binding = layer2_data.get("_stage5_binding")
-    remix = backend == "remix" or is_remix_binding(stage5_binding)
-    if backend == "ref2va" and is_remix_binding(stage5_binding):
-        raise ValueError("綁定是 video_backend=remix（refmods），不能用 ref2va 編譯；改回 ref2va 請先重跑 h3d bind --backend ref2va")
-    if remix and not is_remix_binding(stage5_binding):
-        raise ValueError("video_backend=remix 需要 remix 綁定（refmods）；先跑 h3d bind（video_backend=remix）再用 --bindings 編譯")
-    remix_mods: List[Dict[str, Any]] = remix_refmods(stage5_binding) if remix else []
-    ensure_global_shot_ids(layer2_data)
-    secondary_desc_en: Dict[str, str] = dict(layer2_data.get("_secondary_desc_en") or {})
-    seg_id = layer2_data.get("segment_id") or layer2_data.get("scene_id", "SEG01")
-    scene_id = layer2_data.get("scene_id", "SC01")
-    metadata = layer2_data.get("metadata", {}) or {}
-    style_lock = layer2_data.get("style_lock", {}) or {}
-    target_dur = float(metadata.get("target_duration_sec", 7.0))
-    aspect = metadata.get("aspect_ratio", "16:9")
     shots = layer2_data.get("shots", []) or []
-    if not shots:
-        raise ValueError(f"分鏡 {seg_id} 未包含任何 shots！")
     contains_dialogue = any(
         bool(
             (shot.get("dialogue_and_audio", {}) or {}).get("has_dialogue")
@@ -2073,6 +2015,854 @@ def compile_segment_h3(
     aliases = normalization.get("aliases_applied") or []
     if aliases:
         notes.append(f"[normalize] 已收斂 {len(aliases)} 處同義欄位（詳見 _normalization.aliases_applied）")
+    return {
+        "shots": shots,
+        "eff_d": eff_d,
+        "frames": seg_frames,
+        "cuts": cuts,
+        "rounding_mode": selected_rounding_mode,
+        "contains_dialogue": contains_dialogue,
+        "speaker_ids": speaker_ids,
+        "notes": notes,
+        "tail_fit_note": tail_fit_note,
+    }
+
+
+def _base_frame_sources(registry: AssetRegistry, shots: List[Dict[str, Any]],
+                        generation_mode: str) -> Dict[str, str]:
+    """Base 模式的幀來源（i2v：第 1 鏡 sketch_file；fl2v：第 1 鏡＋末鏡 sketch_file）。
+
+    檔案必須已存在（fail closed）：送件端要把這張圖上傳成 media.first／media.last，
+    缺圖等到送件才爆會浪費一輪審查。t2v 回空 dict。
+    """
+    sources: Dict[str, str] = {}
+    if generation_mode not in ("i2v", "fl2v"):
+        return sources
+    first = str((shots[0].get("sketch_file") or "")).strip()
+    if not first:
+        raise ValueError(f"generation_mode={generation_mode} 需要第 1 鏡的 sketch_file（首幀來源）；"
+                         "validate 的 G2 會擋，請先補構圖或改回 r2v")
+    if not registry.path_exists(first):
+        raise ValueError(f"首幀來源檔不存在: {first}（先用 h3d sketches／imagegen 出圖，或改回 r2v）")
+    sources["first"] = first
+    if generation_mode == "fl2v":
+        last = str((shots[-1].get("sketch_file") or "")).strip()
+        if not last:
+            raise ValueError("generation_mode=fl2v 需要末鏡的 sketch_file（尾幀來源）")
+        if not registry.path_exists(last):
+            raise ValueError(f"尾幀來源檔不存在: {last}（先用 h3d sketches／imagegen 出圖，或改回 r2v）")
+        sources["last"] = last
+    return sources
+
+
+def compile_segment_h3_base(
+    layer2_data: Dict[str, Any],
+    registry: AssetRegistry,
+    rounding_mode: str = "floor",
+    stage5_binding: Optional[Dict[str, Any]] = None,
+    narration_policy: str = DEFAULT_NARRATION_POLICY,
+    allow_normalize_warnings: bool = False,
+    embed_cut_markers: bool = False,
+    previous_end_state: Optional[Dict[str, Any]] = None,
+    no_lettering: bool = True,
+    compact_description: bool = False,
+    backend: Optional[str] = None,
+    auto_lora: bool = True,
+) -> Dict[str, Any]:
+    """P1-1 第二片：t2v／i2v／fl2v 的 Base 三字段編譯分流（導演大師對照）。
+
+    官方 Base 結構（拆解 skills-pack/022_drama-05-shot-h3.md §文生/图生/首尾帧）：
+    instruction（對齊指令；t2v 必為空）＋ integrated_multimodal_description（風格句＋逐鏈
+    beats）＋ overall_soundscape ＋ non_diegetic_music。**不輸出** subject_definitions／
+    summary／retention_analysis／detailed_description，也不掛任何參考素材
+    （FreeVideo media.first/last 與 references 互斥；REMIX pikaff 只吃 first_frame）。
+
+    - i2v：第 1 鏡 sketch_file 是首幀（<Picture 1>），metadata.frame_sources.first 記路徑。
+    - fl2v：第 1 鏡＋末鏡 sketch_file 是首尾幀（<Picture 1>／<Picture 2>），末鏡 beat 固定
+      補「The final frame matches <Picture 2>.」；REMIX 沒有尾幀欄位，fl2v 只能走 FreeVideo。
+    - t2v：純文生，不掛任何媒體；掛 character_ids 由 validate 的 W:G1 提醒。
+    - backend="remix"：三欄照 REMIX 慣例（風格錨開頭 E55＋畫幅光線句＋Style lock 尾句），
+      對齊指令照樣寫在最前面；送件端會把 i2v 段自動改走 pikaff 模式。
+    - stage5 綁定／refmods 對 Base 段沒有意義（沒有參考圖可綁），提供時略過並記 compile_note。
+    """
+    if narration_policy not in NARRATION_POLICIES:
+        if narration_policy in ("external", "short-offscreen-h3"):
+            raise ValueError(EXTERNAL_TTS_REMOVED_MESSAGE)
+        raise ValueError(f"narration_policy 必須是 {'、'.join(NARRATION_POLICIES)} 之一，收到 {narration_policy!r}")
+    generation_mode = str((layer2_data.get("metadata") or {}).get("generation_mode") or "r2v").strip().lower()
+    if generation_mode not in GENERATION_MODES:
+        raise ValueError(f"metadata.generation_mode {generation_mode!r} 不在 {'、'.join(GENERATION_MODES)}")
+    if generation_mode not in BASE_GENERATION_MODES:
+        raise ValueError(f"compile_segment_h3_base 只接受 Base 模式 {'、'.join(BASE_GENERATION_MODES)}，收到 {generation_mode!r}")
+    remix = backend == "remix"
+    if remix and generation_mode == "fl2v":
+        # REMIX pikaff 只有 first_frame 欄位（providers/remix.json）；尾幀送不進去，
+        # fl2v 的「落到尾幀狀態」契約在 REMIX 上無法成立——compile 就擋，不要等送件端。
+        raise ValueError(
+            "generation_mode=fl2v 在 REMIX 編譯不了：REMIX pikaff 只有 first_frame 欄位（沒有尾幀）；"
+            "fl2v（首尾幀）請走 FreeVideo 送件端（h3d submit），或把這段改回 r2v／i2v")
+    pre_notes: List[str] = []
+    if stage5_binding is not None:
+        # 綁定是參考圖／角色包的量產指示；Base 段沒有參考圖可綁，身分由幀圖鎖定。
+        pre_notes.append("Base 模式（t2v／i2v／fl2v）不吃 stage5 綁定與 refmods（沒有參考圖可綁，身分由幀圖鎖定）；已略過綁定")
+    # 舊 Layer 2 若還寫 voice_route=external（或任何非 h3 路由），在編譯前就擋下。
+    _validate_voice_routes(layer2_data)
+    # 正規化層（P3）：與 r2v 同一套（同義欄位收斂、時間軸檢查）。
+    try:
+        layer2_data = normalize_mod.normalize_layer2(layer2_data, strict=False, strict_aliases=False)
+    except normalize_mod.NormalizationError as exc:
+        raise ValueError(f"Layer 2 正規化失敗（{layer2_data.get('segment_id', 'unknown')}）：{exc}") from exc
+    normalization = layer2_data.get("_normalization") or {}
+    norm_warnings = list(normalization.get("warnings") or [])
+    if norm_warnings and not allow_normalize_warnings:
+        raise ValueError(
+            "Layer 2 正規化警告不得靜默通過（時間軸／台詞窗；如確認可接受請加 "
+            "--allow-normalize-warnings）：\n- " + "\n- ".join(norm_warnings)
+        )
+    ensure_global_shot_ids(layer2_data)
+    secondary_desc_en: Dict[str, str] = dict(layer2_data.get("_secondary_desc_en") or {})
+    seg_id = layer2_data.get("segment_id") or layer2_data.get("scene_id", "SEG01")
+    scene_id = layer2_data.get("scene_id", "SC01")
+    metadata = layer2_data.get("metadata", {}) or {}
+    style_lock = layer2_data.get("style_lock", {}) or {}
+    target_dur = float(metadata.get("target_duration_sec", 7.0))
+    aspect = metadata.get("aspect_ratio", "16:9")
+    shots = layer2_data.get("shots", []) or []
+    if not shots:
+        raise ValueError(f"分鏡 {seg_id} 未包含任何 shots！")
+
+    timeline = _normalize_segment_timeline(layer2_data, metadata, target_dur, rounding_mode)
+    shots = timeline["shots"]
+    eff_d = timeline["eff_d"]
+    seg_frames = timeline["frames"]
+    cuts = timeline["cuts"]
+    selected_rounding_mode = timeline["rounding_mode"]
+    contains_dialogue = timeline["contains_dialogue"]
+    speaker_ids = timeline["speaker_ids"]
+    tail_fit_note = timeline["tail_fit_note"]
+    notes: List[str] = pre_notes + list(timeline["notes"])
+
+    # ---------- 幀來源（i2v／fl2v；缺圖 fail closed） ----------
+    frame_sources = _base_frame_sources(registry, shots, generation_mode)
+
+    # ---------- 角色名（Base 沒有 <Subject N>，一律用資產名） ----------
+    asset_refs = layer2_data.get("asset_refs", {}) or {}
+    costume_of: Dict[str, Optional[str]] = {}
+    for c in (asset_refs.get("characters", []) or []) + (asset_refs.get("creatures", []) or []):
+        if isinstance(c, dict) and c.get("id"):
+            costume_of[c["id"]] = c.get("costume_id") or c.get("wardrobe_state")
+        elif isinstance(c, str):
+            costume_of.setdefault(c, None)
+    seg_wardrobe = metadata.get("wardrobe_state") or layer2_data.get("wardrobe_state") or style_lock.get("wardrobe_state")
+    name_of: Dict[str, str] = {}
+    seen_cids: List[str] = []
+    for s in shots:
+        for cid in (s.get("character_ids") or []):
+            if cid and cid not in seen_cids:
+                seen_cids.append(cid)
+        spk = _shot_speaker(s)
+        if spk and spk not in seen_cids:
+            seen_cids.append(spk)
+    for cid in seen_cids:
+        if is_narrator(cid):
+            name_of[cid] = _dialogue_speaker_label(cid, registry)
+            continue
+        info = registry.get_character(cid, wardrobe_state=costume_of.get(cid) or seg_wardrobe)
+        if secondary_desc_en.get(cid):
+            name_of[cid] = secondary_desc_en[cid].rstrip(" .")
+            continue
+        if info.get("no_visual_reference") or info.get("voice_only"):
+            name_of[cid] = "the unseen voice"
+            continue
+        w = (info.get("wardrobe_states", {}).get(costume_of.get(cid) or "", {}) or {})
+        w_desc = w.get("desc_en") if isinstance(w, dict) else ""
+        short = info.get("short_en") or info.get("name_en") or info.get("name") or cid
+        if _has_cjk(short):
+            notes.append(f"{cid} 缺英文短描述（short_en），提示詞會出現中文名；請補角色聖經的 short_en")
+        name_of[cid] = str(short) + (f", {w_desc}" if w_desc else "")
+    # i2v／fl2v：第 1 鏡之後才第一次入鏡的角色，首幀沒有他們的外觀
+    late_characters = []
+    _seen: set = set()
+    for i, s in enumerate(shots, start=1):
+        for cid in (s.get("character_ids") or []):
+            if cid and not is_narrator(cid) and cid not in _seen:
+                _seen.add(cid)
+                if i > 1:
+                    late_characters.append(cid)
+    if late_characters and generation_mode in ("i2v", "fl2v"):
+        notes.append(f"角色 {', '.join(late_characters)} 在第 1 鏡之後才入鏡：首幀沒有他們的外觀，"
+                     "H3 只能靠文字自由發揮；注意跨鏡一致性（必要時拆段或改回 r2v）")
+
+    # ---------- 風格與光線 ----------
+    if remix:
+        # E55：remix 的錨句逐字照定案（audit 比對 integrated 欄開頭），不套 14 號的錨句改寫
+        anchor = remix_style_anchor(layer2_data, registry)
+    else:
+        anchor = _clean(style_lock.get("anchor")) or registry.style.get("style_anchor", "") or "cinematic film look"
+        if style_rules.is_style14(metadata.get("style_key") or registry.style.get("style_index")
+                                  or style_rules.project_style(registry.project_root)):
+            anchor = style_rules.video_anchor(anchor)
+    lighting_line = (_clean(metadata.get("lighting_lock_line")) or _clean(style_lock.get("lighting_lock_line"))
+                     or registry.style.get("lighting_lock_line", "") or "natural ambient light")
+    if _has_cjk(lighting_line):
+        notes.append("光線鎖是中文，未寫進英文提示詞；請在 en_overlay.lighting_lock_line_en 或 metadata_override.lighting_lock_line 補英文")
+        lighting_line = registry.style.get("lighting_lock_line", "") if not _has_cjk(registry.style.get("lighting_lock_line", "")) else ""
+        lighting_line = lighting_line or "natural ambient light"
+    lighting_line_clean, _ = strip_hex(palette_names(lighting_line))
+    if not any(re.search(rf"\b{lt}\b", lighting_line_clean, re.IGNORECASE) for lt in LIGHT_SOURCE_TERMS):
+        lighting_line_clean += " with soft ambient light"
+    negative = _clean(style_lock.get("negative")) or _clean(registry.style.get("style_negative"))
+    effective_style_lock = dict(style_lock)
+    effective_style_lock["negative"] = ""
+
+    # ---------- 逐鏡 ----------
+    n_shots = len(shots)
+    cut_timestamps = [round(float(shot["end_time"]), 3) for shot in shots[:-1]]
+    det_header = f"The target video follows the authored visual style ({aspect}), illuminated by {lighting_line_clean}."
+    if metadata.get("palette_preset"):
+        det_header += f" Color palette: {metadata['palette_preset']}."
+    # #138 燒字來源可預測：正向補一句素淨表面，放在逐鏡之前的總述行。
+    lettering_texts = [lighting_line_clean, anchor or ""]
+    for _s in shots:
+        _act = _s.get("action_and_performance", {}) or {}
+        _blk = _s.get("spatial_blocking", {}) or {}
+        lettering_texts += [str(x) for x in (_act.get("action_stages_en") or [])]
+        lettering_texts += [str(_blk.get("blocking_desc_en") or ""), " ".join(str(x) for x in (_blk.get("anchor_objects_en") or []))]
+        _five = _five_part_en(_s) or {}
+        lettering_texts += [str(v) for v in _five.values()]
+    added_no_lettering = bool(no_lettering and not metadata.get("allow_lettering")
+                              and continuity_lint.needs_no_lettering(*lettering_texts))
+    if added_no_lettering:
+        det_header += continuity_lint.NO_LETTERING_SENTENCE
+    carry_text = continuity_lint.carry_sentence(continuity_lint.english_end_state(previous_end_state)) if previous_end_state else ""
+    if previous_end_state and not carry_text:
+        notes.append("同場景前一段的 segment_end_state 沒有英文終態，未帶入本段第 1 鏡；請在前段 en_overlay.end_state_en 補英文")
+    det_lines = [det_header]
+    tail_hold = style_lock.get("tail_freeze_hold", False)
+    final_shot_start = float(shots[-1].get("start_time", 0))
+    final_second_start = max(final_shot_start, eff_d - 1.0)
+    final_second_has_dialogue = False
+    for shot in shots:
+        dlg = shot.get("dialogue_and_audio", {}) or {}
+        window = dlg.get("speech_window")
+        if not window:
+            if dlg.get("has_dialogue") and shot is shots[-1]:
+                final_second_has_dialogue = True
+            continue
+        try:
+            speech_start = float(window.get("start", 0))
+            speech_end = float(window.get("end", 0))
+        except (TypeError, ValueError):
+            continue
+        if speech_start < eff_d and speech_end > final_second_start:
+            final_second_has_dialogue = True
+            break
+    tail_hold = tail_hold and not final_second_has_dialogue
+    used_motion: set = set()
+    spoken_lines: List[str] = []
+
+    def _cast_kind(cid: str) -> str:
+        if not cid or is_narrator(cid):
+            return "skip"
+        rec = registry.characters.get(cid, {}) or {}
+        if rec.get("voice_only") or rec.get("no_visual_reference"):
+            return "skip"
+        info = registry.get_character(cid, wardrobe_state=costume_of.get(cid) or seg_wardrobe)
+        if info.get("is_group") or str(cid).upper().startswith("EXTRAS"):
+            return "extras"
+        if info.get("is_creature") or str(cid).upper().startswith(("CREATURE", "CR-")):
+            return "creature"
+        return "human"
+
+    _cast = physical_camera.classify_cast(
+        [c for _s in shots for c in (_s.get("character_ids") or [])
+         if c not in (_s.get("offscreen_subject_ids") or [])], _cast_kind)
+    lock_bits: List[str] = []
+    if metadata.get("camera_law", True) is not False:
+        lock_bits.append(physical_camera.CAMERA_LAW_EN)
+    if physical_camera.cast_lock_wanted(layer2_data, len(_cast["human"])):
+        def _cast_name(cid: str) -> str:
+            return name_of.get(cid) or cid
+        lock_bits.insert(0, physical_camera.cast_environment_lock(
+            [_cast_name(c) for c in _cast["human"]], [_cast_name(c) for c in _cast["creature"]],
+            bool(_cast["extras"]), physical_camera.absent_objects_en(layer2_data)))
+    lock_text = " ".join(lock_bits)
+    if lock_text and not remix:
+        det_lines[0] = f"{det_lines[0]} {lock_text}"
+
+    def _render_speech(s: Dict[str, Any], expr: str) -> str:
+        """Base 模式的台詞渲染：與 r2v 同一套官方句式，但沒有 <Subject N>／<Audio N>，
+        說話人用「資產名 (Sx)」綁定（E22 要求發聲者都要有穩定代號）。"""
+        dlg = s.get("dialogue_and_audio", {}) or {}
+        lips_closed = _lips_closed_wanted(s, registry, set())
+        no_visible_mouth = False
+        if dlg.get("has_dialogue") and dlg.get("line_verbatim"):
+            line = dlg["line_verbatim"].strip()
+            spk = dlg.get("speaker")
+            identity = _dialogue_speaker_label(spk, registry)
+            if remix and spk:
+                # REMIX 提示詞只放英文：沒包的發聲者（畫外音）也用英文名
+                identity = _ascii_name((registry.characters.get(spk) or {}).get("name_en")) or identity
+            speaker_id = speaker_ids.get(str(spk)) if spk else None
+            subject_speaker = f"{identity} ({speaker_id})" if speaker_id else identity
+            window = _speech_window_clause(dlg)
+            speaker_record = registry.characters.get(spk, {}) if spk else {}
+            visibility = "offscreen" if (speaker_record.get("no_visual_reference") or speaker_record.get("voice_only")) else _dialogue_visibility(s)
+            is_vo = _is_voiceover(s)
+            _form = str(dlg.get("offscreen_form") or "").lower()
+            if _form == "voiceover":
+                is_vo, visibility = True, "offscreen"
+            elif _form == "offscreen":
+                visibility = "offscreen"
+            spoken_lines.append(line)
+            _offscreen_route(narration_policy, dlg, line)  # 舊 voice_route=external 在此報錯
+            no_visible_mouth = is_vo or visibility in ("offscreen", "mouth_hidden")
+            narration_line = no_visible_mouth and (is_vo or visibility == "offscreen")
+            if narration_line:
+                form_vo = is_vo
+                voice = _clean(dlg.get("offscreen_voice_en")) or _english_voice_descriptor(dlg, notes)
+                if voice and CJK_RE.search(voice):
+                    voice = ""
+                voice = voice.rstrip(".。 ")
+                if voice.lower() in ("voiceover", "v.o.", "v.o", "offscreen", "off-screen", "inner voice"):
+                    voice = ""
+                if not voice:
+                    voice = DEFAULT_NARRATOR_VOICE_EN
+                    notes.append(
+                        f"{s.get('shot_id')} 畫外句缺英文聲線描述（offscreen_voice_en 或 voice_4d_spec_en），"
+                        f"已套用預設旁白聲線；建議用 h3d decide voice:<角色> 定案，跨段才一致"
+                    )
+                where = _clean(dlg.get("offscreen_where_en"))
+                if where and CJK_RE.search(where):
+                    where = ""
+                if lips_closed:
+                    faces = [name_of[c] for c in (s.get("character_ids") or [])
+                             if c in name_of and not is_narrator(c) and (form_vo or c != spk)]
+                    faces = list(dict.fromkeys(faces)) or ["the visible characters"]
+                else:
+                    faces = []
+                if faces == ["the visible characters"]:
+                    lips = " while the visible characters' lips remain completely closed"
+                elif faces:
+                    lips = f" while {_possessive_list(faces)} lips remain completely closed"
+                elif form_vo:
+                    lips = " while no face is on screen, so all lips remain completely closed"
+                else:
+                    lips = ""
+                voice_txt = f", {voice}" if voice else ""
+                if form_vo:
+                    delivery = f"{subject_speaker} says in an off-screen voiceover{voice_txt}: "
+                else:
+                    where_txt = f" {where}" if where else ""
+                    delivery = f"the line is heard from {subject_speaker} off-screen{where_txt}{voice_txt}: "
+                    if window:
+                        delivery = delivery[:1].upper() + delivery[1:]
+                speech_txt = f"; {window}{delivery}<d>[Chinese] {line}</d>{lips}. {NO_ONE_SPEAKS_SENTENCE}"
+                n_chars = _spoken_char_count(line)
+                if n_chars > SHORT_OFFSCREEN_MAX_CHARS:
+                    notes.append(f"{s.get('shot_id')} 旁白過長：請拆到多鏡（{n_chars} 字 > {SHORT_OFFSCREEN_MAX_CHARS}）")
+                elif n_chars > SHORT_OFFSCREEN_MEASURED_CHARS:
+                    notes.append(f"{s.get('shot_id')} 畫外句 {n_chars} 字，超過實測範圍（約 ≤{SHORT_OFFSCREEN_MEASURED_CHARS} 字）；"
+                                 f"H3 可能念不全，建議拆鏡")
+                try:
+                    shot_len = float(s.get("end_time")) - float(s.get("start_time"))
+                except (TypeError, ValueError):
+                    shot_len = None
+                narration_secs = _narration_window_seconds(dlg, shot_len)
+                if narration_secs is not None and narration_secs < n_chars / NARRATION_CHARS_PER_SEC:
+                    notes.append(
+                        f"{s.get('shot_id')} 旁白 {n_chars} 字需要約 {n_chars / NARRATION_CHARS_PER_SEC:.1f}s，"
+                        f"旁白窗只有 {narration_secs:.1f}s（3.0 字/秒）；請拉長或拆鏡")
+                if faces and MOUTH_OPEN_RE.search(expr or ""):
+                    notes.append(f"{s.get('shot_id')} 畫外句同鏡的 Expression 寫了張嘴／喘氣（{MOUTH_OPEN_RE.search(expr).group(0)}），"
+                                 f"H3 會讓露臉者跟著開口；改成 lips pressed tightly shut（#123）")
+                speech_out = speech_txt
+            elif visibility == "mouth_hidden":
+                delivery = f"{subject_speaker} speaks with lips remaining completely closed: "
+                speech_out = f"; {window}{delivery}<d>[Chinese] {line}</d>. {NO_ONE_SPEAKS_SENTENCE}"
+                n_chars = _spoken_char_count(line)
+                if n_chars > SHORT_OFFSCREEN_MAX_CHARS:
+                    notes.append(f"{s.get('shot_id')} 旁白過長：請拆到多鏡（{n_chars} 字 > {SHORT_OFFSCREEN_MAX_CHARS}）")
+                try:
+                    hidden_len = float(s.get("end_time")) - float(s.get("start_time"))
+                except (TypeError, ValueError):
+                    hidden_len = None
+                hidden_secs = _narration_window_seconds(dlg, hidden_len)
+                if hidden_secs is not None and hidden_secs < n_chars / NARRATION_CHARS_PER_SEC:
+                    notes.append(
+                        f"{s.get('shot_id')} 旁白 {n_chars} 字需要約 {n_chars / NARRATION_CHARS_PER_SEC:.1f}s，"
+                        f"旁白窗只有 {hidden_secs:.1f}s（3.0 字/秒）；請拉長或拆鏡")
+            else:
+                descriptor = _english_voice_descriptor(dlg, notes)
+                voice_clause = f", {descriptor}" if descriptor else ""
+                delivery = f"{subject_speaker} is the visible speaking character{voice_clause}, and says: "
+                speech_out = f"; {window}{delivery}<d>[Chinese] {line}</d>"
+            prev_owner = name_of.get(str(spk)) if spk else None
+            prev_visible = not no_visible_mouth and bool(prev_owner)
+            # v118 #2：同鏡接話（extra_lines），寫法與 r2v 同一套官方句式。
+            for ex in (dlg.get("extra_lines") or []):
+                if not isinstance(ex, dict):
+                    continue
+                ex_line = str(ex.get("line_verbatim") or "").strip()
+                if not ex_line:
+                    continue
+                ex_spk = ex.get("speaker")
+                ex_identity = _dialogue_speaker_label(ex_spk, registry)
+                if remix and ex_spk:
+                    ex_identity = _ascii_name((registry.characters.get(ex_spk) or {}).get("name_en")) or ex_identity
+                ex_id = speaker_ids.get(str(ex_spk)) if ex_spk else None
+                ex_subject = f"{ex_identity} ({ex_id})" if ex_id else ex_identity
+                ex_record = registry.characters.get(ex_spk, {}) if ex_spk else {}
+                ex_form = str(ex.get("offscreen_form") or "").lower()
+                ex_is_vo = ex_form == "voiceover" or _is_voiceover({"dialogue_and_audio": ex}) \
+                    or str(ex.get("audio_type") or "").strip().lower() in ("narration", "voiceover", "vo", "inner", "v.o.")
+                ex_voice_only = bool(ex.get("voice_only") or ex_record.get("voice_only")
+                                     or ex_record.get("no_visual_reference"))
+                ex_offscreen = ex_is_vo or ex_voice_only or ex_form == "offscreen"
+                window_ex = _speech_window_clause(ex)
+                if ex_offscreen:
+                    _offscreen_route(narration_policy, ex, ex_line)
+                    ex_voice = _clean(ex.get("offscreen_voice_en")) or _english_voice_descriptor(ex, notes)
+                    if ex_voice and CJK_RE.search(ex_voice):
+                        ex_voice = ""
+                    ex_voice = ex_voice.rstrip(".。 ")
+                    if ex_voice.lower() in ("voiceover", "v.o.", "v.o", "offscreen", "off-screen", "inner voice"):
+                        ex_voice = ""
+                    if not ex_voice:
+                        ex_voice = DEFAULT_NARRATOR_VOICE_EN
+                    ex_voice_txt = f", {ex_voice}" if ex_voice else ""
+                    if ex_is_vo:
+                        phrase = f"{ex_subject} says in an off-screen voiceover{ex_voice_txt}: "
+                    else:
+                        ex_where = _clean(ex.get("offscreen_where_en"))
+                        ex_where = f" {ex_where}" if ex_where and not CJK_RE.search(ex_where) else ""
+                        phrase = f"the line is heard from {ex_subject} off-screen{ex_where}{ex_voice_txt}: "
+                    faces = [prev_owner] if prev_visible else []
+                    if ex_is_vo and ex_spk and ex_spk in (s.get("character_ids") or []) and not ex_voice_only:
+                        faces.append(name_of.get(str(ex_spk)) or ex_identity)  # 畫面上那位的內心聲：他自己的嘴也不動
+                    faces = list(dict.fromkeys(x for x in faces if x))
+                    lips = f" while {_possessive_list(faces)} lips remain completely closed" if faces else ""
+                    no_one = "" if NO_ONE_SPEAKS_SENTENCE in speech_out else f" {NO_ONE_SPEAKS_SENTENCE}"
+                    speech_out += f". {window_ex}Right after that line, {phrase}<d>[Chinese] {ex_line}</d>{lips}.{no_one}"
+                    n_chars = _spoken_char_count(ex_line)
+                    if n_chars > SHORT_OFFSCREEN_MAX_CHARS:
+                        notes.append(f"{s.get('shot_id')} 旁白過長：請拆到多鏡（{n_chars} 字 > {SHORT_OFFSCREEN_MAX_CHARS}）")
+                    try:
+                        ex_shot_len = float(s.get("end_time")) - float(s.get("start_time"))
+                    except (TypeError, ValueError):
+                        ex_shot_len = None
+                    ex_secs = _narration_window_seconds(ex, ex_shot_len)
+                    if ex_secs is not None and ex_secs < n_chars / NARRATION_CHARS_PER_SEC:
+                        notes.append(
+                            f"{s.get('shot_id')} 旁白 {n_chars} 字需要約 {n_chars / NARRATION_CHARS_PER_SEC:.1f}s，"
+                            f"旁白窗只有 {ex_secs:.1f}s（3.0 字/秒）；請拉長或拆鏡")
+                    spoken_lines.append(ex_line)
+                    prev_owner = name_of.get(str(ex_spk)) if ex_spk else None
+                    prev_visible = False
+                    continue
+                ex_voice = _english_voice_descriptor(ex, notes)
+                ex_voice_txt = f", {ex_voice}," if ex_voice else ""
+                lips = f" while {prev_owner}'s lips remain completely closed" if prev_visible else ""
+                speech_out += (f". {window_ex}Right after that line, {ex_subject}{ex_voice_txt} answers: "
+                               f"<d>[Chinese] {ex_line}</d>{lips}")
+                spoken_lines.append(ex_line)
+                prev_owner = name_of.get(str(ex_spk)) if ex_spk else None
+                prev_visible = True
+            return speech_out
+        return "; lips stay closed" if lips_closed else ""
+
+    for idx, s in enumerate(shots, start=1):
+        cam = s.get("camera_optics", {}) or {}
+        shot_size = cam.get("shot_size", "MS")
+        focal_len = _clean(cam.get("focal_length")) or "35mm"
+        dist = _clean(cam.get("physical_distance"))
+        if dist and CJK_RE.search(dist):
+            m = re.search(r"([\d.]+)\s*(?:公尺|米|m)", dist)
+            dist = f"{m.group(1)}m" if m else ""
+        optics = f" ({focal_len}, {dist})" if dist else f" ({focal_len})"
+
+        fc = _focal_char(s)
+        focal = (name_of.get(fc) if fc else None) or "the scene"
+
+        if cam.get("move_preset"):
+            # PR-14b：運鏡預設展開成完整 Camera 子句；Base 沒有場景底圖，bg_plate 固定 False
+            try:
+                _shot_secs = float(s.get("duration") or target_dur)
+            except (TypeError, ValueError):
+                _shot_secs = target_dur
+            mclause, _preset_warn = camera_moves.expand_preset(
+                cam["move_preset"], cam.get("move_slots"),
+                seconds=_shot_secs, shot_size=shot_size, bg_plate=False)
+            notes.extend(f"{s.get('shot_id')} {w}" for w in _preset_warn)
+        else:
+            motion = map_camera_motion(cam.get("movement_en") or cam.get("movement", "static"), idx).replace("camera ", "").strip()
+            mclause = "the camera holds a static shot" if ("static" in motion or "steady" in motion) else f"the camera {motion}"
+            if mclause in used_motion and "static" not in mclause:
+                mclause += " slowly"
+        used_motion.add(mclause)
+
+        act = s.get("action_and_performance", {}) or {}
+        raw_fields = list(act.get("action_stages_en") or act.get("action_stages") or []) + [
+            act.get("observable_expression_en") or act.get("observable_expression") or ""]
+        if any("TODO" in str(x) for x in raw_fields):
+            notes.append(f"未完成：{s.get('shot_id')} 的動作或表情仍有 TODO")
+        stages = [normalize_authored_camera_hold_action(TODO_RE.sub("", x).strip())
+                  for x in (act.get("action_stages_en") or act.get("action_stages") or []) if isinstance(x, str)]
+        stages = [x for x in stages if x]
+        if len(stages) >= 3:
+            action = ", then ".join(stages)
+        elif len(stages) == 2:
+            action = f"{stages[0]}, then {stages[1]}"
+        elif stages:
+            action = stages[0]
+        else:
+            notes.append(f"{s.get('shot_id')} 缺動作力學三要素")
+            raise ValueError(f"shot {s.get('shot_id', idx)} is missing authored action stages")
+        expr = TODO_RE.sub("", act.get("observable_expression_en") or act.get("observable_expression") or "").strip()
+
+        speech = _render_speech(s, expr)
+
+        blocking = s.get("spatial_blocking", {}) or {}
+        blocking_desc = blocking.get("blocking_desc_en") or blocking.get("blocking_desc", "")
+        if blocking_desc and _has_cjk(blocking_desc):
+            notes.append(f"{s.get('shot_id')} 走位 blocking_desc 是中文，未寫進英文提示詞；請補 blocking_desc_en 或 en_overlay blocking_en")
+            blocking_desc = ""
+        blocking_bits = [blocking_desc]
+        anchor_objects = _english_anchor_objects(
+            blocking.get("anchor_objects_en") if blocking.get("anchor_objects_en") is not None else blocking.get("anchor_objects"),
+            registry, notes, s.get("shot_id"))
+        if anchor_objects:
+            blocking_bits.append("anchor objects: " + ", ".join(anchor_objects))
+        blocking_clause = f" Blocking: {'; '.join(bit for bit in blocking_bits if bit)}." if any(blocking_bits) else ""
+
+        if idx == 1:
+            if generation_mode == "t2v":
+                head = f"[Shot 1] The shot opens on a {shot_size}{optics} of {focal}, as {mclause}."
+            else:
+                # i2v／fl2v：<Picture 1> 就是首幀（media.first／pikaff first_frame）
+                head = f"[Shot 1] The shot begins from <Picture 1>: {shot_size}{optics} of {focal}, as {mclause}."
+            if remix and lock_text:
+                head = head.replace("[Shot 1] ", f"[Shot 1] {lock_text} ", 1)
+        else:
+            head = (f"[Shot {idx}] At {format_timestamp(cut_timestamps[idx - 2])}, the shot cuts to a "
+                    f"{shot_size}{optics} of {focal}, as {mclause}.")
+        if idx == 1 and carry_text:
+            # P1-9（11-03 #30）：前段終態要是第 1 鏡的第一句，放後面模型會忽略。
+            head = head.replace("[Shot 1] ", "[Shot 1] " + carry_text.strip() + " ", 1)
+        tail = " The final second holds still before the cut." if (idx == n_shots and tail_hold) else ""
+        if idx == n_shots and layer2_data.get("segment_end_state"):
+            end_state = layer2_data["segment_end_state"]
+            final_state = end_state.get("planned_final_state_en") or end_state.get("planned_final_state") or {}
+            if final_state and _has_cjk(final_state):
+                notes.append("segment_end_state 是中文，未寫進英文提示詞；請在 en_overlay.end_state_en 補英文")
+                final_state = {}
+            if isinstance(final_state, Mapping) and final_state:
+                end_text = continuity_lint.state_sentence(final_state)
+                if end_text:
+                    tail += " End state: " + end_text + "."
+        # P1-7（11-03 #5b）：特寫／過肩鏡固定帶背景錨——幀圖之外 H3 仍可能拿設定圖灰底當背景。
+        if shot_size in ("CU", "ECU", "MCU", "OTS_MS", "OTS_CU"):
+            scene_rec = registry.locations.get(str(layer2_data.get("scene_id") or ""), {}) or {}
+            scene_desc = _clean(scene_rec.get("desc_en") or "")
+            scene_name = _ascii_name(scene_rec.get("name_en")) or _ascii_name(scene_rec.get("name")) or ""
+            if scene_desc or scene_name:
+                detail = (scene_desc[:160].rstrip() if scene_desc else scene_name)
+                tail += (f" The background behind the figures is the bound scene itself ({detail}) — "
+                         f"with its own sky, ground and props, never the plain studio backdrop of the "
+                         f"character reference sheet.")
+        action = action[:1].upper() + action[1:]
+        marker = ""
+        if embed_cut_markers:
+            previous_scene = shots[idx - 2].get("scene_id") if idx > 1 else None
+            current_scene = s.get("scene_id")
+            if idx > 1 and current_scene and previous_scene and current_scene != previous_scene:
+                marker += " <scenetrans>"
+            if idx == n_shots:
+                marker += " <cutoff>"
+        five = _five_part_en(s)
+        if five and (compact_description or metadata.get("compact_description")):
+            five = compact_five_part(five)
+        if five:
+            # 五小節裡的 {C-id} 換成資產名（Base 沒有 <Subject N>）
+            def _subject_token(m, _names=name_of):
+                return _names.get(m.group(1)) or m.group(1)
+            # R2 物理機位、R3 施力鏈＋Forbidden（physical_camera.py）
+            five["camera"] = physical_camera.camera_with_rig(five["camera"], cam, dist)
+            five = physical_camera.apply_action_rules(five, s)
+            five = {k: re.sub(r"\{((?:C|CREATURE|EXTRAS)-[A-Za-z0-9_-]+)\}", _subject_token, v or "") for k, v in five.items()}
+            speech_txt = speech.lstrip("; ").strip()
+            if speech_txt.lower().startswith("lips stay closed"):
+                speech_txt = "Lips stay closed."
+            five_txt = " ".join(f"{label}: {five[key].rstrip()}" + ("" if five[key].rstrip().endswith((".", "!", "?")) else ".")
+                                for key, label in FIVE_PART_KEYS if five[key])
+            body = f"{head} {five_txt} {speech_txt}".rstrip()
+            if not body.endswith((".", "!", "?", ">")):
+                body += "."
+            body += f"{tail}{marker}"
+        else:
+            if speech:
+                closing = speech if speech.rstrip().endswith((".", "!", "?")) else f"{speech}."
+            else:
+                closing = "." if (expr and not blocking_clause and not expr.rstrip().endswith((".", "!", "?"))) else ""
+            _forbid = physical_camera.forbidden_sentence(physical_camera.forbidden_items(s, "", action))
+            body = (f"{head} {action}." + (f" {_forbid}" if _forbid else "") + (f" Expression: {expr}" if expr else "")
+                    + blocking_clause + f"{closing}{tail}{marker}")
+        if "<Subject" in body:
+            notes.append(f"{s.get('shot_id')} Base 模式提示詞不該引用 <Subject N>（沒有主體定義）；"
+                         "請把 five_part_en 裡的 <Subject N> 改成角色名")
+        if generation_mode == "fl2v" and idx == n_shots:
+            # 拆解 §识图：fl2v 最後一拍必須落到尾幀可見狀態
+            body += " The final frame matches <Picture 2>."
+        det_lines.append(sanitize_english_text(body))
+
+    # ---------- 音效與配樂 ----------
+    foley = _clean(layer2_data.get("overall_soundscape")) or _clean(metadata.get("soundscape_en"))
+    if not foley:
+        parts = []
+        for s in shots:
+            d = s.get("dialogue_and_audio", {}) or {}
+            f = _clean(d.get("foley_and_ambience_en")) or _clean(d.get("foley_and_ambience"))
+            if f:
+                parts.append(f)
+        foley = "; ".join(parts)
+    # 官方 §4.6：對白只寫在 <d> 區塊，不得在 overall_soundscape 重複。
+    foley = _strip_dialogue_from_soundscape(foley, spoken_lines)
+    soundscape_block = "overall_soundscape:\n" + foley
+    music = _clean(layer2_data.get("non_diegetic_music")) or _clean(metadata.get("music_en")) or ""
+    music_block = "non_diegetic_music:\n" + music
+
+    # ---------- 對齊指令與 Base 三欄組裝 ----------
+    if generation_mode == "i2v":
+        instruction = I2V_INSTRUCTION_EN
+    elif generation_mode == "fl2v":
+        instruction = FL2V_INSTRUCTION_EN.format(last_shot=n_shots, end_sec=eff_d)
+    else:
+        instruction = ""
+    if remix:
+        # REMIX 三欄：風格錨開頭（E55）→ 畫幅與光線鎖 → 逐鏡 → Style lock → 無字句
+        remix_header = f"The whole clip is {aspect}, lit by {lighting_line_clean}."
+        if metadata.get("palette_preset"):
+            remix_header += f" Color palette: {metadata['palette_preset']}."
+        style_tail = _clean(metadata.get("style_lock_tail_en")) or REMIX_STYLE_LOCK_DEFAULT
+        if CJK_RE.search(style_tail):
+            notes.append("metadata.style_lock_tail_en 是中文，改用預設 Style lock 句")
+            style_tail = REMIX_STYLE_LOCK_DEFAULT
+        remix_notext = bool(no_lettering and not metadata.get("allow_lettering"))
+        tail_text = style_tail + (continuity_lint.NO_LETTERING_SENTENCE if remix_notext else "")
+        integrated = " ".join([anchor.rstrip(), remix_header] + det_lines[1:] + [tail_text.strip()])
+        added_no_lettering = remix_notext
+        base_body = (
+            f"integrated_multimodal_description: {sanitize_english_text(integrated)}\n\n"
+            f"overall_soundscape: {foley}\n\n"
+            f"non_diegetic_music: {music or 'N/A'}\n"
+        )
+    else:
+        base_body = (
+            "integrated_multimodal_description:\n" + "\n".join(det_lines) + "\n\n"
+            f"{soundscape_block}\n\n{music_block}\n"
+        )
+    full_h3_prompt = (f"{instruction}\n\n{base_body}" if instruction else base_body)
+
+    # ---------- LoRA：只有 Combat_Impact 段才推導 ----------
+    loras: List[Dict[str, Any]] = []
+    if remix and auto_lora and any(s.get("dramatic_beat_type") == "Combat_Impact" for s in shots):
+        # FreeVideo 的 LoRA 目錄在 REMIX V1.3 上沒驗證過（LoRA 疊加未試），不自動掛
+        notes.append("REMIX 不自動推導 LoRA（FreeVideo LoRA 目錄在 REMIX V1.3 上未驗證）")
+    elif auto_lora and any(s.get("dramatic_beat_type") == "Combat_Impact" for s in shots):
+        combined_spec = {
+            "focal": shots[0].get("camera_optics", {}).get("focal_length", "35mm"),
+            "pov": shots[0].get("camera_optics", {}).get("pov_routing", "objective"),
+            "action": " ".join(" ".join(s.get("action_and_performance", {}).get("action_stages_en")
+                                        or s.get("action_and_performance", {}).get("action_stages", [])) for s in shots),
+            "expression": " ".join(s.get("action_and_performance", {}).get("observable_expression", "") or "" for s in shots),
+            "dialogue": " ".join(s.get("dialogue_and_audio", {}).get("line_verbatim", "") or "" for s in shots),
+            "anchor_obj": " ".join(" ".join(s.get("spatial_blocking", {}).get("anchor_objects", [])) for s in shots),
+        }
+        loras = auto_adapt_h3_loras(combined_spec)["loras"]
+        if not re.search(r"photoreal|realistic|live[- ]action|寫實", anchor, re.IGNORECASE):
+            # 皮膚寫實 LoRA 只給寫實／半寫實風格，3D 國漫、2D 動畫會被拉成真人質感
+            loras = [l for l in loras if "realism" not in l.get("name", "").lower()]
+    frame_provider = "remix" if remix else h3_spec.DEFAULT_PROVIDER
+    if not h3_spec.in_supported_range(seg_frames, frame_provider):
+        spec = h3_spec.provider_spec(frame_provider)
+        notes.append(
+            f"⚠️ {seg_frames} 幀超出 {'REMIX' if remix else 'H3'} 支援區間 "
+            f"{spec['min_frames']}–{spec['max_frames']}；送件前請拆段"
+        )
+    cut_markers = [
+        {
+            "shot_id": shot.get("shot_id"),
+            "at_seconds": round(float(shot.get("start_time", 0.0)), 3),
+            "type": "cut",
+        }
+        for shot in shots
+        if float(shot.get("start_time", 0.0)) > 0
+    ]
+    result = {
+        "segment_id": seg_id,
+        "scene_id": scene_id,
+        "metadata": {
+            **metadata,
+            # 編譯指紋：送件與階段 5 審查會比對，編譯後再被腳本或手動覆寫就擋下（E38）。
+            "compiled_prompt_sha256": prompt_authoring.prompt_fingerprint(full_h3_prompt),
+            "compiler_rules": COMPILER_RULES_VERSION,
+            "aspect_ratio": aspect,
+            "target_duration_sec": target_dur,
+            "effective_duration_sec": round(eff_d, 3),
+            "effective_duration_sec_exact": eff_d,
+            "frames": seg_frames,
+            "frame_spec": f"{h3_spec.FRAME_QUANTUM_STEP}n+{h3_spec.FRAME_QUANTUM_OFFSET}@{h3_spec.FPS}fps",
+            "cut_markers": cut_markers,
+            "cut_marker_spec": "shots[].start_time；結構化資料，不寫進提示詞",
+            "cut_marker_tokens": {
+                "embedded": embed_cut_markers,
+                "spec": "<scenetrans> 標新場景首鏡、<cutoff> 標段落末鏡（本專案約定，非官方語法）",
+            },
+            "rounding_mode": selected_rounding_mode,
+            "rounding_reason": ("tail-fit" if tail_fit_note else "dialogue-preserving") if contains_dialogue else metadata.get("rounding_reason", "configured"),
+            "shots_count": n_shots,
+            "style_lock": effective_style_lock,
+            "qa_exclusions": negative,
+            "palette_preset": metadata.get("palette_preset", ""),
+            "narration_policy": narration_policy,
+            "lighting_lock_line": lighting_line_clean,
+            "generation_mode": generation_mode,
+            **({"frame_sources": frame_sources} if frame_sources else {}),
+            **({"carried_end_state": True} if carry_text else {}),
+            **({"no_lettering_added": True} if added_no_lettering else {}),
+        },
+        "reference_images": [],
+        "h3_prompt": full_h3_prompt,
+        "h3_loras": loras,
+        "shots": shots,
+        "speaker_ids": speaker_ids,
+        "unanchored_in_frame_characters": [],
+        "segment_end_state": layer2_data.get("segment_end_state"),
+        "carry_previous_end_state": (layer2_data.get("metadata") or {}).get("carry_previous_end_state", True) is not False,
+        "compile_notes": notes,
+    }
+    if remix:
+        result["metadata"].update({"video_backend": "remix", "style_anchor_en": anchor})
+    return result
+
+
+def compile_segment_h3(
+    layer2_data: Dict[str, Any],
+    registry: AssetRegistry,
+    max_char_refs: int = 1,
+    auto_lora: bool = True,
+    rounding_mode: str = "floor",
+    stage5_binding: Optional[Dict[str, Any]] = None,
+    narration_policy: str = DEFAULT_NARRATION_POLICY,
+    allow_normalize_warnings: bool = False,
+    embed_cut_markers: bool = False,
+    previous_end_state: Optional[Dict[str, Any]] = None,
+    no_lettering: bool = True,
+    compact_description: bool = False,
+    backend: Optional[str] = None,
+    remix_packs: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """將單個 Layer 2 JSON 分鏡檔編譯為符合 H3 官方六段式規範的資料結構。
+
+    backend="remix"（或 stage5_binding 是 remix 綁定，PR-R5）：改產 REMIX 三欄
+    （integrated_multimodal_description／overall_soundscape／non_diegetic_music），
+    角色改用綁定的 refmods（<Picture N>／<Video N>），五小節、台詞、畫外音規則與 Ref2VA 相同。
+    remix_packs：video-bindings.json 頂層 packs（計畫表），用來找英文名與建包描述。
+
+    主角參考圖：asset_refs.primary_character / metadata.primary_character 優先；
+    否則取臉戲權重（景別越近權重越高）最重的角色。旁白與畫外音永不成為主體。
+
+    narration_policy（沒有可見嘴的台詞：畫外 O.S.、旁白／內心獨白 V.O.、旁白者、謎之聲）：
+      - "h3-native"（唯一政策）：全部留給 H3，用官方句式寫逐字 <d>
+        （O.S.：the line is heard from <Subject N> (Sn) off-screen, <聲線>: <d>…</d>；
+        V.O.：<Subject N> (Sn) says in an off-screen voiceover, <聲線>: <d>…</d>），
+        並固定加一句「No one in frame speaks during this line; every visible mouth stays closed and still.」
+        聲線優先用 offscreen_voice_en／voice_4d_spec_en，沒有就用預設旁白描述。
+      逐句 dialogue_and_audio.voice_route 只接受 "h3"（或省略）；舊的 "external" 會報錯。
+
+    previous_end_state：同場景前一段的 segment_end_state（#133）。有英文終態時，
+    寫成本段第 1 鏡的**開頭第一句**「At the very first frame, … — carried over from the previous segment.」
+    （P1-9，11-03 #30：放後面模型會忽略，角色先站回參考圖站姿），
+    讓人物從前段終態接起，而不是回到參考圖站姿。
+    no_lettering：提示詞出現校徽、計程車、斑駁牆這類燒字來源時，自動補一句
+    「表面素淨、無文字無塗鴉」（#138）；metadata.allow_lettering=true 的段不加。
+    """
+    if narration_policy not in NARRATION_POLICIES:
+        if narration_policy in ("external", "short-offscreen-h3"):
+            raise ValueError(EXTERNAL_TTS_REMOVED_MESSAGE)
+        raise ValueError(f"narration_policy 必須是 {'、'.join(NARRATION_POLICIES)} 之一，收到 {narration_policy!r}")
+    # P1-1（導演大師對照，2026-11-07）：段級生成方式。r2v＝參考生（六段式）；
+    # t2v／i2v／fl2v 走 Base 三字段分流（compile_segment_h3_base，P1-1 第二片）。
+    generation_mode = str((layer2_data.get("metadata") or {}).get("generation_mode") or "r2v").strip().lower()
+    if generation_mode not in GENERATION_MODES:
+        raise ValueError(f"metadata.generation_mode {generation_mode!r} 不在 {'、'.join(GENERATION_MODES)}")
+    if generation_mode != "r2v":
+        # Base 三字段分流：不產生 subject_definitions／summary／retention_analysis，
+        # 也不掛任何參考素材（FreeVideo media.first/last 與 references 互斥；REMIX pikaff 只吃 first_frame）。
+        return compile_segment_h3_base(
+            layer2_data,
+            registry,
+            rounding_mode=rounding_mode,
+            stage5_binding=stage5_binding,
+            narration_policy=narration_policy,
+            allow_normalize_warnings=allow_normalize_warnings,
+            embed_cut_markers=embed_cut_markers,
+            previous_end_state=previous_end_state,
+            no_lettering=no_lettering,
+            compact_description=compact_description,
+            backend=backend,
+            auto_lora=auto_lora,
+        )
+    # 舊 Layer 2 若還寫 voice_route=external（或任何非 h3 路由），在編譯前就擋下。
+    _validate_voice_routes(layer2_data)
+    # 正規化層（P3）：先把同義欄位與時間軸收斂，避免「合法欄位被誤報缺」
+    # 或「duration 與 end-start 不一致卻照算」。strict=False 只把可自動修正的
+    # 問題降級為 warning；結構性錯誤（缺時間軸、重複 shot_id、panel 缺格位）仍會拋錯。
+    try:
+        layer2_data = normalize_mod.normalize_layer2(layer2_data, strict=False, strict_aliases=False)
+    except normalize_mod.NormalizationError as exc:
+        raise ValueError(f"Layer 2 正規化失敗（{layer2_data.get('segment_id', 'unknown')}）：{exc}") from exc
+    normalization = layer2_data.get("_normalization") or {}
+    norm_warnings = list(normalization.get("warnings") or [])
+    if norm_warnings and not allow_normalize_warnings:
+        # 警告不是裝飾：時間軸（shot 級）不一致或台詞窗越界會直接產生錯片與錯字幕。
+        raise ValueError(
+            "Layer 2 正規化警告不得靜默通過（時間軸／台詞窗；如確認可接受請加 "
+            "--allow-normalize-warnings）：\n- " + "\n- ".join(norm_warnings)
+        )
+    if stage5_binding is not None and layer2_data.get("_stage5_binding") is not stage5_binding:
+        layer2_data = apply_stage5_binding(layer2_data, stage5_binding)
+    if stage5_binding is None:
+        stage5_binding = layer2_data.get("_stage5_binding")
+    remix = backend == "remix" or is_remix_binding(stage5_binding)
+    if backend == "ref2va" and is_remix_binding(stage5_binding):
+        raise ValueError("綁定是 video_backend=remix（refmods），不能用 ref2va 編譯；改回 ref2va 請先重跑 h3d bind --backend ref2va")
+    if remix and not is_remix_binding(stage5_binding):
+        raise ValueError("video_backend=remix 需要 remix 綁定（refmods）；先跑 h3d bind（video_backend=remix）再用 --bindings 編譯")
+    remix_mods: List[Dict[str, Any]] = remix_refmods(stage5_binding) if remix else []
+    ensure_global_shot_ids(layer2_data)
+    secondary_desc_en: Dict[str, str] = dict(layer2_data.get("_secondary_desc_en") or {})
+    seg_id = layer2_data.get("segment_id") or layer2_data.get("scene_id", "SEG01")
+    scene_id = layer2_data.get("scene_id", "SC01")
+    metadata = layer2_data.get("metadata", {}) or {}
+    style_lock = layer2_data.get("style_lock", {}) or {}
+    target_dur = float(metadata.get("target_duration_sec", 7.0))
+    aspect = metadata.get("aspect_ratio", "16:9")
+    shots = layer2_data.get("shots", []) or []
+    if not shots:
+        raise ValueError(f"分鏡 {seg_id} 未包含任何 shots！")
+    # P1-1 第二片：時間軸正規化抽成共用 helper（r2v 與 Base 三字段同一套：
+    # tail-fit、17n+5 取整、切點下限、normalize 訊息）。
+    timeline = _normalize_segment_timeline(layer2_data, metadata, target_dur, rounding_mode)
+    shots = timeline["shots"]
+    eff_d = timeline["eff_d"]
+    seg_frames = timeline["frames"]
+    cuts = timeline["cuts"]
+    selected_rounding_mode = timeline["rounding_mode"]
+    contains_dialogue = timeline["contains_dialogue"]
+    speaker_ids = timeline["speaker_ids"]
+    tail_fit_note = timeline["tail_fit_note"]
+    notes: List[str] = list(timeline["notes"])
 
     # ---------- 角色與服裝 ----------
     asset_refs = layer2_data.get("asset_refs", {}) or {}
@@ -3640,7 +4430,13 @@ def render_markdown_package(
 
         md_lines.append(f"### Segment {idx}: `{sid}` (場景: `{sc_id}` | 目標: `{meta['target_duration_sec']}s` | 真實有效: `{meta['effective_duration_sec']}s`)")
         md_lines.append("")
-        if isinstance(seg.get("refmods"), list):
+        generation_mode = str(meta.get("generation_mode") or "r2v")
+        if generation_mode in ("t2v", "i2v", "fl2v"):
+            # P1-1 第二片：Base 段沒有參考圖，顯示幀來源（送件端上傳成 media.first/last／pikaff first_frame）
+            frame_sources = meta.get("frame_sources") or {}
+            bits = [f"{key}幀: `{value}`" for key, value in frame_sources.items()] or ["純文生，無幀來源"]
+            md_lines.append(f"**Base 三字段（{generation_mode}）：** " + "、".join(bits))
+        elif isinstance(seg.get("refmods"), list):
             md_lines.append(f"**REMIX 角色包（refmods，共 {len(seg['refmods'])} 包，順序即送件順序）：**")
             for ref in seg["refmods"]:
                 extra = f"，服裝 {ref['costume_id']}" if ref.get("costume_id") else ""
@@ -3978,6 +4774,7 @@ def main() -> int:
                 authored_shots=seg.get("shots"),
                 backend=backend,
                 submit_endpoint=resolve_submit_endpoint(args.project_root, args.submit_endpoint),
+                generation_mode=seg.get("metadata", {}).get("generation_mode"),
             )
 
             passed = refs_res["passed"] and lint_res["passed"]

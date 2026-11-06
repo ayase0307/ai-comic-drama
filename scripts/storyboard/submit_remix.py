@@ -172,6 +172,24 @@ def is_remix_segment(seg: Dict[str, Any]) -> bool:
     return "refmods" in seg or (seg.get("metadata") or {}).get("video_backend") == "remix"
 
 
+def resolve_segment_mode(seg: Dict[str, Any], batch_mode: str) -> Tuple[str, List[str]]:
+    """P1-1 第二片：Base i2v 段在 REMIX 必須走 pikaff*（才有 first_frame 欄位）。
+
+    pika480→pikaff480、pika768→pikaff768；批次模式已是 pikaff* 就照用；
+    沒有對應 pikaff 變體的模式（pika1440／draft／refine／long）直接報錯（fail closed）。
+    """
+    generation_mode = str((seg.get("metadata") or {}).get("generation_mode") or "r2v").strip().lower()
+    if generation_mode != "i2v":
+        return batch_mode, []
+    if batch_mode.startswith("pikaff"):
+        return batch_mode, []
+    variant = {"pika480": "pikaff480", "pika768": "pikaff768"}.get(batch_mode)
+    if not variant:
+        raise ValueError(f"generation_mode=i2v 在 REMIX 需要 pikaff 模式（first_frame 欄位）；"
+                         f"批次模式 {batch_mode} 沒有對應的 pikaff 變體")
+    return variant, [f"generation_mode=i2v：送件模式 {batch_mode} → {variant}（pikaff 才有 first_frame 欄位）"]
+
+
 def split_by_backend(segments: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[str]]:
     remix_segs: List[Dict[str, Any]] = []
     refused: List[str] = []
@@ -249,12 +267,43 @@ def precheck_segments(segments: List[Dict[str, Any]], root_dir: Optional[Path], 
         if frames_note:
             print(f"  ⚠️ [{sid}] {frames_note}")
 
+        # P1-1 第二片：Base 模式（t2v／i2v／fl2v）在 REMIX 的送件規則——
+        # i2v 必須走 pikaff*（first_frame 欄位）且幀來源存在；fl2v 送不了（pikaff 沒有尾幀欄位）。
+        generation_mode = str((seg.get("metadata") or {}).get("generation_mode") or "r2v").strip().lower()
+        seg_mode = mode
+        has_first_frame = False
+        if generation_mode == "fl2v":
+            errors.append(f"[{sid}] generation_mode=fl2v 在 REMIX 送不了：pikaff 只有 first_frame 欄位；"
+                          "fl2v（首尾幀）請走 FreeVideo 送件端（h3d submit）")
+            continue
+        if generation_mode == "i2v":
+            try:
+                seg_mode, mode_warnings_ = resolve_segment_mode(seg, mode)
+            except ValueError as exc:
+                errors.append(f"[{sid}] {exc}")
+                continue
+            for w in mode_warnings_:
+                print(f"  ⚠️ [{sid}] {w}")
+            has_first_frame = True
+            frame_sources = (seg.get("metadata") or {}).get("frame_sources") or {}
+            rel = str(frame_sources.get("first") or "").strip()
+            if not rel:
+                errors.append(f"[{sid}] generation_mode=i2v 缺 metadata.frame_sources.first；先重跑 h3d compile")
+                continue
+            fp = Path(rel)
+            if not fp.is_absolute() and root_dir:
+                fp = root_dir / rel
+            if not fp.exists():
+                errors.append(f"[{sid}] 首幀來源檔不存在: {rel}")
+                continue
+
         r_res = audit_refs_and_subjects(seg, project_root=root_dir, backend="remix")
         if not r_res.get("passed", True):
             errors.extend(f"[{sid}] 模式 A 參考包錯誤: {e}" for e in r_res.get("errors", []))
         l_res = lint_h3_prompt(prompt, nominal_duration=float((seg.get("metadata") or {}).get("target_duration_sec") or 7.0),
                                rounding_mode=(seg.get("metadata") or {}).get("rounding_mode", "floor"),
-                               authored_shots=seg.get("shots"), backend="remix", submit_endpoint="local")
+                               authored_shots=seg.get("shots"), backend="remix", submit_endpoint="local",
+                               generation_mode=generation_mode)
         if not l_res.get("passed", True):
             errors.extend(f"[{sid}] 模式 B 提示詞錯誤: {e}" for e in l_res.get("errors", []))
 
@@ -280,9 +329,9 @@ def precheck_segments(segments: List[Dict[str, Any]], root_dir: Optional[Path], 
         refmods = seg.get("refmods") or []
         caps_res = provider_caps.validate_segment(
             seg, caps, aspect=(seg.get("metadata") or {}).get("aspect_ratio"),
-            frames=frames, refmod_count=len(refmods), mode=mode, steps=steps,
+            frames=frames, refmod_count=len(refmods), mode=seg_mode, steps=steps,
             seconds=frames / h3_spec.FPS, has_project=True, has_negative=False,
-            has_first_frame=False)
+            has_first_frame=has_first_frame)
         errors.extend(caps_res["errors"])
         for w in caps_res["warnings"]:
             print(f"  ⚠️ [{sid}] {w}")
@@ -315,7 +364,7 @@ def _render_state(state: Any, limit: int = 600) -> str:
 
 
 def build_job_body(seg: Dict[str, Any], project: str, mode: str, seed: Optional[int],
-                   prev_end_state: Any = None) -> Tuple[Dict[str, Any], List[str]]:
+                   prev_end_state: Any = None, root_dir: Optional[Path] = None) -> Tuple[Dict[str, Any], List[str]]:
     warnings: List[str] = []
     metadata = seg.get("metadata") or {}
     frames, note = requested_frames(seg)
@@ -336,6 +385,22 @@ def build_job_body(seg: Dict[str, Any], project: str, mode: str, seed: Optional[
             "end_state": _render_state((seg.get("segment_end_state") or {}).get("planned_final_state")),
         },
     }
+    # P1-1 第二片：Base 模式的幀欄位——i2v 帶 first_frame（pikaff 模式）；fl2v 在 REMIX 送不了。
+    generation_mode = str((seg.get("metadata") or {}).get("generation_mode") or "r2v").strip().lower()
+    if generation_mode == "fl2v":
+        raise ValueError("generation_mode=fl2v 在 REMIX 送不了：pikaff 只有 first_frame 欄位；"
+                         "fl2v（首尾幀）請走 FreeVideo 送件端（h3d submit）")
+    if generation_mode == "i2v":
+        frame_sources = (seg.get("metadata") or {}).get("frame_sources") or {}
+        rel = str(frame_sources.get("first") or "").strip()
+        if not rel:
+            raise ValueError("generation_mode=i2v 缺 metadata.frame_sources.first；先重跑 h3d compile")
+        fp = Path(rel)
+        if not fp.is_absolute() and root_dir:
+            fp = root_dir / rel
+        if not fp.exists():
+            raise ValueError(f"首幀來源檔不存在: {fp}")
+        body["first_frame"] = str(fp)
     if prev_end_state is not None:
         body["plan"]["start_state"] = _render_state(prev_end_state)
     if seed is not None:
@@ -387,8 +452,9 @@ def submit_segments(args: argparse.Namespace) -> int:
 
     remix_segs, refused = split_by_backend(segments)
     if refused:
-        print(f"❌ 這 {len(refused)} 段不是 REMIX 段（ref2va 六段式）， remix 送件端不送：{'、'.join(refused[:8])}"
-              f"{'…' if len(refused) > 8 else ''}\n   ref2va 段請走 h3d submit（FreeVideo 送件端）。", file=sys.stderr)
+        print(f"❌ 這 {len(refused)} 段不是 REMIX 段（ref2va 六段式或 Base 三字段未宣告 remix），remix 送件端不送："
+              f"{'、'.join(refused[:8])}{'…' if len(refused) > 8 else ''}\n"
+              f"   ref2va／Base 段請走 h3d submit（FreeVideo 送件端）；Base 段要送 REMIX 先用 --backend remix 重編。", file=sys.stderr)
         return 1
     if not remix_segs:
         print("❌ 檔內沒有任何 REMIX 段（refmods／video_backend=remix）。", file=sys.stderr)
@@ -433,18 +499,22 @@ def submit_segments(args: argparse.Namespace) -> int:
         print("❌ 缺 --project（REMIX Studio 的專案名稱；POST /jobs 必帶 project）。", file=sys.stderr)
         return 2
 
-    bodies: List[Tuple[Dict[str, Any], List[str], str]] = []
+    bodies: List[Tuple[Dict[str, Any], List[str], str, str]] = []
     prev_state: Any = None
     for seg in remix_segs:
-        body, warnings = build_job_body(seg, project, mode, args.seed, prev_end_state=prev_state)
-        bodies.append((body, warnings, str(seg.get("segment_id"))))
+        # P1-1 第二片：Base i2v 段自動改走 pikaff 模式（first_frame 欄位）；其餘照批次模式。
+        seg_mode, seg_mode_warnings = resolve_segment_mode(seg, mode)
+        body, warnings = build_job_body(seg, project, seg_mode, args.seed,
+                                        prev_end_state=prev_state, root_dir=root_dir)
+        bodies.append((body, seg_mode_warnings + warnings, str(seg.get("segment_id")), seg_mode))
         prev_state = (seg.get("segment_end_state") or {}).get("planned_final_state")
 
     if args.dry_run:
         print(f"🧪 [dry-run] 對 {args.api_url} 送 {len(bodies)} 段（mode={mode}、project={project}）：")
-        for body, warnings, sid in bodies:
-            print(f"  [{sid}] seconds={body['seconds']:.4f} frames≈{round(body['seconds'] * h3_spec.FPS)} "
-                  f"refmods={'、'.join(body['refmods'])} seed={body.get('seed')}")
+        for body, warnings, sid, seg_mode in bodies:
+            extra = f" first_frame={body['first_frame']}" if "first_frame" in body else ""
+            print(f"  [{sid}] mode={seg_mode} seconds={body['seconds']:.4f} frames≈{round(body['seconds'] * h3_spec.FPS)} "
+                  f"refmods={'、'.join(body['refmods'])} seed={body.get('seed')}{extra}")
             for w in warnings:
                 print(f"    ⚠️ {w}")
         print("🧪 dry-run 不送件、不寫帳本。實際送件去掉 --dry-run。")
@@ -465,7 +535,7 @@ def submit_segments(args: argparse.Namespace) -> int:
         ledger["project"] = str(root_dir)
 
     submitted = failed = 0
-    for body, warnings, sid in bodies:
+    for body, warnings, sid, seg_mode in bodies:
         for w in warnings:
             print(f"  ⚠️ [{sid}] {w}")
         existing = ledger_entry(ledger, sid)
@@ -486,7 +556,7 @@ def submit_segments(args: argparse.Namespace) -> int:
         job = resp.get("job") or {}
         entry = {"id": job.get("id"), "segment_id": sid, "status": job.get("status") or "queued",
                  "frames_requested": round(body["seconds"] * h3_spec.FPS),
-                 "seconds": body["seconds"], "mode": mode,
+                 "seconds": body["seconds"], "mode": seg_mode,
                  "seed": body.get("seed"), "submitted_at": datetime.now(timezone.utc).isoformat(),
                  "warning": job.get("warning") or ""}
         ledger["jobs"] = [e for e in ledger["jobs"] if e.get("segment_id") != sid] + [entry]

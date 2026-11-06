@@ -163,7 +163,10 @@ def validate_segment(segment: Dict[str, Any], caps: Dict[str, Any],
                "此 provider 沒有 negative 欄位，負面詞不會生效；風格要寫在提示詞開頭錨句（E55）")
 
     if has_first_frame and _value(caps, "first_frame") is False:
-        report(_source(caps, "first_frame"), "此 provider 沒有首幀輸入（紀錄來自 v0.8 時期，V1.3 未查）")
+        # P1-1 第二片：pikaff* 模式有 first_frame 欄位（providers/remix.json 的 note），
+        # 只有 generate（V1.3）類模式沒有；mode 帶 pikaff 時不再誤報。
+        if not (mode and str(mode).startswith("pikaff")):
+            report(_source(caps, "first_frame"), "此 provider 沒有首幀輸入（紀錄來自 v0.8 時期，V1.3 未查）")
 
     return {"errors": errors, "warnings": warnings}
 

@@ -2403,6 +2403,7 @@ def build_stage_5(project_dir: Path, state: Dict[str, Any],
                 authored_shots=seg.get("shots"),
                 backend=resolve_backend(seg, project_root=project_dir),
                 submit_endpoint=submit_endpoint,
+                generation_mode=seg.get("metadata", {}).get("generation_mode"),
             )
             if not r_res["passed"]:
                 errors.extend(f"{sid}: {e}" for e in r_res["errors"])

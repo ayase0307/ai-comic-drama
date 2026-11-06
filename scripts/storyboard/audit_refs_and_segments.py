@@ -561,6 +561,10 @@ def audit_remix(seg_data: Dict[str, Any], project_root: Optional[Path] = None,
                 "backend": "remix", "total_references": 0, "character_references": 0}
     prompt_text = extract_prompt_from_seg(seg_data)
     decisions_mod = _decisions_module() if project_root is not None else None
+    # P1-1 第二片：Base 模式（t2v／i2v／fl2v）在 REMIX 走 pikaff／純文生，不用角色包——
+    # E50／E52／E53／E54 整組包機制跳過；E55（風格錨）與共用的角色／畫外音檢查照用。
+    generation_mode = str((seg_data.get("metadata") or {}).get("generation_mode") or "r2v").strip().lower()
+    base_mode = generation_mode in ("t2v", "i2v", "fl2v")
 
     # ---------- E50（最小版）：具名角色沒有對應包 ----------
     waivers = [w for w in (seg_data.get("pack_waivers") or []) if isinstance(w, dict)]
@@ -577,8 +581,10 @@ def audit_remix(seg_data: Dict[str, Any], project_root: Optional[Path] = None,
             voice_only_ids = {aid for aid, it in _rc.load_lexicon(Path(project_root)).items() if it.get("voice_only")}
         except ImportError:  # pragma: no cover
             pass
-    missing = [cid for cid in _segment_named_ids(seg_data)
-               if cid not in covered and cid not in waived and cid not in voice_only_ids]
+    missing: List[str] = []
+    if not base_mode:
+        missing = [cid for cid in _segment_named_ids(seg_data)
+                   if cid not in covered and cid not in waived and cid not in voice_only_ids]
     if missing:
         errors.append(
             f"[E50: 具名角色沒有包] {', '.join(missing)} 在畫面上，refmods 卻沒有他們的包。"
@@ -588,7 +594,7 @@ def audit_remix(seg_data: Dict[str, Any], project_root: Optional[Path] = None,
     # ---------- E50（文字比對，PR-R4 refcheck）：提示詞寫到的具名資產沒有包 ----------
     # 詞表來自專案的 bible.json／character-packs.json 的 name_en／aliases_en；沒寫英文名就沒有詞，行為同 R3。
     # E51（人群字眼）不在這裡重複：audit 的 E21 已擋同一類問題；完整報表跑 `h3d refcheck`。
-    if project_root is not None:
+    if project_root is not None and not base_mode:
         try:
             import refcheck as refcheck_mod
         except ImportError:  # pragma: no cover
@@ -625,64 +631,65 @@ def audit_remix(seg_data: Dict[str, Any], project_root: Optional[Path] = None,
         errors.extend(staging_errors)
         warnings.extend(staging_warnings)
 
-    # ---------- E52：refmods 結構與 <Picture N>／<Video N> 對帳 ----------
-    counters = {"Picture": 0, "Video": 0}
-    labels: List[Tuple[str, int, str]] = []
-    seen_packs: set = set()
-    for index, ref in enumerate(refmods):
-        if not isinstance(ref, dict) or not str(ref.get("pack") or "").strip():
-            errors.append(f"[E52: refmods 缺包名] refmods[{index}] 必須是含 pack 的物件")
-            continue
-        pack = str(ref["pack"]).strip()
-        if pack in seen_packs:
-            errors.append(f"[E52: 重複的包] {pack} 在 refmods 出現兩次")
-        seen_packs.add(pack)
-        tag = ref.get("tag")
-        if tag not in PACK_TAGS:
-            errors.append(f"[E52: tag 不明] 包 {pack} 的 tag={tag!r}；只能是 Picture（單圖包）或 Video（多圖包），"
-                          f"請以建包回讀為準")
-            continue
-        counters[tag] += 1
-        label = f"<{tag} {counters[tag]}>"
-        labels.append((tag, counters[tag], pack))
-        if ref.get("label") and ref["label"] != label:
-            errors.append(f"[E52: 標籤順序錯] 包 {pack} 標成 {ref['label']}，依 refmods 順序應為 {label}")
-    if prompt_text:
-        used = {"Picture": set(int(m) for m in re.findall(r"<Picture\s*(\d+)>", prompt_text)),
-                "Video": set(int(m) for m in re.findall(r"<Video\s*(\d+)>", prompt_text))}
-        for tag in PACK_TAGS:
-            for n in sorted(used[tag]):
-                if n > counters[tag] or n < 1:
-                    errors.append(f"[E52: 標籤沒有對應的包] 提示詞引用 <{tag} {n}>，但 refmods 只有 {counters[tag]} 個 "
-                                  f"{tag} 包（{'伺服器會回 warning' if tag == 'Picture' else 'FeiHou 多寫一個 <Video N> 會直接報錯'}）")
-        for tag, n, pack in labels:
-            if n not in used[tag]:
-                errors.append(f"[E52: 包沒有被引用] 包 {pack}（<{tag} {n}>）掛了卻沒有在提示詞引用；"
-                              f"每個包都要寫一句「<{tag} {n}> is …」")
-        if re.search(r"<Subject\s*\d+>", prompt_text):
-            warnings.append("[W: remix 六段式寫法] 提示詞含 <Subject N>：那是 Ref2VA 寫法，在 REMIX 上沒測過；"
-                            "remix 用 <Picture N>（場景）／<Video N>（演員、生物、多圖道具）")
+    if not base_mode:
+        # ---------- E52：refmods 結構與 <Picture N>／<Video N> 對帳（Base 模式沒有包，整組跳過） ----------
+        counters = {"Picture": 0, "Video": 0}
+        labels: List[Tuple[str, int, str]] = []
+        seen_packs: set = set()
+        for index, ref in enumerate(refmods):
+            if not isinstance(ref, dict) or not str(ref.get("pack") or "").strip():
+                errors.append(f"[E52: refmods 缺包名] refmods[{index}] 必須是含 pack 的物件")
+                continue
+            pack = str(ref["pack"]).strip()
+            if pack in seen_packs:
+                errors.append(f"[E52: 重複的包] {pack} 在 refmods 出現兩次")
+            seen_packs.add(pack)
+            tag = ref.get("tag")
+            if tag not in PACK_TAGS:
+                errors.append(f"[E52: tag 不明] 包 {pack} 的 tag={tag!r}；只能是 Picture（單圖包）或 Video（多圖包），"
+                              f"請以建包回讀為準")
+                continue
+            counters[tag] += 1
+            label = f"<{tag} {counters[tag]}>"
+            labels.append((tag, counters[tag], pack))
+            if ref.get("label") and ref["label"] != label:
+                errors.append(f"[E52: 標籤順序錯] 包 {pack} 標成 {ref['label']}，依 refmods 順序應為 {label}")
+        if prompt_text:
+            used = {"Picture": set(int(m) for m in re.findall(r"<Picture\s*(\d+)>", prompt_text)),
+                    "Video": set(int(m) for m in re.findall(r"<Video\s*(\d+)>", prompt_text))}
+            for tag in PACK_TAGS:
+                for n in sorted(used[tag]):
+                    if n > counters[tag] or n < 1:
+                        errors.append(f"[E52: 標籤沒有對應的包] 提示詞引用 <{tag} {n}>，但 refmods 只有 {counters[tag]} 個 "
+                                      f"{tag} 包（{'伺服器會回 warning' if tag == 'Picture' else 'FeiHou 多寫一個 <Video N> 會直接報錯'}）")
+            for tag, n, pack in labels:
+                if n not in used[tag]:
+                    errors.append(f"[E52: 包沒有被引用] 包 {pack}（<{tag} {n}>）掛了卻沒有在提示詞引用；"
+                                  f"每個包都要寫一句「<{tag} {n}> is …」")
+            if re.search(r"<Subject\s*\d+>", prompt_text):
+                warnings.append("[W: remix 六段式寫法] 提示詞含 <Subject N>：那是 Ref2VA 寫法，在 REMIX 上沒測過；"
+                                "remix 用 <Picture N>（場景）／<Video N>（演員、生物、多圖道具）")
 
-    # ---------- E53：場景包第一 ----------
-    kinds = [str(r.get("kind") or "") for r in refmods if isinstance(r, dict)]
-    if "scene" in kinds and kinds and kinds[0] != "scene":
-        errors.append("[E53: 場景包不在第一] refmods 有場景包卻不是第一個；順序決定標籤編號，場景包要放第一、演員接著、生物／道具最後")
-    if kinds.count("scene") > 1:
-        warnings.append(f"[W: 多個場景包] refmods 有 {kinds.count('scene')} 個場景包，未驗證過")
+        # ---------- E53：場景包第一 ----------
+        kinds = [str(r.get("kind") or "") for r in refmods if isinstance(r, dict)]
+        if "scene" in kinds and kinds and kinds[0] != "scene":
+            errors.append("[E53: 場景包不在第一] refmods 有場景包卻不是第一個；順序決定標籤編號，場景包要放第一、演員接著、生物／道具最後")
+        if kinds.count("scene") > 1:
+            warnings.append(f"[W: 多個場景包] refmods 有 {kinds.count('scene')} 個場景包，未驗證過")
 
-    # ---------- E54：包數（providers/remix.json 顯存分級） ----------
-    try:
+        # ---------- E54：包數（providers/remix.json 顯存分級） ----------
         try:
-            import provider_caps
-        except ImportError:  # pragma: no cover
-            from . import provider_caps
-        caps = provider_caps.load_caps("remix")
-        cap = decisions_mod.remix_pack_cap(Path(project_root)) if decisions_mod is not None else None
-        vram = (seg_data.get("metadata") or {}).get("vram")
-        for level, message in provider_caps.pack_count_findings(caps, len(refmods), vram=vram, project_cap=cap):
-            (errors if level == "error" else warnings).append(f"[E54: 包數] {message.replace('[包數] ', '')}")
-    except Exception as exc:  # 能力表壞掉不能靜默
-        errors.append(f"[E54: 包數] 無法載入 providers/remix.json：{exc}")
+            try:
+                import provider_caps
+            except ImportError:  # pragma: no cover
+                from . import provider_caps
+            caps = provider_caps.load_caps("remix")
+            cap = decisions_mod.remix_pack_cap(Path(project_root)) if decisions_mod is not None else None
+            vram = (seg_data.get("metadata") or {}).get("vram")
+            for level, message in provider_caps.pack_count_findings(caps, len(refmods), vram=vram, project_cap=cap):
+                (errors if level == "error" else warnings).append(f"[E54: 包數] {message.replace('[包數] ', '')}")
+        except Exception as exc:  # 能力表壞掉不能靜默
+            errors.append(f"[E54: 包數] 無法載入 providers/remix.json：{exc}")
 
     if prompt_text:
         # ---------- E21–E25、E43／E44（與 ref2va 共用） ----------
@@ -862,6 +869,10 @@ def audit_refs_and_subjects(seg_data: Dict[str, Any], project_root: Optional[Pat
         return {"passed": False, "errors": errors, "warnings": warnings}
 
     prompt_text = extract_prompt_from_seg(seg_data)
+    # P1-1 第二片：Base 三字段（t2v／i2v／fl2v）沒有 subject_definitions／retention_analysis，
+    # 序對對帳整段跳過；角色身分由幀圖（media.first/last）鎖定，不是缺參考圖。
+    generation_mode = str((seg_data.get("metadata") or {}).get("generation_mode") or "r2v").strip().lower()
+    base_mode = generation_mode in ("t2v", "i2v", "fl2v")
 
     # ---------- E19：未錨定的在場人物（複製人主因） ----------
     unanchored = [str(c) for c in (seg_data.get("unanchored_in_frame_characters") or [])]
@@ -987,9 +998,11 @@ def audit_refs_and_subjects(seg_data: Dict[str, Any], project_root: Optional[Pat
                 if isinstance(r, dict) and not str(r.get("path") or "").strip():
                     errors.append(f"[E: 缺音訊檔] 音色參考 {r.get('id')} 沒有音訊路徑。")
         else:
-            warnings.append("[W] 提示詞中缺少 subject_definitions 區塊，無法執行逐條序對對帳。")
+            if not base_mode:
+                warnings.append("[W] 提示詞中缺少 subject_definitions 區塊，無法執行逐條序對對帳。")
 
-        _prompt_role_checks(prompt_text, seg_data, ref_images, strict, errors, warnings)
+        _prompt_role_checks(prompt_text, seg_data, ref_images, strict, errors, warnings,
+                            detail_section="integrated_multimodal_description" if base_mode else "detailed_description")
 
     # ---------- E26：身份錨點必須真的掛上自己的參考圖 ----------
     for ref in ref_images:
@@ -1120,6 +1133,7 @@ def lint_h3_prompt(
     authored_shots: Optional[List[Dict[str, Any]]] = None,
     backend: str = "ref2va",
     submit_endpoint: Optional[str] = None,
+    generation_mode: Optional[str] = None,
 ) -> Dict[str, Any]:
     """對 H3 分段提示詞執行 18 條確定性工程自檢。
 
@@ -1129,10 +1143,18 @@ def lint_h3_prompt(
 
     backend=remix（PR-R3）：必填區塊改為 REMIX 三欄（integrated_multimodal_description／
     overall_soundscape／non_diegetic_music），逐鏡檢查讀 integrated_multimodal_description；其餘規則照用。
+    generation_mode=t2v／i2v／fl2v（P1-1 第二片）：Base 三字段沒有六段的前三段，必填區塊與
+    remix 三欄相同（integrated_multimodal_description／overall_soundscape／non_diegetic_music），
+    時長以 authored 時間軸對帳（沒有 summary 欄）。
     """
     remix = backend == "remix"
-    required_sections = REMIX_REQUIRED_SECTIONS if remix else REQUIRED_SECTIONS
-    detail_section = REMIX_DETAIL_SECTION if remix else "detailed_description"
+    base_mode = str(generation_mode or "").strip().lower() in ("t2v", "i2v", "fl2v")
+    if base_mode:
+        required_sections = REMIX_REQUIRED_SECTIONS
+        detail_section = REMIX_DETAIL_SECTION
+    else:
+        required_sections = REMIX_REQUIRED_SECTIONS if remix else REQUIRED_SECTIONS
+        detail_section = REMIX_DETAIL_SECTION if remix else "detailed_description"
     errors: List[str] = []
     warnings: List[str] = []
 
@@ -1216,9 +1238,9 @@ def lint_h3_prompt(
                     clean_prompt,
                     re.IGNORECASE,
                 )
-                if not declared and not remix:
+                if not declared and not remix and not base_mode:
                     raise ValueError("prompt summary does not state effective and target durations")
-                # REMIX 三欄沒有 summary 欄（PR-R5）：時長以 authored 時間軸＋切點時間戳對帳
+                # REMIX 三欄與 Base 三字段都沒有 summary 欄（PR-R5／P1-1 第二片）：時長以 authored 時間軸＋切點時間戳對帳
                 declared_effective, declared_target = (map(float, declared.groups()) if declared
                                                        else (eff_d, nominal_duration))
                 if abs(declared_target - nominal_duration) > 1e-3 or abs(declared_effective - eff_d) > 1e-3:
@@ -1263,6 +1285,10 @@ def lint_h3_prompt(
                 f"[W:E2 authored shot count] Preserving {n_shots} authored shots; "
                 f"continuous timeline ends at {authored_timeline_end:.3f}s and prompt effective duration is {eff_d:.3f}s."
             )
+        elif base_mode:
+            # P1-1 第二片：Base 三字段（i2v／fl2v 常見一鏡到底）允許單鏡；上限照舊
+            if not (1 <= n_shots <= 6):
+                errors.append(f"[E2: 鏡頭數量不符] Base 模式（{generation_mode}）應為 1–6 鏡，實際為 {n_shots} 鏡！")
         elif eff_d < 10.0:
             if not (2 <= n_shots <= 6):
                 errors.append(f"[E2: 鏡頭數量不符] 時長 D={eff_d:.2f}s (<10s) 應為 2–6 鏡，實際為 {n_shots} 鏡！")
@@ -1909,7 +1935,8 @@ def main():
                 lint_res = lint_h3_prompt(prompt_str, nominal_duration=dur, rounding_mode=rounding_mode,
                                           authored_shots=seg_data.get("shots"), backend=lint_backend,
                                           submit_endpoint=resolve_submit_endpoint(args.project_root or p.parent,
-                                                                                  args.submit_endpoint))
+                                                                                  args.submit_endpoint),
+                                          generation_mode=(seg_data.get("metadata", {}) or {}).get("generation_mode"))
                 if lint_res["passed"]:
                     print(f"  [PASS] H3 提示詞 18 條自檢通過 ({seg_id_label}: 名義 {dur}s -> 真實有效 {lint_res['details']['effective_duration_sec']}s)")
                 else:

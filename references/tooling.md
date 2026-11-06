@@ -127,7 +127,7 @@ Layer 2 每鏡新增必填欄位 `shot_intent`（audience、story_beat、pov、e
 
 **背景錨（W:B1，只警告，11-03 噩盡島 #5b）**：CU／MCU／ECU／OTS 鏡的 `spatial_blocking.anchor_objects` 為空出 **W:B1**——H3 可能拿角色設定圖的純灰底當背景；在 anchor_objects 寫背景看得到的東西（牆面、窗格、地平線、桌面器物），編譯器才帶得進 Light／Performance。
 
-**段級生成方式（`metadata.generation_mode`，P1-1 導演大師對照）**：`t2v／i2v／fl2v／r2v`，預設 `r2v`（參考生，唯一實測路線）。validate 驗枚舉與幀來源（i2v 要第 1 鏡 `sketch_file`、fl2v 要首尾鏡都有；t2v 掛 character_ids 出 W:G1）；**非 r2v 的 Base 三字段編譯與送件尚未實作，compile 會 fail closed**（W:G2 提醒），要走首幀／首尾幀請先改回 r2v。
+**段級生成方式（`metadata.generation_mode`，P1-1 導演大師對照）**：`t2v／i2v／fl2v／r2v`，預設 `r2v`（參考生，唯一實測路線）。validate 驗枚舉與幀來源（i2v 要第 1 鏡 `sketch_file`、fl2v 要首尾鏡都有；t2v 掛 character_ids 出 W:G1）。**P1-1 第二片已實作 Base 三字段分流**：非 r2v 段由 `compile_segment_h3_base` 產官方 Base 結構（對齊指令 instruction＋`integrated_multimodal_description`（風格句＋逐鏈 beats）＋`overall_soundscape`＋`non_diegetic_music`，**沒有** subject_definitions／summary／retention_analysis，也不掛任何參考素材）；i2v/fl2v 的幀來源記在 `metadata.frame_sources`（缺圖 compile 直接擋）。送件端：FreeVideo 走 `media.first`／`media.last`（官方 schema 與 references 互斥）、REMIX i2v 自動改走 pikaff 模式帶 `first_frame`、**fl2v 僅 FreeVideo**（REMIX pikaff 沒有尾幀欄位）。W:G2 提醒非 r2v 路線本機實測仍以 r2v 為主。
 
 **骨架與構圖的 ID／比例**：
 - `handoff_to_skeleton.py handoff-epXX.json --out-dir layer2 [--bible adapt/bible.json]`：用聖經的 `canonical_name`／`name`／`aliases`（及 ID 本身）把 handoff 的中文名對到聖經 ID（`C-`／`S-`／`P-`）；沒給 `--bible` 時自動找 `<handoff 所在目錄>/adapt/bible.json`，`--bible none` 關閉。查不到的名稱退回雜湊 ID 並逐一警告——不補 `aliases` 的話 `h3d bind` 會判成「未在 bible.json 登記」。

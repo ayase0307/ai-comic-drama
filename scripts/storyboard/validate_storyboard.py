@@ -689,8 +689,8 @@ def shot_size_rhythm_warnings(shots: list) -> list:
     return warnings
 
 
-# P1-1：段級生成方式（導演大師對照，2026-11-07）。r2v＝參考生（唯一實測路線）；
-# t2v／i2v／fl2v 的 Base 三字段編譯與送件尚未實作（compile fail closed），這裡先驗宣告與幀來源。
+# P1-1：段級生成方式（導演大師對照，2026-11-07）。r2v＝參考生（六段式，唯一實測路線）；
+# t2v／i2v／fl2v 的 Base 三字段編譯與送件已於 P1-1 第二片實作（compile_segment_h3_base）。
 GENERATION_MODES = ("t2v", "i2v", "fl2v", "r2v")
 
 
@@ -699,7 +699,8 @@ def generation_mode_checks(meta: dict, shots: list) -> tuple:
     - 未知 mode → 錯誤；
     - i2v 缺第 1 鏡 sketch_file、fl2v 缺首或尾鏡 sketch_file → 錯誤（幀來源缺失）；
     - t2v 卻掛 character_ids → W:G1（要鎖角色用 r2v）；
-    - 非 r2v → W:G2（Base 三字段編譯路線尚未實作，compile 會擋）。"""
+    - 非 r2v → W:G2（Base 三字段路線已實作但本機實測仍以 r2v 為主；送件端
+      FreeVideo 走 media.first/last、REMIX i2v 走 pikaff first_frame，fl2v 僅 FreeVideo）。"""
     errors: list = []
     warnings: list = []
     mode = str((meta or {}).get("generation_mode") or "r2v").strip().lower()
@@ -721,8 +722,9 @@ def generation_mode_checks(meta: dict, shots: list) -> tuple:
             errors.append("[G2 幀來源缺失] generation_mode=fl2v 需要末鏡的 sketch_file（尾幀來源）；"
                           "首尾同一鏡時至少要有那一鏡的 sketch_file")
     if mode != "r2v":
-        warnings.append(f"[W:G2 編譯路線未實作] generation_mode={mode}：Base 三字段編譯與送件尚未實作，"
-                        "compile 會擋；先改回 r2v 或等 P1-1 分流落地。")
+        warnings.append(f"[W:G2 非 r2v 路線] generation_mode={mode}：Base 三字段編譯與送件已實作（P1-1 第二片），"
+                        "但本機實測仍以 r2v 為主；FreeVideo 走 media.first/last、REMIX i2v 走 pikaff first_frame，"
+                        "fl2v 僅 FreeVideo（REMIX pikaff 沒有尾幀欄位）。")
     return errors, warnings
 
 

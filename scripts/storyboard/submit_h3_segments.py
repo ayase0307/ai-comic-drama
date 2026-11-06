@@ -418,6 +418,31 @@ def upload_reference_media(api_url: str, token: str, media_path: Path, cache: Di
 upload_reference_image = upload_reference_media
 
 
+def _base_frame_media(seg: Dict[str, Any], generation_mode: str, args: argparse.Namespace,
+                      token: str, cache: Dict[str, str], cache_file: Path) -> Dict[str, Any]:
+    """P1-1 第二片：Base 模式（i2v／fl2v）的幀媒體——media.first／media.last。
+
+    FreeVideo 官方 generation_media schema：references 有內容時 first/last 必須為 null
+    （互斥，2026-10-18 實測 422），所以 Base 段一律不送 references；t2v 回空 dict（純文生）。
+    """
+    frame_sources = (seg.get("metadata") or {}).get("frame_sources") or {}
+    media: Dict[str, Any] = {}
+    if generation_mode not in ("i2v", "fl2v"):
+        return media
+    for key in (["first"] if generation_mode == "i2v" else ["first", "last"]):
+        rel = str(frame_sources.get(key) or "").strip()
+        if not rel:
+            raise ValueError(f"缺 metadata.frame_sources.{key}（generation_mode={generation_mode}）；先重跑 h3d compile")
+        fp = Path(rel)
+        if not fp.is_absolute():
+            fp = (Path(args.root_dir) / rel).resolve()
+        if not fp.exists():
+            raise ValueError(f"{key} 幀來源檔不存在: {fp}")
+        file_id = upload_reference_media(args.api_url, token, fp, cache, cache_file)
+        media[key] = {"file": file_id}
+    return media
+
+
 def cancel_stale_jobs(api_url: str, token: str, ledger_path: Optional[Path] = None,
                       project_root: Optional[Path] = None) -> None:
     """Cancel only jobs whose IDs are recorded for this project and API scope."""
@@ -540,6 +565,23 @@ def audit_segment_prompts(todo_segs: List[Dict[str, Any]], root_dir: Optional[Pa
                           f"remix 送件 adapter（PR-R7）完成前請在家機 REMIX Studio 手動送件")
             continue
 
+        # P1-1 第二片：Base 模式（t2v／i2v／fl2v）的幀來源必須已在編譯時登記且檔案存在
+        # （FreeVideo 走 media.first／media.last，與 references 互斥）。
+        generation_mode = str((seg.get("metadata") or {}).get("generation_mode") or "r2v").strip().lower()
+        if generation_mode in ("t2v", "i2v", "fl2v"):
+            frame_sources = (seg.get("metadata") or {}).get("frame_sources") or {}
+            needed = ["first"] if generation_mode == "i2v" else (["first", "last"] if generation_mode == "fl2v" else [])
+            for key in needed:
+                rel = str(frame_sources.get(key) or "").strip()
+                if not rel:
+                    errors.append(f"[{sid}] Base 模式（{generation_mode}）缺 metadata.frame_sources.{key}；先重跑 h3d compile")
+                    continue
+                fp = Path(rel)
+                if not fp.is_absolute() and root_dir:
+                    fp = root_dir / rel
+                if not fp.exists():
+                    errors.append(f"[{sid}] Base 模式（{generation_mode}）的 {key} 幀來源檔不存在: {rel}")
+
         dur = 7.0
         if "metadata" in seg and isinstance(seg["metadata"], dict):
             dur = float(seg["metadata"].get("target_duration_sec") or seg["metadata"].get("effective_duration_sec") or 7.0)
@@ -561,6 +603,7 @@ def audit_segment_prompts(todo_segs: List[Dict[str, Any]], root_dir: Optional[Pa
             rounding_mode=seg.get("metadata", {}).get("rounding_mode", "floor"),
             authored_shots=seg.get("shots"),
             submit_endpoint="local",  # 本程式只送家機 FreeVideo（127.0.0.1:8189），沒有 hosted 的 7000 字元上限
+            generation_mode=generation_mode,  # P1-1 第二片：Base 三字段的必填區塊與六段不同
         )
         if not l_res.get("passed", True):
             for e in l_res.get("errors", []):
@@ -1154,35 +1197,51 @@ def main(argv: Optional[List[str]] = None) -> int:
 
         print(f"\n--- [#{idx:02d} {sid}] 開始送件 (時長: {sec:.4f}s = {frames} 幀，來源 {frames_source}) ---")
 
-        # 提取參考素材路徑並上傳
-        # 參考順序有意義：官方 ComfyUI 節點的規則是「圖片 → 影片 → 獨立音訊」，
-        # 提示詞裡的 <Picture i> / <Video k> / <Audio j> 各自按自己的類別從 1 開始編號。
-        # 編譯器把音訊參考排在所有圖像素材之後，正好符合這個順序。
-        raw_refs = seg.get("reference_images", [])
-        ref_paths: List[str] = []
-        audio_refs: List[Dict[str, Any]] = []
-        for r in raw_refs:
-            if isinstance(r, dict):
-                if r.get("type") == "audio":
-                    audio_refs.append(r)
-                ref_paths.append(r.get("path") or r.get("file") or "")
-            elif isinstance(r, str):
-                ref_paths.append(r)
-        if audio_refs:
-            print(f"     🎙️ [{sid}] 本段含 {len(audio_refs)} 個音色參考（<Audio N>）："
-                  f"會以音檔形式掛到參考素材，提示詞用 <Audio N> 描述其角色。")
-
-        remote_refs = []
-        for p_str in ref_paths:
-            if not p_str:
+        # P1-1 第二片：Base 模式（t2v／i2v／fl2v）走 media.first／media.last（官方 schema
+        # 與 references 互斥），不掛任何參考素材；t2v 純文生不掛任何媒體。
+        generation_mode = str((seg.get("metadata") or {}).get("generation_mode") or "r2v").strip().lower()
+        if generation_mode in ("t2v", "i2v", "fl2v"):
+            try:
+                media = _base_frame_media(seg, generation_mode, args, token, cache, cache_file)
+            except Exception as e:
+                print(f"  ❌ [{sid}] Base 模式幀媒體準備失敗: {e}")
+                stats["failed"] += 1
                 continue
-            rp = Path(p_str)
-            if not rp.is_absolute():
-                rp = (args.root_dir / rp).resolve()
-            ref_id = upload_reference_media(args.api_url, token, rp, cache, cache_file)
-            remote_refs.append({"file": ref_id})
+            if media:
+                print(f"     🖼️ [{sid}] Base 模式（{generation_mode}）：幀圖走 media.first/last"
+                      f"（官方 schema 與 references 互斥），不掛任何參考圖")
+            else:
+                print(f"     🌫️ [{sid}] Base 模式（t2v）：純文生，不掛任何媒體")
+        else:
+            # 提取參考素材路徑並上傳
+            # 參考順序有意義：官方 ComfyUI 節點的規則是「圖片 → 影片 → 獨立音訊」，
+            # 提示詞裡的 <Picture i> / <Video k> / <Audio j> 各自按自己的類別從 1 開始編號。
+            # 編譯器把音訊參考排在所有圖像素材之後，正好符合這個順序。
+            raw_refs = seg.get("reference_images", [])
+            ref_paths: List[str] = []
+            audio_refs: List[Dict[str, Any]] = []
+            for r in raw_refs:
+                if isinstance(r, dict):
+                    if r.get("type") == "audio":
+                        audio_refs.append(r)
+                    ref_paths.append(r.get("path") or r.get("file") or "")
+                elif isinstance(r, str):
+                    ref_paths.append(r)
+            if audio_refs:
+                print(f"     🎙️ [{sid}] 本段含 {len(audio_refs)} 個音色參考（<Audio N>）："
+                      f"會以音檔形式掛到參考素材，提示詞用 <Audio N> 描述其角色。")
 
-        media = {"references": remote_refs}
+            remote_refs = []
+            for p_str in ref_paths:
+                if not p_str:
+                    continue
+                rp = Path(p_str)
+                if not rp.is_absolute():
+                    rp = (args.root_dir / rp).resolve()
+                ref_id = upload_reference_media(args.api_url, token, rp, cache, cache_file)
+                remote_refs.append({"file": ref_id})
+
+            media = {"references": remote_refs}
         aspect = seg.get("metadata", {}).get("aspect_ratio") or seg.get("aspect", "16:9")
         loras = seg.get("h3_loras", [])
         prompt_text = seg.get("h3_prompt") or seg.get("prompt", "")
