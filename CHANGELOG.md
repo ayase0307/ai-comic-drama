@@ -7,6 +7,7 @@
 `h3d next` 會讀這份檔案：專案版本章比目前技能舊時，列出中間各版標題提醒重驗。
 
 ## [未發布]
+- 新增：特效參考圖紀律（**P1-8**，11-03 #18／#19／#26／#27）——`compile` 對特效 `source_en` 寫身體部位（chest／eyes／胸口…）出 note（光源句會擴散成胸口亮點／紅眼；只寫特效本體位置，角色反光另寫被照亮）；`vfx-design-and-review.md` 新增 §7：參考圖只含特效本體（純天空／純黑底）、完整形狀不裁半、生圖模型不吃否定詞、送件前人工勾選「已去背景」「含完整形狀」。`tests/test_effect_light_discipline.py` 4 測。
 - 新增：REMIX Studio 美術室生圖後端（**P1-12**，11-03 #8）——`scripts/storyboard/imagegen_remix.py`（`POST /images` → 輪詢 → 成品落檔到 assets.md 登記的路徑；engine=qwen 預設／moss 要 --style、moss 拒 ref_image）＋`image_backends` 新增 `remix` 後端（階段 2 可選；`detect` 探 8190 `/status` ready；`command_for` 給匯出提示詞＋逐張生成指令）。`h3d imagegen --detect` 現在認得 REMIX 美術室。`tests/test_imagegen_remix.py` 6 測。
 - 新增：閉唇衝突與背景錨警告（11-03 噩盡島 #4／#5b，全部只警告）——`prompt_authoring` 新增 **W53**（同鏡同時出現「嘴唇張開」與「lips remain closed」：兩個不同人各說各話合法、同一人衝突，列出兩句讓審查者判斷）；`validate_storyboard` 新增 **W:B1**（CU/MCU/ECU/OTS 鏡的 `spatial_blocking.anchor_objects` 為空：H3 可能拿角色設定圖的純灰底當背景）。
 - 新增：adapt_gate 劇本格式衛生 **G15–G21**（**P1-2**，導演大師 12 條劇本檢查的缺項；全部只警告、啟發式）——G15 非人主體（系統／儀器／讀數…）寫成對白、G16 整句括號動作寫成台詞、G18 引號內「他心想」第三人稱心理敘述、G19 引號後接動作（一行疊兩件事）與 crowd speaker（眾人／大家）、G21 鏡號／場記用語（特寫／淡入／切至…）寫進正文。`tests/test_script_hygiene.py` 7 測。
