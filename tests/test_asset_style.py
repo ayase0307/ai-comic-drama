@@ -27,5 +27,27 @@ class AssetStyleTests(unittest.TestCase):
         self.assertTrue((ROOT / st["needs_reference"]).exists())
 
 
+class AssetSheetLayoutTests(unittest.TestCase):
+    """P2-4（導演大師對照）：道具板 2×2＋45° 比例參照格、場景主圖四面關係條款。"""
+
+    def test_prop_sheet_is_2x2_with_scale_reference(self):
+        p = ex.compile_full_prompt({"type": "prop", "description": "a bronze dagger"})
+        self.assertIn("2x2 grid", p)
+        self.assertIn("45-degree three-quarter view", p)
+        self.assertIn("same real-world scale", p)
+        self.assertIn("adult human hand", p)
+        self.assertIn("not a character", p)
+
+    def test_scene_plate_locks_layout_relationships(self):
+        p = ex.compile_full_prompt({"type": "scene", "description": "an old post office hall"})
+        self.assertIn("locks the space's layout relationships", p)
+        self.assertIn("three clear depth layers", p)
+        self.assertIn("without inventing new walls", p)
+
+    def test_character_prompt_has_no_prop_layout(self):
+        p = ex.compile_full_prompt({"type": "character", "description": "x"})
+        self.assertNotIn("2x2 grid", p)
+
+
 if __name__ == "__main__":
     unittest.main()

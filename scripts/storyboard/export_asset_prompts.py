@@ -251,11 +251,28 @@ CREATURE_TURNAROUND_TEMPLATE = (
 SCENE_PLATE_TEMPLATE = (
     "{style_line}, environment plate, realistic architectural and environmental rendering, "
     "cinematic volumetric lighting, deep perspective view, {aspect} aspect ratio. "
-    "{subject_desc}, completely empty of people, cinematic establishing plate."
+    "{subject_desc}, completely empty of people, cinematic establishing plate. "
+    "This single plate locks the space's layout relationships in one image: doors, windows, major "
+    "furniture and the main light source keep fixed positions relative to each other "
+    "(frame-left / frame-right / deep background), with three clear depth layers, so later shots "
+    "block characters against this plate without inventing new walls or moving fixtures."
 )
 # 場景母版是影片的場景／畫風參考，比例跟專案定案（decisions.json aspect_ratio）走；
 # 角色四視圖、生物三視圖、道具板是固定版式，維持 16:9 橫版。以前場景也寫死 16:9，豎屏專案的場景圖比例不對。
 DEFAULT_SCENE_ASPECT = "16:9"
+
+# P2-4（導演大師對照）：道具板升級成 2×2 單張——正／側／背／45° 四格同實物比例對齊，
+# 45° 格旁放手掌作比例參照（consistency.md §5 的「手掌比例參照」＋導演大師的 45° 比例參照格）。
+# 手掌只是比例尺：寫明「不是角色」，避免 H3 把它當獨立主體複製進片。
+PROP_SHEET_TEMPLATE = (
+    "{style_line}, prop concept sheet, 2x2 grid on a seamless flat neutral medium-grey background, "
+    "neutral studio lighting, 16:9. "
+    "The four cells show the same prop at the same real-world scale, aligned across cells: "
+    "front view, side view, back view, and a 45-degree three-quarter view. "
+    "In the 45-degree cell an adult human hand rests beside the prop purely as a scale reference; "
+    "the hand is a neutral gauge, not a character. "
+    "Subject: {subject_desc}"
+)
 
 
 # ==============================================================================
@@ -421,12 +438,8 @@ def _compile_base_prompt(asset: Dict[str, Any], style: Optional[Dict[str, str]] 
         return SCENE_PLATE_TEMPLATE.format(style_line=env_style_line(style), subject_desc=desc,
                                            aspect=asset.get("aspect") or DEFAULT_SCENE_ASPECT)
     else:
-        # 道具或其他
-        return (
-            f"{env_style_line(style)}, prop concept sheet, "
-            f"neutral studio lighting, seamless flat neutral medium-grey background, 16:9. "
-            f"Subject: {desc}"
-        )
+        # 道具或其他：2×2 道具板（P2-4，導演大師對照）
+        return PROP_SHEET_TEMPLATE.format(style_line=env_style_line(style), subject_desc=desc)
 
 
 # ==============================================================================
