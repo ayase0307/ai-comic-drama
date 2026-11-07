@@ -108,6 +108,13 @@ KNOWN_DECISIONS: Dict[str, Dict[str, Any]] = {
     # 本地沒有字元上限；官方 tokenizer model_max_length 262144 token，超過才 W11（可能超過文字編碼器長度；tooling.md §2.3.4）。
     "submit_endpoint": {"label": "送件端（local 家機本地預設／hosted 平台 API，只有 hosted 有 7000 字元上限）",
                         "stages": [5, 6], "required_by": 99, "reference": "references/tooling.md"},
+    # 選填：改編政策（P2-5，導演大師對照）。預設（沒定案）＝dialogue-first 現狀：原著對白全保留＋
+    # 事件交代不打折。faithful＝與預設同一套門檻（明示記帳）；extract＝壓到單集目標秒數、G1 覆蓋率
+    # 門檻放寬到 0.50（刪句列清單記帳）——只有 series_format=short 可定案（decide 當下擋）；
+    # shell＝場面可換、人物關係與轉折保留、對白仍原文（G1 照舊）。規則細節見 scripts/adapt/adapt_policy.py。
+    "adapt_policy": {"label": "改編政策（faithful 忠實／extract 抽核［僅短劇］／shell 借殼；預設 dialogue-first）",
+                     "stages": [1, 3], "required_by": 99,
+                     "reference": "references/adapt/adaptation-principles.md"},
 }
 
 VIDEO_BACKENDS = ("ref2va", "remix")
@@ -121,6 +128,8 @@ REMIX_MAX_REFMODS = 8
 # REMIX 送件模式（PR-R7）：與 providers/remix.json 的 modes.value 一致；tests/test_remix_backend.py 對帳。
 REMIX_MODES = ("draft", "refine", "long", "pika480", "pika768", "pika1440", "pikaff480", "pikaff768")
 DEFAULT_REMIX_MODE = "pika768"
+# 改編政策（P2-5）：與 scripts/adapt/adapt_policy.py 的 POLICIES 一致（tests/test_adapt_policy.py 對帳）。
+ADAPT_POLICIES = ("faithful", "extract", "shell")
 
 # 交付範圍：只寫需要的 key；沒定案＝全流程（end_stage 7、要圖要影片）。
 # 文字草稿可交付：script-only（終點 3）、storyboard-only（終點 4）、prompts-only（終點 5）。
@@ -446,6 +455,8 @@ def value_warnings(decision_id: str, value: Any) -> List[str]:
                        "台詞政策已固定為「原著對白優先」，通常不需定案")
     if decision_id == "remix_mode" and isinstance(value, str) and value.strip() not in REMIX_MODES:
         out.append(f"remix_mode 值 {value!r} 不是 REMIX 認得的模式（{'／'.join(REMIX_MODES)}）；送件端會回退預設 {DEFAULT_REMIX_MODE}")
+    if decision_id == "adapt_policy" and isinstance(value, str) and value.strip().lower() not in ADAPT_POLICIES:
+        out.append(f"adapt_policy 值 {value!r} 不是 {'／'.join(ADAPT_POLICIES)}；門禁會當成沒定案（dialogue-first 現狀）")
     return out
 
 
@@ -465,6 +476,9 @@ def parse_value(decision_id: str, raw: str) -> Any:
         text = raw.strip().lower()
         return {"草稿": "pika480", "抽卡": "pika480", "定稿": "pika768", "高清": "pika1440",
                 "1440": "pika1440", "首幀": "pikaff768", "首帧": "pikaff768"}.get(text, text)
+    if decision_id == "adapt_policy":
+        text = raw.strip().lower()
+        return {"忠實": "faithful", "忠实": "faithful", "抽核": "extract", "借殼": "shell", "借壳": "shell"}.get(text, text)
     if decision_id == "submit_endpoint":
         text = raw.strip().lower()
         return {"本地": "local", "本機": "local", "家機": "local", "comfyui": "local", "freevideo": "local",
@@ -554,6 +568,22 @@ def decide(root: Path, decision_id: str, raw_value: str, quote: str, *,
     if not quote or not quote.strip():
         raise DecisionError("必須用 --quote 附上使用者原話；沒有原話就不是定案")
     value = parse_value(decision_id, raw_value)
+    if decision_id == "adapt_policy" and str(value).strip().lower() == "extract":
+        # P2-5：抽核（壓到單集目標秒數）只有短劇模式可用；長篇的事件交代不打折是根契約。
+        fmt = None
+        try:
+            adapt_dir = Path(__file__).resolve().parent / "adapt"
+            if str(adapt_dir) not in sys.path:
+                sys.path.insert(0, str(adapt_dir))
+            from series_format import project_format
+            fmt = project_format(root)
+        except Exception:  # 讀不到成片形式時照樣擋：extract 的前提是「有單集目標可壓」
+            fmt = None
+        if fmt != "short":
+            raise DecisionError(
+                "adapt_policy=extract（抽核）只有短劇模式（series_format=short）可用；"
+                "長篇漫劇的事件交代不打折是本技能的根契約。要壓縮請先 `h3d decide series_format short`，"
+                "或改用 faithful／shell。")
     known = KNOWN_DECISIONS.get(decision_id)
     if decision_id.startswith(VOICE_PREFIX):
         if by != "user":

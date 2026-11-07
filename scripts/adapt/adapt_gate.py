@@ -40,6 +40,7 @@ from dialogue_budget import (  # noqa: E402
     SPACE_WORDS, TIME_WORDS, VO_MAX_SHARE, Script, parse_script, split_episodes, scene_stats, speech_chars,
 )
 import action_marks  # noqa: E402  （dialogue_budget 已把 scripts/storyboard 加進 sys.path）
+import adapt_policy as adapt_policy_mod  # noqa: E402  （P2-5：改編政策；別名避免與 run_gate 參數同名）
 
 QUOTE_RE = re.compile(r"「([^「」]+)」")
 COVERAGE_MIN_RATIO = 0.85  # 允許脫水（拆句、去語助詞），不允許刪句
@@ -256,7 +257,7 @@ def action_beat_warnings(script: Script, novel_text: Optional[str]) -> List[str]
     return found
 
 
-def coverage(quotes: List[str], script: Script) -> Dict[str, object]:
+def coverage(quotes: List[str], script: Script, floor: float = COVERAGE_MIN_RATIO) -> Dict[str, object]:
     stream = normalize("".join(ln.text for s in script.scenes for ln in s.dialogue if not ln.invented))
     missing = []
     for q in quotes:
@@ -265,7 +266,7 @@ def coverage(quotes: List[str], script: Script) -> Dict[str, object]:
             continue
         sm = SequenceMatcher(None, nq, stream, autojunk=False)
         got = sum(b.size for b in sm.get_matching_blocks())
-        if got / len(nq) < COVERAGE_MIN_RATIO:
+        if got / len(nq) < floor:
             missing.append(q)
     total = len(quotes)
     return {"total": total, "covered": total - len(missing), "missing": missing,
@@ -277,20 +278,33 @@ def safety_hits(text: str) -> List[str]:
 
 
 def run_gate(script_text: str, novel_text: Optional[str] = None, quotes: Optional[List[str]] = None,
-             male_leads: List[str] = (), target_seconds: Optional[float] = None) -> Dict[str, object]:
+             male_leads: List[str] = (), target_seconds: Optional[float] = None,
+             adapt_policy: Optional[str] = None) -> Dict[str, object]:
     sc = parse_script(script_text, male_leads)
     st = scene_stats(sc.scenes)
     fails: List[str] = []
     warns: List[str] = []
 
+    # P2-5：改編政策（faithful／extract／shell；沒定案＝dialogue-first 現狀）。
+    policy = adapt_policy_mod.normalize_policy(adapt_policy)
     skipped_terms: List[str] = []
     if quotes is None and novel_text is not None:
         quotes = source_quotes(novel_text, skipped_terms)
-    cov = coverage(quotes, sc) if quotes is not None else None
+    cov = coverage(quotes, sc, floor=adapt_policy_mod.coverage_floor(policy)) if quotes is not None else None
     if cov is None:
         fails.append("G1 未提供原著段落／台詞清單，無法核對對白覆蓋（--source-text 或 --source-quotes）")
     elif cov["missing"]:
-        fails.append(f"G1 原著對白覆蓋 {cov['covered']}/{cov['total']}，缺：" + "｜".join(cov["missing"][:5]))
+        if policy == "extract":
+            if cov["ratio"] < adapt_policy_mod.EXTRACT_COVERAGE_MIN:
+                fails.append(
+                    f"G1[extract] 原著對白覆蓋 {cov['covered']}/{cov['total']} 低於抽核下限 "
+                    f"{adapt_policy_mod.EXTRACT_COVERAGE_MIN}；抽核保留關鍵對白與轉折，刪到一半以下就不是抽核了")
+            else:
+                warns.append(
+                    "G1[extract] 抽核刪句記帳（留下的對白仍照抄原文；缺的這些要能說明「不推動這一集的情節」）："
+                    + "｜".join(cov["missing"][:5]))
+        else:
+            fails.append(f"G1 原著對白覆蓋 {cov['covered']}/{cov['total']}，缺：" + "｜".join(cov["missing"][:5]))
 
     notes: List[str] = []
     if skipped_terms:
@@ -372,6 +386,7 @@ def run_gate(script_text: str, novel_text: Optional[str] = None, quotes: Optiona
     return {"status": "FAIL" if fails else ("WARN" if warns else "PASS"), "fails": fails, "warns": warns,
             "notes": notes,
             "stats": st, "breaks": sc.breaks, "length_info": info, "coverage": cov, "sources": sc.sources,
+            "adapt_policy": policy or "dialogue-first（預設）",
             "invented": [ln.raw for s in sc.scenes for ln in s.dialogue if ln.invented]}
 
 
@@ -382,11 +397,18 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--source-quotes", help="JSON 陣列：抽好的原著台詞")
     ap.add_argument("--male-lead", action="append", default=[])
     ap.add_argument("--target-seconds", type=float, default=None, help="參考秒數，只回報不擋")
+    ap.add_argument("--adapt-policy", default=None,
+                    help="改編政策（P2-5）：faithful／extract／shell；省略時自動讀專案 decisions.json 的 "
+                         "adapt_policy，再沒有就是 dialogue-first 現狀（對白全保留）")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
     novel = Path(a.source_text).read_text(encoding="utf-8") if a.source_text else None
     quotes = json.loads(Path(a.source_quotes).read_text(encoding="utf-8")) if a.source_quotes else None
-    res = run_gate(Path(a.script).read_text(encoding="utf-8"), novel, quotes, a.male_lead, a.target_seconds)
+    policy = adapt_policy_mod.normalize_policy(a.adapt_policy)
+    if policy is None and not a.adapt_policy:
+        policy = adapt_policy_mod.policy_from_script_path(Path(a.script))
+    res = run_gate(Path(a.script).read_text(encoding="utf-8"), novel, quotes, a.male_lead, a.target_seconds,
+                   adapt_policy=policy)
     if a.json:
         print(json.dumps(res, ensure_ascii=False, indent=2))
     else:
