@@ -318,6 +318,7 @@ def validate_storyboard_data(data: dict, original_script_dialogues: list = None,
     warnings += lint_segment_moves(shots)  # PR-14c 運鏡導演助手（warning）
     warnings += lint_director(shots)  # PR-15c 導演層 lint（warning）
     warnings += shot_size_rhythm_warnings(shots)  # P1-5 景別節奏（11-03 噩盡島 #5，warning）
+    warnings += camera_angle_variety_warnings(shots)  # Eian 對照：正面平視配額（warning）
     warnings += background_anchor_warnings(shots)  # P1-7 檢查片（11-03 噩盡島 #5b，warning）
 
     # Check 1b: H3 取整後的切點可行性（與 audit_refs_and_segments E4、編譯器同一組常數 h3_spec.MIN_SHOT_SEC／
@@ -686,6 +687,21 @@ def shot_size_rhythm_warnings(shots: list) -> list:
             "換景別或切反應鏡，避免觀眾疲勞（噩盡島 11-03 #5）。")
     if len(shots) >= 6 and not any(_shot_size_tier(s) == "WIDE" for s in shots):
         warnings.append("[W:R2 無遠景] 本段 ≥6 鏡完全沒有 ELS/LS 遠景；空間關係與環境缺一鏡交代，考慮加一鏡建立鏡。")
+    return warnings
+
+
+# Eian 文章對照（2026-11-05）：每鏡換角度——機位越多畫面越豐富。文章原規則是短片
+# 「全片平視正面最多兩次」；長篇按段套用：同段 ≥3 鏡都是 objective（正面平視客觀機位）就警告。
+def camera_angle_variety_warnings(shots: list) -> list:
+    warnings: list = []
+    frontal = [s for s in shots
+               if str(((s.get("camera_optics") or {}).get("pov_routing")) or "").strip() == "objective"]
+    if len(frontal) >= 3:
+        ids = "、".join(str(s.get("shot_id") or "?") for s in frontal)
+        warnings.append(
+            f"[W:R3 正面平視過量] 本段 {len(frontal)} 鏡都是 objective（正面平視客觀機位）：{ids}；"
+            "換俯拍、仰拍、從背後、過肩或透過東西拍（camera_optics.pov_routing），"
+            "機位越多畫面越豐富（Eian 2026-11-05：短片全片平視正面最多兩次，長篇按段套用）。")
     return warnings
 
 
