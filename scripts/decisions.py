@@ -376,6 +376,18 @@ def style_anchor(root: Optional[Path]) -> Optional[str]:
     return value.strip() if isinstance(value, str) and value.strip() else None
 
 
+def style_lock_tail(root: Optional[Path]) -> Optional[str]:
+    """使用者定案的結尾風格鎖句（R09：每段 REMIX 提示詞結尾逐字附上）；沒定案回 None。"""
+    if root is None:
+        return None
+    try:
+        item = get(load(Path(root)), "style_lock_tail")
+    except DecisionError:
+        return None
+    value = (item or {}).get("value")
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
 def auto_approve_stages(data: Dict[str, Any]) -> Tuple[List[int], Optional[Dict[str, Any]]]:
     """回傳 (使用者授權自動核准的階段, 該條定案)。沒有定案回傳 ([], None)。"""
     item = get(data, "auto_approve")

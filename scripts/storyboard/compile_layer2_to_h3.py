@@ -1904,6 +1904,30 @@ def remix_style_anchor(layer2_data: Dict[str, Any], registry: "AssetRegistry") -
     return anchor
 
 
+def remix_style_lock_tail(layer2_data: Dict[str, Any], registry: "AssetRegistry") -> Tuple[str, str]:
+    """REMIX 結尾風格鎖（R09）：Layer 2 metadata.style_lock_tail_en > 定案 style_lock_tail > 預設 Style lock 句。
+
+    定案 style_lock_tail＝使用者要求「每段提示詞結尾逐字附上」的錨句（`h3d decide`）；
+    回傳 (尾錨, 附註)。中文值改用預設句並附註（REMIX 提示詞只放英文）。
+    """
+    meta = layer2_data.get("metadata") or {}
+    tail = _clean(meta.get("style_lock_tail_en"))
+    note = ""
+    if not tail:
+        try:
+            sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+            import decisions as _decisions_mod
+            tail = _clean(_decisions_mod.style_lock_tail(registry.project_root))
+        except ImportError:  # pragma: no cover
+            tail = ""
+    if not tail:
+        tail = REMIX_STYLE_LOCK_DEFAULT
+    if CJK_RE.search(tail):
+        tail = REMIX_STYLE_LOCK_DEFAULT
+        note = "style_lock_tail 是中文，改用預設 Style lock 句"
+    return tail, note
+
+
 # ==============================================================================
 # P1-1 第二片：Base 三字段編譯分流（t2v／i2v／fl2v；導演大師對照 2026-11-07）
 # ==============================================================================
@@ -2643,10 +2667,9 @@ def compile_segment_h3_base(
         remix_header = f"The whole clip is {aspect}, lit by {lighting_line_clean}."
         if metadata.get("palette_preset"):
             remix_header += f" Color palette: {metadata['palette_preset']}."
-        style_tail = _clean(metadata.get("style_lock_tail_en")) or REMIX_STYLE_LOCK_DEFAULT
-        if CJK_RE.search(style_tail):
-            notes.append("metadata.style_lock_tail_en 是中文，改用預設 Style lock 句")
-            style_tail = REMIX_STYLE_LOCK_DEFAULT
+        style_tail, style_tail_note = remix_style_lock_tail(layer2_data, registry)
+        if style_tail_note:
+            notes.append(style_tail_note)
         remix_notext = bool(no_lettering and not metadata.get("allow_lettering"))
         tail_text = style_tail + (continuity_lint.NO_LETTERING_SENTENCE if remix_notext else "")
         integrated = " ".join([anchor.rstrip(), remix_header] + det_lines[1:] + [tail_text.strip()])
@@ -4207,10 +4230,9 @@ def compile_segment_h3(
         remix_header = f"The whole clip is {aspect}, lit by {lighting_line_clean}."
         if metadata.get("palette_preset"):
             remix_header += f" Color palette: {metadata['palette_preset']}."
-        style_tail = _clean(metadata.get("style_lock_tail_en")) or REMIX_STYLE_LOCK_DEFAULT
-        if CJK_RE.search(style_tail):
-            notes.append("metadata.style_lock_tail_en 是中文，改用預設 Style lock 句")
-            style_tail = REMIX_STYLE_LOCK_DEFAULT
+        style_tail, style_tail_note = remix_style_lock_tail(layer2_data, registry)
+        if style_tail_note:
+            notes.append(style_tail_note)
         remix_notext = bool(no_lettering and not metadata.get("allow_lettering"))
         tail_text = style_tail + (continuity_lint.NO_LETTERING_SENTENCE if remix_notext else "")
         integrated = " ".join([anchor.rstrip(), remix_header] + det_lines[1:] + [tail_text.strip()])
