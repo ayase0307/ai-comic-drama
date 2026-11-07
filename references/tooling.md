@@ -118,6 +118,7 @@ python scripts/h3d.py deps --root . --status --strict
 - W53（只警告，11-03 噩盡島 #4）：同鏡同時出現「嘴唇張開」與「lips remain closed」。兩個不同人各說各話是合法的（說話者張嘴、其他人閉嘴），同一個人又張又閉才是衝突；列出兩句讓審查者逐句確認主體。
 - W41–W45（只警告，D40–D46，來源 Foyege、H3 0 實測）：W41 台詞鏡視線沒寫螢幕方向（和 `h3d staging` D07 共用 `staging_lint.find_gaze`：沒有視線句只由 D07 報）、W42 `subject_definitions` 寫位置或姿態、W43 寫實畫風全身／遠景寫毛孔（定版皮膚段豁免）、W44 Performance 只有情緒詞或 AU 代碼、W45 中段鏡重列全場世界站位（`left to right` 名單不算）。
 - 處置：回 Layer 2 的 `five_part_en` 逐鏡改稿再編譯。不准改檢查器門檻、不准手改 segments 過關。規範見 `references/prompt-authoring.md`。
+- **送件前逐句核對（Eian 2026-11-05 對照）**：文字檢查抓不到「寫得具體但和構圖圖不一致」。送件前跑 `python scripts/storyboard/prompt_sketch_audit.py --root <專案> [--episode EP01]` 產生「提示詞 ↔ 構圖圖」逐句核對清單（`review/prompt-sketch-audit-<EP>.md`，八項：位置／左右／人數／道具／服裝／表情／光影／動線），agent 逐項看圖勾選；只產清單不擋關。規範見 `references/prompt-authoring.md` §送件前逐句核對。
 
 ### (h) 鏡頭意圖（shot_intent／choice_why，I01–I06）
 
@@ -125,9 +126,13 @@ Layer 2 每鏡新增必填欄位 `shot_intent`（audience、story_beat、pov、e
 
 **景別節奏（W:R1／W:R2，只警告，11-03 噩盡島 #5）**：`validate_storyboard` 另跑 `shot_size_rhythm_warnings`——同一主體連續 ≥3 鏡同一景別級（CU/ECU 算一級）出 **W:R1**（換景別或切反應鏡）；≥6 鏡的段完全沒有 ELS/LS 出 **W:R2**（空間交代缺建立鏡）。
 
+**正面平視配額（W:R3，只警告，Eian 2026-11-05 對照）**：`camera_angle_variety_warnings`——同段 ≥3 鏡 `camera_optics.pov_routing=objective`（正面平視客觀機位）出 **W:R3**，提醒換俯拍、仰拍、從背後、過肩或透過東西拍。文章原規則是短片「全片平視正面最多兩次」；長篇按段套用，機位越多畫面越豐富。
+
 **背景錨（W:B1，只警告，11-03 噩盡島 #5b）**：CU／MCU／ECU／OTS 鏡的 `spatial_blocking.anchor_objects` 為空出 **W:B1**——H3 可能拿角色設定圖的純灰底當背景；在 anchor_objects 寫背景看得到的東西（牆面、窗格、地平線、桌面器物），編譯器才帶得進 Light／Performance。
 
 **段級生成方式（`metadata.generation_mode`，P1-1 導演大師對照）**：`t2v／i2v／fl2v／r2v`，預設 `r2v`（參考生，唯一實測路線）。validate 驗枚舉與幀來源（i2v 要第 1 鏡 `sketch_file`、fl2v 要首尾鏡都有；t2v 掛 character_ids 出 W:G1）。**P1-1 第二片已實作 Base 三字段分流**：非 r2v 段由 `compile_segment_h3_base` 產官方 Base 結構（對齊指令 instruction＋`integrated_multimodal_description`（風格句＋逐鏈 beats）＋`overall_soundscape`＋`non_diegetic_music`，**沒有** subject_definitions／summary／retention_analysis，也不掛任何參考素材）；i2v/fl2v 的幀來源記在 `metadata.frame_sources`（缺圖 compile 直接擋）。送件端：FreeVideo 走 `media.first`／`media.last`（官方 schema 與 references 互斥）、REMIX i2v 自動改走 pikaff 模式帶 `first_frame`、**fl2v 僅 FreeVideo**（REMIX pikaff 沒有尾幀欄位）。W:G2 提醒非 r2v 路線本機實測仍以 r2v 為主。
+
+**fl2v 首尾幀疊圖檢查（Eian 2026-11-05 對照）**：fl2v 段送件前跑 `python scripts/storyboard/frame_pair_qa.py <首幀> <尾幀> [--grid 8x5] [--json]`——全圖與每格平均 dE76、差異最大格子。「不該變的區域」出現高差＝疊圖錯位（牆的顏色不一樣→影片裡牆慢慢變色；杯子大了一點→慢慢變大）；變化大的格子應對應分鏡寫的動作。**推近（dolly in）鏡的尾幀＝首幀裁一塊放大**：首尾構圖完全一樣＝鏡頭等於沒動，裁切放大才推得動。只量化不擋關，判讀在人。幀面檢查清單（反應提前擺好、留動作空間、風向統一、縮小看、放大看多餘物）由 `prompt_sketch_audit.py` 對 fl2v 段自動附上。
 
 **骨架與構圖的 ID／比例**：
 - `handoff_to_skeleton.py handoff-epXX.json --out-dir layer2 [--bible adapt/bible.json]`：用聖經的 `canonical_name`／`name`／`aliases`（及 ID 本身）把 handoff 的中文名對到聖經 ID（`C-`／`S-`／`P-`）；沒給 `--bible` 時自動找 `<handoff 所在目錄>/adapt/bible.json`，`--bible none` 關閉。查不到的名稱退回雜湊 ID 並逐一警告——不補 `aliases` 的話 `h3d bind` 會判成「未在 bible.json 登記」。

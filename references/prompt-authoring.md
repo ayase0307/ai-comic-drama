@@ -77,6 +77,44 @@ H3 是 24 fps 原生，慢動作感來自「動作只佔鏡頭的一小段」：
 
 已經產出的片子有定住、蓄力、飄浮的問題，先用後製變速（`h3d motion` → `h3d ramp`），不用整段重跑。
 
+## 群戲反應鏡：先後序與首幀姿勢（Eian 2026-11-05 對照）
+
+多人同框的反應鏡最容易「所有人同一秒一起動」——模型把同一姿勢的群眾當成同步開關。寫法：
+
+| 要點 | 寫法 |
+|---|---|
+| **反應要有先後** | Motion 用時間點排順序：`the innkeeper freezes first, a beat later the maid steps back, the child last`；不准寫 everyone simultaneously／all at once。 |
+| **首幀姿勢錯開** | 構圖圖裡就不要擺同一姿勢（有人舉杯、有人轉頭、有人後縮）；同一姿勢＝模型讓所有人同時動。這是階段 4 構圖的責任，提示詞端照圖寫。 |
+| **身體反應要真** | 吃驚是身體先動：`recoils half a step before his face changes`；不要只寫表情形容詞。 |
+| **外力做的事，手沒碰** | 該風／水流做的事寫明手沒碰：`the wind lifts the tarp; his hands never touch it`（不寫這句，模型會讓人自己動手）。 |
+| **雲、火、霧不要給臉** | 不寫卡通雲／擬人火；寫材質與運動：`billowing grey-white cumulus with cotton texture only, drifting right`。 |
+
+站位與左右仍照 `h3d staging` D08（`From left to right: …`）；本節只管「誰先動、怎麼動」。
+
+## 提示詞端修法對照（Eian 2026-11-05 錯誤表節錄）
+
+文章的「模型易犯的錯 → 有用寫法」表，只收本 repo 尚未成文的行；已涵蓋的不重複（同時動作見上節、否定失效見 `continuity-ledger.md` §5、憑空出現見 `h3d refcheck`／包母片、嘴動見 E25／W53、段內越來越暗見 `color_jump` QA）。來源是 Seedance 實操經驗，H3 對應欄標註本 repo 的等價機制：
+
+| 模型易犯的錯 | 提示詞端寫法 | 本 repo 對應 |
+|---|---|---|
+| 東西的數量中途變了 | 數量直接寫死，並寫轉換：`only one yellow envelope in his hand; afterwards his arms are full of white ones` | 送件前核對「道具」項 |
+| 一句話兩種意思（「窗戶後面的老人」→車裡冒出人） | 位置寫具體＋把不要的讀法正面排除：`the old man in the window of the stone house at the upper left; the driver's seat stays empty` | `h3d staging` D08 左右、核對「位置」項 |
+| 模型自己聯想道具用法（壺總是被倒水） | 乾脆不讓該道具出現在有動作的鏡；要留就寫 `the kettle stays cold on the stove, untouched` | 道具 `absent_objects`（v118 SB-6） |
+| 閃電畫得太寫實（整段天打雷） | 寫 `a brief white flicker inside the clouds`，後期把開頭幾幀剪掉 | 打擊四件套（playbook §3.1 閃白） |
+| 鏡頭推近沒有寫的那麼明顯 | fl2v：尾幀＝首幀裁一塊放大（`tooling.md` §2.3.2）；r2v：後期再推一點（playbook §3.3 Ken Burns） | `frame_pair_qa.py`、playbook §3.3 |
+| 結尾幾幀突然跳回尾幀的樣子 | 後期選一張沒問題的畫面，結尾都停在那張（凍結） | 交界 QA「一側靜止候選」 |
+| 第一幀特別銳、和後面不接 | 直接把第一張剪掉再接 | Base i2v 首幀對齊指令（`at 0.00 seconds`） |
+
+## 送件前逐句核對：提示詞 ↔ 構圖圖（Eian 2026-11-05 對照）
+
+文字檢查（E30–E40、W 系列）只看提示詞本身，抓不到「寫得具體但和圖不一致」。送件前把提示詞的每句話和構圖圖**放大**核對——實測能查出「杯子差 13%、帽檐一張有一張沒有、左右寫反」這類錯，是低抽卡率的主要來源。
+
+```
+python scripts/storyboard/prompt_sketch_audit.py --root <專案> [--episode EP01]
+```
+
+產出 `review/prompt-sketch-audit-<EP>.md`：逐鏡列構圖圖路徑與八項核對（位置、左右、人數、道具、服裝、表情、光影、動線）。agent 逐項看圖勾選；發現不符 → 回 Layer 2 改句或重出構圖，改完重跑。只產清單、不擋關。REMIX 段同時看「包母片裡不該在場的物件」（包壓過提示詞，見 `references/remix-draft-loop.md`）；fl2v 段先跑 `frame_pair_qa.py` 疊圖檢查（`references/tooling.md` §2.3.2）。
+
 ## 四、怎麼寫：逐鏡作業流程
 
 **不准寫程式產生五小節內容。** 腳本可以搬運、編譯、檢查，但每鏡五節的文字必須是 agent 讀完這一鏡的資料後自己寫的。

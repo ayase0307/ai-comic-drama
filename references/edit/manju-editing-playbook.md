@@ -95,6 +95,7 @@ ffmpeg -y -i ep.mp4 -vf "trim=0:END,setpts=PTS-STARTPTS,tpad=stop_mode=add:stop_
 | 匹配剪輯 | 匹配剪辑（匹配剪輯） | 形狀／動作相似的跨場景 | 0.4 s＋5% 模糊（S18） | S11、S18 |
 | J-cut／L-cut | 拖音訊軌前後多出一截 | 聲音先到／聲音延續；零成本高級感 | — | S11 |
 | Zoom／Shake 類 | CapCut：Zoom Shake 2、Blur & Zoom、Tremble Zoom | 能量轉場 | 8–20 影格（CapCut 官方建議） | S10 |
+| 運動模糊蓋屏轉場（代碼） | — | 用前景物／動作「蓋屏或帶過去」：把轉場段切成 8–16 份、每份帶半幀快門的運動模糊再連播（ffmpeg 實作推論，可用 `minterpolate`／`tblend` 起步） | 創意轉場配額內（§2.2：最多一次、有理由） | Eian 2026-11-05 |
 
 ### 2.2 何時不用
 
@@ -375,6 +376,8 @@ alpha='min(1,max(0,(t-0.25)/0.2))',format=yuv420p" -c:v libx264 -preset veryfast
 | 夜戲 | 降亮度與飽和、陰影偏藍、留一個暖光源、暗角（推論） | 调节＋暗角（暗角） | 亮度 −5～−10、飽和 −20～−30%、陰影藍 +10（推論） | 推論 |
 | 回憶／閃回 | 轉入用疊化；畫面去飽和／棕褐＋暗角＋顆粒＋輕柔焦（推論） | 叠化＋滤镜「复古」系 | 去飽和 50–100%、顆粒輕；**整段回憶同一套，回到現在要切回** | S11（疊化）、推論（色調） |
 | 色彩空間 | 後製與輸出維持 Rec.709 SDR、yuv420p（推論；平台皆以 SDR 為主） | — | — | 推論 |
+| 分段調色（Eian 對照） | 按故事分段調，不整集一把梭；**只調彩度與亮度、不動色相**；強調色受保護、膚色不動；寫實基底不加顆粒／柔光／暗角 | — | — | Eian 2026-11-05（與 S11「寧輕勿重」一致） |
+| 段內漂移回收 | 生成段越到後面越暗／越冷時，以**該段自己的首幀**為基準把顏色調回（eq 微調），不整段重抽 | 调节（調節） | 單項 ±10 內 | Eian 2026-11-05；本 repo `color_jump` QA 對應 |
 
 ```bash
 # 統一 LUT 40% 混合（lut3d + blend）
@@ -521,6 +524,7 @@ measured_thresh=<th>:offset=<off>:linear=true,aresample=48000" -c:a pcm_s24le mi
 
 **採用值（推論，一檔走多平台）**：1080×1920、與素材同影格率（AI 片多為 24 fps，不要硬轉 30；平台要求 30 時用 `fps=30` 重複影格）、H.264 High、CRF 18＋`maxrate 12M`、AAC 192 kbps 48 kHz 立體聲、`+faststart`。紅果送件時若後台要求 30 fps 再轉。
 不要上採樣：素材 720p 就先超分再出 1080（S12 提及剪映超清畫質；本手冊不展開）。檔名 `劇名_EP01_v2.mp4` 便於批次排序（S38）。
+真要 720p→1080p 時（Eian 2026-11-05 對照）：lanczos 放大＋輕微 `unsharp` 銳化；**不整段插幀**——AI 補幀會把快速動作糊掉，寧可保留原生 24 fps 節奏。
 
 ```bash
 ffmpeg -y -i master.mov -vf "scale=1080:1920:flags=lanczos,format=yuv420p" \
@@ -528,6 +532,12 @@ ffmpeg -y -i master.mov -vf "scale=1080:1920:flags=lanczos,format=yuv420p" \
  -c:a aac -b:a 192k -ar 48000 -ac 2 -movflags +faststart EP01_final.mp4
 # 驗收：ffprobe 看 1080x1920 / h264 / 48000；時長與母帶差 ≤ 1 影格（見 ffmpeg skill「Verify Before Delivering」）
 ```
+
+**色彩空間紀律（BT.709，Eian 2026-11-05 對照＋本機實測）**：生成片段的色彩矩陣標記不一——本機 H3（FreeVideo）輸出實測為 `color_space/transfer/primaries＝bt709、range＝tv、yuv420p`（2026-11-07 ffprobe，《噩盡島》moss EP01 三段全同）；社群回報 Seedance mp4 會被按 BT.601 解碼。ffmpeg 濾鏡鏈一旦進出 yuv↔rgb，矩陣標記可能被吃掉或重複轉換，交付就偏色。紀律：
+
+1. 中間處理盡量留在 yuv420p，避免反覆 `format` 轉換；需要 rgb 的濾鏡（字幕、疊加、濾鏡）集中在最後一次。
+2. 交付前明確標記 SDR BT.709：`-colorspace bt709 -color_primaries bt709 -color_trc bt709 -color_range tv`。
+3. 交付驗收加一條：`ffprobe -v error -select_streams v:0 -show_entries stream=color_space,color_transfer,color_primaries,color_range` 應全 `bt709`／`tv`。
 
 ---
 

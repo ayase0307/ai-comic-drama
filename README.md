@@ -449,6 +449,7 @@ ai-comic-drama/
 | [`references/skill-guide.md`](references/skill-guide.md) | 核心原則、八階段與審核頁對照、完整腳本清單 |
 | [`references/pipeline.md`](references/pipeline.md) | 各階段詳細流程、台詞優先改編（不詢問）、體量反推公式、聲音三層決策 |
 | [`references/review-page-spec.md`](references/review-page-spec.md) | 決策收件匣規格（含八階段閱讀視圖的六區塊格式） |
+| [`references/blind-review.md`](references/blind-review.md) | 盲審：只給材料不給結論（階段 3／7；`scripts/build_blind_review.py`） |
 | [`references/prompt-authoring.md`](references/prompt-authoring.md) | 逐鏡撰寫規範（E30–E38、W41–W45） |
 | [`references/adapt/novel-to-manju.md`](references/adapt/novel-to-manju.md) | 小說改編總規範 |
 | [`references/storyboard/cinematic-director.md`](references/storyboard/cinematic-director.md) | 導演分鏡總規範與 Layer 2 |
@@ -456,6 +457,7 @@ ai-comic-drama/
 | [`references/storyboard/continuity-ledger.md`](references/storyboard/continuity-ledger.md) | 人物賬、站位、正反打、段縫末態 |
 | [`references/storyboard/spatial-consistency.md`](references/storyboard/spatial-consistency.md) | 場景母片、牆面分配層、構圖板店感鎖、白模分工三檔 |
 | [`references/camera-moves-guide.md`](references/camera-moves-guide.md) | 依 beat 情緒選運鏡預設 |
+| [`references/h3/camera-moves-handbook.md`](references/h3/camera-moves-handbook.md) | 上游運鏡手冊：17 式＋Loop Forge 6 式（Colab 實測標註） |
 | [`references/consistency.md`](references/consistency.md) | 資產 ID、參考鏈、防角色平均化 |
 | [`references/styles.md`](references/styles.md) | 風格鎖定錨與樣圖 |
 | [`references/minimax-h3.md`](references/minimax-h3.md)・[`references/h3/`](references/h3/) | MiniMax H3 專章與細部參考 |
