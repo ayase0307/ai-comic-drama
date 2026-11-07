@@ -25,6 +25,7 @@ import audit_refs_and_segments as audit  # noqa: E402
 import compile_layer2_to_h3 as compiler  # noqa: E402
 import decisions  # noqa: E402
 import generate_bindings as gb  # noqa: E402
+import prompt_authoring as pa  # noqa: E402
 
 TAIL = ("Semi-realistic 3D anime CG with a painted finish, matte poreless skin with a soft translucent glow, "
         "narrow elongated almond eyes, adult proportions, warm amber and honey high-key grade, tropical "
@@ -105,6 +106,25 @@ class StyleLockTailTests(unittest.TestCase):
         body = self.body(seg)
         self.assertIn("Segment-level style lock sentence.", body)
         self.assertNotIn("painterly concept-art", body)
+
+    def test_metadata_records_resolved_tail(self):
+        decisions.decide(self.root, "style_lock_tail", TAIL, "每段提示詞結尾都要附這句風格錨（逐字）", stages=[5, 6])
+        seg = self.compile()
+        self.assertEqual(seg["metadata"]["style_lock_tail_en"], TAIL)
+
+    def test_cross_segment_e33_ignores_decision_tail(self):
+        # R09 尾錨是編譯器固定句：同句出現在全部段不算 E33 跨段套句
+        decisions.decide(self.root, "style_lock_tail", TAIL, "每段提示詞結尾都要附這句風格錨（逐字）", stages=[5, 6])
+        seg = self.compile()
+        batch = []
+        for i in range(1, 6):
+            clone = json.loads(json.dumps(seg, ensure_ascii=False))
+            clone["segment_id"] = f"EP04-S02-{chr(96 + i)}"
+            batch.append(clone)
+        result = pa.audit_segments(batch)
+        # 複製段的其他作者句重複是預期的 E33；但尾錨（定案句）不得被抓
+        tail_hits = [e for e in result["errors"] if "E33" in e and "anime cg with a painted finish" in e]
+        self.assertEqual(tail_hits, [], f"E33 誤判尾錨：{tail_hits}")
 
     def test_chinese_decision_falls_back_to_default_with_note(self):
         decisions.decide(self.root, "style_lock_tail", "每段結尾都要霧面厚塗", "中文定案", stages=[5, 6])

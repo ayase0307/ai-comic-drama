@@ -2765,7 +2765,8 @@ def compile_segment_h3_base(
         "compile_notes": notes,
     }
     if remix:
-        result["metadata"].update({"video_backend": "remix", "style_anchor_en": anchor})
+        result["metadata"].update({"video_backend": "remix", "style_anchor_en": anchor,
+                                     "style_lock_tail_en": style_tail})
     return result
 
 
@@ -4338,7 +4339,8 @@ def compile_segment_h3(
         "compile_notes": notes + [f"參考圖不存在: {p}" for p in missing],
     }
     if remix:
-        result["metadata"].update({"video_backend": "remix", "style_anchor_en": anchor})
+        result["metadata"].update({"video_backend": "remix", "style_anchor_en": anchor,
+                                     "style_lock_tail_en": style_tail})
         result["reference_images"] = []
         result["refmods"] = remix_mods
         for key in ("pack_waivers", "positions"):

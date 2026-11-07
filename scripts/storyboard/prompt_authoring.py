@@ -451,7 +451,7 @@ def _visible_mouth_dialogue(authored: Dict[str, Any]) -> bool:
 
 
 def audit_segment(prompt: str, authored_shots: Optional[Sequence[Dict[str, Any]]] = None,
-                  segment_id: str = "") -> Dict[str, Any]:
+                  segment_id: str = "", style_lock_tail: str = "") -> Dict[str, Any]:
     """單段檢查：E30–E37。"""
     errors: List[str] = []
     warnings: List[str] = []
@@ -556,6 +556,9 @@ def audit_segment(prompt: str, authored_shots: Optional[Sequence[Dict[str, Any]]
             if _is_boilerplate(s):
                 continue
             key = _normalize(s)
+            # 編譯器解析的結尾風格鎖（R09，metadata.style_lock_tail_en）是固定句，不算套句（E33）
+            if style_lock_tail and key == _normalize(style_lock_tail):
+                continue
             if len(key.split()) >= 8:
                 seen_in_segment[key].append(idx)
 
@@ -700,7 +703,8 @@ def audit_segments(segments: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
         sid = str(seg.get("segment_id") or seg.get("id") or f"seg-{n}")
         prompt = seg.get("h3_prompt") or seg.get("prompt") or ""
         errors.extend(audit_subject_coverage(seg))
-        res = audit_segment(prompt, seg.get("shots"), sid)
+        res = audit_segment(prompt, seg.get("shots"), sid,
+                            style_lock_tail=str((seg.get("metadata") or {}).get("style_lock_tail_en") or ""))
         per_segment[sid] = res
         errors.extend(f"{sid}: {e}" for e in res["errors"])
         warnings.extend(f"{sid}: {w}" for w in res["warnings"])

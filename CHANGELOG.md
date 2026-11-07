@@ -7,7 +7,7 @@
 `h3d next` 會讀這份檔案：專案版本章比目前技能舊時，列出中間各版標題提醒重驗。
 
 ## [未發布]
-- 新增：REMIX 結尾風格鎖讀定案 `style_lock_tail`（R09，噩盡島監督實測修正）——`remix_style_lock_tail`：REMIX 三欄結尾 Style lock 句解析順序＝Layer 2 `metadata.style_lock_tail_en` > 定案 `style_lock_tail` > 預設句（原本只讀 metadata，使用者定案沒生效）；中文值改用預設句＋compile note。`compile_segment_h3` 與 `compile_segment_h3_base` 兩條 remix 路徑都接；`decisions.style_lock_tail` helper。`tests/test_style_lock_tail.py` 6 測；golden 不變（沒定案＝預設句）。
+- 新增：REMIX 結尾風格鎖讀定案 `style_lock_tail`（R09，噩盡島監督實測修正）——`remix_style_lock_tail`：REMIX 三欄結尾 Style lock 句解析順序＝Layer 2 `metadata.style_lock_tail_en` > 定案 `style_lock_tail` > 預設句（原本只讀 metadata，使用者定案沒生效）；中文值改用預設句＋compile note。`compile_segment_h3` 與 `compile_segment_h3_base` 兩條 remix 路徑都接；`decisions.style_lock_tail` helper；解析後的尾錨寫進 `metadata.style_lock_tail_en`，逐鏡撰寫審查 **E33 視它為編譯器固定句**（自訂尾錨跨段重複不再誤判套句）。`tests/test_style_lock_tail.py` 8 測；golden 不變（沒定案＝預設句）。
 
 ## [0.11.0] - 2026-11-07
 - 新增：盲審（fresh-eyes review，**Eian 文章對照**）——`scripts/build_blind_review.py` 組「只含材料、不含結論」的盲審材料包（`--stage 3` 劇本本文／`--stage 7` 核准版影片抽幀拼貼／`--inputs` 手動材料；verdicts、QA、shot_intent 一律不進包）＋規範 `references/blind-review.md`（fresh subagent 只給材料包路徑、輸出「看懂的故事＋看不懂處＋通過/不通過」、原文存 `review/blind/`）。階段 3 定稿前與階段 7 交付前必跑；是流程要求不是新門禁，不改 h3d 狀態機。`tests/test_blind_review.py` 5 測。
