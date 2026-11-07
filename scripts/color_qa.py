@@ -1,6 +1,8 @@
-# color_qa.py - stdlib only, needs ffmpeg on PATH. Run: python -I color_qa.py A.mp4 B.png [--ref HEX,HEX,...]
+# color_qa.py - stdlib only, needs ffmpeg on PATH. Run: python -I color_qa.py A.mp4 B.png [--ref HEX,HEX,...] [--luma]
 # Per input (image or video, video sampled at 2 fps): mean CIELAB (per-pixel mean), top-5 palette.
 # Pairwise: dE76 of mean Lab AND palette dE76 (symmetric mean nearest-swatch distance).
+# --luma: 只看明度——每輸入印 L* p5/p50/p95 與 spread，成對印 L* 平均距離。
+#   用途（Eian 2026-11-05 對照）：配色定稿後「轉黑白看一遍」，人和背景分不開＝明暗對比不足，回配色。
 # shortcut: CIE76 only, no dE2000; mean-colour dE misses images that differ but average to the same grey.
 import sys, subprocess, math, collections
 
@@ -37,6 +39,15 @@ def pal_dist(p, q):  # symmetric mean nearest-neighbour dE76 between two palette
 def hex_lab(h):
     return to_lab(tuple(int(h[j:j + 2], 16) for j in (0, 2, 4)))
 
+
+def luma_quantiles(px, lut):
+    """L* 的 p5/p50/p95：spread 低且主體與背景同明度時，黑白檢視會糊在一起。"""
+    ls = sorted(lut[c][0] for c in px)
+    n = len(ls)
+    q = lambda p: ls[min(n - 1, int(p * n))]
+    return q(0.05), q(0.50), q(0.95)
+
+
 def main():
     args = sys.argv[1:]
     refs = []
@@ -44,6 +55,9 @@ def main():
         i = args.index("--ref")
         refs = [hex_lab(h.strip("#")) for h in args[i + 1].split(",")]
         del args[i:i + 2]
+    luma = "--luma" in args
+    if luma:
+        args.remove("--luma")
     shots = {}
     for path in args:
         px = pixels(path)
@@ -55,11 +69,17 @@ def main():
               "palette L*", [round(c[0]) for c in shots[path][1]])
         if refs:
             print("  card->palette dE76", round(pal_dist(refs, shots[path][1]), 2))
+        if luma:
+            p5, p50, p95 = luma_quantiles(px, lut)
+            print(f"  L* p5/p50/p95 {p5:.1f}/{p50:.1f}/{p95:.1f}，spread {p95 - p5:.1f}"
+                  "（spread 低＋主體背景同明度＝黑白檢視會糊在一起，回配色）")
     names = list(shots)
     for i in range(len(names)):
         for j in range(i + 1, len(names)):
             a, b = shots[names[i]], shots[names[j]]
             print(f"{names[i]} vs {names[j]}: mean dE76 {math.dist(a[0], b[0]):.2f}, palette dE76 {pal_dist(a[1], b[1]):.2f}")
+            if luma:
+                print(f"  L* mean distance {abs(a[0][0] - b[0][0]):.2f}")
 
 if __name__ == "__main__":
     assert abs(to_lab((255, 255, 255))[0] - 100) < 0.01 and abs(to_lab((0, 0, 0))[0]) < 0.01

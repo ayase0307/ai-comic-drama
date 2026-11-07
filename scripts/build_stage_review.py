@@ -696,6 +696,12 @@ STUDIO_FONTS = (
 )
 
 STUDIO_CSS = r"""
+/* 黑白檢視（Eian 2026-11-05 對照：配色定稿後轉黑白看一遍，人和背景分不開＝明暗對比不足，回配色） */
+.bw-toggle{display:inline-flex;align-items:center;gap:.5rem;margin:.2rem 0 .8rem;padding:.4rem .8rem;
+  border:1px solid #2c4a4d;border-radius:999px;font-size:.85rem;color:#d7e5e2;background:rgba(255,255,255,.04);
+  cursor:pointer;user-select:none}
+.bw-toggle input{accent-color:#e5c063}
+body.bw-view .grid-gallery img,body.bw-view .thumb-strip img,body.bw-view .asset-img-box img{filter:grayscale(1) contrast(1.06)}
 :root{
   --ground:#E8E9E5; --surface:#F8F8F6; --surface-2:#EFF0EC; --sunk:#DFE1DC;
   --ink:#121614; --ink-2:#3F4642; --ink-3:#5B635E; --rule:#CDD0CA; --rule-2:#B7BBB4;
@@ -2251,10 +2257,14 @@ def build_stage_4(project_dir: Path, state: Dict[str, Any]) -> Tuple[bool, List[
           "short": project_format(project_dir) == SHORT, "parts": parts} for eid, parts in sorted(by_ep.items())],
         "每個色塊是一個分段（寬度＝秒數），虛線＝目標（已接受則為接受秒數）。分鏡後變長是正常的；長篇漫劇以事件交代清楚為先，明顯超出時只刪冗餘或接受實際長度，不刪事件交代鏡頭（短劇短集模式才考慮拆集）。",
     )
-    body = (budget + grid_gallery_html + f'<div class="side-by-side-list">{"".join(seg_cards)}</div>'
+    bw_toggle = ('<label class="bw-toggle"><input type="checkbox" '
+                 'onchange="document.body.classList.toggle(\'bw-view\',this.checked)">'
+                 '黑白檢視：轉黑白後人和背景還分得開嗎？分不開＝明暗對比不足，回配色（Eian 2026-11-05 對照）</label>')
+    body = (bw_toggle + budget + grid_gallery_html + f'<div class="side-by-side-list">{"".join(seg_cards)}</div>'
             + board_suggestion_panel(stage4_board_suggestions(project_dir, l2_files)))
     checklist = [
         "已檢視黑白鉛筆分鏡總覽圖構圖（`images/grid-*.png`），確認每鏡人物站位、景別遠近與動作張力符合預期",
+        "用「黑白檢視」看過構圖：轉黑白後人和背景仍分得開（分不開＝明暗對比不足，回配色重調）",
         "無任何單鏡同時塞入「主角＋路人＋道具＋巨獸」四方複雜碰撞（已拆分為慢動作感知特寫 ➔ 90度純粹打擊 ➔ 受擊翻滾）",
         "無任何未掛載參考圖之路人單獨佔據正面特寫／中景主鏡",
     ]
