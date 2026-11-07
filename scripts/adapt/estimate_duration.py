@@ -52,6 +52,7 @@ if sys.platform.startswith("win"):
 from validate_structure import parse_and_validate_script
 from audio_keywords import classify_note
 from series_format import LONGFORM, SHORT, SHORT_EPISODE_DEFAULT_SECONDS, project_format
+from short_rhythm import rhythm_plan as build_short_rhythm
 from event_coverage import required_beats
 
 # 各題材預設語速區間（字/秒）：[慢速/沉澱 R_min, 快速/緊湊 R_max]
@@ -397,6 +398,10 @@ def estimate_novel_duration(
         "evaluation": "✅ 角色閉唇不語；完全規避 H3 人物嘴型對齊與 ASR 模糊問題，依畫面解說與音效推進。",
     }
 
+    # P2-7：短劇模式附上全季分集節奏預設（起勢15/攀升30/風暴35/決戰20＋付費卡點 10–15%），
+    # 以推薦政策②的建議集數為例；長篇模式（預設）不附。
+    short_rhythm = build_short_rhythm(p2_episodes) if series_format == SHORT else None
+
     return {
         "status": gate_status,
         "series_format": series_format,
@@ -424,6 +429,7 @@ def estimate_novel_duration(
             "policy_3": policy_3,
             "policy_4": policy_4,
         },
+        "short_rhythm": short_rhythm,
     }
 
 
@@ -694,6 +700,19 @@ def main() -> int:
 
             print(f"\n  {p['policy_4']['name']}:")
             print(f"    - 評價: {p['policy_4']['evaluation']}")
+
+            # P2-7：短劇模式印出全季分集節奏預設（依政策②建議集數）
+            sr = res.get("short_rhythm")
+            if fmt == SHORT and sr:
+                print(f"\n【短劇分集節奏預設（P2-7，依政策②建議 {sr['total_episodes']} 集）】")
+                if sr.get("phases"):
+                    phase_txt = "、".join(
+                        f"{row['label']} 第{row['start']}–{row['end']}集" for row in sr["phases"])
+                    pay_txt = "、".join(str(x) for x in sr["paywall_positions"]) or "（無）"
+                    print(f"    相位: {phase_txt}")
+                    print(f"    付費卡點: {sr['paywall_count']} 個，建議第 {pay_txt} 集（攀升末集／風暴末集必卡；type／suspense 由作者填）")
+                else:
+                    print(f"    {sr['note']}")
 
         return 0 if res["status"] == "PASS" else 2
 
