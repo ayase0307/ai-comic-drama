@@ -7,6 +7,7 @@
 `h3d next` 會讀這份檔案：專案版本章比目前技能舊時，列出中間各版標題提醒重驗。
 
 ## [未發布]
+- 新增：監督者要求帳本（**Eian 文章對照·四線「監督」**）——`scripts/build_requirements_ledger.py` 組要求帳本 `review/supervision/requirements.md`（decisions.json 每條定案的要求＋定案值＋使用者原話→R01…；inbox 待決卡→P01…；`--quotes` 手動摘錄全文內嵌）＋`--stage N`／`--all`／`--inputs` 組「只含材料、不含結論」的監督查核包（產出清單取自 project-state.json 各階段審核快照，二進位列 `skipped_binary` 不複製）；規範 `references/supervision.md`（fresh subagent 逐條查覆蓋：符合／違反／查不到證據三態，報告原文存 `review/supervision/`）。每階段送審前與盲審並列必跑，接手既有專案第一步用 `--all` 累積查核；流程要求非門禁，不改 h3d 狀態機。`tests/test_requirements_ledger.py` 10 測。
 - 新增：REMIX 結尾風格鎖讀定案 `style_lock_tail`（R09，噩盡島監督實測修正）——`remix_style_lock_tail`：REMIX 三欄結尾 Style lock 句解析順序＝Layer 2 `metadata.style_lock_tail_en` > 定案 `style_lock_tail` > 預設句（原本只讀 metadata，使用者定案沒生效）；中文值改用預設句＋compile note。`compile_segment_h3` 與 `compile_segment_h3_base` 兩條 remix 路徑都接；`decisions.style_lock_tail` helper；解析後的尾錨寫進 `metadata.style_lock_tail_en`，逐鏡撰寫審查 **E33 視它為編譯器固定句**（自訂尾錨跨段重複不再誤判套句）。`tests/test_style_lock_tail.py` 8 測；golden 不變（沒定案＝預設句）。
 
 ## [0.11.0] - 2026-11-07
