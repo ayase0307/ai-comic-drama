@@ -20,9 +20,12 @@ video_backend＝remix（decisions.json 定案，或 --backend remix；PR-R2）�
       {"packs": {"C-x": {"default": "ejin3_x", "tag": "Video", "kind": "actor",
                          "costumes": {"W-x-02": {"pack": "ejin3_x_w02", "variant_of": "ejin3_x"}}},
                  "S-room": {"default": "ejin3_scene_room", "tag": "Picture", "kind": "scene"},
-                 "P-spear": "ejin3_prop_spear"},
+                 "P-spear": "ejin3_prop_spear",
+                 "B-fire": {"default": "ejin3_fire_v3", "tag": "Picture", "kind": "effect",
+                            "segments": {"EP02-S01-a": "ejin3_fire_v2"}}},
        "waivers": {"<段 ID>": [{"id": "P-spear", "reason": "6 包逾時，改文字", "quote": "<使用者原話>"}]}}
     值可以只寫包名字串。tag（Picture＝單圖包、Video＝多圖包）應由建包回讀寫入；沒寫時依 kind 推定並警告。
+    segments＝每段包覆寫：同資產在不同段用不同包（已拍段沿用舊包、新段用新包）；沒列的段用 default。
   - 段層產出 refmods（順序＝標籤順序：場景第一、演員、最後是生物／道具／群眾）、pack_waivers、positions（手寫保留）；
     逐鏡只記 visual_subject_ids／pack_ids，不產生 face_subject_ids／identity_anchor_ids／reference_view／panel_label_en
     （舊綁定或計畫表寫了只警告「remix 不使用」）。
@@ -517,7 +520,13 @@ def build_segment_remix(root: Path, registry: AssetRegistry, pack_plan: Dict[str
             return True
         if asset_id in waived_ids:
             return False
-        record = _pack_record(asset_id, packs.get(asset_id), costume, warnings, kind)
+        plan_entry = packs.get(asset_id)
+        # segments：每段包覆寫（同資產不同段用不同包——例如已拍段沿用舊包、新段用新包）
+        if isinstance(plan_entry, dict) and isinstance(plan_entry.get("segments"), dict):
+            seg_override = plan_entry["segments"].get(seg_id)
+            if isinstance(seg_override, str) and seg_override.strip():
+                plan_entry = {**plan_entry, "default": seg_override.strip()}
+        record = _pack_record(asset_id, plan_entry, costume, warnings, kind)
         if record is None:
             if asset_id in packs and costume:
                 gaps.append(f"{seg_id} {asset_id} 服裝 {costume} 沒有對應的變體包（換服裝＝換包）："
