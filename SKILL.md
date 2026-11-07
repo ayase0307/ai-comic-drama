@@ -85,6 +85,13 @@ agent_created: true
 失敗目錄（`h3d catalog --check`／`h3d ack`）。`duration_drift`、`PARTIAL`、`已有 waiting 的 job` 都代表「現在不能繼續」，
 處置見 `references/tooling.md` §4。
 
+## 監督（要求帳本，送審前與盲審並列）
+
+`h3d decide` 只記形式化定案；使用者隨口說過的偏好沒進定案就會被忘記，也沒有任何檢查在問「使用者說過的話有沒有被忘記」。監督者補這層：
+`python scripts/build_requirements_ledger.py --root <專案>` 組要求帳本（decisions.json 每條定案的原話＋inbox 待決卡＋`--quotes` 手動摘錄），
+`--stage N`／`--all`／`--inputs` 另組「只含材料、不含結論」的查核包，fresh subagent 逐條查產出覆蓋（模板與禁令見 `references/supervision.md`）。
+與盲審同定位：流程要求不是門禁，不改 `h3d` 狀態機；`不通過` 先處置再送審。接手既有專案第一步用 `--all` 累積查核（配合 `references/audit-inherited-project.md`）。
+
 ## 資源（索引）
 
 - `references/tooling.md` — **h3d 全部指令與檢查**（跑任何指令前先讀）；§2.5 定案／逐段結論、§2.6 收件匣與自動核准、§2.7 runner／probe／配音／剪輯。
@@ -92,6 +99,7 @@ agent_created: true
 - `references/pipeline.md` — 八階段詳細流程、提問清單、模板；聲音三層決策與響度標準。
 - `references/review-page-spec.md` — 審查頁規格：交給使用者的是決策收件匣（版面順序、卡片必備欄位、禁止事項、八階段閱讀視圖六區塊），舊階段頁只作除錯。
 - `references/blind-review.md` — 盲審（fresh-eyes）：只給材料不給結論的材料包與流程（階段 3／7 必跑；`scripts/build_blind_review.py`）。
+- `references/supervision.md` — 監督（要求帳本）：使用者說過的話逐條查覆蓋（每階段送審前必跑；`scripts/build_requirements_ledger.py`）。
 - `references/document-standard.md` — 階段文件標準格式：狀態卡＋本體＋修訂紀錄，用 `h3d doc` 寫，不要手改；「要你決定」會自動進收件匣。
 - `references/audit-inherited-project.md` — 接手他人專案（「你接手」「前一個 agent 做的很爛」「看看有甚麼建議」）：先稽核再推進、機械生成指紋門檻、台詞管線三種壞法、REMIX 稽核、重建順序與地雷（重 bind、官方運鏡動詞、sketch 快照還原、非支援後端出構圖圖）。
 - `references/remix-draft-loop.md` — remix 抽卡循環（階段 6）：`pika480` 4／6 步的選擇、參考包壓過提示詞的五種症狀、審片三件事、三個常見假警報（低彩度／框線／色調跳躍）、批次修＋重簽、收件與定稿順序。

@@ -7,6 +7,7 @@
 `h3d next` 會讀這份檔案：專案版本章比目前技能舊時，列出中間各版標題提醒重驗。
 
 ## [未發布]
+- 新增：監督者要求帳本（**Eian 文章對照·四線「監督」**）——`scripts/build_requirements_ledger.py` 組要求帳本 `review/supervision/requirements.md`（decisions.json 每條定案的要求＋定案值＋使用者原話→R01…；inbox 待決卡→P01…；`--quotes` 手動摘錄全文內嵌）＋`--stage N`／`--all`／`--inputs` 組「只含材料、不含結論」的監督查核包（產出清單取自 project-state.json 各階段審核快照，二進位列 `skipped_binary` 不複製）；規範 `references/supervision.md`（fresh subagent 逐條查覆蓋：符合／違反／查不到證據三態，報告原文存 `review/supervision/`）。每階段送審前與盲審並列必跑，接手既有專案第一步用 `--all` 累積查核；流程要求非門禁，不改 h3d 狀態機。`tests/test_requirements_ledger.py` 10 測。
 
 ## [0.11.0] - 2026-11-07
 - 新增：盲審（fresh-eyes review，**Eian 文章對照**）——`scripts/build_blind_review.py` 組「只含材料、不含結論」的盲審材料包（`--stage 3` 劇本本文／`--stage 7` 核准版影片抽幀拼貼／`--inputs` 手動材料；verdicts、QA、shot_intent 一律不進包）＋規範 `references/blind-review.md`（fresh subagent 只給材料包路徑、輸出「看懂的故事＋看不懂處＋通過/不通過」、原文存 `review/blind/`）。階段 3 定稿前與階段 7 交付前必跑；是流程要求不是新門禁，不改 h3d 狀態機。`tests/test_blind_review.py` 5 測。
