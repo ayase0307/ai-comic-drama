@@ -19,6 +19,17 @@ class CatalogTests(unittest.TestCase):
                          "F-CROWD-BY-NUMBER", "F-SINGLE-FACE", "F-CRACK-STICKER"):
             self.assertIn(expected, ids)
 
+    def test_crowd_by_number_cast_rule_is_exempt(self):
+        # 編譯器的具名鎖卡句（physical_camera.cast_environment_lock）是失敗目錄自己建議的正確做法，
+        # 不得誤傷（噩盡島 S01-d 掛導遊包後 Cast rule 從 two 變 three 才開始命中）
+        cast_rule = ("Cast rule: exactly three people, Shen Shangshan, the island guide and Shen Luonian; "
+                     "no other people, silhouettes, partial bodies, reflections or shadows of people.")
+        result = fc.lint_text(cast_rule, self.catalog)
+        self.assertNotIn("F-CROWD-BY-NUMBER", [item["id"] for item in result["warnings"]])
+        # 真正用文字數人頭的還是要抓
+        bad = fc.lint_text("Three students stand at the gate and wave at the camera.", self.catalog)
+        self.assertIn("F-CROWD-BY-NUMBER", [item["id"] for item in bad["warnings"]])
+
     def test_crack_pattern_needs_geometry_words(self):
         # 只說「cracked stone state」不該被當成貼紙網格
         benign = fc.lint_text("the later cracked stone state begins at the final fall.", self.catalog)
