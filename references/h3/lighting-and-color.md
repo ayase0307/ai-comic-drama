@@ -116,7 +116,7 @@ python -I scripts/color_qa.py shotA.mp4 shotB.mp4 --ref 0B1118,1E2A38,3B5068,6B8
 - ΔE 約 1 以下通常不可察覺，ΔE76 約 2.3 常被引為可察覺差（colour 文件；Mahy 1994 原文查無）[社群]。**ΔE76 與 ΔE2000 數值不可互換**；腳本只做 ΔE76。
 - 門檻 **平均色 ΔE76 ≤ 3 只用在續接接點或同機位重生成** [推測]；不同鏡頭內容本來就不同，平均色差 20 以上是正常的，跨鏡頭只看「對色卡的 palette 距離」的相對趨勢。
 - 這個量測很粗：灰色鉛筆分鏡對冷鋼卡的距離反而比真實 hero 圖小。只拿來比較同一流程的前後，不拿來判斷好壞。
-- 未驗證：H3 輸出（bt709 標記）經 ffmpeg 轉 sRGB 的色彩矩陣是否準確。
+- 已實測（2026-11-07，ffprobe《噩盡島》moss EP01 三段）：H3（FreeVideo）輸出標記為 color_space／transfer／primaries＝`bt709`、range＝`tv`、`yuv420p`。仍未驗證：ffmpeg 把 bt709 轉 sRGB 的色彩矩陣是否準確；後製與交付的色彩空間紀律見 `references/edit/manju-editing-playbook.md` §11。
 
 ## 不採用
 

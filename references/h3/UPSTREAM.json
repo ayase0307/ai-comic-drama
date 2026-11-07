@@ -1,13 +1,19 @@
 {
   "upstream_repo": "https://github.com/ayase0307/h3-video-prompting",
   "description": "references/h3 的上游同步紀錄；測試只驗這份紀錄與本地檔案一致。",
-  "local_clone": "/tmp/up",
+  "local_clone": "E:\\MinimaxH3\\h3-video-prompting",
   "local_only": [
     "creature-motion.md",
     "lora-guide.md",
     "r3-prompting-lessons.md"
   ],
   "local_annotations": {
+    "lighting-and-color.md": [
+      [
+        "- 未驗證：H3 輸出（bt709 標記）經 ffmpeg 轉 sRGB 的色彩矩陣是否準確。",
+        "- 已實測（2026-11-07，ffprobe《噩盡島》moss EP01 三段）：H3（FreeVideo）輸出標記為 color_space／transfer／primaries＝`bt709`、range＝`tv`、`yuv420p`。仍未驗證：ffmpeg 把 bt709 轉 sRGB 的色彩矩陣是否準確；後製與交付的色彩空間紀律見 `references/edit/manju-editing-playbook.md` §11。"
+      ]
+    ],
     "scenarios-people.md": [
       [
         "## A1. 兩人對白 / 短劇",
@@ -71,7 +77,7 @@
     "example-seedance-to-h3.md": "2a8579326e1a63c97227ad90d4752191598837a1cd1d43e660556f372342349e",
     "example-spec-to-prompt-10s.md": "822da703840d96c86e637780a86ab1fe30afe999fa5f978483f03f669eba81a5",
     "failure-triage.md": "06cc182da48bb24a0411cbbdaa57232cdc8ebf2886f00ce4d04b13777e8532d4",
-    "lighting-and-color.md": "d6e037e999fa1f04321f8bbbbbf42c6ff10562c87870b9225bf939f482e0e4f2",
+    "lighting-and-color.md": "ab9791e891b5652f43e0723f2f400775f5b365a7c928577c7abbeff9969101c0",
     "long-form-planning.md": "59c1dd248303c062c9c9eca0cf836502733979a7baacd57847378c2ef7ebecae",
     "motion-quality.md": "7fad80b5d7a4c54555e62bd234cdeca6ae2ab9fcbc1436aa85efd4ba003d0470",
     "prompt-formats.md": "c95cf7bf2cc94d65bad476a29badbbd669960550e2e701eb9611d7b6747a0d19",
@@ -85,5 +91,5 @@
     "skin-realism-block.md": "3bf57fdf883fc2fad37f0d126a135bf29f702138638eb5990d8653aed456740a"
   },
   "upstream_synced_commit": "b9700204a5ab2d9c05fd214afbabc2cff0920000",
-  "upstream_synced_at": "2026-10-27T09:37:05+00:00"
+  "upstream_synced_at": "2026-11-07T03:43:10+00:00"
 }
