@@ -62,8 +62,9 @@
       "minimal_fix": "改成一張「人群已就位」的構圖參考圖，並把文字縮短到只描述動作",
       "evidence": [{"note": "phileiny 實測：文字 16,000 字失敗，改圖後 6,900 字一次就對"}],
       "detector": {
-        "type": "any",
-        "patterns": ["(two|three|four|five|six)\\s+(young\\s+)?(men|women|students|people|kids)", "a group of (four|five|six|seven)", "crowd of"]
+        "type": "any_without",
+        "patterns": ["(two|three|four|five|six)\\s+(young\\s+)?(men|women|students|people|kids)", "a group of (four|five|six|seven)", "crowd of"],
+        "exclude": ["Cast rule: exactly"]
       }
     },
     {
