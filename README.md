@@ -449,7 +449,7 @@ ai-comic-drama/
 | [`references/skill-guide.md`](references/skill-guide.md) | 核心原則、八階段與審核頁對照、完整腳本清單 |
 | [`references/pipeline.md`](references/pipeline.md) | 各階段詳細流程、台詞優先改編（不詢問）、體量反推公式、聲音三層決策 |
 | [`references/review-page-spec.md`](references/review-page-spec.md) | 決策收件匣規格（含八階段閱讀視圖的六區塊格式） |
-| [`references/blind-review.md`](references/blind-review.md) | 盲審：只給材料不給結論（階段 3／7；`scripts/build_blind_review.py`） |
+| [`references/blind-review.md`](references/blind-review.md) | 盲審：只給材料不給結論（階段 3／4／5／7；`scripts/build_blind_review.py`） |
 | [`references/supervision.md`](references/supervision.md) | 監督：使用者說過的話逐條查覆蓋（每階段送審前；`scripts/build_requirements_ledger.py`） |
 | [`references/prompt-authoring.md`](references/prompt-authoring.md) | 逐鏡撰寫規範（E30–E38、W41–W45） |
 | [`references/adapt/novel-to-manju.md`](references/adapt/novel-to-manju.md) | 小說改編總規範 |

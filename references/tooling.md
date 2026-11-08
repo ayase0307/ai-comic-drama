@@ -449,6 +449,9 @@ python scripts/h3d.py compile --layer2 layer2/ --bible video-bible.json --bindin
   `h3d decide acceptance_policy recommended --quote "照建議"` 會寫入建議值（前七項重跑；紙面出字、人物稍老、低彩度、色調跳躍可接受）。
 - `review/verdicts.json`（格式 `references/schemas/verdicts.schema.json`）：segment_id → `verdict`（pass／warn／fail）、`reason`、`evidence`（證據圖）、`decided_by`（agent／user／policy）、`issues`。結論綁影片 hash，影片重生後自動過期。
   分類規則：技術硬錯誤（時長漂移、比例錯）一律 fail；`decided_by=user` 最大；其餘套政策（碰到 `rerun_on` → fail，fail 但問題全在 `accept` → warn）；沒有結論＝未驗收（技術綠燈也一樣）。
+- `h3d verdict --prefill --root <專案>`：把「有技術 QA 或已有結論」的段依上面的分類算成預填草稿 `review/verdict-prefill.json`（每筆含 verdict／reason／issues／evidence／basis），未驗收的段不預填；只預填、**不代簽**，不會動 verdicts.json。
+  要真的寫進去：`h3d verdict --prefill --apply --quote "<使用者原話>"`——逐段以 `decided_by=user` 寫入、`reason` 前加 `[預填] `，已有使用者結論的段跳過不覆寫（原話記在 reason 裡）。
+  驗收政策尚未定案時預填依建議值，CLI 會提醒先 `h3d decide acceptance_policy`。
 - 階段 6 閘門：有 verdicts.json 時，政策判 fail 的段落擋核准，**不能覆寫**；技術 QA 的量化指標未過可用 `--override --reason` 由使用者帶理由放行，覆寫紀錄（理由、時間、被覆寫的問題）永久留在 project-state。
 
 ## 2.6 決策收件匣與自動核准（h3d inbox／h3d approve --auto）
