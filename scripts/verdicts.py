@@ -36,6 +36,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import decisions as decisions_mod
 
 VERDICTS_REL = Path("review") / "verdicts.json"
+PREFILL_REL = Path("review") / "verdict-prefill.json"
+PREFILL_NOTE = "預填草稿，不是結論；--apply 前不會寫進 verdicts.json"
 SCHEMA_VERSION = 1
 VERDICTS = ("pass", "warn", "fail")
 DECIDED_BY = ("agent", "user", "policy")
@@ -332,6 +334,111 @@ def accept_all(root: Path, quote: str) -> List[str]:
     return done
 
 
+def prefill_path(root: Path) -> Path:
+    return Path(root) / PREFILL_REL
+
+
+def _evidence_list(value: Any) -> List[str]:
+    """verdicts.json 的 evidence 可以是字串或字串陣列，這裡一律攤平。"""
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+    if isinstance(value, list):
+        return [str(v).strip() for v in value if isinstance(v, str) and v.strip()]
+    return []
+
+
+def _root_relative(root: Path, raw: Path) -> str:
+    """專案內的檔案寫成相對路徑（verdicts.json 可帶著走），專案外維持原樣。"""
+    try:
+        return raw.resolve().relative_to(Path(root).resolve()).as_posix()
+    except (ValueError, OSError):
+        return str(raw)
+
+
+def build_prefill(root: Path) -> Dict[str, Any]:
+    """產生逐段結論的預填草稿（只預填、不代簽），並寫出 review/verdict-prefill.json。
+
+    只收「有技術 QA 或已有結論」的段；未驗收的段（含舊結論過期）不預填。
+    """
+    root = Path(root)
+    qa_report = load_qa_report(root)
+    verdict_data = load(root)
+    report = classify(root, qa_report=qa_report, verdict_data=verdict_data)
+    recorded = verdict_data.get("segments", {}) or {}
+    qa_items: Dict[str, Dict[str, Any]] = {}
+    for item in (qa_report or {}).get("results", []) or []:
+        if item.get("segment_id"):
+            qa_items[str(item["segment_id"])] = item
+    basis_map = {"qa": "qa", "policy": "policy", "user": "recorded", "agent": "recorded"}
+    prefill: List[Dict[str, Any]] = []
+    skipped = 0
+    for sid, row in report["segments"].items():
+        has_qa = sid in qa_items
+        if not (has_qa or sid in recorded) or row["effective"] == "unreviewed":
+            skipped += 1
+            continue
+        raw_issues = list(row.get("issues", []) or []) + list(row.get("qa_codes", []) or []) \
+            + list(row.get("qa_hard", []) or [])
+        # 只留驗收政策代碼；技術 QA 的硬錯誤原文（例如「DURATION_MISMATCH: …」）不是代碼，靠 verdict=fail 表達
+        issues = [code for code in dict.fromkeys(raw_issues) if code in decisions_mod.ISSUE_CODES]
+        evidence = _evidence_list(row.get("evidence"))
+        if not evidence and has_qa:
+            sheet = qa_items[sid].get("contact_sheet_file")
+            if isinstance(sheet, str) and sheet.strip() and Path(sheet).is_file():
+                evidence = [_root_relative(root, Path(sheet))]
+        prefill.append({
+            "segment_id": sid,
+            "verdict": row["effective"],
+            "reason": row.get("reason") or "依驗收政策與技術 QA 分類",
+            "issues": issues,
+            "evidence": evidence,
+            "basis": basis_map.get(str(row.get("source")), "recorded" if sid in recorded else "qa"),
+        })
+    data = {
+        "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "policy_decided": bool(report["policy_is_decided"]),
+        "note": PREFILL_NOTE,
+        "skipped_unreviewed": skipped,
+        "prefill": prefill,
+    }
+    path = prefill_path(root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(path)
+    return data
+
+
+def apply_prefill(root: Path, quote: str) -> Tuple[List[str], List[Tuple[str, str]]]:
+    """把草稿寫進 verdicts.json：by=user、reason 前加 [預填]。已有使用者結論的段不覆寫。"""
+    if not quote or not quote.strip():
+        raise VerdictError("--prefill --apply 需要 --quote（貼使用者原話）")
+    root = Path(root)
+    quote = quote.strip()
+    draft = build_prefill(root)
+    data = load(root)
+    written: List[str] = []
+    skipped: List[Tuple[str, str]] = []
+    for item in draft["prefill"]:
+        sid = str(item["segment_id"])
+        old = data["segments"].get(sid)
+        if old and old.get("decided_by") == "user":
+            skipped.append((sid, "已有使用者結論，不覆寫"))
+            continue
+        if not item.get("evidence"):
+            skipped.append((sid, "沒有證據圖（先補抽幀九宮格）"))
+            continue
+        try:
+            set_verdict(root, sid, item["verdict"],
+                        f"[預填] {item['reason']}（使用者原話：{quote}）",
+                        list(item["evidence"]), decided_by="user", issues=list(item["issues"]))
+        except VerdictError as exc:
+            skipped.append((sid, str(exc)))
+            continue
+        written.append(sid)
+    return written, skipped
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] == "accept-all":
@@ -355,6 +462,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         description="寫入階段 6 逐段目視結論（review/verdicts.json），或列出依驗收政策的分類",
         epilog="例：h3d verdict EP01-S01-a pass --reason \"人物一致、無多人\" "
                "--evidence videos/qa/tiles/EP01-S01-a.jpg --root <專案>；h3d verdict --summary --root <專案>；"
+               "預填草稿：h3d verdict --prefill --root <專案>（要真的寫進去加 --apply --quote \"<原話>\"）；"
                "舊格式轉換：h3d verdict import conclusions-*.json --root <專案>",
     )
     parser.add_argument("segment_id", nargs="?")
@@ -371,9 +479,39 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--root", type=Path, default=Path("."), help="專案根目錄")
     parser.add_argument("--summary", action="store_true", help="列出依驗收政策的分類")
     parser.add_argument("--json", action="store_true", help="--summary 以 JSON 輸出")
+    parser.add_argument("--prefill", action="store_true",
+                        help="產生逐段結論預填草稿（review/verdict-prefill.json），只預填不代簽")
+    parser.add_argument("--apply", action="store_true", help="搭配 --prefill：把草稿寫進 verdicts.json（要 --quote）")
+    parser.add_argument("--quote", help="搭配 --prefill --apply：使用者原話")
     args = parser.parse_args(argv)
     root = args.root.expanduser().resolve()
+    if args.apply and not args.prefill:
+        parser.error("--apply 只能和 --prefill 一起用")
     try:
+        if args.prefill:
+            if args.apply:
+                if not args.quote or not args.quote.strip():
+                    parser.error("--prefill --apply 需要 --quote（貼使用者原話）")
+                written, skipped = apply_prefill(root, args.quote)
+                print(f"✅ 已依原話寫入 {len(written)} 段（by=user）：{'、'.join(written) or '（無）'}")
+                if skipped:
+                    print(f"略過 {len(skipped)} 段：" +
+                          "、".join(f"{sid}（{why}）" for sid, why in skipped))
+                return 0
+            draft = build_prefill(root)
+            for item in draft["prefill"]:
+                mark = {"pass": "✅", "warn": "⚠️", "fail": "❌"}[item["verdict"]]
+                print(f"{mark} {item['segment_id']}：{item['reason']}")
+            if not draft["prefill"]:
+                print("（沒有可預填的段：都還是未驗收）")
+            if draft["skipped_unreviewed"]:
+                print(f"（跳過 {draft['skipped_unreviewed']} 段未驗收）")
+            print(f"草稿已寫入 {PREFILL_REL.as_posix()}：{PREFILL_NOTE}")
+            if draft["policy_decided"]:
+                print("驗收政策：使用者已定案")
+            else:
+                print("驗收政策尚未定案，預填依建議值；先 h3d decide acceptance_policy")
+            return 0
         if args.summary:
             report = classify(root)
             if args.json:
@@ -389,7 +527,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                     print(f"  {mark} {row['segment_id']}：{row['reason']}")
             return 0
         if not args.segment_id or not args.verdict:
-            parser.error("需要 <segment_id> <pass|warn|fail>，或用 --summary")
+            parser.error("需要 <segment_id> <pass|warn|fail>，或用 --summary／--prefill")
         if not args.reason or not args.reason.strip():
             parser.error("--reason 必填")
         issues = [i.strip() for i in args.issues.replace("，", ",").split(",") if i.strip()]
