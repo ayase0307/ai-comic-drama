@@ -1,10 +1,13 @@
 """Eian 文章對照（2026-11-05）：盲審材料包（build_blind_review.py）。
 
 - stage 3：只帶劇本本文；manifest 記來源；包內不得出現結論檔。
+- stage 4：劇本本文＋分鏡表（分鏡理解層盲審）。
+- stage 5：分鏡表＋提示詞包＋layer2 登記的構圖圖（送件前語義對帳）。
 - --inputs：手動材料（階段 1 故事地圖等）。
 - stage 7：只收 videos/ 頂層 mp4（核准版；子目錄如 final-768/ 不收），
   每段抽幀拼貼成一張 jpg（ffmpeg 合成測試片；無 ffmpeg 就跳過該組）。
 """
+import json
 import shutil
 import subprocess
 import sys
@@ -54,6 +57,99 @@ class BlindReviewStage3Tests(unittest.TestCase):
         bundle = br.build(self.root, None, None, ["adapt/story-map.md"], 6)
         self.assertTrue((bundle / "files" / "story-map.md").is_file())
         self.assertIn("adapt/story-map.md", (bundle / "manifest.json").read_text(encoding="utf-8"))
+
+
+class BlindReviewStage45Tests(unittest.TestCase):
+    """階段 4（分鏡定稿前）與階段 5（送件前語義對帳）的材料包。"""
+
+    def setUp(self):
+        (ROOT / "tmp").mkdir(exist_ok=True)
+        self.tmp = tempfile.TemporaryDirectory(dir=ROOT / "tmp")
+        self.root = Path(self.tmp.name)
+        (self.root / "script-ep01.md").write_text("# EP01 劇本\n", encoding="utf-8")
+        (self.root / "storyboard-ep01.md").write_text("| 鏡 | 景別 |\n| S01 | MS |\n", encoding="utf-8")
+        (self.root / "prompts-ep01.md").write_text("## S01\n[Shot 1] ...\n", encoding="utf-8")
+        (self.root / "script-ep02.md").write_text("# EP02 劇本\n", encoding="utf-8")
+        (self.root / "storyboard-ep02.md").write_text("| 鏡 | 景別 |\n| S01 | LS |\n", encoding="utf-8")
+        self.panel = self.root / "panels" / "panel-01-SH01.png"
+        self.panel.parent.mkdir(parents=True)
+        self.panel.write_bytes(b"fake-png")
+        layer = self.root / "layer2"
+        layer.mkdir()
+        (layer / "layer2-EP01-S01.json").write_text(json.dumps({
+            "segment_id": "EP01-S01",
+            "shots": [
+                {"shot_id": "SH01", "sketch_file": "panels/panel-01-SH01.png"},
+                {"shot_id": "SH02", "sketch_file": "panels/panel-02-SH02.png"},  # 不存在
+                {"shot_id": "SH03", "sketch_file": "panels/panel-01-SH01.png"},  # 重複引用
+            ],
+        }), encoding="utf-8")
+        # 包外結論檔（不應進包）
+        (self.root / "verdicts.json").write_text("[]", encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _manifest(self, bundle):
+        return json.loads((bundle / "manifest.json").read_text(encoding="utf-8"))
+
+    def test_stage4_bundle_has_script_and_storyboard_only(self):
+        bundle = br.build(self.root, 4, "EP01", [], 6)
+        self.assertTrue((bundle / "files" / "script-ep01.md").is_file())
+        self.assertTrue((bundle / "files" / "storyboard-ep01.md").is_file())
+        manifest = self._manifest(bundle)
+        self.assertEqual(manifest["stage"], 4)
+        self.assertEqual(manifest["sources"], ["script-ep01.md", "storyboard-ep01.md"])
+        names = sorted(p.name for p in bundle.rglob("*") if p.is_file())
+        self.assertEqual(names, ["manifest.json", "script-ep01.md", "storyboard-ep01.md"])
+
+    def test_stage4_episode_filter(self):
+        bundle = br.build(self.root, 4, "EP02", [], 6)
+        names = sorted(p.name for p in bundle.rglob("*") if p.is_file())
+        self.assertEqual(names, ["manifest.json", "script-ep02.md", "storyboard-ep02.md"])
+
+    def test_stage4_missing_materials_exits_2(self):
+        with self.assertRaises(SystemExit) as ctx:
+            br.build(self.root, 4, "EP09", [], 6)
+        self.assertEqual(ctx.exception.code, 2)
+
+    def test_stage5_bundle_has_storyboard_prompts_and_panels(self):
+        bundle = br.build(self.root, 5, "EP01", [], 6)
+        self.assertTrue((bundle / "files" / "storyboard-ep01.md").is_file())
+        self.assertTrue((bundle / "files" / "prompts-ep01.md").is_file())
+        # 構圖圖複製成功（去重後只有一張）
+        self.assertEqual(sorted(p.name for p in (bundle / "panels").glob("*.png")),
+                         ["panel-01-SH01.png"])
+        manifest = self._manifest(bundle)
+        self.assertEqual(manifest["stage"], 5)
+        self.assertEqual(manifest["sources"], ["prompts-ep01.md", "storyboard-ep01.md"])
+        self.assertEqual(manifest["panels"], ["panels/panel-01-SH01.png"])
+        # 缺圖進 skipped_panels，不進包
+        self.assertEqual(manifest["skipped_panels"], ["panels/panel-02-SH02.png"])
+        names = sorted(p.name for p in bundle.rglob("*") if p.is_file())
+        self.assertEqual(names, ["manifest.json", "panel-01-SH01.png",
+                                 "prompts-ep01.md", "storyboard-ep01.md"])
+
+    def test_stage5_episode_filter(self):
+        bundle = br.build(self.root, 5, "EP02", [], 6)
+        manifest = self._manifest(bundle)
+        self.assertEqual(manifest["sources"], ["storyboard-ep02.md"])
+        self.assertEqual(manifest["panels"], [])
+        self.assertFalse((bundle / "panels").exists())
+
+    def test_stage5_missing_materials_exits_2(self):
+        with self.assertRaises(SystemExit) as ctx:
+            br.build(self.root, 5, "EP09", [], 6)
+        self.assertEqual(ctx.exception.code, 2)
+
+    def test_stage5_without_layer2_has_empty_panels(self):
+        bare = self.root / "bare"
+        bare.mkdir()
+        (bare / "storyboard-ep01.md").write_text("| 鏡 |\n", encoding="utf-8")
+        bundle = br.build(bare, 5, "EP01", [], 6)
+        manifest = self._manifest(bundle)
+        self.assertEqual(manifest["panels"], [])
+        self.assertEqual(manifest["skipped_panels"], [])
 
 
 @unittest.skipIf(FFMPEG is None, "ffmpeg 不在 PATH")
