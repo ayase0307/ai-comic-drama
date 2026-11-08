@@ -242,9 +242,13 @@ python scripts/h3d.py decide style_anchor "<英文錨句>" --quote "<原話>" --
 {"packs": {"S-alley": {"default": "ejin3_scene_alley", "tag": "Picture", "kind": "scene"},
            "C-lai": {"default": "ejin3_laiyixin", "tag": "Video", "kind": "actor",
                      "costumes": {"W02dirty": {"pack": "ejin3_lai_w02dirty"}}},
-           "P-spear": "ejin3_prop_spear"},
+           "P-spear": "ejin3_prop_spear",
+           "B-fire": {"default": "ejin3_fire_v3", "tag": "Picture", "kind": "effect",
+                      "segments": {"EP02-S01-a": "ejin3_fire_v2"}}},
  "waivers": {"EP04-S01-a": [{"id": "P-spear", "reason": "6 包逾時，改文字", "quote": "<使用者原話>"}]}}
 ```
+
+`segments`＝每段包覆寫：同資產在不同段用不同包（已拍段沿用舊包、新段用新包）；沒列的段用 `default`，tag／kind 沿用計畫條目。
 
 - 產出 `video-bindings.json`：頂層 `video_backend: "remix"`＋`packs`；段層 `refmods`（順序＝標籤順序：**場景第一**、演員、最後生物／道具／群眾，每項帶 `pack`／`tag`／`kind`／`label`／`costume_id`／`variant_of`…）、`pack_waivers`（必附使用者原話）、`positions`（`[{id, order_lr, axis_side, facing}]`，手寫保留，給 R6 站位閘門）；逐鏡只有 `visual_subject_ids`／`no_visual_reference_ids`／`pack_ids`。
 - **不產生** `face_subject_ids`／`identity_anchor_ids`／`reference_view`／`panel_label_en`；舊綁定或計畫表寫了只警告「remix 不使用」，重產時拿掉。
