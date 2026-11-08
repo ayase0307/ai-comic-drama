@@ -92,6 +92,17 @@ agent_created: true
 `--stage N`／`--all`／`--inputs` 另組「只含材料、不含結論」的查核包，fresh subagent 逐條查產出覆蓋（模板與禁令見 `references/supervision.md`）。
 與盲審同定位：流程要求不是門禁，不改 `h3d` 狀態機；`不通過` 先處置再送審。接手既有專案第一步用 `--all` 累積查核（配合 `references/audit-inherited-project.md`）。
 
+## 主做（新鮮執行者，每階段）
+
+長專案聊了幾十輪，主 agent 會把對話史當記憶用：上游没寫的它「記得」、使用者早就改口的要求它還在照舊做。狀態本來就全在檔案裡（`project-state.json`、`decisions.json`、bible、segments），agent 本身是可替換的——接手既有專案先稽核（`references/audit-inherited-project.md`）就是這個道理。因此：
+
+- **每階段的製作交給新鮮執行者**：開 fresh subagent（不是本對話的延續），給它「該階段的上游產物＋該讀的 reference＋decisions 定案」，**不帶對話史、不帶前幾輪失敗討論**。它讀到什麼就是什麼，不會替你腦補。
+- **隔離的是對話與結論，不是專案**：執行者要知道案子（材料與定案），不要知道聊天。每個角色拿到的是專案的不同切片——主做拿上游產物＋規則、審核拿無結論材料（盲審）、監督拿要求帳本。
+- **單一寫入者**：只有主 agent 跑 `h3d` 寫狀態（decide／approve／verdict／compile）；新鮮執行者與審核者 read-only＋只產出檔案，產出交回主 agent 驗收落庫。兩個 agent 同時改狀態檔一定撞。
+- **材料包優先於口頭交代**：要給新鮮執行者的材料就組成包（`build_blind_review.py --inputs`／`build_requirements_ledger.py --inputs`），不要在提示詞裡用口述代替檔案——口述會漏，包是確定性的。
+
+這是紀律不是工具：不改 `h3d` 狀態機；短專案、單一 session 内、材料簡單時不必強制每階段都換手，但**跨 session 接手、長對話、或產出反覆出錯時，先懷疑對話污染，換新鮮執行者重做，不要在原對話裡修到天荒地老。**
+
 ## 資源（索引）
 
 - `references/tooling.md` — **h3d 全部指令與檢查**（跑任何指令前先讀）；§2.5 定案／逐段結論、§2.6 收件匣與自動核准、§2.7 runner／probe／配音／剪輯。

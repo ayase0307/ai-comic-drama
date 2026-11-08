@@ -14,6 +14,7 @@
 - 修正：說話者寫角色本名時解析到資產記錄（噩盡島重簽實測）——layer2 的 dialogue speaker 慣用角色中文本名（非 C- id），`h3d bind` 重生 video-bible.json 後直接查 id 會落空：REMIX 提示詞說話者句變中文（E15）、voice_only／no_visual_reference 記錄丟失（畫外音誤判 visible）、有包角色被誤報「voice-only 不入鏡」（`spk in selected` 用本名對 id 永遠不中）。新增 `_speaker_record`（id 直查→name 掃描→未登記回 {}），12 個說話者解析點與兩條 voice-only 宣告路徑（remix 介紹句、r2v `<Subject N>`）改用，宣告句優先 `name_en`。`tests/test_speaker_name_resolution.py` 3 測。
 - 修正：F-CROWD-BY-NUMBER 不誤傷編譯器具名鎖卡句——`physical_camera.cast_environment_lock` 產的「Cast rule: exactly N people, <具名>」是失敗目錄自己建議的正確鎖法，detector 卻會命中（噩盡島 S01-d 掛導遊包後 Cast rule 從 two 變 three 才開始誤報）。改 `any_without`＋exclude「Cast rule: exactly」：逐句判、具名鎖卡句豁免、真文字數人頭照抓。`tests/test_failure_catalog.py` +1 測。
 - 新增：包計畫 `segments` 每段包覆寫（噩盡島實測修正）——`packs.<id>.segments = {"<段 ID>": "<包名>"}`：同資產在不同段用不同包（已拍段沿用舊包、新段用新包）；沒列的段用 `default`，tag／kind 沿用計畫條目。`generate_bindings.build_segment_remix` 的 `want()` 解析；bind 檔頭與 `references/tooling.md` §2.3.1c 同步。`tests/test_pack_plan_segment_override.py` 3 測。
+- 文件：SKILL.md 新增「主做（新鮮執行者，每階段）」——每階段製作交 fresh subagent（材料＋規則＋定案，不帶對話史）、隔離的是對話與結論不是專案、單一寫入者（只有主 agent 跑 h3d 寫狀態）、材料包優先於口頭交代；跨 session 接手／長對話／反覆出錯時換新鮮執行者。紀律非工具，不改 h3d 狀態機。
 
 ## [0.11.0] - 2026-11-07
 - 新增：盲審（fresh-eyes review，**Eian 文章對照**）——`scripts/build_blind_review.py` 組「只含材料、不含結論」的盲審材料包（`--stage 3` 劇本本文／`--stage 7` 核准版影片抽幀拼貼／`--inputs` 手動材料；verdicts、QA、shot_intent 一律不進包）＋規範 `references/blind-review.md`（fresh subagent 只給材料包路徑、輸出「看懂的故事＋看不懂處＋通過/不通過」、原文存 `review/blind/`）。階段 3 定稿前與階段 7 交付前必跑；是流程要求不是新門禁，不改 h3d 狀態機。`tests/test_blind_review.py` 5 測。
