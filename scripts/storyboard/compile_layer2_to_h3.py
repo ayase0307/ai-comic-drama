@@ -1323,6 +1323,22 @@ def _dialogue_visibility(s: Dict[str, Any]) -> str:
     return "mouth_hidden" if dlg.get("lips_closed_lock") else "visible"
 
 
+def _speaker_record(speaker: Optional[str], registry: "AssetRegistry") -> Dict[str, Any]:
+    """說話者的資產記錄：id 直查，再用 name 掃描（layer2 的 speaker 常用角色中文名）。
+
+    bind 重生 video-bible.json 後，說話者若寫角色本名（非 C- id），直接查 id 會落空，
+    英文名與 voice_only 等記錄全丟（E15 中文洩漏、畫外音誤判成 visible）。未登記回 {}（不警告）。
+    """
+    if not speaker:
+        return {}
+    if speaker in registry.characters:
+        return registry.characters[speaker]
+    for rec in registry.characters.values():
+        if speaker == rec.get("name", ""):
+            return rec
+    return {}
+
+
 def _dialogue_speaker_label(speaker: Optional[str], registry: AssetRegistry) -> str:
     """回傳穩定的說話人稱呼（不含資產 ID）。
 
@@ -1343,7 +1359,7 @@ def _dialogue_speaker_label(speaker: Optional[str], registry: AssetRegistry) -> 
     }
     label = special_labels.get(normalized)
     if not label:
-        info = registry.characters.get(speaker, {})
+        info = _speaker_record(speaker, registry)
         label = str(info.get("name") or speaker)
     return label
 
@@ -1559,7 +1575,7 @@ def _shot_speaker_has_visible_mouth(shot: Dict[str, Any], registry: AssetRegistr
 def _line_has_no_visible_mouth(shot: Dict[str, Any], dlg: Dict[str, Any], registry: AssetRegistry) -> bool:
     """這一句是不是「沒有可見的嘴」：畫外 O.S.、旁白／內心 V.O.、背影／遮嘴、voice-only。"""
     speaker = dlg.get("speaker")
-    record = registry.characters.get(speaker, {}) if speaker else {}
+    record = _speaker_record(speaker, registry)
     if record.get("no_visual_reference") or record.get("voice_only"):
         return True
     is_vo = _is_voiceover(shot)
@@ -1575,7 +1591,7 @@ def _line_has_no_visible_mouth(shot: Dict[str, Any], dlg: Dict[str, Any], regist
 def _extra_line_has_no_visible_mouth(shot: Dict[str, Any], ex: Dict[str, Any],
                                      registry: AssetRegistry) -> bool:
     speaker = ex.get("speaker")
-    record = registry.characters.get(speaker, {}) if speaker else {}
+    record = _speaker_record(speaker, registry)
     if ex.get("voice_only") or record.get("no_visual_reference") or record.get("voice_only"):
         return True
     form = str(ex.get("offscreen_form") or "").lower()
@@ -2326,11 +2342,11 @@ def compile_segment_h3_base(
             identity = _dialogue_speaker_label(spk, registry)
             if remix and spk:
                 # REMIX 提示詞只放英文：沒包的發聲者（畫外音）也用英文名
-                identity = _ascii_name((registry.characters.get(spk) or {}).get("name_en")) or identity
+                identity = _ascii_name(_speaker_record(spk, registry).get("name_en")) or identity
             speaker_id = speaker_ids.get(str(spk)) if spk else None
             subject_speaker = f"{identity} ({speaker_id})" if speaker_id else identity
             window = _speech_window_clause(dlg)
-            speaker_record = registry.characters.get(spk, {}) if spk else {}
+            speaker_record = _speaker_record(spk, registry)
             visibility = "offscreen" if (speaker_record.get("no_visual_reference") or speaker_record.get("voice_only")) else _dialogue_visibility(s)
             is_vo = _is_voiceover(s)
             _form = str(dlg.get("offscreen_form") or "").lower()
@@ -2433,10 +2449,10 @@ def compile_segment_h3_base(
                 ex_spk = ex.get("speaker")
                 ex_identity = _dialogue_speaker_label(ex_spk, registry)
                 if remix and ex_spk:
-                    ex_identity = _ascii_name((registry.characters.get(ex_spk) or {}).get("name_en")) or ex_identity
+                    ex_identity = _ascii_name(_speaker_record(ex_spk, registry).get("name_en")) or ex_identity
                 ex_id = speaker_ids.get(str(ex_spk)) if ex_spk else None
                 ex_subject = f"{ex_identity} ({ex_id})" if ex_id else ex_identity
-                ex_record = registry.characters.get(ex_spk, {}) if ex_spk else {}
+                ex_record = _speaker_record(ex_spk, registry)
                 ex_form = str(ex.get("offscreen_form") or "").lower()
                 ex_is_vo = ex_form == "voiceover" or _is_voiceover({"dialogue_and_audio": ex}) \
                     or str(ex.get("audio_type") or "").strip().lower() in ("narration", "voiceover", "vo", "inner", "v.o.")
@@ -2909,7 +2925,7 @@ def compile_segment_h3(
                 order.append(c)
             weight[c] = weight.get(c, 0) + SHOT_SIZE_WEIGHT.get(size, 1) * (1.0 if k == 0 else 0.3)
         speaker = _shot_speaker(s)
-        speaker_record = registry.characters.get(speaker, {}) if speaker else {}
+        speaker_record = _speaker_record(speaker, registry)
         speaker_is_visual = not (speaker_record.get("no_visual_reference") or speaker_record.get("voice_only"))
         if speaker and speaker_is_visual and not _is_voiceover(s):
             if speaker not in order:
@@ -3147,7 +3163,8 @@ def compile_segment_h3(
     narration_subject_no: Dict[str, int] = {}
     if not remix:
         for spk in _collect_narration_speakers(shots, registry):
-            if spk in selected or spk in narration_subject_no:
+            if spk in selected or str(_speaker_record(spk, registry).get("id") or spk) in selected \
+                    or spk in narration_subject_no:
                 continue
             sid = speaker_ids.get(str(spk))
             if sid and sid.startswith("S") and sid[1:].isdigit():
@@ -3283,10 +3300,12 @@ def compile_segment_h3(
         remix_intros, remix_names = remix_intro_sentences(remix_mods, registry, remix_packs, seg_wardrobe, notes)
         # REMIX 沒有 <Subject N>：旁白者的「只有聲音、不入鏡」宣告改寫在介紹句裡（噩盡島 S02-b/d 少了這句，旁白被配成洛年）
         for spk in _collect_narration_speakers(shots, registry):
-            if spk in selected:
+            # 說話者可能寫角色本名（非 C- id）：先解析成 id 再比 selected，有包的角色不誤報 voice-only
+            if spk in selected or str(_speaker_record(spk, registry).get("id") or spk) in selected:
                 continue
             sid = speaker_ids.get(str(spk))
-            spk_label = _dialogue_speaker_label(spk, registry)
+            # REMIX 提示詞只放英文：宣告句用英文名（name_en），沒有才退回 label（E15）
+            spk_label = _ascii_name(_speaker_record(spk, registry).get("name_en")) or _dialogue_speaker_label(spk, registry)
             remix_intros.append(
                 f"{spk_label[:1].upper() + spk_label[1:]}{f' ({sid})' if sid else ''} is a voice-only presence "
                 f"heard off-screen: it has no reference, never appears in frame, its voice is clearly a different "
@@ -3397,7 +3416,8 @@ def compile_segment_h3(
     # 旁白／畫外音說話人：<Subject N> 只代表「這把聲音」，沒有 <Picture>，也不代表畫面人物。
     for spk, no in narration_subject_no.items():
         sid = speaker_ids.get(str(spk)) or f"S{no}"
-        label = _dialogue_speaker_label(spk, registry)
+        # 提示詞只放英文：宣告句優先英文名（name_en），沒有才退回 label
+        label = _ascii_name(_speaker_record(spk, registry).get("name_en")) or _dialogue_speaker_label(spk, registry)
         subject_def_lines.append(
             f"<Subject {no}> is {label}, a voice-only presence heard off-screen ({sid}); "
             f"it has no <Picture> reference, is never visible in frame, and never moves a visible mouth."
@@ -3845,7 +3865,7 @@ def compile_segment_h3(
             if remix and spk:
                 # REMIX 提示詞只放英文：沒包的發聲者（畫外音）也用英文名，不用 bible 的中文名
                 identity = (remix_names.get(str(spk))
-                            or _ascii_name((registry.characters.get(spk) or {}).get("name_en")) or identity)
+                            or _ascii_name(_speaker_record(spk, registry).get("name_en")) or identity)
             speaker_tag = tag_of.get(spk)
             speaker_id = speaker_ids.get(str(spk)) if spk else None
             if speaker_tag and speaker_id:
@@ -3857,7 +3877,7 @@ def compile_segment_h3(
             else:
                 subject_speaker = identity
             window = _speech_window_clause(dlg)
-            speaker_record = registry.characters.get(spk, {}) if spk else {}
+            speaker_record = _speaker_record(spk, registry)
             visibility = "offscreen" if (speaker_record.get("no_visual_reference") or speaker_record.get("voice_only")) else _dialogue_visibility(s)
             is_vo = _is_voiceover(s)
             _form = str(dlg.get("offscreen_form") or "").lower()
@@ -3996,7 +4016,7 @@ def compile_segment_h3(
                 ex_identity = _dialogue_speaker_label(ex_spk, registry)
                 if remix and ex_spk:
                     ex_identity = (remix_names.get(str(ex_spk))
-                                   or _ascii_name((registry.characters.get(ex_spk) or {}).get("name_en")) or ex_identity)
+                                   or _ascii_name(_speaker_record(ex_spk, registry).get("name_en")) or ex_identity)
                 ex_tag = tag_of.get(ex_spk) if ex_spk else None
                 ex_id = speaker_ids.get(str(ex_spk)) if ex_spk else None
                 if ex_tag and ex_id:
@@ -4005,7 +4025,7 @@ def compile_segment_h3(
                     ex_subject = f"{ex_identity} ({ex_id})"
                 else:
                     ex_subject = ex_tag or ex_identity
-                ex_record = registry.characters.get(ex_spk, {}) if ex_spk else {}
+                ex_record = _speaker_record(ex_spk, registry)
                 ex_form = str(ex.get("offscreen_form") or "").lower()
                 ex_is_vo = ex_form == "voiceover" or _is_voiceover({"dialogue_and_audio": ex}) \
                     or str(ex.get("audio_type") or "").strip().lower() in ("narration", "voiceover", "vo", "inner", "v.o.")
