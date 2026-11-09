@@ -35,6 +35,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 import urllib.request
 import urllib.error
+import urllib.parse
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -77,6 +78,12 @@ CLIENT_NAME = "ai-comic-drama"
 POLL_WAIT_SECONDS = 25
 DEFAULT_JOB_TIMEOUT = 2400  # pika1440 10s ≈ 1420s，留餘裕
 LEDGER_NAME = "remix-jobs.json"
+# 要求本身若已經等了這麼久，視為伺服器有長輪詢，不再額外 sleep。
+_LONG_POLL_CREDIT_SECONDS = 0.8
+
+
+class RemixTransportError(Exception):
+    """連不上 REMIX。訊息只描述原因，不得含令牌或 Authorization。"""
 
 
 # ---------------------------------------------------------------------------
@@ -85,7 +92,7 @@ LEDGER_NAME = "remix-jobs.json"
 
 def load_ledger(path: Path) -> Dict[str, Any]:
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
+        value = json.loads(path.read_text(encoding="utf-8-sig"))
         return value if isinstance(value, dict) else {}
     except (OSError, json.JSONDecodeError):
         return {}
@@ -109,16 +116,32 @@ def ledger_entry(ledger: Dict[str, Any], segment_id: str) -> Optional[Dict[str, 
 # HTTP（令牌不落地、不印出）
 # ---------------------------------------------------------------------------
 
+def _read_secret_file(path: Path) -> str:
+    """讀令牌檔。Windows 記事本的 UTF-8 會加 BOM，不剝掉就會進 Authorization 標頭。"""
+    try:
+        text = path.read_text(encoding="utf-8-sig")
+    except OSError as exc:
+        raise SystemExit(f"❌ 讀不到令牌檔（令牌不會被印出）：{exc.strerror or type(exc).__name__}") from exc
+    except UnicodeError:
+        raise SystemExit("❌ 令牌檔不是 UTF-8（令牌不會被印出）") from None
+    return text.strip().lstrip("\ufeff").strip()
+
+
 def resolve_token(args: argparse.Namespace) -> str:
     token = ""
     if getattr(args, "token_file", None):
-        token = Path(args.token_file).read_text(encoding="utf-8").strip()
+        token = _read_secret_file(Path(args.token_file))
     if not token:
         token = os.environ.get("REMIX_API_TOKEN", "").strip()
     if not token and DEFAULT_TOKEN_FILE:
-        token = Path(DEFAULT_TOKEN_FILE).read_text(encoding="utf-8").strip()
+        token = _read_secret_file(Path(DEFAULT_TOKEN_FILE))
     if not token:
         raise SystemExit("❌ 找不到 REMIX 令牌：--token-file、REMIX_API_TOKEN 或 REMIX_TOKEN_FILE 擇一提供（令牌不會被印出）")
+    try:
+        token.encode("latin-1")
+    except UnicodeEncodeError:
+        # HTTP 標頭只能 latin-1。把令牌印出來排錯會違反安全鐵律，所以只講原因。
+        raise SystemExit("❌ 令牌含無法放進 HTTP 標頭的字元（令牌不會被印出）") from None
     return token
 
 
@@ -141,6 +164,11 @@ def studio_request(api_url: str, token: str, path: str, method: str = "GET",
     except urllib.error.HTTPError as exc:
         raw = exc.read()
         status = exc.code
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        # URLError.reason 是連線原因，不含 Authorization。不要 str(request)。
+        reason = getattr(exc, "reason", None)
+        detail = reason if reason is not None else exc
+        raise RemixTransportError(f"無法連線 REMIX：{detail}") from exc
     try:
         payload = json.loads(raw.decode("utf-8")) if raw else {}
     except (UnicodeDecodeError, json.JSONDecodeError):
@@ -149,7 +177,7 @@ def studio_request(api_url: str, token: str, path: str, method: str = "GET",
 
 
 def download_file(api_url: str, token: str, job_id: str, dest: Path) -> None:
-    url = api_url.rstrip("/") + f"/jobs/{job_id}/file"
+    url = api_url.rstrip("/") + "/jobs/" + urllib.parse.quote(str(job_id), safe="") + "/file"
     request = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}",
                                                    "X-Remix-Client": CLIENT_NAME})
     opener = urllib.request.build_opener(SameOriginRedirectHandler())
@@ -441,8 +469,8 @@ def submit_segments(args: argparse.Namespace) -> int:
         print(f"❌ 找不到 segments 檔：{segments_path}", file=sys.stderr)
         return 2
     try:
-        payload = json.loads(segments_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+        payload = json.loads(segments_path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError, UnicodeError) as exc:
         print(f"❌ segments 檔無法解析：{exc}", file=sys.stderr)
         return 2
     segments = payload.get("segments") if isinstance(payload, dict) else payload
@@ -520,10 +548,16 @@ def submit_segments(args: argparse.Namespace) -> int:
         print("🧪 dry-run 不送件、不寫帳本。實際送件去掉 --dry-run。")
         return 0
 
-    token = resolve_token(args)
-    ok, message = ensure_project(args.api_url, token, project)
+    try:
+        token = resolve_token(args)
+        ok, message = ensure_project(args.api_url, token, project)
+    except RemixTransportError as exc:
+        print(f"❌ {exc}", file=sys.stderr)
+        args.summary = {"command": "submit", "error": str(exc), "submitted": 0, "failed": len(bodies)}
+        return 1
     if not ok:
         print(f"❌ {message}", file=sys.stderr)
+        args.summary = {"command": "submit", "error": message, "submitted": 0, "failed": 0}
         return 1
 
     ledger_path = root_dir / "videos" / LEDGER_NAME
@@ -548,13 +582,23 @@ def submit_segments(args: argparse.Namespace) -> int:
                   f"--reroll-failed 只重送失敗段、--reroll 全部重送")
             failed += 1
             continue
-        status, resp = studio_request(args.api_url, token, "/jobs", method="POST", body=body)
+        try:
+            status, resp = studio_request(args.api_url, token, "/jobs", method="POST", body=body)
+        except RemixTransportError as exc:
+            print(f"  ❌ [{sid}] {exc}", file=sys.stderr)
+            failed += 1
+            break
         if status not in (200, 201):
             print(f"  ❌ [{sid}] POST /jobs 失敗（HTTP {status}）：{resp.get('error') or resp}", file=sys.stderr)
             failed += 1
             continue
-        job = resp.get("job") or {}
-        entry = {"id": job.get("id"), "segment_id": sid, "status": job.get("status") or "queued",
+        job = resp.get("job") if isinstance(resp.get("job"), dict) else {}
+        job_id = job.get("id")
+        if not job_id:
+            print(f"  ❌ [{sid}] POST /jobs 回 HTTP {status} 但沒有 job.id，不當成送出", file=sys.stderr)
+            failed += 1
+            continue
+        entry = {"id": job_id, "segment_id": sid, "status": job.get("status") or "queued",
                  "frames_requested": round(body["seconds"] * h3_spec.FPS),
                  "seconds": body["seconds"], "mode": seg_mode,
                  "seed": body.get("seed"), "submitted_at": datetime.now(timezone.utc).isoformat(),
@@ -566,7 +610,9 @@ def submit_segments(args: argparse.Namespace) -> int:
 
     print(f"🎬 REMIX 送件結束: 送出 {submitted} | 失敗 {failed}")
     print(f"   收件：python scripts/storyboard/submit_remix.py --segments {segments_path.name} --collect --root-dir {root_dir}")
-    return 0 if submitted and not failed else (1 if failed else 0)
+    code = 1 if failed else 0
+    args.summary = {"command": "submit", "submitted": submitted, "failed": failed, "exit_code": code}
+    return code
 
 
 # ---------------------------------------------------------------------------
@@ -574,17 +620,37 @@ def submit_segments(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 def _poll_job(api_url: str, token: str, job_id: str, timeout_s: int) -> Tuple[str, Optional[Dict[str, Any]]]:
-    deadline = time.monotonic() + timeout_s
-    while time.monotonic() < deadline:
-        status, payload = studio_request(api_url, token, f"/jobs/{job_id}?wait={POLL_WAIT_SECONDS}",
-                                         timeout=POLL_WAIT_SECONDS + 15)
-        job = (payload or {}).get("job") or {}
+    """輪詢到結束、失敗或逾時。
+
+    伺服器若真的長輪詢（把連線留到 wait 秒），回來就立刻再問。
+    若馬上回答 queued，必須 sleep，否則會在逾時前空轉打爆本機埠。
+    404／401／403 是這筆工作已經不在，不要再空等預設的 25 秒。
+    """
+    deadline = time.monotonic() + max(0, timeout_s)
+    quoted = urllib.parse.quote(str(job_id), safe="")
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return "timeout", None
+        wait = max(1, int(min(POLL_WAIT_SECONDS, remaining)))
+        started = time.monotonic()
+        try:
+            status, payload = studio_request(
+                api_url, token, f"/jobs/{quoted}?wait={wait}", timeout=wait + 15)
+        except RemixTransportError as exc:
+            return "failed", {"error": str(exc)}
+        elapsed = time.monotonic() - started
+        job = (payload or {}).get("job") if isinstance((payload or {}).get("job"), dict) else {}
         state = str(job.get("status") or "")
         if state in ("succeeded", "failed", "cancelled"):
             return state, job
-        if status != 200:
-            time.sleep(POLL_WAIT_SECONDS)
-    return "timeout", None
+        if status in (401, 403, 404, 410):
+            error = payload.get("error") if isinstance(payload, dict) else None
+            return "failed", {"error": error or f"HTTP {status}"}
+        if elapsed < _LONG_POLL_CREDIT_SECONDS:
+            pause = min(POLL_WAIT_SECONDS, max(0.0, deadline - time.monotonic()))
+            if pause > 0:
+                time.sleep(pause)
 
 
 def collect_segments(args: argparse.Namespace) -> int:
@@ -640,16 +706,19 @@ def collect_segments(args: argparse.Namespace) -> int:
                       "downloaded_at": datetime.now(timezone.utc).isoformat()})
         # identity（R10 前哨）：fail 先重抽、warn 逐格人工、no_face 不算過
         try:
-            istatus, ipayload = studio_request(args.api_url, token, f"/jobs/{job_id}/identity", timeout=60)
+            istatus, ipayload = studio_request(
+                args.api_url, token,
+                "/jobs/" + urllib.parse.quote(str(job_id), safe="") + "/identity", timeout=60)
             identity = (ipayload or {}).get("identity") or ipayload or {}
             entry["identity"] = identity.get("status") or identity.get("state") or str(identity)[:120]
-        except (urllib.error.URLError, OSError):
+        except (RemixTransportError, urllib.error.URLError, OSError):
             entry["identity"] = "unavailable"
         save_ledger(ledger_path, ledger)
         print(f"  [+] [{sid}] 已下載 {dest.name}（實際 {frames_actual} 幀／{entry['duration_actual']}s，"
               f"identity={entry['identity']}）")
         downloaded += 1
     print(f"📥 REMIX 收件結束: 下載 {downloaded} | 失敗 {failed}")
+    args.summary = {"command": "collect", "downloaded": downloaded, "failed": failed}
     if args.report:
         report_path = root_dir / "videos" / "remix-qa.json"
         rows = []
@@ -684,8 +753,8 @@ def _decided_remix_mode(root_dir: Path) -> Optional[str]:
     if not path.is_file():
         return None
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError, UnicodeError):
         return None
     for item in (data.get("decisions") or []):
         if isinstance(item, dict) and item.get("id") == "remix_mode":
@@ -713,6 +782,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--wait-timeout", type=int, default=DEFAULT_JOB_TIMEOUT, help="單工作輪詢上限秒數")
     parser.add_argument("--api-url", default=DEFAULT_API_URL, help="REMIX Agent API 位址")
     parser.add_argument("--token-file", default=None, help="令牌檔路徑（內容不會被印出）")
+    parser.add_argument("--json", action="store_true",
+                        help="stdout 只印一行 JSON（ok／exit_code／submitted 等）；人讀訊息改走 stderr")
     parser.add_argument("--dry-run", action="store_true", help="只跑門禁與檢查、印出將送內容，不送件")
     parser.add_argument("--skip-stage-gate", action="store_true", help="僅 --dry-run 可用：跳過 stage-5 門禁並留繞過紀錄")
     parser.add_argument("--strict-catalog", action="store_true", help="失敗目錄警告也擋")
@@ -727,8 +798,35 @@ def main(argv: Optional[List[str]] = None) -> int:
         args.mode = _decided_remix_mode(root_dir) or decisions_mod.DEFAULT_REMIX_MODE
 
     if args.collect:
-        return collect_segments(args)
-    return submit_segments(args)
+        return _finish(args, collect_segments)
+    return _finish(args, submit_segments)
+
+
+def _finish(args: argparse.Namespace, fn) -> int:
+    """`--json` 時人讀訊息走 stderr，stdout 只留一個物件，結束碼仍是 fn 的回傳。"""
+    if not getattr(args, "json", False):
+        return fn(args)
+    real_out = sys.stdout
+    sys.stdout = sys.stderr
+    code = 1
+    try:
+        try:
+            code = fn(args)
+        except SystemExit as exc:
+            if isinstance(exc.code, int):
+                code = exc.code
+            else:
+                if exc.code:
+                    print(exc.code, file=sys.stderr)
+                code = 1
+    finally:
+        sys.stdout = real_out
+    summary = dict(getattr(args, "summary", {}) or {})
+    summary["exit_code"] = code
+    summary["ok"] = code == 0
+    real_out.write(json.dumps(summary, ensure_ascii=False) + "\n")
+    real_out.flush()
+    return code
 
 
 if __name__ == "__main__":
