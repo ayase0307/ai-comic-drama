@@ -188,7 +188,7 @@ def save(root: Path, data: Dict[str, Any]) -> Path:
         raise DecisionError("拒絕寫入不合格的 decisions.json：" + "；".join(errors[:5]))
     path = decisions_path(root)
     tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
     tmp.replace(path)
     return path
 

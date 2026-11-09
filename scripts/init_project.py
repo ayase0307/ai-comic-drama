@@ -519,7 +519,7 @@ def main() -> None:
             # 不然全新專案的 h3d next 也會出現「沒有寫入戳記（舊專案或曾手改）」。
             save_state(root, json.loads(content))
         else:
-            p.write_text(content, encoding="utf-8")
+            p.write_text(content, encoding="utf-8", newline="\n")
         created.append(name)
 
     print(f"專案目錄：{root}")

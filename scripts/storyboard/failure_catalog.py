@@ -294,10 +294,10 @@ def record_acks(root: Path, ids: List[str], note: str = "",
     if path.is_file():
         backup = path.with_name(path.name + ".bak")
         try:
-            backup.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+            backup.write_text(path.read_text(encoding="utf-8"), encoding="utf-8", newline="\n")
         except OSError:
             pass
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
     return path
 
 
@@ -395,10 +395,10 @@ def prune_acks(root: Path, catalog: Optional[Dict[str, Any]] = None) -> Dict[str
         if path.is_file():
             try:
                 path.with_name(path.name + ".bak").write_text(
-                    path.read_text(encoding="utf-8"), encoding="utf-8")
+                    path.read_text(encoding="utf-8"), encoding="utf-8", newline="\n")
             except OSError:
                 pass
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
     return {"path": str(path), "kept": len(kept), "removed": removed,
             "pruned_segments": pruned_segments}
 
