@@ -464,6 +464,9 @@ DIRS = ["source", "adapt", "layer2", "images", "videos", "review", "panels"]
 
 
 def main() -> None:
+    scripts_dir = str(Path(__file__).resolve().parent)
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
     from stdio_utf8 import configure_stdio
     configure_stdio()
     ap = argparse.ArgumentParser(description="建立 AI 漫劇專案骨架")

@@ -25,6 +25,41 @@ class H3dTests(unittest.TestCase):
                         "deps", "catalog", "doctor", "assemble", "status"):
             self.assertIn(command, printed)
 
+    def test_submit_backend_flag_is_consumed(self):
+        import submit_h3_segments
+        import submit_remix
+
+        def capture(box):
+            def fake(argv=None):
+                box.append(list(argv or []))
+                return 0
+            return fake
+
+        remix_box, free_box = [], []
+        with mock.patch.object(submit_remix, "main", capture(remix_box)), \
+                mock.patch.object(submit_h3_segments, "main", capture(free_box)):
+            code = h3d.main(["submit", "--backend", "remix", "--segments", "segments-ep01.json",
+                             "--project", "霧港", "--dry-run", "--skip-stage-gate"])
+        self.assertEqual(code, 0)
+        self.assertEqual(free_box, [])
+        argv = remix_box[0]
+        self.assertNotIn("--backend", argv)
+        self.assertNotIn("remix", argv)
+        self.assertIn("segments-ep01.json", argv)
+        self.assertIn("霧港", argv)
+
+        free_box.clear()
+        with mock.patch.object(submit_h3_segments, "main", capture(free_box)):
+            code = h3d.main(["submit", "--backend=ref2va", "--segments", "segments-ep01.json", "--dry-run"])
+        self.assertEqual(code, 0)
+        self.assertFalse(any(str(item).startswith("--backend") for item in free_box[0]))
+
+        remix_box.clear()
+        with mock.patch.object(submit_remix, "main", capture(remix_box)):
+            code = h3d.main(["submit", "--backend", "nope", "--segments", "segments-ep01.json"])
+        self.assertEqual(code, 2)
+        self.assertEqual(remix_box, [])
+
     def test_unknown_command_returns_2(self):
         with mock.patch("sys.stderr"):
             self.assertEqual(h3d.main(["nope"]), 2)

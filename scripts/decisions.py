@@ -654,6 +654,9 @@ def _parse_stages(text: Optional[str]) -> Optional[List[int]]:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    scripts_dir = str(Path(__file__).resolve().parent)
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
     from stdio_utf8 import configure_stdio
     configure_stdio()
     parser = argparse.ArgumentParser(
