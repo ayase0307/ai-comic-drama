@@ -654,6 +654,8 @@ def _parse_stages(text: Optional[str]) -> Optional[List[int]]:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    from stdio_utf8 import configure_stdio
+    configure_stdio()
     parser = argparse.ArgumentParser(
         prog="h3d decide",
         description="把使用者定案寫進 decisions.json（不要手改該檔）",

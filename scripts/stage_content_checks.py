@@ -307,6 +307,8 @@ def content_errors(root: Path, stage: int) -> List[str]:
 
 def main(argv: Optional[List[str]] = None) -> int:
     import argparse
+    from stdio_utf8 import configure_stdio
+    configure_stdio()
     parser = argparse.ArgumentParser(description="檢查階段 0–3 產物是否還是模板或驗證未過")
     parser.add_argument("--root", default=".")
     parser.add_argument("--stage", type=int, required=True, choices=sorted(CHECKS))

@@ -464,6 +464,8 @@ DIRS = ["source", "adapt", "layer2", "images", "videos", "review", "panels"]
 
 
 def main() -> None:
+    from stdio_utf8 import configure_stdio
+    configure_stdio()
     ap = argparse.ArgumentParser(description="建立 AI 漫劇專案骨架")
     ap.add_argument("project_dir", help="專案目錄（不存在會建立）")
     ap.add_argument("--title", default="未命名漫劇", help="專案名稱")

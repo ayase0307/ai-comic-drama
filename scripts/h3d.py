@@ -28,6 +28,8 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from stdio_utf8 import configure_stdio
+
 SCRIPTS_DIR = Path(__file__).resolve().parent
 STORYBOARD_DIR = SCRIPTS_DIR / "storyboard"
 REVIEW_DIR = SCRIPTS_DIR / "review"
@@ -287,6 +289,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    # 比 argparse 更早：說明文字與錯誤訊息也走 UTF-8，呼叫端才能固定用 utf-8 解。
+    configure_stdio()
     parser = build_parser()
     args = parser.parse_args(argv)
 
