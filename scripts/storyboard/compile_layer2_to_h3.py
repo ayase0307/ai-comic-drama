@@ -345,7 +345,7 @@ class AssetRegistry:
     # ---------- bible ----------
     def _load_bible(self, path: pathlib.Path) -> None:
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(path.read_text(encoding="utf-8-sig"))
         except Exception as exc:
             print(f"[警告] 讀取 bible.json 失敗: {exc}", file=sys.stderr)
             return
@@ -453,7 +453,7 @@ class AssetRegistry:
     # ---------- assets.md ----------
     def _load_assets_md(self, path: pathlib.Path) -> None:
         try:
-            content = path.read_text(encoding="utf-8")
+            content = path.read_text(encoding="utf-8-sig")
         except Exception as exc:
             print(f"[警告] 讀取 assets.md 失敗: {exc}", file=sys.stderr)
             return
@@ -4408,7 +4408,7 @@ def load_layer2_files(sources: List[str]) -> List[pathlib.Path]:
 
 def load_stage5_bindings(path: pathlib.Path) -> Dict[str, Dict[str, Any]]:
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload = json.loads(path.read_text(encoding="utf-8-sig"))
     except Exception as exc:
         raise ValueError(f"Cannot read Stage5 bindings {path}: {exc}") from exc
     segments = payload.get("segments") if isinstance(payload, dict) else None
@@ -4432,7 +4432,7 @@ def bindings_backend(path: pathlib.Path) -> Tuple[Optional[str], Dict[str, Any]]
     單臉模式、Subject↔Picture 序對只在 ref2va 執行。
     """
     try:
-        payload = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+        payload = json.loads(pathlib.Path(path).read_text(encoding="utf-8-sig"))
     except Exception:
         return None, {}  # 讀檔錯誤交給 load_stage5_bindings 報
     if not isinstance(payload, dict):
@@ -4569,7 +4569,7 @@ def collect_segment_end_states(
                 pool.append(sib)
     for path in pool:
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(path.read_text(encoding="utf-8-sig"))
         except Exception:
             continue
         if not isinstance(data, dict):
@@ -4697,7 +4697,7 @@ def main() -> int:
             input_ids = []
             parsed_inputs: Dict[pathlib.Path, Dict[str, Any]] = {}
             for path in layer2_files:
-                data = json.loads(path.read_text(encoding="utf-8"))
+                data = json.loads(path.read_text(encoding="utf-8-sig"))
                 sid = str(data.get("segment_id") or data.get("scene_id") or "")
                 if sid in input_ids:
                     raise ValueError(f"Duplicate input segment_id: {sid}")
@@ -4736,7 +4736,7 @@ def main() -> int:
                 stage5_binding = bindings_by_segment[str(l2_data.get("segment_id") or l2_data.get("scene_id") or "")]
                 l2_data = apply_stage5_binding(l2_data, stage5_binding)
             else:
-                with p.open("r", encoding="utf-8") as f:
+                with p.open("r", encoding="utf-8-sig") as f:
                     l2_data = json.load(f)
                 stage5_binding = None
             this_sid = str(l2_data.get("segment_id") or l2_data.get("scene_id") or "")
@@ -4783,7 +4783,7 @@ def main() -> int:
                 "total_segments": len(compiled_results),
                 "segments": compiled_results,
             }
-            with args.output_segments.open("w", encoding="utf-8") as f:
+            with args.output_segments.open("w", encoding="utf-8", newline="\n") as f:
                 json.dump(export_payload, f, ensure_ascii=False, indent=2)
                 f.write("\n")
             print(f"📦 已輸出分段對帳 JSON 集合: {args.output_segments}")
@@ -4792,7 +4792,7 @@ def main() -> int:
             args.output_segments.mkdir(parents=True, exist_ok=True)
             for seg in compiled_results:
                 out_p = args.output_segments / f"segment-{seg['segment_id']}.json"
-                with out_p.open("w", encoding="utf-8") as f:
+                with out_p.open("w", encoding="utf-8", newline="\n") as f:
                     json.dump(seg, f, ensure_ascii=False, indent=2)
                     f.write("\n")
             print(f"📦 已輸出各分段 JSON 於目錄: {args.output_segments}")

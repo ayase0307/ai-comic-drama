@@ -4,12 +4,16 @@
 stage-5 門禁本身是共用程式（submit_h3_segments.verify_stage5_gate，另有測試），
 這裡用 mock 放行，只測 adapter 自己的邏輯。
 """
+import argparse
+import contextlib
+import io
 import json
 import shutil
 import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -85,7 +89,10 @@ class _StudioHandler(BaseHTTPRequestHandler):
             parsed = json.loads(body.decode("utf-8")) if body else {}
         except (UnicodeDecodeError, json.JSONDecodeError):
             parsed = {}
-        _StudioHandler.requests.append({"method": self.command, "path": self.path, "body": parsed})
+        _StudioHandler.requests.append({
+            "method": self.command, "path": self.path, "body": parsed,
+            "authorization": self.headers.get("Authorization"),
+        })
 
     def do_GET(self):
         self._record(b"")
@@ -204,6 +211,78 @@ class SubmitRemixTests(StudioTestBase):
         self.assertEqual(sr._decided_remix_mode(self.root), "pika480")
         self.assertIsNone(sr._decided_remix_mode(self.root / "nowhere"))
 
+    def test_utf8_bom_segments_and_token_still_submit(self):
+        raw = json.dumps({"segments": [compiled_segment()]}, ensure_ascii=False).encode("utf-8")
+        (self.root / "segments-ep01.json").write_bytes(b"\xef\xbb\xbf" + raw)
+        token = self.root / "bom.token"
+        token.write_bytes(b"\xef\xbb\xbf" + b"test-token\r\n")
+        with mock.patch.object(sr, "verify_stage5_gate", return_value=True):
+            code = sr.main(self.base_args(["--token-file", str(token)]))
+        self.assertEqual(code, 0)
+        posts = [r for r in _StudioHandler.requests if r["method"] == "POST" and r["path"].endswith("/jobs")]
+        self.assertEqual(len(posts), 1)
+        self.assertEqual(posts[0]["authorization"], "Bearer test-token")
+        self.assertNotIn("\ufeff", posts[0]["authorization"])
+
+    def test_bom_ledger_is_not_treated_as_empty(self):
+        path = self.root / "videos" / "remix-jobs.json"
+        path.parent.mkdir(parents=True)
+        body = json.dumps({"jobs": [{"id": "J9", "segment_id": "EP01-S01-a", "status": "queued"}]})
+        path.write_bytes(b"\xef\xbb\xbf" + body.encode("utf-8"))
+        ledger = sr.load_ledger(path)
+        self.assertEqual(ledger["jobs"][0]["id"], "J9")
+
+    def test_token_with_non_latin1_is_refused_without_echoing_it(self):
+        token = self.root / "bad.token"
+        token.write_text("秘密令牌", encoding="utf-8")
+        with self.assertRaises(SystemExit) as caught:
+            sr.resolve_token(argparse.Namespace(token_file=str(token)))
+        self.assertNotIn("秘密令牌", str(caught.exception))
+
+    def test_connection_refused_exits_1_with_json_and_no_traceback(self):
+        self.write_segments([compiled_segment()])
+        err = io.StringIO()
+        out = io.StringIO()
+        with mock.patch.object(sr, "verify_stage5_gate", return_value=True), \
+                contextlib.redirect_stderr(err), contextlib.redirect_stdout(out):
+            code = sr.main(self.base_args([
+                "--api-url", "http://127.0.0.1:1/remix/agent/v1", "--json"]))
+        self.assertEqual(code, 1)
+        self.assertNotIn("Traceback", err.getvalue())
+        self.assertIn("無法連線", err.getvalue())
+        payload = json.loads(out.getvalue())
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["exit_code"], 1)
+        self.assertIn("無法連線", payload.get("error", ""))
+
+    def test_http_200_without_job_id_is_not_success(self):
+        self.write_segments([compiled_segment()])
+
+        class _NoJob(_StudioHandler):
+            def do_POST(self):
+                length = int(self.headers.get("Content-Length") or 0)
+                self._record(self.rfile.read(length) if length else b"")
+                self._send(200, {"ok": True})
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), _NoJob)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(server.shutdown)
+        self.addCleanup(server.server_close)
+        api = f"http://127.0.0.1:{server.server_address[1]}/remix/agent/v1"
+        before = len(_StudioHandler.requests)
+        with mock.patch.object(sr, "verify_stage5_gate", return_value=True):
+            code = sr.main(self.base_args(["--api-url", api]))
+        self.assertEqual(code, 1)
+        posts = [r for r in _StudioHandler.requests[before:] if r["method"] == "POST" and r["path"].endswith("/jobs")]
+        self.assertEqual(len(posts), 1)
+        ledger_path = self.root / "videos" / "remix-jobs.json"
+        if ledger_path.exists():
+            jobs = json.loads(ledger_path.read_text(encoding="utf-8")).get("jobs") or []
+            self.assertFalse(any(item.get("id") in (None, "") for item in jobs))
+        else:
+            self.assertFalse(ledger_path.exists())
+
 
 @unittest.skipUnless(FFMPEG, "需要 ffmpeg 產生測試影片")
 class CollectRemixTests(StudioTestBase):
@@ -262,6 +341,81 @@ class CollectRemixTests(StudioTestBase):
             self.assertEqual(code, 0)
             posts = [r for r in _StudioHandler.requests if r["method"] == "POST" and r["path"].endswith("/jobs")]
             self.assertEqual(len(posts), 1)
+
+
+class PollBehaviorTests(unittest.TestCase):
+    def _serve(self, handler):
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.shutdown)
+        self.addCleanup(server.server_close)
+        return f"http://127.0.0.1:{server.server_address[1]}/remix/agent/v1", server
+
+    def test_http_404_fails_without_the_25_second_sleep(self):
+        class _Missing(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                body = b'{"error":"missing"}'
+                self.send_response(404)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        api, _server = self._serve(_Missing)
+        started = time.perf_counter()
+        state, job = sr._poll_job(api, "t", "NOPE", timeout_s=5)
+        elapsed = time.perf_counter() - started
+        self.assertEqual(state, "failed")
+        self.assertIn("missing", str((job or {}).get("error")))
+        self.assertLess(elapsed, 2.0, "404 不該再空等 POLL_WAIT_SECONDS（25 秒）")
+
+    def test_immediate_queued_does_not_busy_loop(self):
+        class _Queued(BaseHTTPRequestHandler):
+            hits = 0
+
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                type(self).hits += 1
+                body = json.dumps({"job": {"id": "J", "status": "queued"}}).encode()
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        _Queued.hits = 0
+        api, _server = self._serve(_Queued)
+        state, _job = sr._poll_job(api, "t", "J", timeout_s=0.4)
+        self.assertEqual(state, "timeout")
+        self.assertLessEqual(_Queued.hits, 3, f"0.4 秒內打了 {_Queued.hits} 次，空轉沒有退避")
+
+    def test_long_poll_is_not_followed_by_another_full_wait(self):
+        class _Slow(BaseHTTPRequestHandler):
+            hits = 0
+
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                type(self).hits += 1
+                time.sleep(1.0)
+                body = json.dumps({"job": {"id": "J", "status": "queued"}}).encode()
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        _Slow.hits = 0
+        api, _server = self._serve(_Slow)
+        started = time.perf_counter()
+        sr._poll_job(api, "t", "J", timeout_s=1.5)
+        elapsed = time.perf_counter() - started
+        # 回應本身花了 1 秒就不該再把剩餘時間睡滿；否則 1.5 秒上限裡只打得成 1 次。
+        self.assertGreaterEqual(_Slow.hits, 2)
+        self.assertLess(elapsed, 2.8)
 
 
 if __name__ == "__main__":

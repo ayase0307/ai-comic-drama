@@ -148,7 +148,8 @@ def save(root: Path, data: Dict[str, Any]) -> Path:
     path = verdicts_path(root)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2, sort_keys=False) + "\n", encoding="utf-8")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2, sort_keys=False) + "\n",
+                   encoding="utf-8", newline="\n")
     tmp.replace(path)
     return path
 
@@ -404,7 +405,7 @@ def build_prefill(root: Path) -> Dict[str, Any]:
     path = prefill_path(root)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
     tmp.replace(path)
     return data
 

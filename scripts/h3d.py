@@ -36,6 +36,8 @@ for candidate in (str(SCRIPTS_DIR), str(STORYBOARD_DIR), str(REVIEW_DIR), *map(s
     if candidate not in sys.path:
         sys.path.insert(0, candidate)
 
+from stdio_utf8 import configure_stdio  # noqa: E402  要先把 scripts/ 放進 path，`import scripts.h3d` 才找得到
+
 # command -> (module, description)
 COMMANDS: Dict[str, str] = {
     "next": "下一步：目前階段、卡在哪、唯一一條指令、該讀的 reference（--json）",
@@ -154,6 +156,34 @@ def _load_remix():
         return importlib.import_module("submit_remix")
     except ImportError as exc:  # pragma: no cover - 檔案缺失時
         raise SystemExit(f"❌ 找不到模組 submit_remix：{exc}")
+
+
+def _consume_backend(module, passthrough: List[str]):
+    """吃掉 `--backend`。底層 argparse 不認識這個旗標，留著會直接 unrecognized arguments。
+
+    remix 改走 submit_remix；ref2va／freevideo／h3 維持 FreeVideo 送件端。
+    回 (module, 剩下的參數, 錯誤碼或 None)。
+    """
+    cleaned: List[str] = []
+    index = 0
+    while index < len(passthrough):
+        flag = passthrough[index]
+        if flag == "--backend" and index + 1 < len(passthrough):
+            value = str(passthrough[index + 1]).strip().lower()
+            index += 2
+        elif flag.startswith("--backend="):
+            value = flag.split("=", 1)[1].strip().lower()
+            index += 1
+        else:
+            cleaned.append(flag)
+            index += 1
+            continue
+        if value == "remix":
+            module = _load_remix()
+        elif value not in ("ref2va", "freevideo", "h3"):
+            print(f"❌ 不認得的送件後端 {value!r}（ref2va 或 remix）", file=sys.stderr)
+            return module, cleaned, 2
+    return module, cleaned, None
 
 
 def _invoke(module, argv: List[str]) -> int:
@@ -287,6 +317,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    # 比 argparse 更早：說明文字與錯誤訊息也走 UTF-8，呼叫端才能固定用 utf-8 解。
+    configure_stdio()
     parser = build_parser()
     args = parser.parse_args(argv)
 
@@ -328,15 +360,11 @@ def main(argv: Optional[List[str]] = None) -> int:
             passthrough.append("--json")
         return _invoke(importlib.import_module("continuity_qa"), passthrough)
     module = _load(command)
-    # PR-R7：submit／collect／resume 帶 --backend remix 時改走 REMIX 送件 adapter（submit_remix）。
+    # PR-R7：submit／collect／resume 的 --backend 由這一層吃掉，不能原樣丟給底層 argparse。
     if command in ROOT_DIR_COMMANDS:
-        for i, flag in enumerate(passthrough):
-            if flag == "--backend" and i + 1 < len(passthrough) and str(passthrough[i + 1]).strip().lower() == "remix":
-                module = _load_remix()
-                break
-            if flag.startswith("--backend=") and flag.split("=", 1)[1].strip().lower() == "remix":
-                module = _load_remix()
-                break
+        module, passthrough, backend_error = _consume_backend(module, passthrough)
+        if backend_error:
+            return backend_error
     passthrough = IMPLIED_FLAGS.get(command, []) + passthrough
     if command in ("next", "decide", "verdict", "inbox", "approve", "run", "refcheck", "staging", "version", "imagegen"):
         # 允許 `h3d --root X next` 與 `h3d next --root X` 兩種寫法

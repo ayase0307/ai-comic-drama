@@ -719,7 +719,7 @@ def write_skeletons(results: list[tuple[str, dict]], out_dir: Path, force: bool)
                 status = "略過（已存在）"
             else:
                 tmp = path.with_name(path.name + ".tmp")
-                tmp.write_text(content, encoding="utf-8")
+                tmp.write_text(content, encoding="utf-8", newline="\n")
                 pending.append((tmp, path))
                 status = "寫入"
                 kept = carried.get(seg_id, {}).get("kept") or []

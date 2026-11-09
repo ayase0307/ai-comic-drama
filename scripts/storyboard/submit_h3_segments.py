@@ -102,7 +102,7 @@ class SameOriginRedirectHandler(urllib.request.HTTPRedirectHandler):
 
 def load_job_ledger(path: Path) -> Dict[str, Any]:
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
+        value = json.loads(path.read_text(encoding="utf-8-sig"))
         return value if isinstance(value, dict) else {}
     except (OSError, json.JSONDecodeError):
         return {}
@@ -254,9 +254,9 @@ def probe_video_duration(video_path: Path) -> Optional[float]:
         result = subprocess.run(
             [media_tools.ffprobe_bin(), "-v", "error", "-show_entries", "format=duration",
              "-of", "default=nw=1:nk=1", str(video_path)],
-            capture_output=True, text=True, timeout=60,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except (OSError, subprocess.TimeoutExpired, UnicodeError):
         return None
     if result.returncode != 0:
         return None
@@ -929,7 +929,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"⚠️ [caps] {drift}（請更新 providers/{args.provider}.json）")
 
     # 讀取分段列表
-    with args.segments.open("r", encoding="utf-8") as f:
+    with args.segments.open("r", encoding="utf-8-sig") as f:
         data = json.load(f)
     gate_scope: Dict[str, Any] = {}
     if not verify_stage5_gate(args.root_dir, args.segments, skip_gate=args.skip_stage_gate, dry_run=args.dry_run,

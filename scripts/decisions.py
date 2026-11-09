@@ -188,7 +188,7 @@ def save(root: Path, data: Dict[str, Any]) -> Path:
         raise DecisionError("拒絕寫入不合格的 decisions.json：" + "；".join(errors[:5]))
     path = decisions_path(root)
     tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
     tmp.replace(path)
     return path
 
@@ -654,6 +654,11 @@ def _parse_stages(text: Optional[str]) -> Optional[List[int]]:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    scripts_dir = str(Path(__file__).resolve().parent)
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
+    from stdio_utf8 import configure_stdio
+    configure_stdio()
     parser = argparse.ArgumentParser(
         prog="h3d decide",
         description="把使用者定案寫進 decisions.json（不要手改該檔）",

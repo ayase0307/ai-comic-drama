@@ -496,6 +496,16 @@ class TerminalDurationAssertionTests(unittest.TestCase):
         self.assertFalse((out_dir / "EP01-S01.mp4").exists())
 
 
+class LedgerBomTests(unittest.TestCase):
+    def test_utf8_bom_ledger_is_not_loaded_as_empty(self):
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "_fv-job-ledger.json"
+            body = json.dumps({"jobs": [{"id": "J1", "segment_id": "EP01-S01-a"}]})
+            path.write_bytes(b"\xef\xbb\xbf" + body.encode("utf-8"))
+            ledger = submit.load_job_ledger(path)
+        self.assertEqual(ledger["jobs"][0]["id"], "J1")
+
+
 if __name__ == "__main__":
     unittest.main()
 

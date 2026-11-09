@@ -99,7 +99,8 @@ def save_state(root: Path, state: dict[str, Any]) -> None:
     # `h3d next` 會把它當成阻斷項，要求走正門（build_stage_review.py）重建。
     normalized[INTEGRITY_KEY] = {"writer": "project_state.save_state", "sha256": _integrity_digest(normalized)}
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(normalized, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    # newline="\n"：Windows 預設 text mode 會把 \n 轉成 CRLF，sha256_file 會把同一份內容看成被改過。
+    tmp.write_text(json.dumps(normalized, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
     tmp.replace(path)
 
 
@@ -615,13 +616,19 @@ def _ffprobe(path: Path) -> dict[str, Any] | None:
     if not exe or not path.is_file() or path.stat().st_size <= 1024:
         return None
     try:
-        result = subprocess.run([exe, "-v", "error", "-i", str(path), "-f", "null", "-"], capture_output=True, text=True, timeout=90)
+        # 中文路徑時 ffmpeg 常把路徑印在 stderr。pipe 的預設編碼是系統代碼頁，
+        # 對不上就 UnicodeDecodeError（它是 ValueError），下面會把它當成「影片解不開」，階段 6 核准被擋。
+        result = subprocess.run(
+            [exe, "-v", "error", "-i", str(path), "-f", "null", "-"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=90)
         if result.returncode != 0:
             return None
         probe = shutil.which("ffprobe")
         if not probe:
             return {"duration": None}
-        parsed = subprocess.run([probe, "-v", "error", "-show_entries", "format=duration", "-of", "json", str(path)], capture_output=True, text=True, timeout=30)
+        parsed = subprocess.run(
+            [probe, "-v", "error", "-show_entries", "format=duration", "-of", "json", str(path)],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
         if parsed.returncode != 0:
             return None
         duration = float(json.loads(parsed.stdout).get("format", {}).get("duration", 0))
