@@ -127,7 +127,7 @@ def probe_video_specs(video_path: Path) -> Dict[str, Any]:
         "-of", "json",
         str(video_path)
     ]
-    res = subprocess.run(cmd, capture_output=True, text=True)
+    res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if res.returncode != 0:
         raise RuntimeError(f"ffprobe 解析失敗: {res.stderr}")
 

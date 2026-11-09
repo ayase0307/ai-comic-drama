@@ -254,9 +254,9 @@ def probe_video_duration(video_path: Path) -> Optional[float]:
         result = subprocess.run(
             [media_tools.ffprobe_bin(), "-v", "error", "-show_entries", "format=duration",
              "-of", "default=nw=1:nk=1", str(video_path)],
-            capture_output=True, text=True, timeout=60,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except (OSError, subprocess.TimeoutExpired, UnicodeError):
         return None
     if result.returncode != 0:
         return None
