@@ -68,6 +68,8 @@ DEFAULT_PANEL_LABELS = {
 # 實測與 FreeVideo media API 裁切像素相同）；換算成比例，任何尺寸的同版面板都適用。
 # 版面不同時在計畫表寫 face_crop_box（頂層＝全專案、characters.<id>.default／costumes.<W>＝單一角色）。
 FACE_PANEL_BOX = "0,0,0.3711,0.6319"
+# sheet-v2：左 0-35% 胸像（2560×1440 → 0,0,896,910）
+FACE_PANEL_BOX_V2 = "0,0,0.35,0.6319"
 H3D_CMD = f'python "{(HERE.parent / "h3d.py").as_posix()}"'
 
 
@@ -143,14 +145,17 @@ def video_bible(registry: AssetRegistry, raw_bible: Dict[str, Any]) -> Dict[str,
             "id_aliases": dict(registry.id_aliases)}
 
 
-def face_crop_box(plans: Dict[str, Any], plan: Optional[Dict[str, Any]] = None) -> str:
-    """裁切框：角色計畫 > 計畫表頂層 face_crop_box > 預設標準板頭部特寫格。"""
+def face_crop_box(plans: Dict[str, Any], plan: Optional[Dict[str, Any]] = None, template: str = "") -> str:
+    """裁切框：角色計畫 > 計畫表頂層 face_crop_box > 依版式預設（sheet-v2 用 35% 胸像框，舊板用 0.3711）。"""
     for source in (plan or {}, plans or {}):
         box = source.get("face_crop_box") if isinstance(source, dict) else None
         if isinstance(box, str) and box.strip():
             return box.strip()
         if isinstance(box, (list, tuple)) and len(box) == 4:
             return ",".join(str(v) for v in box)
+    tpl = str(template or (plans or {}).get("template", "") if isinstance(plans, dict) else "")
+    if tpl == "sheet-v2":
+        return FACE_PANEL_BOX_V2
     return FACE_PANEL_BOX
 
 

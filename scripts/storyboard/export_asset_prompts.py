@@ -77,18 +77,19 @@ DEFAULT_STYLE_KEY = style_rules.DEFAULT_STYLE_KEY
 STYLES_MD = pathlib.Path(__file__).resolve().parents[2] / "references" / "styles.md"
 
 MASTER_COMPOSITION = (
-    "16:9横版人物设定图，画面左侧为超大人物脸部胸像正面特写，占据画面约40%，"
-    "画面右侧水平并排3张完整全身立绘，依次为正面全身、45°侧面全身、背面全身。"
-    "三张全身立绘身高比例一致，头顶及脚底统一对齐，完整展示人物服装、身材与鞋履，统一浅灰色摄影棚背景。"
+    "16:9横版人物设定图，画面左侧0-35%为超大正面头肩胸像，脸部清晰，"
+    "画面右侧65%水平并排3张完整全身立绘，依次为正面全身、脸朝画面右侧约45°斜侧面全身、180°背面全身。"
+    "三张全身立绘身高比例一致，头顶一线、脚底一线对齐，完整展示人物服装、身材与鞋履，统一浅灰色无缝摄影棚背景。"
 )
-# 母版「最容易崩的五處」與四視圖專屬坑的防呆句
+# 母版「最容易崩的五處」與四視圖專屬坑的防呆句（v2：只允許風格句與畫質句變化）
 MASTER_GUARDS = (
-    "胸像只画头到肩，右缘与右侧三格之间留一条窄缝、互不重叠。"
+    "胸像只画头到肩正面，右缘与右侧三格之间留一条窄缝、互不重叠。"
     "正面全身脸朝镜头；侧面全身脸朝画面右侧约45°，鼻尖越过脸颊轮廓线、能看到一侧耳朵；背面全身完全背对镜头。"
-    "中性站姿，双臂自然下垂、略微离开身体，三个全身视图站姿相同。"
-    "四格共用同一个浅灰色纯色背景，没有环境、没有道具、没有投影；均匀平光，四格照度一致。"
-    "所有视图在同一焦平面，全部清晰，没有景深虚化。"
+    "中性站姿，双臂自然下垂、略微离开身体，双手完整可见，三个全身视图站姿相同。"
+    "四格共用同一个浅灰色无缝摄影棚背景，没有环境、没有道具、地面投影；均匀平光，无投射阴影、无轮廓光、无顶光，同一焦平面全部清晰。"
+    "画面只有这四视图：没有底部细节区、文字、标签、色卡、边框、水印，也没有其他人。"
 )
+MASTER_APPENDAGE_RULE = "附肢共{count}条，固定从{place}长出；三个全身格数量与位置一致；收拢在身后，不遮双臂与双手；背面露出根部。"
 MASTER_STYLE_3D = (
     "高级3D漫剧写实厚涂，电影级CG渲染。冷白皮瓷白水光肌，皮肤细腻通透、有真实次表面散射与自然高光，"
     "精致立体的东方五官；不要皮克斯／迪士尼卡通风、不要夸张大眼、不要雀斑。"
@@ -119,6 +120,16 @@ STYLE_PRESETS = {
         ),
         "quality": f"所有视图都是手绘厚涂质地的半写实插画。避免：{style_rules.SHEET_NEGATIVE}。",
     },
+    style_rules.STYLEFOX_KEY: {
+        "name": f"fox {style_rules.STYLEFOX_NAME}",
+        "line": style_rules.FOX_SHEET_LINE,
+        "quality": f"8K超高清，电影级3D半写实国漫仙侠渲染。避免：{style_rules.FOX_SHEET_NEGATIVE}。",
+    },
+    "fox": {
+        "name": f"fox {style_rules.STYLEFOX_NAME}（別名）",
+        "line": style_rules.FOX_SHEET_LINE,
+        "quality": f"8K超高清，电影级3D半写实国漫仙侠渲染。避免：{style_rules.FOX_SHEET_NEGATIVE}。",
+    },
     "master": {
         "name": "3D 漫劇寫實厚塗（母版預設）",
         "line": MASTER_STYLE_3D,
@@ -139,19 +150,21 @@ STYLE_PRESETS = {
     },
 }
 STYLE_CHOICES = (f"{style_rules.STYLE14_KEY} 或 14（古風寫實厚塗・電影感，預設）／master（母版3D厚塗）／"
-                 "semi-real（UE5半寫實）／1–11（styles.md 編號）")
+                 "semi-real（UE5半寫實）／fox（狐仙3D半寫實國漫仙俠）／1–11（styles.md 編號）")
 NUMBERED_STYLE_NOTE = "背景以上述四格共用的浅灰纯色背景为准，忽略风格词里的场景背景、粒子与氛围元素。"
 NUMBERED_PRESET_ALIASES = {"12": "master", "13": "semi-real"}
 
 
 def style_token(value: Any) -> Optional[str]:
-    """把定案值或 style_index（「14 號 古風…」「master」「3」「12 號母版」）轉成 --style 認得的 token；看不懂回 None。"""
+    """把定案值或 style_index（「14 號 古風…」「master」「fox」「3」「12 號母版」）轉成 --style 認得的 token；看不懂回 None。"""
     text = str(value or "").strip()
     if not text or text.startswith("<"):
         return None
     if style_rules.is_style14(text):
         return "14"
     low = text.lower()
+    if "fox" in low or "狐仙" in text:
+        return "fox"
     m = re.match(r"^#?\s*(\d+)", low)
     if m:
         return NUMBERED_PRESET_ALIASES.get(m.group(1), m.group(1))
@@ -215,18 +228,21 @@ def resolve_style(token: Optional[str]) -> Dict[str, str]:
     raise ValueError(f"未知風格 {token!r}；可選：{STYLE_CHOICES}")
 
 
-def build_character_prompt(subject_desc: str, style: Optional[Dict[str, str]] = None, project_lock: str = "") -> str:
+def build_character_prompt(subject_desc: str, style: Optional[Dict[str, str]] = None, project_lock: str = "",
+                         appendage: Optional[str] = None) -> str:
     """母版五段式角色設定板提示詞：構圖與防呆不變，風格句與畫質句依所選風格替換。"""
     style = style or resolve_style(None)
     quality = (style["quality"] + MASTER_QUALITY_TAIL) if style["quality"] else MASTER_QUALITY_TAIL
     if style.get("key") == "master" and project_lock and project_lock != DEFAULT_STYLE_LOCK_3D:
         quality += f" 专案风格锁：{project_lock}"
     back_rule = "" if "背面特徵" in subject_desc else f"背面：{MASTER_BACK_RULE}\n"
+    app_rule = f"附肢：{appendage}\n" if appendage else ""
     return (
         f"构图：{MASTER_COMPOSITION}{MASTER_GUARDS}\n"
         f"风格：{style['line']}\n"
         f"角色：{subject_desc}\n"
         f"{back_rule}"
+        f"{app_rule}"
         f"画质：{quality}"
     )
 
@@ -250,7 +266,7 @@ CREATURE_TURNAROUND_TEMPLATE = (
 
 SCENE_PLATE_TEMPLATE = (
     "{style_line}, environment plate, realistic architectural and environmental rendering, "
-    "cinematic volumetric lighting, deep perspective view, {aspect} aspect ratio. "
+    "neutral flat lighting, deep perspective view, {aspect} aspect ratio. "
     "{subject_desc}, completely empty of people, cinematic establishing plate."
 )
 # 場景母版是影片的場景／畫風參考，比例跟專案定案（decisions.json aspect_ratio）走；
@@ -357,7 +373,7 @@ def parse_assets_markdown(assets_path: pathlib.Path) -> List[Dict[str, Any]]:
 _IMG_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp")
 CARD_LABEL = re.compile(r"^-\s*\*\*(.+?)\*\*[：:]\s*(.*)$")
 CARD_TYPES = (("C-", "character"), ("CREATURE-", "creature"), ("EXTRAS-", "extras"), ("S-", "scene"), ("P-", "prop"))
-TEMPLATE_VERSION = "master-4view-v1"
+TEMPLATE_VERSION = "sheet-v2"
 
 
 def parse_card_assets(text: str, style_lock: str = DEFAULT_STYLE_LOCK_3D) -> List[Dict[str, Any]]:
@@ -383,7 +399,8 @@ def parse_card_assets(text: str, style_lock: str = DEFAULT_STYLE_LOCK_3D) -> Lis
         ref = next((v for k, v in fields.items() if k.startswith(("設定圖", "母版圖"))), "")
         filename = pathlib.Path(ref).name if ref.lower().endswith(_IMG_SUFFIXES) else f"{atype}-{aid.split('-', 1)[1]}.png"
         assets.append({"name": f"{aid} {name}".strip(), "type": atype, "filename": filename,
-                       "description": desc, "style_lock": style_lock})
+                       "description": desc, "style_lock": style_lock,
+                       "appendage": fields.get("附肢", ""), "height": fields.get("身高", "")})
         # #14：一個角色多套服裝——欄位標籤 W-<slug>-NN 各出一張服裝設定板
         for k, v in fields.items():
             if atype == "character" and re.fullmatch(r"W-[\w-]+-\d+", k) and v and not v.startswith("<"):
@@ -414,18 +431,19 @@ def _compile_base_prompt(asset: Dict[str, Any], style: Optional[Dict[str, str]] 
     desc = asset.get("description", "")
 
     if atype == "character":
-        return build_character_prompt(desc, style, asset.get("style_lock", ""))
+        return build_character_prompt(desc, style, asset.get("style_lock", ""), asset.get("appendage"))
     elif atype == "creature":
         return CREATURE_TURNAROUND_TEMPLATE.format(style_line=env_style_line(style), subject_desc=desc)
     elif atype == "scene":
         return SCENE_PLATE_TEMPLATE.format(style_line=env_style_line(style), subject_desc=desc,
                                            aspect=asset.get("aspect") or DEFAULT_SCENE_ASPECT)
     else:
-        # 道具或其他
+        # 道具 v2：左 60% 3/4 主圖＋右 2x2 四向（正面／右側／背面／頂視，扁平改斜上45°）；禁人手文字
         return (
-            f"{env_style_line(style)}, prop concept sheet, "
-            f"neutral studio lighting, seamless flat neutral medium-grey background, 16:9. "
-            f"Subject: {desc}"
+            f"道具设定图。画面左侧约占宽度六成，是这件道具的大特写。3/4斜俯视角，{desc}完整入画，四周留白，背景干净。\n"
+            f"画面右侧是一块正方形，里面2x2四格，每格正方形等大细线分隔，同一件同一磨损，只改角度：左上正面，右上右侧面，左下背面，右下顶视。\n"
+            f"画风：{env_style_line(style)}，均匀平光。\n"
+            f"不要：人物，手，身体部位，动物，第二件道具，杂物，文字，标注线，数字，水印，边框，第五个角度。"
         )
 
 

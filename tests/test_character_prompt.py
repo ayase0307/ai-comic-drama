@@ -35,6 +35,27 @@ class CharacterPromptTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             ex.resolve_style("watercolor")
 
+    def test_fox_preset_keeps_v2_layout(self):
+        p = ex.compile_full_prompt({"type": "character", "description": "九尾狐仙"}, ex.resolve_style("fox"))
+        self.assertIn("0-35%", p)
+        self.assertIn("杰作", p)
+        self.assertIn(ex.MASTER_COMPOSITION, p)
+
+    def test_appendage_rule_added_when_present(self):
+        p = ex.compile_full_prompt({"type": "character", "description": "狐女", "appendage": "狐尾 9 条，尾椎"},
+                                   ex.resolve_style("fox"))
+        self.assertIn("附肢", p)
+        self.assertIn("9", p)
+
+    def test_prop_v2_has_no_hand(self):
+        p = ex.compile_full_prompt({"type": "prop", "description": "银色长枪"})
+        self.assertIn("2x2", p)
+        self.assertIn("不要", p)
+        self.assertNotIn("手掌", p)
+
+    def test_template_version_is_sheet_v2(self):
+        self.assertEqual(ex.TEMPLATE_VERSION, "sheet-v2")
+
     def test_back_rule_not_duplicated_when_desc_has_back_features(self):
         p = ex.compile_full_prompt({"type": "character", "description": "x；背面特徵：后领高"})
         self.assertNotIn(ex.MASTER_BACK_RULE, p)
@@ -110,6 +131,30 @@ class StyleGateTests(unittest.TestCase):
     def test_explicit_style_passes_gate(self):
         code, _ = self._run(CARD_NO_STYLE, "--style", "master")
         self.assertEqual(code, 0)
+
+
+class SheetV2MechanismTests(unittest.TestCase):
+    def test_bindings_box_follows_template(self):
+        from scripts.storyboard import generate_bindings as gb
+        self.assertEqual(gb.face_crop_box({}, None, "sheet-v2"), gb.FACE_PANEL_BOX_V2)
+        self.assertEqual(gb.face_crop_box({}, None, ""), gb.FACE_PANEL_BOX)
+        self.assertEqual(gb.face_crop_box({"template": "sheet-v2"}), gb.FACE_PANEL_BOX_V2)
+
+    def test_mask_fills_region_with_background(self):
+        import tempfile, pathlib
+        from PIL import Image
+        from scripts.storyboard import crop_sheet
+        with tempfile.TemporaryDirectory() as td:
+            src = pathlib.Path(td) / "sheet.png"
+            Image.new("RGB", (256, 144), (200, 200, 200)).save(src)
+            code = crop_sheet.main(["--image", str(src), "--root", td,
+                                    "--out-dir", td, "--mask", "0,0,0.35,0.6319",
+                                    "--prefix", "t"])
+            self.assertEqual(code, 0)
+            out = pathlib.Path(td) / "t-masked.png"
+            self.assertTrue(out.is_file())
+            px = Image.open(out).getpixel((10, 10))
+            self.assertTrue(all(abs(v - 200) < 5 for v in px[:3]))
 
 
 if __name__ == "__main__":

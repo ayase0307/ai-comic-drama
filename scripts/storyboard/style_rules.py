@@ -22,6 +22,17 @@ STYLE14_KEY = "xianxia-cinematic-semireal"
 STYLE14_NAME = "古風寫實厚塗・電影感"
 DEFAULT_STYLE_KEY = STYLE14_KEY
 
+# 狐仙 3D 半寫實國漫仙俠（老大 2026-11-10 指定，九尾狐仙女樣張驗證）
+# 用途：角色設定板 --style fox；只替換風格句與畫質句，版式與防呆不變。
+STYLEFOX_KEY = "fox-xianxia-3d"
+STYLEFOX_NAME = "狐仙3D半寫實國漫仙俠"
+FOX_SHEET_LINE = (
+    "杰作，最佳画质，超高细节，8K，超精细3D CG渲染，顶级3D半写实国漫仙侠角色设定图，"
+    "电影级CG质感，次世代渲染，Unreal Engine 5视觉品质，PBR物理材质，"
+    "真实皮肤次表面散射，精致东方人物骨相，丝绸、金属、毛发与皮肤具有高级真实材质表现"
+)
+FOX_SHEET_NEGATIVE = "flat 2D, cel shading, anime lineart, Pixar/Disney cartoon face, oversized eyes, blurry, watermark, text"
+
 # 設定圖（四視圖母版；引擎依 design_engine，codex 或 grok）的風格句
 SHEET_STYLE_LINE = (
     "painterly xianxia illustration, thick painterly brush strokes on hair, skin and fabric, "

@@ -33,10 +33,11 @@ def main(argv: List[str] | None = None) -> int:
     ap.add_argument("--cell", help="只輸出 --grid 的第幾格（1 起算，逗號可多個）")
     ap.add_argument("--box", help="x0,y0,x1,y1（0~1 比例），例如 0.05,0.0,0.35,0.5")
     ap.add_argument("--px", help="x0,y0,x1,y1 像素座標，例如 0,0,950,910（2560×1440 標準板頭部特寫格）")
+    ap.add_argument("--mask", help="x0,y0,x1,y1（0~1 比例）把該區填成背景灰，輸出 <prefix>-masked.png（遮臉查表板）")
     ap.add_argument("--prefix", default=None)
     args = ap.parse_args(argv)
-    if sum(bool(v) for v in (args.grid, args.box, args.px)) != 1:
-        print("需指定 --grid、--box、--px 其中之一", file=sys.stderr)
+    if sum(bool(v) for v in (args.grid, args.box, args.px)) != 1 and not args.mask:
+        print("需指定 --grid、--box、--px 其中之一（--mask 可單獨或併用）", file=sys.stderr)
         return 2
     root = args.root.resolve()
     out_dir = args.out_dir or root / "tmp" / "crops"
@@ -63,18 +64,31 @@ def main(argv: List[str] | None = None) -> int:
                 boxes = [(x0, y0, x1, y1)]
             elif args.box:
                 boxes = [ratio_box(w, h, tuple(float(v) for v in args.box.split(",")))]  # type: ignore[arg-type]
-            else:
+            elif args.grid:
                 cols, rows = (int(v) for v in args.grid.lower().split("x"))
                 boxes = grid_boxes(w, h, cols, rows)
                 if args.cell:
                     pick = [int(v) for v in args.cell.split(",")]
                     boxes = [boxes[i - 1] for i in pick]
+            else:
+                boxes = []
             out_dir.mkdir(parents=True, exist_ok=True)
             prefix = args.prefix or args.image.stem
             for n, box in enumerate(boxes, 1):
                 target = out_dir / f"{prefix}-crop{n}.png"
                 im.crop(box).save(target)
                 print(f"{target} {box} {box[2]-box[0]}x{box[3]-box[1]}")
+            if args.mask:
+                mx0, my0, mx1, my1 = ratio_box(w, h, tuple(float(v) for v in args.mask.split(",")))  # type: ignore[arg-type]
+                # 背景灰取四角中位數，避免寫死色偏
+                corners = [im.getpixel((x, y)) for x, y in [(5, 5), (w - 6, 5), (5, h - 6), (w - 6, h - 6)]]
+                fill = tuple(sum(c[i] for c in corners) // len(corners) for i in range(3)) if isinstance(corners[0], tuple) else 200
+                masked = im.copy()
+                from PIL import ImageDraw
+                ImageDraw.Draw(masked).rectangle([mx0, my0, mx1, my1], fill=fill)
+                target = out_dir / f"{prefix}-masked.png"
+                masked.save(target)
+                print(f"{target} mask={(mx0, my0, mx1, my1)}")
     except (OSError, ValueError, IndexError) as exc:
         print(f"裁切失敗: {exc}", file=sys.stderr)
         return 1
